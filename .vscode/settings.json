@@ -1,0 +1,5 @@
+{
+  "terminal.integrated.env.windows": {
+    "PATH": "C:\\Users\\cgi\\Tools\\node;${env:PATH}"
+  }
+}
