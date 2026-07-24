@@ -1,0 +1,54 @@
+{
+  "files": [
+    {
+      "fileName": "01_route-des-grandes-alpes-a-velo-thonon-les-bains-morzine-avoriaz.gpx",
+      "startName": "Thonon-les-Bains",
+      "endName": "Morzine"
+    },
+    {
+      "fileName": "02_route-des-grandes-alpes-a-velo-morzine-avoriaz-le-grand-bornand.gpx",
+      "startName": "Morzine",
+      "endName": "Le Grand-Bornand"
+    },
+    {
+      "fileName": "03_route-des-grandes-alpes-a-velo-le-grand-bornand-beaufort-sur-doron.gpx",
+      "startName": "Le Grand-Bornand",
+      "endName": "Beaufort-sur-Doron"
+    },
+    {
+      "fileName": "04_route-des-grandes-alpes-a-velo-beaufort-sur-doron-bourg-saint-maurice.gpx",
+      "startName": "Beaufort-sur-Doron",
+      "endName": "Bourg-Saint-Maurice"
+    },
+    {
+      "fileName": "05_route-des-grandes-alpes-a-velo-bourg-saint-maurice-val-cenis.gpx",
+      "startName": "Bourg-Saint-Maurice",
+      "endName": "Val-Cenis"
+    },
+    {
+      "fileName": "06_route-des-grandes-alpes-a-velo-val-cenis-briancon.gpx",
+      "startName": "Val-Cenis",
+      "endName": "Briançon"
+    },
+    {
+      "fileName": "07_route-des-grandes-alpes-a-velo-briancon-barcelonnette.gpx",
+      "startName": "Briançon",
+      "endName": "Barcelonnette"
+    },
+    {
+      "fileName": "08_route-des-grandes-alpes-a-velo-variante-barcelonnette-saint-etienne-de-tinee.gpx",
+      "startName": "Barcelonnette",
+      "endName": "Saint-Étienne-de-Tinée"
+    },
+    {
+      "fileName": "09_route-des-grandes-alpes-a-velo-variante-saint-etienne-de-tinee-saint-martin-vesubie.gpx",
+      "startName": "Saint-Étienne-de-Tinée",
+      "endName": "Saint-Martin-Vésubie"
+    },
+    {
+      "fileName": "10_route-des-grandes-alpes-a-velo-saint-martin-vesubie-nice.gpx",
+      "startName": "Saint-Martin-Vésubie",
+      "endName": "Nice"
+    }
+  ]
+}

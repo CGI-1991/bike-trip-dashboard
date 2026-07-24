@@ -276,6 +276,26 @@ export function renderDashboard(settings: DashboardSettings): string {
             </ol>
           </section>
         </div>
+
+        <section class="card gpx-analysis-card" aria-labelledby="gpx-analysis-title">
+          <div class="section-heading section-heading--compact">
+            <div>
+              <p class="eyebrow">Données de parcours</p>
+              <h2 id="gpx-analysis-title">Analyse des traces GPX</h2>
+            </div>
+            <span class="tag tag--data">GPX réels</span>
+          </div>
+          <div
+            class="gpx-analysis"
+            data-gpx-analysis
+            data-gpx-state="loading"
+            aria-busy="true"
+          >
+            <p class="gpx-analysis__loading" role="status" aria-live="polite">
+              Chargement et analyse des traces…
+            </p>
+          </div>
+        </section>
       </main>
 
       <div class="visually-hidden" id="save-status" role="status" aria-live="polite"></div>

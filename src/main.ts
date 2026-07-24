@@ -1,6 +1,8 @@
 import './style.css'
+import { demoStages } from './data/demo.ts'
 import { loadSettings, saveSettings } from './storage/settings.ts'
 import type { DashboardSettings } from './storage/settings.ts'
+import { initializeGpxAnalysis } from './ui/gpx-analysis.ts'
 import { renderDashboard } from './ui/render.ts'
 
 function getRequiredElement<T extends Element>(selector: string): T {
@@ -86,3 +88,6 @@ settingsForm.addEventListener('submit', (event) => {
   saveStatus.textContent = 'Réglages enregistrés.'
   closeSettings()
 })
+
+const gpxAnalysisContainer = getRequiredElement<HTMLElement>('[data-gpx-analysis]')
+void initializeGpxAnalysis(gpxAnalysisContainer, demoStages.length)
