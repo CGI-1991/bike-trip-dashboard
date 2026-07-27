@@ -12,6 +12,13 @@ import type {
   RideDayTimeline,
   TripDayTimeline,
 } from '../trip/types.ts'
+import type {
+  RoadbookMatchReport,
+  RoadbookPointMatch,
+  RoadbookStandaloneWaypoint,
+  RoadbookWaypointLink,
+} from '../trip/roadbook-match.ts'
+import type { RoadbookPointType } from '../trip/roadbook-types.ts'
 
 const distanceFormatter = new Intl.NumberFormat('fr-FR', {
   minimumFractionDigits: 1,
@@ -30,6 +37,20 @@ const waypointTypeLabels: Record<RouteWaypointType, string> = {
   'time-marker': 'Repère',
   'pause-start': 'Début pause',
   'pause-end': 'Fin pause',
+}
+
+const roadbookPointTypeLabels: Record<RoadbookPointType, string> = {
+  start: 'Départ roadbook',
+  end: 'Arrivée roadbook',
+  col: 'Col',
+  summit: 'Sommet',
+  village: 'Village',
+  passage: 'Passage',
+  resupply: 'Ravitaillement',
+  pause: 'Pause',
+  shelter: 'Abri',
+  lodging: 'Hébergement',
+  poi: 'Point d’intérêt',
 }
 
 function escapeHtml(value: string): string {
@@ -60,16 +81,39 @@ function formatGpxNumber(gpxNumber: number): string {
   return String(gpxNumber).padStart(2, '0')
 }
 
-function renderWaypointRows(timeline: RouteTimeline): string {
-  return timeline.waypoints
-    .map(
-      (waypoint) => `
+interface RenderedWaypointRow {
+  readonly elapsedMinutes: number
+  readonly distanceKm: number
+  readonly order: number
+  readonly html: string
+}
+
+function renderAutomaticWaypointRow(
+  timeline: RouteTimeline,
+  waypoint: RouteTimeline['waypoints'][number],
+  link: RoadbookWaypointLink | undefined,
+  primaryPoint: RoadbookPointMatch | undefined,
+): RenderedWaypointRow {
+  const pointIds = link?.roadbookPointIds.join(' ') ?? ''
+  const typeLabel = primaryPoint === undefined
+    ? waypointTypeLabels[waypoint.type]
+    : roadbookPointTypeLabels[primaryPoint.type]
+  const displayName = link?.displayName ?? waypoint.name
+  const technicalName = link === undefined ? '' : `<small>${escapeHtml(waypoint.name)}</small>`
+
+  return {
+    elapsedMinutes: waypoint.progress.elapsedMinutes,
+    distanceKm: waypoint.progress.distanceKm,
+    order: 0,
+    html: `
         <tr
           data-route-waypoint
+          data-route-waypoint-origin="automatic"
           data-route-waypoint-type="${waypoint.type}"
           data-route-elapsed="${waypoint.progress.elapsedMinutes}"
           data-route-distance="${waypoint.progress.distanceKm}"
           data-route-gpx="${waypoint.sourceFileNumber}"
+          ${pointIds.length === 0 ? '' : `data-roadbook-point-ids="${escapeHtml(pointIds)}"`}
         >
           <td>${renderRouteClockTime(
             createRouteClockTime(
@@ -78,14 +122,86 @@ function renderWaypointRows(timeline: RouteTimeline): string {
             ),
           )}</td>
           <td>
-            <strong>${waypointTypeLabels[waypoint.type]}</strong>
-            <span>${escapeHtml(waypoint.name)}</span>
+            <strong>${typeLabel}</strong>
+            <span>${escapeHtml(displayName)}</span>
+            ${technicalName}
           </td>
           <td>${distanceFormatter.format(waypoint.progress.distanceKm)} km</td>
           <td>${formatAltitude(waypoint.progress.altitudeM)}</td>
           <td>${formatGpxNumber(waypoint.sourceFileNumber)}</td>
         </tr>`,
+  }
+}
+
+function renderStandaloneWaypointRow(
+  timeline: RouteTimeline,
+  waypoint: RoadbookStandaloneWaypoint,
+): RenderedWaypointRow {
+  const gpxNumber = timeline.summary.firstSourceFileNumber
+
+  return {
+    elapsedMinutes: waypoint.eta.totalMinutesFromDeparture,
+    distanceKm: waypoint.trackDistanceKm,
+    order: 1,
+    html: `
+      <tr
+        data-route-waypoint
+        data-route-waypoint-origin="roadbook"
+        data-route-waypoint-type="${waypoint.type}"
+        data-route-elapsed="${waypoint.eta.totalMinutesFromDeparture}"
+        data-route-distance="${waypoint.trackDistanceKm}"
+        data-route-gpx="${gpxNumber}"
+        data-roadbook-point-ids="${escapeHtml(waypoint.roadbookPointIds.join(' '))}"
+      >
+        <td>${renderRouteClockTime(waypoint.eta)}</td>
+        <td>
+          <strong>${roadbookPointTypeLabels[waypoint.type]}</strong>
+          <span>${escapeHtml(waypoint.name)}</span>
+          <small>Point roadbook apparié</small>
+        </td>
+        <td>${distanceFormatter.format(waypoint.trackDistanceKm)} km</td>
+        <td>${formatAltitude(waypoint.altitudeM)}</td>
+        <td>${formatGpxNumber(gpxNumber)}</td>
+      </tr>`,
+  }
+}
+
+function renderWaypointRows(
+  timeline: RouteTimeline,
+  dayId: string,
+  roadbookReport: RoadbookMatchReport | null,
+): string {
+  const links = roadbookReport?.waypointLinks.filter((link) => link.dayId === dayId) ?? []
+  const standaloneWaypoints = roadbookReport?.standaloneWaypoints.filter(
+    (waypoint) => waypoint.dayId === dayId,
+  ) ?? []
+  const linksByWaypointId = new Map(links.map((link) => [link.waypointId, link]))
+  const pointsById = new Map(
+    (roadbookReport?.allPointMatches ?? []).map((point) => [point.id, point]),
+  )
+  const rows = [
+    ...timeline.waypoints.map((waypoint) => {
+      const link = linksByWaypointId.get(waypoint.id)
+      return renderAutomaticWaypointRow(
+        timeline,
+        waypoint,
+        link,
+        link === undefined ? undefined : pointsById.get(link.primaryRoadbookPointId),
+      )
+    }),
+    ...standaloneWaypoints.map((waypoint) =>
+      renderStandaloneWaypointRow(timeline, waypoint),
+    ),
+  ]
+
+  return rows
+    .sort(
+      (left, right) =>
+        left.elapsedMinutes - right.elapsedMinutes ||
+        left.distanceKm - right.distanceKm ||
+        left.order - right.order,
     )
+    .map(({ html }) => html)
     .join('')
 }
 
@@ -163,6 +279,7 @@ function renderUnavailableRideTimeline(
 function renderReadyRideTimeline(
   container: HTMLElement,
   dayTimeline: RideDayTimeline,
+  roadbookReport: RoadbookMatchReport | null,
 ): void {
   const { day, route } = dayTimeline
   const { summary, settings } = route
@@ -222,7 +339,7 @@ function renderReadyRideTimeline(
             <th scope="col">GPX</th>
           </tr>
         </thead>
-        <tbody>${renderWaypointRows(route)}</tbody>
+        <tbody>${renderWaypointRows(route, day.id, roadbookReport)}</tbody>
       </table>
     </div>
 
@@ -234,6 +351,7 @@ function renderReadyRideTimeline(
 export function renderTripDayRouteTimeline(
   container: HTMLElement,
   dayTimeline: TripDayTimeline,
+  roadbookReport: RoadbookMatchReport | null = null,
 ): void {
   if (dayTimeline.type === 'off') {
     renderOffDayTimeline(container, dayTimeline)
@@ -245,5 +363,5 @@ export function renderTripDayRouteTimeline(
     return
   }
 
-  renderReadyRideTimeline(container, dayTimeline)
+  renderReadyRideTimeline(container, dayTimeline, roadbookReport)
 }

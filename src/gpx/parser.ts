@@ -1,5 +1,8 @@
 import type {
   GpxAnalysisSuccess,
+  GpxInternalInspection,
+  GpxNamedPoint,
+  GpxNamedPointSourceType,
   GpxSegment,
   GpxSource,
   GpxTrackPoint,
@@ -55,6 +58,55 @@ function parseTrackPoint(pointElement: Element, context: string): GpxTrackPoint 
     latitude: parseCoordinate(pointElement, 'lat', -90, 90, context),
     longitude: parseCoordinate(pointElement, 'lon', -180, 180, context),
     elevationM: parseElevation(pointElement),
+  }
+}
+
+function getDescendantsByLocalName(element: Element, localName: string): readonly Element[] {
+  return Array.from(element.getElementsByTagNameNS('*', localName))
+}
+
+function parseNamedPoint(
+  pointElement: Element,
+  sourceType: GpxNamedPointSourceType,
+  index: number,
+  fileName: string,
+): GpxNamedPoint {
+  const point = parseTrackPoint(
+    pointElement,
+    `${fileName}, ${sourceType} ${index + 1}`,
+  )
+
+  return {
+    ...point,
+    id: `${sourceType}-${index + 1}`,
+    sourceType,
+    name: getDirectChildText(pointElement, 'name'),
+    description: getDirectChildText(pointElement, 'desc'),
+    symbol: getDirectChildText(pointElement, 'sym'),
+    hasExtensions: getDirectChildren(pointElement, 'extensions').length > 0,
+  }
+}
+
+function inspectInternalGpxStructure(
+  root: Element,
+  tracks: readonly Element[],
+  namedPoints: readonly GpxNamedPoint[],
+): GpxInternalInspection {
+  const metadata = getDirectChildren(root, 'metadata')[0]
+  const firstTrack = tracks[0]
+
+  return {
+    waypointCount: namedPoints.filter(({ sourceType }) => sourceType === 'wpt').length,
+    routePointCount: namedPoints.filter(({ sourceType }) => sourceType === 'rtept').length,
+    namedPointCount: namedPoints.filter(({ name }) => name !== null).length,
+    nameElementCount: getDescendantsByLocalName(root, 'name').length,
+    descriptionElementCount: getDescendantsByLocalName(root, 'desc').length,
+    symbolElementCount: getDescendantsByLocalName(root, 'sym').length,
+    extensionElementCount: getDescendantsByLocalName(root, 'extensions').length,
+    metadataName: metadata === undefined ? null : getDirectChildText(metadata, 'name'),
+    metadataDescription: metadata === undefined ? null : getDirectChildText(metadata, 'desc'),
+    trackName: firstTrack === undefined ? null : getDirectChildText(firstTrack, 'name'),
+    trackDescription: firstTrack === undefined ? null : getDirectChildText(firstTrack, 'desc'),
   }
 }
 
@@ -166,6 +218,19 @@ export function parseGpxDocument(xmlText: string, source: GpxSource): GpxAnalysi
     tracks
       .map((track) => getDirectChildText(track, 'name'))
       .find((name): name is string => name !== null) ?? null
+  const waypointElements = getDirectChildren(root, 'wpt')
+  const routePointElements = getDirectChildren(root, 'rte').flatMap((route) =>
+    getDirectChildren(route, 'rtept'),
+  )
+  const namedPoints = [
+    ...waypointElements.map((element, index) =>
+      parseNamedPoint(element, 'wpt', index, source.fileName),
+    ),
+    ...routePointElements.map((element, index) =>
+      parseNamedPoint(element, 'rtept', index, source.fileName),
+    ),
+  ]
+  const internalInspection = inspectInternalGpxStructure(root, tracks, namedPoints)
   const segmentElements = tracks.flatMap((track) => getDirectChildren(track, 'trkseg'))
 
   if (segmentElements.length === 0) {
@@ -208,6 +273,8 @@ export function parseGpxDocument(xmlText: string, source: GpxSource): GpxAnalysi
     status: 'success',
     source,
     segments,
+    namedPoints,
+    internalInspection,
     summary: {
       fileNumber: source.fileNumber,
       fileName: source.fileName,

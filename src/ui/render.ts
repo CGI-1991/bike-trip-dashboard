@@ -156,6 +156,42 @@ export function renderDashboard(
           </section>
         </div>
 
+        <section class="card roadbook-detail-card" aria-labelledby="roadbook-detail-title">
+          <div class="section-heading section-heading--compact">
+            <div>
+              <p class="eyebrow">Source métier sélectionnée</p>
+              <h2 id="roadbook-detail-title">Roadbook de la journée</h2>
+            </div>
+            <span class="tag tag--data">Données éditoriales</span>
+          </div>
+          <div
+            class="roadbook-detail"
+            data-roadbook-detail
+            data-roadbook-detail-state="loading"
+            aria-busy="true"
+          >
+            <p role="status" aria-live="polite">Chargement du roadbook…</p>
+          </div>
+        </section>
+
+        <section class="card roadbook-diagnostics-card" aria-labelledby="roadbook-diagnostics-title">
+          <div class="section-heading section-heading--compact">
+            <div>
+              <p class="eyebrow">Contrôle provisoire</p>
+              <h2 id="roadbook-diagnostics-title">Validation roadbook / GPX</h2>
+            </div>
+            <span class="tag tag--data">3 statuts</span>
+          </div>
+          <div
+            class="roadbook-diagnostics"
+            data-roadbook-diagnostics
+            data-roadbook-diagnostic-state="loading"
+            aria-busy="true"
+          >
+            <p role="status" aria-live="polite">Préparation du rapport d’appariement…</p>
+          </div>
+        </section>
+
         <section class="card gpx-analysis-card" aria-labelledby="gpx-analysis-title">
           <div class="section-heading section-heading--compact">
             <div>

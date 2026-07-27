@@ -16,6 +16,31 @@ export interface GpxTrackPoint {
   readonly elevationM: number | null
 }
 
+export type GpxNamedPointSourceType = 'wpt' | 'rtept'
+
+export interface GpxNamedPoint extends GpxTrackPoint {
+  readonly id: string
+  readonly sourceType: GpxNamedPointSourceType
+  readonly name: string | null
+  readonly description: string | null
+  readonly symbol: string | null
+  readonly hasExtensions: boolean
+}
+
+export interface GpxInternalInspection {
+  readonly waypointCount: number
+  readonly routePointCount: number
+  readonly namedPointCount: number
+  readonly nameElementCount: number
+  readonly descriptionElementCount: number
+  readonly symbolElementCount: number
+  readonly extensionElementCount: number
+  readonly metadataName: string | null
+  readonly metadataDescription: string | null
+  readonly trackName: string | null
+  readonly trackDescription: string | null
+}
+
 export interface GpxSegment {
   readonly points: readonly GpxTrackPoint[]
   readonly distanceKm: number
@@ -47,6 +72,8 @@ export interface GpxAnalysisSuccess {
   readonly source: GpxSource
   readonly summary: GpxTrackSummary
   readonly segments: readonly GpxSegment[]
+  readonly namedPoints: readonly GpxNamedPoint[]
+  readonly internalInspection: GpxInternalInspection
 }
 
 export interface GpxAnalysisError {
