@@ -1,290 +1,472 @@
 # CDC — Dashboard RGA 2026
-## Version de cadrage pour Codex / Claude Code
+## Version consolidée après mise en place de l’environnement, de l’interface, des GPX et du moteur d’itinéraire
 
 ---
 
-## 0. Objet
+## 0. Statut du document
 
-Développer une application web mobile-first, simple, rapide et gratuite, servant de tableau de bord de voyage pour la Route des Grandes Alpes 2026.
+Ce document remplace les versions antérieures du cahier des charges.
 
-La météo est la fonction principale. L’application doit convertir les prévisions météo disponibles le long de chaque étape en informations immédiatement exploitables pendant une itinérance à vélo.
+Il constitue la référence fonctionnelle et technique du projet `rga-2026-dashboard` pour Codex, Claude Code et toute intervention manuelle ultérieure.
 
-L’application est destinée à deux personnes, principalement sur iPhone, via un simple lien web et éventuellement un raccourci ajouté à l’écran d’accueil.
+Les décisions prises pendant le développement priment sur les hypothèses initiales devenues obsolètes.
 
-La priorité absolue est la RGA 2026. L’architecture doit néanmoins permettre une généralisation future à d’autres itinéraires.
+### Décisions désormais figées
+
+- Le voyage comporte **12 jours calendaires**.
+- Il comporte **10 journées roulées** et **2 journées OFF**.
+- Les journées OFF sont intégrées dans la chronologie du voyage :
+  - **J5 — OFF à Bourg-Saint-Maurice** ;
+  - **J8 — OFF à Briançon**.
+- Les 10 journées roulées correspondent aux 10 fichiers GPX réels déjà fournis.
+- Il ne faut plus parler de 8 étapes.
+- La destination finale de la version RGA 2026 est **Nice**, pas Menton.
+- Les fichiers GPX constituent la source géométrique de référence.
+- Le roadbook constitue la source métier de référence pour les journées, les noms, les cols, les passages, les ravitaillements, les notes et les jours OFF.
+- Les statistiques GPX calculées peuvent différer des statistiques éditoriales du roadbook, notamment pour le D+ et le D−. Les deux valeurs doivent rester distinguables et leur origine documentée.
 
 ---
 
-# 1. Objectifs utilisateur
+# 1. Objet
 
-## 1.1 Avant le départ de l’itinérance
+Développer une application web mobile-first, rapide, gratuite et autonome servant de tableau de bord de voyage pour la Route des Grandes Alpes 2026.
 
-Permettre d’obtenir une vue synthétique de la météo sur l’ensemble du voyage :
+La météo reste la fonction principale. L’application doit transformer les prévisions disponibles le long de chaque journée roulée en informations immédiatement exploitables pendant une itinérance à vélo.
 
-- température minimale par étape ;
-- température maximale par étape ;
+L’application doit également structurer le voyage complet : journées roulées, journées OFF, progression, heures estimées de passage, cols, villages, ravitaillements, alertes et accès aux informations pratiques.
+
+Elle est destinée à deux personnes et utilisée principalement sur iPhone via un lien web, avec possibilité d’ajout à l’écran d’accueil.
+
+La priorité absolue est la RGA 2026. L’architecture doit rester suffisamment claire pour permettre une généralisation future, sans transformer la V1 en moteur universel.
+
+---
+
+# 2. Chronologie de référence du voyage
+
+Le voyage comprend **12 jours calendaires**, dans l’ordre suivant.
+
+| Jour | Type | Parcours / lieu | Source GPX |
+|---:|---|---|---|
+| J1 | Roulé | Thonon-les-Bains → Morzine | GPX 01 |
+| J2 | Roulé | Morzine → Le Grand-Bornand | GPX 02 |
+| J3 | Roulé | Le Grand-Bornand → Beaufort-sur-Doron | GPX 03 |
+| J4 | Roulé | Beaufort-sur-Doron → Bourg-Saint-Maurice | GPX 04 |
+| J5 | OFF | Bourg-Saint-Maurice | aucun GPX |
+| J6 | Roulé | Bourg-Saint-Maurice → Val-Cenis | GPX 05 |
+| J7 | Roulé | Val-Cenis → Briançon | GPX 06 |
+| J8 | OFF | Briançon | aucun GPX |
+| J9 | Roulé | Briançon → Barcelonnette | GPX 07 |
+| J10 | Roulé | Barcelonnette → Saint-Étienne-de-Tinée, variante Bonette | GPX 08 |
+| J11 | Roulé | Saint-Étienne-de-Tinée → Saint-Martin-Vésubie, variante | GPX 09 |
+| J12 | Roulé | Saint-Martin-Vésubie → Nice | GPX 10 |
+
+## 2.1 Conséquences fonctionnelles
+
+- Une journée OFF est une vraie journée du voyage.
+- Elle doit apparaître dans les vues Aujourd’hui et Voyage.
+- Elle ne possède ni GPX, ni distance roulée, ni ETA cycliste.
+- Elle peut posséder : lieu, hébergement, météo locale, checklist, activités, services et notes logistiques.
+- Le lendemain d’une journée OFF, les horaires repartent du nouvel horaire de départ configuré ; aucun temps de roulage ne traverse une nuit ou une journée OFF.
+- Les numéros GPX et les numéros de jours ne coïncident plus après J4 : GPX 05 correspond à J6, GPX 06 à J7, GPX 07 à J9, etc.
+
+---
+
+# 3. Objectifs utilisateur
+
+## 3.1 Avant le voyage
+
+Obtenir une vue synthétique de l’ensemble des 12 jours :
+
+- distinction claire entre journée roulée et journée OFF ;
+- température minimale et maximale par jour ;
 - précipitations ;
+- vent moyen et rafales ;
 - risques météo significatifs ;
-- vent moyen ;
-- éventuels risques forts : orage, neige, froid, chaleur, brouillard, rafales.
+- niveau de confiance ou disponibilité de la prévision ;
+- cols, secteurs exposés et journées longues ;
+- principales informations logistiques des jours OFF.
 
-L’application ne doit pas décider des bagages ou vêtements. Elle fournit les informations ; l’utilisateur prend lui-même la décision.
+L’application informe. Elle ne décide pas des bagages ni des vêtements.
 
-## 1.2 Chaque matin
+## 3.2 Chaque matin d’une journée roulée
 
-Permettre de comprendre en moins de quelques secondes :
+Permettre de comprendre rapidement :
 
-- si le départ prévu à 09:00 reste adapté ;
-- si un départ avancé ou différé semble préférable ;
-- quels cols ou secteurs sont les plus exposés ;
-- quand l’utilisateur devrait atteindre les points clés ;
-- quelle météo est attendue à ces heures ;
-- si un abri ou une pause stratégique pourrait être utile ;
-- où se trouvent les principaux passages ou services utiles.
+- si l’horaire de départ reste adapté ;
+- si un départ avancé ou différé réduit un risque ;
+- quels cols ou secteurs sont exposés ;
+- les heures estimées aux points clés ;
+- la météo attendue à ces heures ;
+- les principaux points de ravitaillement ;
+- la durée estimée de roulage et de pauses ;
+- l’heure d’arrivée estimée.
 
-## 1.3 Pendant l’étape
+## 3.3 Chaque matin d’une journée OFF
+
+Afficher :
+
+- lieu de la journée OFF ;
+- météo locale ;
+- récupération et logistique prévues ;
+- check vélo ;
+- courses, lessive ou activités éventuelles ;
+- aperçu de la journée roulée suivante.
+
+## 3.4 Pendant une journée roulée
 
 Permettre de modifier discrètement :
 
 - l’heure réelle de départ ;
-- la vitesse moyenne estimée ;
-- les pauses prévues ;
-- éventuellement la durée globale estimée.
+- la vitesse moyenne de base ;
+- les durées de pauses ;
+- éventuellement le profil prudent / normal ;
+- éventuellement la journée active.
 
-Après modification, les heures estimées de passage et les prévisions associées doivent être recalculées.
+Après modification, les ETA et la météo associée doivent être recalculées.
 
 ---
 
-# 2. Périmètre V1
+# 4. Périmètre V1
 
-## 2.1 Inclus
+## 4.1 Inclus
 
 - application web statique ;
-- fonctionnement sur iPhone et navigateur desktop ;
-- interface en français ;
-- affichage mobile-first ;
-- données des étapes RGA 2026 préconfigurées ;
-- prévisions météo en temps réel ;
-- prévisions horaires ;
-- aperçu global par étape ;
-- détail d’une étape ;
-- estimation des heures de passage ;
-- alertes météo contextualisées ;
-- page discrète de réglages ;
-- accès rapide à l’étape du jour ;
-- actualisation à l’ouverture ;
-- bouton d’actualisation manuelle ;
-- possibilité d’intégrer ou lier une Google My Maps ;
-- déploiement gratuit sur GitHub Pages ;
-- aucun compte utilisateur ;
-- aucune notification ;
-- aucune base de données distante ;
-- aucun serveur personnel.
+- interface française ;
+- mobile-first, iPhone prioritaire ;
+- fonctionnement desktop ;
+- déploiement GitHub Pages ;
+- 12 jours de voyage préconfigurés ;
+- 10 GPX réels ;
+- 2 journées OFF intercalées ;
+- parsing GPX côté navigateur ;
+- données statiques du roadbook ;
+- moteur d’itinéraire ;
+- ETA par journée roulée ;
+- points clés ;
+- météo réelle via Open-Meteo ;
+- vue Aujourd’hui ;
+- vue Voyage ;
+- détail d’une journée ;
+- alertes contextualisées ;
+- réglages persistants ;
+- carte légère ou lien cartographique ;
+- actualisation à l’ouverture et manuelle ;
+- cache local du dernier résultat valide ;
+- aucun compte ;
+- aucun backend ;
+- aucune notification push.
 
-## 2.2 Hors périmètre V1
+## 4.2 Hors périmètre V1
 
-- moteur universel d’import GPX depuis l’interface ;
+- import GPX universel depuis l’interface ;
+- éditeur complet d’itinéraire ;
+- synchronisation multi-appareils ;
 - comptes utilisateurs ;
-- synchronisation entre appareils ;
-- notifications push ;
-- décisions automatiques sur les bagages ;
-- paiement ;
+- notifications ;
 - backend ;
-- administration complexe ;
-- édition complète de l’itinéraire depuis le téléphone ;
-- application native iOS.
+- base de données distante ;
+- application native ;
+- recommandations automatiques de bagages ;
+- moteur physiologique avancé ;
+- navigation turn-by-turn ;
+- remplacement d’un GPS vélo.
 
 ---
 
-# 3. Utilisateurs et appareils
+# 5. État technique déjà réalisé
 
-## 3.1 Utilisateurs
+Le projet dispose déjà des éléments suivants :
 
-- Corentin ;
-- sa compagne.
+- dépôt GitHub public `CGI-1991/rga-2026-dashboard` ;
+- projet Vite Vanilla TypeScript ;
+- TypeScript strict ;
+- Node portable fonctionnel ;
+- compatibilité lecteur réseau Windows avec watcher Vite en polling ;
+- compatibilité certificats d’entreprise via `NODE_USE_SYSTEM_CA=1` ;
+- workflow GitHub Pages ;
+- base Vite configurée sur `/rga-2026-dashboard/` ;
+- interface mobile-first initiale ;
+- réglages avec `localStorage` ;
+- 10 GPX placés sous `public/data/gpx/` ;
+- manifeste GPX statique ;
+- parser GPX sans dépendance externe ;
+- analyse des 10 traces ;
+- moteur d’itinéraire initial avec correction de vitesse selon la pente ;
+- waypoints automatiques ;
+- build et serveur local fonctionnels.
 
-## 3.2 Supports
-
-Priorité :
-
-1. iPhone ;
-2. Chrome ou Safari mobile ;
-3. navigateur desktop moderne.
-
-L’application doit pouvoir être ajoutée à l’écran d’accueil de l’iPhone.
-
-Une PWA légère pourra être ajoutée si cela ne complexifie pas excessivement la V1.
-
----
-
-# 4. Principes UX
-
-## 4.1 Priorités
-
-- lisibilité ;
-- rapidité ;
-- peu d’interactions ;
-- aucune surcharge visuelle ;
-- compréhension immédiate ;
-- affichage utile même avec un écran étroit ;
-- réglages secondaires et discrets.
-
-## 4.2 Navigation cible
-
-Navigation principale proposée :
-
-- Aujourd’hui ;
-- Voyage ;
-- Carte ;
-- Réglages.
-
-Sur mobile, utiliser une barre de navigation basse ou une structure équivalente très simple.
-
-## 4.3 Page d’accueil
-
-La page d’accueil doit privilégier l’étape du jour.
-
-Contenu minimal :
-
-- numéro et nom de l’étape ;
-- lieu de départ ;
-- lieu d’arrivée ;
-- heure de départ estimée ;
-- heure d’arrivée estimée ;
-- température minimale et maximale ;
-- risque principal ;
-- vent ;
-- précipitations ;
-- résumé météo ;
-- bouton « Voir le détail » ;
-- accès direct aux autres étapes.
-
-## 4.4 Réglages
-
-Les réglages doivent exister dans une page dédiée, mais rester discrets.
-
-Réglages V1 :
-
-- heure de départ ;
-- vitesse moyenne de base ;
-- pause avant midi ;
-- pause de midi ;
-- pause après midi ;
-- éventuellement un coefficient prudent / normal.
-
-Valeurs par défaut :
-
-- départ : 09:00 ;
-- pause avant midi : 15 min ;
-- pause midi : 30 min ;
-- pause après midi : 15 min ;
-- allure : randonnée prudente.
-
-Les réglages doivent être modifiables directement dans l’interface et sauvegardés localement avec `localStorage`.
+Toute nouvelle intervention doit préserver ces acquis sauf demande explicite.
 
 ---
 
-# 5. Données de l’itinéraire
+# 6. Sources et hiérarchie des données
 
-## 5.1 Sources initiales
+## 6.1 Sources
 
-- GPX RGA 2026 fourni ;
-- roadbook RGA fourni ;
-- éventuellement Google My Maps pour les POI.
+1. **GPX découpés 01 à 10** : géométrie et profil altimétrique.
+2. **Roadbook RGA** : ordre des journées, jours OFF, noms, cols, villages, ravitaillements, notes et logique du voyage.
+3. **GPX global** : contrôle de continuité éventuel.
+4. **Google My Maps / POI** : enrichissement secondaire.
 
-## 5.2 Stratégie V1
+## 6.2 Hiérarchie de confiance
 
-Ne pas développer immédiatement un importateur GPX universel dans l’application.
+- Coordonnées et tracé : GPX.
+- Ordre des 12 jours : roadbook.
+- Correspondance journée ↔ GPX : table explicite du présent CDC.
+- Noms des lieux et points clés : roadbook, puis validation géographique.
+- Distance : valeur GPX calculée comme valeur technique principale, valeur roadbook conservée comme référence éditoriale si utile.
+- D+ / D− : valeur GPX calculée avec méthode documentée ; ne pas remplacer silencieusement par une autre valeur.
+- Jours OFF : roadbook, jamais déduits des GPX.
 
-Créer lors du développement un script de préparation qui :
+## 6.3 Aucune invention silencieuse
 
-1. lit le GPX complet ;
-2. segmente les étapes ;
-3. extrait distance, altitude et dénivelé ;
-4. associe les points clés du roadbook ;
-5. produit des fichiers JSON statiques ;
-6. valide les points et données manuellement.
+- Ne jamais inventer de coordonnées.
+- Ne jamais faire correspondre un POI à un tracé sans contrôle de distance.
+- Ne jamais transformer une journée OFF en étape roulée.
+- Ne jamais fusionner ou supprimer des journées sans décision explicite.
 
-Les données finales sont ensuite figées dans le dépôt pour la V1.
+---
 
-## 5.3 Structure suggérée
+# 7. Modèle de données du voyage
 
-```text
-data/
-  trip.json
-  stages/
-    stage-01.json
-    stage-02.json
-    ...
-  pois.json
-```
+## 7.1 Entité principale
 
-## 5.4 Données minimales d’une étape
+Le modèle principal est un `TripPlan` contenant exactement 12 `TripDay` ordonnés.
 
-```json
-{
-  "id": "J1",
-  "dayNumber": 1,
-  "type": "ride",
-  "name": "Thonon-les-Bains → Morzine",
-  "start": {
-    "name": "Thonon-les-Bains",
-    "lat": 0,
-    "lon": 0,
-    "elevation": 0
-  },
-  "end": {
-    "name": "Morzine",
-    "lat": 0,
-    "lon": 0,
-    "elevation": 0
-  },
-  "distanceKm": 49.96,
-  "elevationGainM": 1250,
-  "elevationLossM": 720,
-  "defaultStartTime": "09:00",
-  "keyPoints": [],
-  "track": []
+```ts
+type TripDayType = 'ride' | 'off';
+
+interface TripPlan {
+  id: string;
+  name: string;
+  timezone: 'Europe/Paris';
+  totalDays: 12;
+  rideDays: 10;
+  offDays: 2;
+  days: TripDay[];
 }
 ```
 
-## 5.5 Points clés
+## 7.2 Journée roulée
 
-Chaque étape doit contenir les points utiles :
+```ts
+interface RideDay {
+  id: 'J1' | 'J2' | 'J3' | 'J4' | 'J6' | 'J7' | 'J9' | 'J10' | 'J11' | 'J12';
+  dayNumber: number;
+  type: 'ride';
+  gpxNumber: number;
+  gpxFile: string;
+  name: string;
+  startName: string;
+  endName: string;
+  variant?: string;
+  roadbookStats?: {
+    distanceKm?: number;
+    elevationGainM?: number;
+    elevationLossM?: number;
+  };
+  cols: RoadbookPoint[];
+  resupplyPoints: RoadbookPoint[];
+  notes: string[];
+}
+```
 
-- départ ;
-- pied des cols principaux ;
-- sommets ;
-- villages principaux ;
-- ravitaillements importants ;
-- éventuels abris ou passages stratégiques ;
-- arrivée.
+## 7.3 Journée OFF
 
-Ne pas échantillonner la météo à chaque point GPX.
+```ts
+interface OffDay {
+  id: 'J5' | 'J8';
+  dayNumber: 5 | 8;
+  type: 'off';
+  locationName: string;
+  title: string;
+  logistics: string[];
+  activities: string[];
+  notes: string[];
+  nextRideDayId: string;
+}
+```
 
-Approche recommandée :
+## 7.4 Point du roadbook
 
-- points clés explicites ;
-- complétés au besoin par quelques points d’échantillonnage automatiques selon la longueur de l’étape ;
-- maximum raisonnable par étape afin de limiter les appels API et la surcharge d’affichage.
+```ts
+interface RoadbookPoint {
+  id: string;
+  type: 'start' | 'end' | 'col' | 'summit' | 'village' | 'resupply' | 'shelter' | 'lodging' | 'poi';
+  name: string;
+  elevationM?: number;
+  latitude?: number;
+  longitude?: number;
+  matchedTrackDistanceKm?: number;
+  matchDistanceM?: number;
+  source: 'roadbook' | 'gpx' | 'manual';
+  status: 'matched' | 'unmatched' | 'needs-review';
+}
+```
 
 ---
 
-# 6. Météo
+# 8. Données GPX
 
-## 6.1 Fournisseur principal
+## 8.1 Fichiers
 
-Utiliser Open-Meteo comme source principale.
+Les 10 GPX restent des ressources statiques dans :
 
-L’implémentation doit isoler le fournisseur météo derrière un module, afin de pouvoir le remplacer ou le compléter plus tard.
+```text
+public/data/gpx/
+```
 
-## 6.2 Modèle météo
+Le catalogue reste externe au TypeScript :
 
-Sélectionner le modèle ou l’option la plus fiable disponible pour les Alpes françaises, sans exposer inutilement ce choix dans l’interface.
+```text
+public/data/gpx/manifest.json
+```
 
-Le fournisseur et le modèle utilisés doivent être documentés dans le README.
+## 8.2 Parsing
 
-## 6.3 Informations récupérées
+Le parser doit continuer à gérer :
+
+- namespaces GPX ;
+- `trk`, `trkseg`, `trkpt`, `ele` ;
+- plusieurs segments ;
+- altitudes manquantes ponctuelles ;
+- erreurs isolées par fichier ;
+- calcul Haversine ;
+- ordre numérique robuste.
+
+## 8.3 Dénivelé
+
+Les D+ et D− bruts sont sensibles au bruit altimétrique.
+
+La V1 peut conserver les valeurs brutes pour transparence, mais doit prévoir une méthode de lissage documentée pour les valeurs affichées au grand public.
+
+Toute méthode de lissage doit :
+
+- être centralisée ;
+- être testable ;
+- ne jamais remplacer silencieusement les données brutes ;
+- permettre d’afficher ou journaliser les deux valeurs.
+
+---
+
+# 9. Moteur d’itinéraire et ETA
+
+## 9.1 Principe fondamental
+
+Le calcul se fait **séparément pour chaque journée roulée**.
+
+Il est interdit de produire une chronologie continue sur plusieurs jours comme si les cyclistes roulaient sans dormir.
+
+Chaque journée roulée :
+
+- commence à son horaire de départ ;
+- applique ses pauses ;
+- se termine à son ETA d’arrivée ;
+- ne transmet aucun temps écoulé à la journée suivante.
+
+Les journées OFF interrompent explicitement la séquence de roulage.
+
+## 9.2 Paramètres
+
+- heure de départ ;
+- vitesse moyenne de base ;
+- profil altimétrique ;
+- pente locale lissée ;
+- pauses ;
+- mode prudent / normal éventuel ;
+- plafonds de vitesse.
+
+## 9.3 Modèle de vitesse initial existant
+
+Le moteur utilise actuellement des coefficients de pente centralisés.
+
+Ils peuvent rester comme base provisoire, mais doivent être calibrables et documentés.
+
+Les coefficients ne doivent pas être dispersés dans l’interface.
+
+## 9.4 Pauses
+
+Valeurs actuelles de l’interface :
+
+- vitesse moyenne : 18 km/h ;
+- départ : 08:00 ;
+- pauses totales : 60 min.
+
+Cible fonctionnelle détaillée du CDC :
+
+- pause avant midi : 15 min ;
+- pause midi : 30 min ;
+- pause après midi : 15 min.
+
+La transition peut être progressive. Les données de stockage existantes doivent être migrées sans casser les réglages utilisateurs.
+
+Les pauses doivent à terme être rattachées à des lieux réels ou points clés, pas uniquement à 25 %, 50 % et 75 % du parcours.
+
+## 9.5 Waypoints
+
+Les 41 000 points GPX ne doivent pas tous devenir des points météo.
+
+Le moteur produit un ensemble réduit et ordonné :
+
+- départ ;
+- arrivée ;
+- cols et sommets réels ;
+- villages et ravitaillements importants ;
+- points de pause ;
+- repères temporels automatiques ;
+- changements de pente utiles ;
+- points météo.
+
+La cible n’est pas un nombre fixe. La lisibilité et la pertinence priment.
+
+---
+
+# 10. Roadbook métier
+
+## 10.1 Données à intégrer
+
+Pour chaque journée roulée :
+
+- texte court d’ambiance ;
+- cols ;
+- altitude des cols ;
+- villages et passages ;
+- ravitaillements ;
+- notes terrain ;
+- hébergements ou liens éventuels ;
+- variante si applicable.
+
+Pour les journées OFF :
+
+- lieu ;
+- récupération ;
+- lessive ;
+- courses ;
+- check vélo ;
+- activités possibles ;
+- aperçu de la prochaine étape.
+
+## 10.2 Appariement au tracé
+
+Les points du roadbook doivent être appariés au GPX avec une méthode explicite :
+
+1. coordonnées connues et validées ;
+2. projection sur le point ou segment GPX le plus proche ;
+3. conservation de la distance d’appariement ;
+4. statut `matched`, `needs-review` ou `unmatched` ;
+5. aucun appariement automatique au-delà d’un seuil raisonnable sans validation.
+
+---
+
+# 11. Météo
+
+## 11.1 Fournisseur
+
+Open-Meteo est le fournisseur principal.
+
+Le fournisseur doit être isolé derrière une interface afin de pouvoir évoluer.
+
+## 11.2 Variables utiles
 
 Selon disponibilité :
 
@@ -296,1109 +478,432 @@ Selon disponibilité :
 - neige ;
 - code météo ;
 - couverture nuageuse ;
-- vent moyen ;
+- vent ;
 - rafales ;
 - visibilité ;
 - humidité ;
-- isotherme 0 °C ou données équivalentes si disponibles ;
-- risque d’orage via code météo et variables disponibles.
+- isotherme 0 °C ou équivalent ;
+- indicateurs d’orage.
 
-## 6.4 Actualisation
+## 11.3 Association ETA / météo
 
-- appel météo lors de l’ouverture ;
-- bouton manuel « Actualiser » ;
-- affichage de la date et heure de dernière mise à jour ;
-- cache local court pour éviter les appels inutiles ;
-- gestion explicite des erreurs réseau ;
-- conservation du dernier résultat valide si l’API est indisponible.
+Pour une journée roulée :
 
-## 6.5 Horizons
+- calculer l’ETA du waypoint ;
+- sélectionner l’heure météo pertinente ;
+- conserver le décalage temporel entre ETA et donnée choisie ;
+- afficher clairement les données indisponibles.
 
-L’application doit gérer les différents niveaux de fiabilité :
+Pour une journée OFF :
 
-- prévisions court terme : données détaillées et horaires ;
-- prévisions plus lointaines : aperçu synthétique ;
-- au-delà de la période réellement couverte : afficher clairement « prévision non disponible » ou une indication de tendance si une source légitime est intégrée.
+- utiliser une ou plusieurs coordonnées locales ;
+- afficher une météo journalière et éventuellement horaire simplifiée ;
+- ne pas produire d’ETA cycliste.
 
-Ne jamais fabriquer une météo longue échéance.
+## 11.4 Actualisation et cache
 
----
-
-# 7. Estimation horaire de progression
-
-## 7.1 But
-
-Associer chaque point clé de l’étape à une heure estimée de passage, puis utiliser cette heure pour sélectionner la météo pertinente.
-
-## 7.2 Paramètres
-
-- heure de départ ;
-- vitesse moyenne de base ;
-- profil altimétrique ;
-- distance ;
-- difficulté ;
-- pauses ;
-- coefficient prudent.
-
-## 7.3 Approche V1 recommandée
-
-Ne pas utiliser une vitesse constante pure.
-
-Créer une estimation simple mais crédible :
-
-- vitesse de base utilisateur ;
-- correction selon pente moyenne locale ;
-- correction pour les ascensions longues ;
-- vitesse plafonnée en descente ;
-- pauses injectées à des moments cohérents ;
-- temps calculé cumulativement le long du tracé.
-
-Le modèle doit rester compréhensible et ajustable.
-
-## 7.4 Valeurs de référence
-
-Le couple roulait entre environ 16 et 20 km/h de moyenne sur les étapes de Vendée.
-
-Pour la RGA, utiliser par défaut une estimation prudente et plus lente selon le dénivelé.
-
-La valeur exacte devra être calibrée avec quelques étapes du roadbook.
-
-## 7.5 Pauses par défaut
-
-- 15 min avant midi ;
-- 30 min à midi ;
-- 15 min après midi.
-
-L’algorithme peut placer automatiquement les pauses près d’un village ou d’un point clé, tout en restant simple.
+- actualiser à l’ouverture ;
+- bouton manuel ;
+- date et heure de dernière mise à jour ;
+- cache local court ;
+- dernier résultat valide conservé ;
+- erreur réseau non bloquante ;
+- aucune météo inventée au-delà de l’horizon disponible.
 
 ---
 
-# 8. Vues
+# 12. Alertes contextualisées
 
-## 8.1 Vue Aujourd’hui
+## 12.1 Niveaux
 
-Affiche :
+- vert : conditions normales ;
+- orange : adaptation utile ;
+- rouge : risque important.
 
-- étape sélectionnée comme étape du jour ;
-- résumé météo ;
-- principaux risques ;
-- heure de départ ;
-- ETA ;
-- prochain point clé ;
-- heure estimée au prochain col ;
-- accès au détail ;
-- bouton actualiser.
+## 12.2 Cas
 
-## 8.2 Vue Voyage — matrice synthétique
+- orage pendant une montée ou au sommet ;
+- pluie avant ou pendant une descente ;
+- froid au sommet ;
+- pluie + froid + vent ;
+- rafales sur un col ;
+- chaleur en vallée ;
+- brouillard ;
+- neige ou gel ;
+- fenêtre plus favorable avec départ avancé ou différé.
 
-Pour chaque étape :
+Les messages doivent rester concis, informatifs et non alarmistes.
 
-- numéro ;
-- nom court ;
-- température minimale ;
-- température maximale ;
-- précipitations ;
-- risque principal ;
-- vent moyen ;
-- niveau de vigilance.
+---
 
-Un sélecteur permet de passer à la deuxième matrice.
+# 13. Vues et navigation
 
-## 8.3 Vue Voyage — matrice points clés
+## 13.1 Navigation cible
 
-Pour chaque étape ou étape sélectionnée :
+- Aujourd’hui ;
+- Voyage ;
+- Carte ;
+- Réglages.
 
-- pied des cols ;
-- sommets ;
-- heure estimée ;
-- température ;
-- pluie ;
-- rafales ;
-- risque météo principal.
+## 13.2 Vue Aujourd’hui — journée roulée
 
-## 8.4 Détail d’étape
-
-Affiche :
-
-- résumé ;
+- jour calendrier, par exemple J6 ;
+- type `Roulé` ;
+- départ et arrivée ;
 - distance ;
 - D+ ;
-- D- ;
 - heure de départ ;
 - ETA ;
-- profil ou représentation simplifiée ;
-- chronologie des points clés ;
-- météo prévue à chaque point ;
-- prévisions heure par heure dépliables ;
-- alertes contextuelles ;
-- éventuels POI ;
-- lien vers la carte.
+- résumé météo ;
+- prochain point clé ;
+- principaux cols ;
+- alertes ;
+- actualisation.
 
-## 8.5 Carte
+## 13.3 Vue Aujourd’hui — journée OFF
+
+- jour calendrier, par exemple J5 ;
+- type `OFF` ;
+- lieu ;
+- météo locale ;
+- checklist logistique ;
+- activités ;
+- aperçu de la journée suivante ;
+- aucun faux kilométrage ni faux ETA.
+
+## 13.4 Vue Voyage
+
+Afficher les 12 jours dans l’ordre.
+
+Chaque ligne doit distinguer clairement :
+
+- journée roulée ;
+- journée OFF ;
+- jour actif ;
+- météo disponible ou non ;
+- principaux risques.
+
+Les journées roulées affichent distance et D+.
+
+Les journées OFF affichent le lieu et le type de journée.
+
+## 13.5 Détail journée roulée
+
+- résumé ;
+- distance, D+, D− ;
+- départ et ETA ;
+- profil ;
+- chronologie ;
+- cols ;
+- villages ;
+- ravitaillements ;
+- météo par point clé ;
+- alertes ;
+- carte.
+
+## 13.6 Détail journée OFF
+
+- météo locale ;
+- logistique ;
+- récupération ;
+- check vélo ;
+- activités ;
+- hébergement ;
+- aperçu du lendemain.
+
+## 13.7 Carte
 
 V1 légère :
 
-- tracé de l’étape ;
+- tracé de la journée roulée ;
 - points clés ;
 - POI ;
-- centrage sur l’étape ;
-- lien facultatif vers Google My Maps.
-
-Leaflet peut être utilisé si l’intégration reste légère.
-
-## 8.6 Réglages
-
-Page secondaire et discrète.
-
-Elle contient les paramètres de progression et éventuellement :
-
-- réinitialiser les valeurs ;
-- activer/désactiver certains détails ;
-- sélectionner manuellement l’étape du jour.
+- aucun tracé pour une journée OFF ;
+- lien My Maps possible.
 
 ---
 
-# 9. Alertes contextualisées
+# 14. Réglages et stockage local
 
-## 9.1 Principe
+## 14.1 Réglages V1
 
-Les alertes ne doivent pas être de simples seuils isolés.
+- journée active ;
+- heure de départ ;
+- vitesse moyenne de base ;
+- pauses ;
+- éventuellement mode prudent / normal ;
+- réinitialisation.
 
-Elles doivent tenir compte du contexte :
-
-- orage pendant une ascension ou au sommet ;
-- pluie avant ou pendant une descente ;
-- froid au sommet ;
-- combinaison pluie + froid + vent ;
-- fortes rafales sur un col ;
-- chaleur en vallée ;
-- brouillard ou faible visibilité ;
-- neige ou gel ;
-- fenêtre météo plus favorable avec un départ avancé ou différé.
-
-## 9.2 Niveaux
-
-Trois niveaux suffisent :
-
-- vert : conditions normales ;
-- orange : vigilance / adaptation utile ;
-- rouge : risque important.
-
-## 9.3 Exemples
-
-- « Orage possible au Galibier autour de votre passage estimé. »
-- « Un départ 60 min plus tôt réduit l’exposition au risque d’orage. »
-- « Descente probablement froide et humide après le sommet. »
-- « Rafales fortes attendues au col. »
-- « Forte chaleur prévue en vallée dans l’après-midi. »
-- « Prévoir un abri possible avant le point suivant. »
-
-Les formulations doivent rester informatives, non alarmistes et concises.
-
----
-
-# 10. Conseils contextuels
-
-L’application peut générer quelques conseils opérationnels :
-
-- avancer ou différer le départ ;
-- envisager une pause à l’abri ;
-- anticiper une descente froide ;
-- garder la protection pluie accessible ;
-- surveiller l’évolution avant un col.
-
-Les conseils liés au matériel doivent rester secondaires et ne pas créer une vue « bagages ».
-
----
-
-# 11. POI et Google My Maps
-
-## 11.1 Priorité
-
-Fonction secondaire.
-
-## 11.2 Options
-
-Ordre recommandé :
-
-1. bouton ouvrant la Google My Maps existante ;
-2. import KML/KMZ ou JSON des POI dans l’application ;
-3. intégration directe éventuelle d’une carte embarquée.
-
-La V1 peut commencer avec un simple lien puis évoluer.
-
-## 11.3 Types de POI
-
-- eau ;
-- alimentation ;
-- café / restaurant ;
-- pharmacie ;
-- atelier vélo ;
-- hébergement ;
-- camping ;
-- abri ;
-- transport ;
-- point touristique.
-
----
-
-# 12. Architecture technique
-
-## 12.1 Choix recommandé
-
-Application web statique sans framework lourd.
-
-Option recommandée :
-
-- Vite ;
-- TypeScript ;
-- HTML/CSS ;
-- modules JavaScript ;
-- Leaflet pour la carte ;
-- tests avec Vitest ;
-- ESLint ;
-- Prettier.
-
-Une application sans framework UI est acceptable.
-
-React n’est pas nécessaire pour la V1, sauf justification claire.
-
-## 12.2 Pourquoi Vite + TypeScript
-
-- démarrage rapide ;
-- build simple ;
-- code organisé ;
-- déploiement statique ;
-- détection de nombreuses erreurs ;
-- bonne compatibilité avec Codex et Claude Code.
-
-## 12.3 Organisation suggérée
-
-```text
-rga-dashboard/
-  public/
-    icons/
-    manifest.webmanifest
-  src/
-    api/
-      weather.ts
-    components/
-    data/
-    domain/
-      alerts.ts
-      timing.ts
-      weather.ts
-    pages/
-    styles/
-    main.ts
-  data-source/
-    gpx/
-    roadbook/
-  scripts/
-    build-trip-data.py
-  tests/
-  index.html
-  package.json
-  tsconfig.json
-  vite.config.ts
-  README.md
-  CDC.md
-```
-
----
-
-# 13. Stockage local
+## 14.2 Persistance
 
 Utiliser `localStorage` pour :
 
 - réglages ;
-- étape du jour sélectionnée ;
+- journée active ;
 - dernier résultat météo valide ;
-- date de dernière actualisation ;
+- dernière mise à jour ;
 - préférences d’affichage.
 
-Aucune donnée sensible.
+Prévoir une version du schéma de stockage et une migration minimale pour éviter de casser les données existantes.
 
 ---
 
-# 14. PWA légère
+# 15. UX
 
-Option souhaitable si simple :
+## 15.1 Principes
+
+- mobile-first ;
+- lisible en quelques secondes ;
+- peu d’actions ;
+- pas de grands espaces inutiles ;
+- pas d’emoji obligatoires ;
+- contraste suffisant ;
+- cibles tactiles adaptées ;
+- réglages discrets ;
+- états de chargement et d’erreur clairs.
+
+## 15.2 Données de démonstration
+
+Les données fictives doivent disparaître progressivement.
+
+Toute donnée encore fictive doit être explicitement marquée comme telle.
+
+La cible est zéro donnée fictive dans la V1 publiée.
+
+---
+
+# 16. Architecture technique
+
+## 16.1 Stack
+
+- Vite ;
+- TypeScript strict ;
+- HTML ;
+- CSS local ;
+- modules natifs ;
+- pas de React ;
+- pas de backend ;
+- pas de dépendance inutile.
+
+Leaflet peut être ajouté plus tard pour la carte si justifié.
+
+## 16.2 Organisation cible indicative
+
+```text
+public/
+  data/
+    gpx/
+      manifest.json
+      *.gpx
+    trip/
+      trip.json
+      roadbook.json
+src/
+  data/
+  gpx/
+  route/
+  trip/
+  weather/
+  alerts/
+  storage/
+  ui/
+  main.ts
+```
+
+L’organisation réelle peut différer si elle reste cohérente.
+
+## 16.3 GitHub Pages
+
+- dépôt : `rga-2026-dashboard` ;
+- base Vite : `/rga-2026-dashboard/` ;
+- déploiement automatique à chaque push sur `main` ;
+- URL attendue : `https://cgi-1991.github.io/rga-2026-dashboard/`.
+
+---
+
+# 17. PWA
+
+Option légère, non bloquante :
 
 - manifest ;
 - icône ;
 - mode standalone ;
-- ajout à l’écran d’accueil ;
-- cache du shell de l’application ;
-- dernier aperçu météo disponible hors connexion.
+- cache du shell ;
+- dernier aperçu disponible hors connexion.
 
-Ne pas bloquer la livraison V1 si la PWA crée des bugs.
-
----
-
-# 15. Hébergement et dépôt
-
-## 15.1 GitHub
-
-Créer un dépôt public, par exemple :
-
-```text
-rga-2026-dashboard
-```
-
-Le dépôt public est nécessaire pour utiliser gratuitement GitHub Pages avec GitHub Free.
-
-## 15.2 GitHub Pages
-
-Déployer automatiquement la branche principale avec GitHub Actions.
-
-L’URL finale sera du type :
-
-```text
-https://<utilisateur>.github.io/rga-2026-dashboard/
-```
-
-## 15.3 Branches
-
-Pour une V1 développée seul avec une IA :
-
-- `main` : stable ;
-- branches courtes facultatives pour les fonctionnalités.
-
-Ne pas complexifier avec une stratégie Git avancée.
+Ne pas introduire de service worker instable avant que les fonctions métier principales soient validées.
 
 ---
 
-# 16. Qualité
+# 18. Qualité et tests
 
-## 16.1 Critères de réussite
+## 18.1 Tests minimaux
 
-1. L’application fonctionne.
-2. Toutes les étapes sont correctement répertoriées.
-3. Les points importants sont présents.
-4. La météo actuelle et les prévisions sont accessibles.
-5. L’information importante est accessible sans chercher.
-6. Les modifications d’heure, vitesse et pauses recalculent les horaires.
-7. Aucun bug bloquant sur iPhone.
-8. L’application reste lisible et rapide.
-9. Les erreurs API sont gérées proprement.
-10. Le déploiement GitHub Pages fonctionne.
-
-## 16.2 Tests minimaux
-
-- calcul d’ETA ;
+- chargement des 10 GPX ;
+- correspondance exacte 10 GPX ↔ 10 journées roulées ;
+- présence exacte de J5 et J8 en OFF ;
+- ordre exact des 12 jours ;
+- aucune ETA sur une journée OFF ;
+- remise à zéro des horaires à chaque journée roulée ;
+- calcul ETA ;
 - insertion des pauses ;
-- sélection de l’heure météo la plus proche ;
-- calcul des alertes ;
-- lecture des données d’étape ;
-- absence de données météo ;
+- waypoints ordonnés ;
+- appariement roadbook / GPX ;
+- météo absente ;
 - API indisponible ;
-- affichage mobile ;
-- navigation directe vers une étape ;
-- fonctionnement sous le sous-chemin GitHub Pages.
+- cache ;
+- alertes ;
+- sous-chemin GitHub Pages ;
+- `localStorage` et migration ;
+- affichage mobile.
 
-## 16.3 Tests manuels
+## 18.2 Contrôles manuels
 
 - iPhone portrait ;
+- largeur 390 px ;
 - Chrome desktop ;
 - Safari mobile si disponible ;
 - réseau lent ;
-- mode hors connexion partiel ;
-- données météo indisponibles ;
-- réglages modifiés puis rechargement de la page.
+- hors connexion partiel ;
+- changement journée active ;
+- journée OFF ;
+- réglages puis rechargement ;
+- absence de 404 sur les ressources utiles.
 
 ---
 
-# 17. Contraintes
+# 19. Contraintes permanentes
 
 - gratuit ;
-- aucune clé API payante ;
-- aucune infrastructure serveur ;
+- pas de clé payante ;
+- pas de serveur ;
 - pas de compte ;
-- interface française ;
-- développement possible dans VS Code ;
-- Codex ou Claude Code réalise l’essentiel du code ;
-- code lisible par un développeur débutant ;
-- README explicite ;
-- commandes simples ;
+- français ;
+- unités métriques ;
+- fuseau `Europe/Paris` ;
+- gestion heure d’été ;
 - aucun secret dans le dépôt ;
-- ne jamais surinterpréter une prévision lointaine.
+- pas de donnée inventée ;
+- pas de dépendance sans justification ;
+- pas de modification directe des GPX source ;
+- build vert à chaque étape ;
+- aucune régression GitHub Pages ;
+- aucune régression de la configuration du lecteur réseau ou des certificats d’entreprise.
 
 ---
 
-# 18. Méthode de développement
+# 20. Méthode de développement
 
-## Phase 0 — Préconfiguration
+Chaque phase doit respecter le cycle :
 
-Objectif : environnement fiable.
+1. lire le CDC ;
+2. inspecter l’existant ;
+3. modifier uniquement le périmètre demandé ;
+4. lancer les validations ;
+5. produire un compte rendu ;
+6. ne pas commit ni push sauf demande explicite ;
+7. contrôle manuel ;
+8. commit logique ;
+9. push ;
+10. vérifier GitHub Actions.
 
-- installer Git ;
-- installer Node.js LTS ;
-- installer VS Code ;
-- connecter VS Code à GitHub ;
-- installer Codex ou Claude Code ;
-- créer le dépôt ;
-- cloner le dépôt ;
-- créer la structure Vite TypeScript ;
-- lancer le serveur local ;
-- effectuer un premier commit.
+Ne pas travailler en parallèle sur le clone local et Codespaces sans synchronisation.
 
-## Phase 1 — Squelette fonctionnel
+Avant de changer d’environnement : commit + push.
 
-Livrable :
+Dans l’autre environnement : pull ou recréation du Codespace depuis `main`.
 
-- application démarrable ;
-- navigation mobile ;
-- pages vides ;
-- thème simple ;
-- données fictives ;
-- build sans erreur ;
-- déploiement GitHub Pages opérationnel.
+---
 
-## Phase 2 — Données RGA
+# 21. Phases restantes
 
-Livrable :
+## Phase A — Consolidation voyage
 
-- JSON des étapes ;
-- points clés ;
-- tracés ;
-- validation des 10 étapes roulées et 2 jours OFF ;
-- script de génération documenté.
+- remplacer la notion erronée de 8 étapes ;
+- créer le plan de voyage à 12 jours ;
+- intégrer les 2 journées OFF ;
+- relier chaque journée roulée à son GPX ;
+- réinitialiser les ETA par journée ;
+- afficher les 12 jours.
 
-## Phase 3 — Météo
+## Phase B — Enrichissement roadbook
 
-Livrable :
+- cols ;
+- villages ;
+- ravitaillements ;
+- notes ;
+- appariement au tracé ;
+- rapport des points à valider.
 
-- module Open-Meteo ;
+## Phase C — Météo
+
+- Open-Meteo ;
 - cache ;
-- chargement ;
-- erreurs ;
-- aperçu météo par étape ;
-- détail horaire.
+- météo par waypoint ;
+- météo des journées OFF ;
+- mise à jour et erreurs.
 
-## Phase 4 — Calcul de progression
+## Phase D — Alertes
 
-Livrable :
+- seuils ;
+- contexte relief / ETA ;
+- comparaison des horaires de départ.
 
-- ETA ;
-- heures de passage ;
-- pauses ;
-- réglages ;
-- recalcul immédiat ;
-- sauvegarde locale.
+## Phase E — UI finale
 
-## Phase 5 — Alertes
+- navigation complète ;
+- vue Aujourd’hui ;
+- Voyage ;
+- détail ;
+- réglages détaillés ;
+- suppression des données fictives.
 
-Livrable :
+## Phase F — Carte, POI et PWA
 
-- règles contextuelles ;
-- niveaux vert/orange/rouge ;
-- conseils courts ;
-- comparaison départ actuel / départ avancé ou différé.
-
-## Phase 6 — Carte et POI
-
-Livrable :
-
-- carte légère ;
-- tracé ;
-- points clés ;
-- lien ou intégration My Maps.
-
-## Phase 7 — Finition
-
-Livrable :
-
+- carte ;
+- POI ;
+- My Maps ;
 - PWA légère ;
-- tests ;
-- correction mobile ;
-- README ;
-- publication stable.
+- tests finaux.
 
 ---
 
-# 19. Préconfiguration détaillée
-
-## 19.1 Comptes
-
-Nécessaires :
-
-- compte GitHub ;
-- compte ChatGPT pour Codex ou compte Anthropic pour Claude Code.
-
-Pas nécessaire :
-
-- compte météo ;
-- hébergeur payant ;
-- base de données ;
-- nom de domaine.
-
-## 19.2 Logiciels
-
-Installer :
-
-- VS Code ;
-- Git ;
-- Node.js LTS ;
-- Python 3 si le script GPX est écrit en Python.
-
-## 19.3 Extensions VS Code utiles
-
-- Codex ou Claude Code ;
-- ESLint ;
-- Prettier ;
-- GitHub Pull Requests and Issues, facultatif.
-
-Éviter d’installer trop d’extensions.
-
-## 19.4 Commandes initiales suggérées
-
-```bash
-npm create vite@latest rga-2026-dashboard -- --template vanilla-ts
-cd rga-2026-dashboard
-npm install
-npm run dev
-```
-
-Puis :
-
-```bash
-git init
-git add .
-git commit -m "Initialise le dashboard RGA"
-```
-
-## 19.5 Variables et secrets
-
-Open-Meteo ne nécessite normalement pas de secret pour l’usage prévu.
-
-Ne jamais placer de token GitHub, OpenAI ou Anthropic dans le code ou le dépôt.
-
----
-
-# 20. Règles données et météo
-
-- conserver toutes les unités en métrique ;
-- heure locale Europe/Paris pour l’itinéraire ;
-- gérer correctement l’heure d’été ;
-- afficher les valeurs arrondies ;
-- conserver les données brutes séparées des valeurs présentées ;
-- documenter les seuils d’alerte ;
-- éviter les appels API redondants ;
-- respecter les limites du fournisseur ;
-- ne pas prétendre qu’une prévision est certaine.
-
----
-
-# 21. Définition de “terminé” pour la V1
+# 22. Définition de terminé pour la V1
 
 La V1 est terminée lorsque :
 
-- une URL GitHub Pages fonctionne ;
-- l’application s’ouvre correctement sur iPhone ;
-- les étapes RGA sont toutes présentes ;
-- une étape peut être ouverte en un clic ;
+- l’URL GitHub Pages fonctionne ;
+- les 12 jours sont présents dans le bon ordre ;
+- J5 et J8 sont des journées OFF ;
+- les 10 journées roulées chargent leur GPX correct ;
+- aucune chronologie de roulage ne traverse les nuits ou jours OFF ;
+- l’ETA est calculée par journée ;
+- les réglages recalculent les ETA ;
 - la météo se charge ;
-- la vue globale fonctionne ;
-- la vue points clés fonctionne ;
-- l’heure de départ peut être modifiée ;
-- la vitesse moyenne peut être modifiée ;
-- les pauses peuvent être modifiées ;
-- les heures de passage sont recalculées ;
+- les points clés sont enrichis par le roadbook ;
 - les alertes sont visibles ;
-- un échec de l’API ne casse pas l’application ;
-- le README permet de relancer le projet.
+- les journées OFF ont une vue adaptée ;
+- l’échec de l’API ne casse pas l’application ;
+- l’application fonctionne sur iPhone ;
+- aucune donnée de démonstration non signalée ne subsiste ;
+- le README permet de relancer et déployer le projet.
 
 ---
 
-# 22. Consignes permanentes pour l’IA de développement
-
-- lire le CDC avant chaque phase ;
-- ne modifier que le périmètre demandé ;
-- expliquer les fichiers modifiés ;
-- lancer les tests ;
-- lancer le build ;
-- ne pas ajouter de dépendance sans justification ;
-- privilégier le code simple ;
-- ne pas créer un backend ;
-- ne pas développer un import GPX universel dans la V1 ;
-- ne pas intégrer une fonction bagages ;
-- maintenir l’interface française ;
-- maintenir la compatibilité GitHub Pages ;
-- signaler explicitement toute hypothèse ;
-- créer un commit logique à la fin de chaque phase ;
-- ne jamais écraser les données source ;
-- conserver le fonctionnement mobile-first.
-
----
-
-# PROMPTS À DONNER À CODEX OU CLAUDE
-
-## Prompt 00 — Initialisation et audit environnement
-
-```text
-RGA_DASHBOARD_00_ENV_SETUP
-
-Tu vas m’aider à développer une application web mobile-first appelée « RGA 2026 Dashboard ».
-
-Commence par lire intégralement le fichier CDC.md présent à la racine du projet. Il est la référence fonctionnelle et technique.
-
-Contexte :
-- je débute ;
-- je travaille dans VS Code sous Windows ;
-- le projet doit être gratuit ;
-- le site sera publié sur GitHub Pages ;
-- la V1 est une application statique Vite + TypeScript ;
-- aucun backend ;
-- aucune base de données ;
-- météo via Open-Meteo ;
-- priorité à une version fonctionnelle aujourd’hui.
-
-Tâche actuelle :
-1. Inspecte l’environnement et le contenu du dossier.
-2. Vérifie Git, Node, npm et Python.
-3. Indique clairement ce qui manque.
-4. Si le projet n’existe pas encore, initialise un projet Vite « vanilla-ts » dans le dossier courant sans créer de sous-dossier inutile.
-5. Configure ESLint, Prettier et Vitest uniquement si cela reste simple.
-6. Crée une structure minimale conforme au CDC.
-7. Crée un README avec les commandes exactes.
-8. Lance l’application, les tests et le build.
-9. Ne développe encore aucune fonctionnalité métier.
-10. À la fin, résume :
-   - fichiers créés ou modifiés ;
-   - commandes exécutées ;
-   - erreurs restantes ;
-   - prochaine étape recommandée.
-
-Ne fais aucune modification hors du dépôt.
-Ne crée aucun backend.
-Ne publie rien sans me l’indiquer.
-```
-
-## Prompt 01 — Squelette UI et navigation
-
-```text
-RGA_DASHBOARD_01_UI_SHELL
-
-Lis CDC.md avant toute modification.
-
-Objectif de cette phase :
-créer le squelette mobile-first du dashboard, sans intégrer encore la vraie météo ni les données GPX.
-
-Implémente :
-- navigation principale : Aujourd’hui, Voyage, Carte, Réglages ;
-- barre de navigation mobile discrète ;
-- page Aujourd’hui avec données fictives ;
-- page Voyage avec switch entre deux matrices fictives ;
-- page Détail d’étape ;
-- page Carte avec espace réservé ;
-- page Réglages ;
-- design clair, sobre et très lisible sur iPhone ;
-- aucune bibliothèque UI lourde ;
-- composants simples ;
-- routes fonctionnant aussi sur GitHub Pages ;
-- données fictives centralisées, pas dispersées dans le HTML.
-
-Contraintes :
-- français uniquement ;
-- mobile-first ;
-- pas de backend ;
-- pas de météo réelle ;
-- pas encore de Leaflet ;
-- pas de PWA à ce stade ;
-- ne surcharge pas l’interface ;
-- les réglages doivent rester secondaires.
-
-Ajoute des tests simples de navigation ou de fonctions si pertinent.
-Lance les tests et le build.
-Explique chaque fichier modifié.
-```
-
-## Prompt 02 — Déploiement GitHub Pages
-
-```text
-RGA_DASHBOARD_02_GITHUB_PAGES
-
-Lis CDC.md et inspecte la configuration actuelle.
-
-Objectif :
-rendre le projet déployable automatiquement sur GitHub Pages.
-
-Tâches :
-- configurer correctement le base path Vite pour un dépôt nommé rga-2026-dashboard ;
-- créer le workflow GitHub Actions officiel ou standard pour build et déploiement Pages ;
-- ajouter .nojekyll si utile ;
-- vérifier les chemins d’assets ;
-- vérifier qu’un rechargement ou une navigation ne crée pas de 404 ;
-- documenter dans README les étapes exactes pour activer GitHub Pages ;
-- ne stocker aucun secret ;
-- lancer le build local.
-
-Ne suppose pas que le dépôt distant est déjà configuré : indique-moi clairement les actions manuelles à faire sur GitHub.
-```
-
-## Prompt 03 — Extraction et modèle de données RGA
-
-```text
-RGA_DASHBOARD_03_TRIP_DATA
-
-Lis CDC.md avant toute modification.
-
-Les fichiers source GPX et roadbook sont placés dans data-source/.
-
-Objectif :
-produire les données statiques propres des étapes RGA 2026 sans développer un importateur GPX dans l’interface.
-
-Tâches :
-1. Inspecter les fichiers source.
-2. Proposer une méthode fiable de segmentation des étapes.
-3. Créer ou compléter scripts/build-trip-data.py.
-4. Générer :
-   - data/trip.json ;
-   - un JSON par étape ;
-   - les tracés simplifiés ;
-   - distances cumulées ;
-   - altitudes ;
-   - points clés.
-5. Associer les points du roadbook :
-   - départ ;
-   - arrivée ;
-   - cols ;
-   - pied et sommet ;
-   - villages et ravitos importants.
-6. Ne pas inventer de coordonnées.
-7. Produire un rapport de validation listant :
-   - étapes trouvées ;
-   - étapes ambiguës ;
-   - points non appariés ;
-   - distances GPX versus roadbook.
-8. Conserver les sources intactes.
-9. Ajouter des tests de cohérence.
-10. Ne modifier l’UI que pour charger les JSON générés.
-
-Avant de coder massivement, inspecte et explique la structure réelle du GPX.
-Si une segmentation est ambiguë, utilise une configuration manuelle claire plutôt qu’une heuristique opaque.
-```
-
-## Prompt 04 — Intégration Open-Meteo
-
-```text
-RGA_DASHBOARD_04_WEATHER_API
-
-Lis CDC.md.
-
-Objectif :
-intégrer Open-Meteo proprement, sans encore générer toutes les alertes avancées.
-
-Implémente :
-- un module fournisseur météo isolé ;
-- requêtes pour les points clés d’une étape ;
-- température ;
-- température ressentie ;
-- pluie ;
-- probabilité de précipitation ;
-- neige si disponible ;
-- vent ;
-- rafales ;
-- visibilité ;
-- code météo ;
-- prévisions horaires ;
-- résumé quotidien ;
-- fuseau Europe/Paris ;
-- cache local ;
-- date de dernière mise à jour ;
-- bouton Actualiser ;
-- conservation du dernier résultat valide ;
-- états chargement, erreur et absence de données.
-
-Contraintes :
-- éviter les appels redondants ;
-- regrouper les coordonnées lorsque l’API le permet ;
-- aucune clé secrète ;
-- ne jamais afficher de fausse donnée ;
-- afficher clairement l’horizon réellement disponible.
-
-Ajoute des tests avec réponses API simulées.
-Lance les tests et le build.
-```
-
-## Prompt 05 — Calcul horaires et pauses
-
-```text
-RGA_DASHBOARD_05_TIMING_ENGINE
-
-Lis CDC.md.
-
-Objectif :
-calculer l’heure estimée de passage à chaque point clé.
-
-Implémente un moteur simple, transparent et testable tenant compte de :
-- heure de départ ;
-- vitesse moyenne de base ;
-- distance cumulée ;
-- pente ou profil local ;
-- ascensions ;
-- descentes ;
-- coefficient prudent ;
-- pauses.
-
-Valeurs par défaut :
-- départ 09:00 ;
-- pause avant midi 15 min ;
-- pause midi 30 min ;
-- pause après midi 15 min ;
-- allure randonnée prudente.
-
-Exigences :
-- ne pas utiliser une simple vitesse constante si le profil est disponible ;
-- éviter un modèle trop complexe ;
-- documenter les hypothèses ;
-- rendre les coefficients centralisés et faciles à ajuster ;
-- afficher l’ETA et les heures des points clés ;
-- recalcul immédiat après modification d’un réglage ;
-- sauvegarde localStorage ;
-- tests unitaires détaillés.
-
-Ne mélange pas le moteur d’estimation avec le rendu UI.
-```
-
-## Prompt 06 — Association météo / heure de passage
-
-```text
-RGA_DASHBOARD_06_WEATHER_TIMELINE
-
-Lis CDC.md.
-
-Objectif :
-associer à chaque point clé la météo attendue à l’heure estimée de passage.
-
-Implémente :
-- sélection de l’échéance horaire la plus proche ;
-- interpolation seulement si elle est raisonnable et documentée ;
-- heure locale ;
-- affichage chronologique ;
-- résumé pied / sommet pour chaque col ;
-- détail heure par heure dépliable ;
-- distinction entre donnée disponible et indisponible ;
-- affichage de la fiabilité selon l’échéance si possible sans faux score scientifique.
-
-La vue doit rester lisible sur iPhone.
-Ajoute des tests sur les changements de date, le passage après minuit et les heures absentes.
-```
-
-## Prompt 07 — Alertes contextualisées
-
-```text
-RGA_DASHBOARD_07_CONTEXT_ALERTS
-
-Lis CDC.md.
-
-Objectif :
-créer des alertes météo contextualisées pour le vélo en montagne.
-
-Créer un moteur de règles séparé couvrant au minimum :
-- orage pendant ascension ou sommet ;
-- pluie pendant descente ;
-- froid au sommet ;
-- pluie + froid + vent ;
-- rafales fortes sur un col ;
-- chaleur en vallée ;
-- faible visibilité ou brouillard ;
-- neige ou gel.
-
-Niveaux :
-- vert ;
-- orange ;
-- rouge.
-
-Ajouter une comparaison simple de scénarios :
-- départ actuel ;
-- départ 60 min plus tôt ;
-- départ 60 min plus tard.
-
-Ne conseiller un changement d’heure que si les données montrent une amélioration claire.
-Les textes doivent être courts, français, factuels et non alarmistes.
-
-Centralise et documente tous les seuils.
-Ajoute des tests unitaires pour chaque règle.
-```
-
-## Prompt 08 — Deux matrices Voyage
-
-```text
-RGA_DASHBOARD_08_TRIP_MATRICES
-
-Lis CDC.md.
-
-Objectif :
-finaliser les deux matrices complémentaires de la vue Voyage.
-
-Matrice 1 — synthèse par étape :
-- étape ;
-- température minimale ;
-- température maximale ;
-- précipitations ;
-- alerte principale ;
-- vent moyen ;
-- état de disponibilité.
-
-Matrice 2 — points critiques :
-- étape ;
-- cols ;
-- pied ;
-- sommet ;
-- heure estimée ;
-- température ;
-- précipitations ;
-- rafales ;
-- risque principal.
-
-Ajouter un switch simple entre les deux.
-Sur mobile, privilégier des cartes ou un tableau horizontal utilisable sans surcharge.
-L’étape du jour doit être accessible immédiatement.
-```
-
-## Prompt 09 — Carte et POI
-
-```text
-RGA_DASHBOARD_09_MAP_POI
-
-Lis CDC.md.
-
-Objectif :
-ajouter une carte légère sans nuire aux performances.
-
-Implémente :
-- Leaflet ;
-- tracé de l’étape sélectionnée ;
-- départ ;
-- arrivée ;
-- cols ;
-- points clés ;
-- POI si un fichier est disponible ;
-- adaptation mobile ;
-- chargement différé de la carte.
-
-Ajouter également un bouton ouvrant la Google My Maps existante dans un nouvel onglet.
-
-Ne tente pas de contourner les limitations d’intégration de Google My Maps.
-Si l’import direct est impossible ou fragile, conserve le lien externe et documente l’alternative KML/KMZ.
-```
-
-## Prompt 10 — PWA et hors connexion léger
-
-```text
-RGA_DASHBOARD_10_PWA
-
-Lis CDC.md.
-
-Objectif :
-permettre l’ajout à l’écran d’accueil de l’iPhone sans compromettre la stabilité.
-
-Implémente uniquement :
-- manifest web ;
-- icônes ;
-- mode standalone ;
-- service worker simple ;
-- cache du shell ;
-- cache des JSON statiques ;
-- conservation du dernier aperçu météo valide.
-
-Ne cache pas agressivement les réponses météo.
-Prévoir une stratégie de mise à jour claire.
-Si la PWA rend le déploiement GitHub Pages fragile, privilégie la stabilité et documente ce qui est reporté.
-```
-
-## Prompt 11 — Audit final
-
-```text
-RGA_DASHBOARD_11_FINAL_AUDIT
-
-Lis CDC.md et audite l’ensemble du projet.
-
-Vérifie :
-- respect du périmètre ;
-- fonctionnement mobile-first ;
-- toutes les étapes ;
-- cohérence des points clés ;
-- météo ;
-- cache ;
-- erreurs ;
-- calculs horaires ;
-- réglages ;
-- localStorage ;
-- alertes ;
-- carte ;
-- GitHub Pages ;
-- chemins sous le base path ;
-- PWA ;
-- accessibilité ;
-- performances ;
-- tests ;
-- build.
-
-Corrige uniquement les défauts démontrés.
-Ne refactorise pas massivement une partie fonctionnelle sans nécessité.
-
-Produis :
-- résultat des tests ;
-- résultat du build ;
-- liste des limites restantes ;
-- checklist de validation manuelle iPhone ;
-- instructions exactes de publication ;
-- numéro de version V1.
-```
-
----
-
-# 23. Ordre de travail recommandé aujourd’hui
-
-Pour obtenir une version utilisable le plus vite possible :
-
-1. Prompt 00 ;
-2. Prompt 01 ;
-3. Prompt 02 ;
-4. publication d’une coquille fonctionnelle ;
-5. Prompt 03 ;
-6. validation manuelle des étapes ;
-7. Prompt 04 ;
-8. Prompt 05 ;
-9. Prompt 06 ;
-10. Prompt 08 ;
-11. Prompt 07 si le temps le permet ;
-12. carte, POI et PWA ensuite.
-
-La priorité du jour est :
-
-- déploiement fonctionnel ;
-- étapes correctes ;
-- météo réelle ;
-- détail par point clé ;
-- réglages ;
-- recalcul des heures.
-
-La carte complète, les POI avancés et la PWA sont secondaires.
-
----
-
-# 24. Choix Codex ou Claude Code
-
-Utiliser un seul agent principal pendant une phase afin d’éviter les modifications contradictoires.
-
-Méthode recommandée :
-
-- Codex comme agent principal si déjà inclus dans le forfait ChatGPT ;
-- Claude Code comme relecteur ou agent de correction ciblée ;
-- ne pas faire travailler les deux simultanément sur les mêmes fichiers ;
-- committer après chaque phase fonctionnelle ;
-- revenir au dernier commit si un agent dégrade le projet.
-
-Pour chaque phase :
-
-1. donner le prompt ;
-2. laisser l’agent inspecter ;
-3. lire son résumé ;
-4. tester localement ;
-5. corriger ;
-6. commit ;
-7. passer à la phase suivante.
+# 23. Consignes permanentes pour l’IA de développement
+
+- Lire intégralement ce CDC avant chaque intervention.
+- Ne jamais réintroduire la notion de 8 étapes.
+- Toujours raisonner en 12 jours : 10 roulés + 2 OFF.
+- Respecter J5 OFF à Bourg-Saint-Maurice et J8 OFF à Briançon.
+- Respecter l’arrivée finale à Nice.
+- Ne jamais calculer une ETA cycliste pour une journée OFF.
+- Ne jamais maintenir une chronologie continue sur plusieurs jours.
+- Signaler toute hypothèse.
+- Ne pas inventer de coordonnées.
+- Conserver les GPX sources inchangés.
+- Préserver TypeScript strict, GitHub Pages, le polling Vite et `NODE_USE_SYSTEM_CA`.
+- Ne pas ajouter de dépendance sans justification.
+- Ne pas créer de backend.
+- Lancer `npm run build` à la fin.
+- Ne pas commit ni push sans instruction explicite.

@@ -111,8 +111,8 @@ function renderReport(container: HTMLElement, report: GpxAnalysisReport): void {
       <strong>${report.successfulFileCount} ${fileLabel}</strong>${failureText}.
     </p>
     <p class="gpx-analysis__comparison" data-gpx-comparison>
-      ${report.detectedFileCount} traces GPX détectées — ${report.configuredStageCount} étapes
-      configurées. Un regroupement devra être défini.
+      ${report.detectedFileCount} traces GPX détectées — ${report.configuredStageCount} journées
+      roulées configurées. La correspondance journée ↔ GPX est définie explicitement.
     </p>
     <ol class="gpx-list">
       ${report.files
@@ -139,15 +139,18 @@ function renderGlobalError(container: HTMLElement, error: unknown): void {
 
 export async function initializeGpxAnalysis(
   container: HTMLElement,
-  configuredStageCount: number,
+  configuredRideDayCount: number,
   fetchImplementation: FetchImplementation = globalThis.fetch.bind(globalThis),
-): Promise<void> {
+): Promise<GpxAnalysisReport | null> {
   container.dataset.gpxState = 'loading'
   container.setAttribute('aria-busy', 'true')
 
   try {
-    renderReport(container, await loadGpxAnalysis(configuredStageCount, fetchImplementation))
+    const report = await loadGpxAnalysis(configuredRideDayCount, fetchImplementation)
+    renderReport(container, report)
+    return report
   } catch (error) {
     renderGlobalError(container, error)
+    return null
   }
 }

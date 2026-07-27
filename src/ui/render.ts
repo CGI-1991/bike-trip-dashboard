@@ -1,13 +1,6 @@
-import {
-  activeStageId,
-  demoAlerts,
-  demoStages,
-  demoTimeline,
-  todayDemo,
-} from '../data/demo.ts'
 import type { DashboardSettings } from '../storage/settings.ts'
-
-const numberFormatter = new Intl.NumberFormat('fr-FR')
+import { rga2026TripPlan } from '../trip/plan.ts'
+import type { TripPlan } from '../trip/types.ts'
 
 function escapeHtml(value: string): string {
   return value
@@ -16,68 +9,6 @@ function escapeHtml(value: string): string {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#039;')
-}
-
-function formatDistance(distanceKm: number): string {
-  return `${numberFormatter.format(distanceKm)} km`
-}
-
-function formatElevation(elevationGainM: number): string {
-  return `+${numberFormatter.format(elevationGainM)} m`
-}
-
-function renderTimeline(): string {
-  return demoTimeline
-    .map(
-      (point, index) => `
-        <li class="timeline__item">
-          <span class="timeline__marker" aria-hidden="true"></span>
-          <span class="timeline__position">${
-            index === 0 ? 'Départ' : index === demoTimeline.length - 1 ? 'Arrivée' : `Point ${index}`
-          }</span>
-          <strong class="timeline__name">${escapeHtml(point.name)}</strong>
-          <time class="timeline__time">${escapeHtml(point.time)}</time>
-          <span class="timeline__weather">${escapeHtml(point.weather)}</span>
-        </li>`,
-    )
-    .join('')
-}
-
-function renderAlerts(): string {
-  return demoAlerts
-    .map(
-      (alert) => `
-        <li class="alert alert--${alert.tone}">
-          <div class="alert__heading">
-            <strong>${escapeHtml(alert.title)}</strong>
-            <span class="tag tag--alert">Fictif</span>
-          </div>
-          <p>${escapeHtml(alert.detail)}</p>
-        </li>`,
-    )
-    .join('')
-}
-
-function renderStages(): string {
-  return demoStages
-    .map((stage) => {
-      const isActive = stage.id === activeStageId
-      return `
-        <li class="stage-row${isActive ? ' stage-row--active' : ''}"${
-          isActive ? ' aria-current="step"' : ''
-        }>
-          <span class="stage-row__number" aria-label="Étape ${stage.id}">${stage.id}</span>
-          <span class="stage-row__route">
-            <strong>${escapeHtml(stage.start)}</strong>
-            <span>${escapeHtml(stage.end)}</span>
-          </span>
-          <span class="stage-row__stats">
-            <span>${formatDistance(stage.distanceKm)}</span>
-            <span>${formatElevation(stage.elevationGainM)}</span>
-          </span>
-        </li>`
-    })
-    .join('')
 }
 
 function renderSettingsDialog(settings: DashboardSettings): string {
@@ -93,8 +24,8 @@ function renderSettingsDialog(settings: DashboardSettings): string {
         </div>
 
         <p class="settings-dialog__intro">
-          Ces valeurs sont enregistrées uniquement dans ce navigateur. Aucun calcul d’ETA réel
-          n’est effectué à ce stade.
+          Ces valeurs restent enregistrées dans ce navigateur et s’appliquent provisoirement
+          aux dix journées roulées.
         </p>
 
         <div class="field">
@@ -127,7 +58,7 @@ function renderSettingsDialog(settings: DashboardSettings): string {
         </div>
 
         <div class="field">
-          <label for="break-duration">Durée totale des pauses</label>
+          <label for="break-duration">Durée totale des pauses par journée roulée</label>
           <div class="field__control">
             <input
               id="break-duration"
@@ -150,7 +81,10 @@ function renderSettingsDialog(settings: DashboardSettings): string {
     </dialog>`
 }
 
-export function renderDashboard(settings: DashboardSettings): string {
+export function renderDashboard(
+  settings: DashboardSettings,
+  plan: TripPlan = rga2026TripPlan,
+): string {
   return `
     <div class="app-shell">
       <header class="app-header">
@@ -160,7 +94,7 @@ export function renderDashboard(settings: DashboardSettings): string {
             <p>Route des Grandes Alpes</p>
           </div>
           <div class="app-header__actions">
-            <span class="stage-indicator">Étape ${activeStageId} sur ${demoStages.length}</span>
+            <span class="stage-indicator" data-day-indicator>J1 sur ${plan.totalDays} · Roulé</span>
             <button
               class="button button--header"
               type="button"
@@ -175,115 +109,60 @@ export function renderDashboard(settings: DashboardSettings): string {
       </header>
 
       <main class="dashboard">
-        <aside class="demo-notice" aria-label="Avertissement sur les données">
-          <strong>Données de démonstration</strong>
-          <span>Aucune heure ni météo affichée sur cette page n’est réelle.</span>
+        <aside class="phase-notice" aria-label="Périmètre de cette version">
+          <strong>Plan de voyage consolidé</strong>
+          <span>12 jours calendaires, 10 journées roulées et 2 journées OFF. Météo non connectée.</span>
         </aside>
 
-        <div class="dashboard__layout">
-          <div class="dashboard__primary">
-            <section class="card today-card" aria-labelledby="today-title">
-              <div class="section-heading">
-                <div>
-                  <p class="eyebrow">Étape du jour</p>
-                  <h2 id="today-title">Aujourd’hui</h2>
-                </div>
-                <span class="tag">Démonstration</span>
-              </div>
-
-              <p class="demo-date">
-                <time datetime="2026-06-20">${escapeHtml(todayDemo.dateLabel)}</time>
-                <span>Date fictive</span>
-              </p>
-
-              <div class="route-summary" aria-label="Trajet de démonstration">
-                <div>
-                  <span>Départ</span>
-                  <strong>${escapeHtml(todayDemo.start)}</strong>
-                </div>
-                <span class="route-summary__separator" aria-hidden="true"></span>
-                <div>
-                  <span>Arrivée</span>
-                  <strong>${escapeHtml(todayDemo.end)}</strong>
-                </div>
-              </div>
-
-              <dl class="metrics">
-                <div class="metric">
-                  <dt>Distance</dt>
-                  <dd>${formatDistance(todayDemo.distanceKm)}</dd>
-                </div>
-                <div class="metric">
-                  <dt>Dénivelé positif</dt>
-                  <dd>${formatElevation(todayDemo.elevationGainM)}</dd>
-                </div>
-                <div class="metric">
-                  <dt>Départ prévu</dt>
-                  <dd data-departure-display>${escapeHtml(settings.departureTime)}</dd>
-                </div>
-                <div class="metric">
-                  <dt>Arrivée estimée</dt>
-                  <dd>${escapeHtml(todayDemo.estimatedArrivalTime)} <small>fictive</small></dd>
-                </div>
-              </dl>
-
-              <div class="weather-demo">
-                <div>
-                  <span>Météo fictive</span>
-                  <strong>${escapeHtml(todayDemo.weatherSummary)}</strong>
-                </div>
-                <p>Simulation visuelle, sans connexion à un service météo.</p>
-              </div>
-            </section>
-
-            <section class="card" aria-labelledby="timeline-title">
-              <div class="section-heading section-heading--compact">
-                <div>
-                  <p class="eyebrow">Parcours simulé</p>
-                  <h2 id="timeline-title">Frise de progression</h2>
-                </div>
-                <span class="tag">Horaires fictifs</span>
-              </div>
-              <ol class="timeline">
-                ${renderTimeline()}
-              </ol>
-            </section>
-
-            <section class="card" aria-labelledby="alerts-title">
-              <div class="section-heading section-heading--compact">
-                <div>
-                  <p class="eyebrow">Vigilance simulée</p>
-                  <h2 id="alerts-title">Alertes</h2>
-                </div>
-                <span class="tag">Démonstration</span>
-              </div>
-              <ul class="alert-list">
-                ${renderAlerts()}
-              </ul>
-            </section>
-          </div>
-
-          <section class="card stages-card" aria-labelledby="stages-title">
+        <div class="trip-dashboard-layout">
+          <section class="card trip-plan-card" aria-labelledby="trip-plan-title">
             <div class="section-heading section-heading--compact">
               <div>
-                <p class="eyebrow">Aperçu du voyage</p>
-                <h2 id="stages-title">Étapes</h2>
+                <p class="eyebrow">Chronologie réelle</p>
+                <h2 id="trip-plan-title">Voyage — 12 jours</h2>
               </div>
-              <span class="tag">8 fictives</span>
+              <span class="tag tag--data">10 roulés · 2 OFF</span>
             </div>
-            <ol class="stage-list">
-              ${renderStages()}
-            </ol>
+            <div
+              class="trip-plan"
+              data-trip-plan
+              data-trip-state="loading"
+              aria-busy="true"
+            >
+              <p class="trip-plan__status" role="status" aria-live="polite">
+                Préparation du plan de voyage…
+              </p>
+            </div>
+          </section>
+
+          <section class="card route-engine-card" aria-labelledby="route-engine-title">
+            <div class="section-heading section-heading--compact">
+              <div>
+                <p class="eyebrow">Journée sélectionnée</p>
+                <h2 id="route-engine-title">Moteur d’itinéraire</h2>
+              </div>
+              <span class="tag tag--data">Calcul journalier</span>
+            </div>
+            <div
+              class="route-engine"
+              data-route-engine
+              data-route-state="loading"
+              aria-busy="true"
+            >
+              <p class="route-engine__message" role="status" aria-live="polite">
+                En attente de l’analyse des traces GPX…
+              </p>
+            </div>
           </section>
         </div>
 
         <section class="card gpx-analysis-card" aria-labelledby="gpx-analysis-title">
           <div class="section-heading section-heading--compact">
             <div>
-              <p class="eyebrow">Données de parcours</p>
+              <p class="eyebrow">Sources géométriques</p>
               <h2 id="gpx-analysis-title">Analyse des traces GPX</h2>
             </div>
-            <span class="tag tag--data">GPX réels</span>
+            <span class="tag tag--data">10 GPX réels</span>
           </div>
           <div
             class="gpx-analysis"
