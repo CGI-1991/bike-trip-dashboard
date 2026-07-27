@@ -17,6 +17,7 @@ import type {
 } from '../route/types.ts'
 import { roadbookMatchConfig } from './roadbook-config.ts'
 import type { RoadbookMatchConfig } from './roadbook-config.ts'
+import { getRoadbookResolutionEntry, resolveRoadbookResolution } from './roadbook-resolutions.ts'
 import type {
   RoadbookDay,
   RoadbookDescription,
@@ -28,6 +29,7 @@ import type {
   RoadbookPointOverride,
   RoadbookPointStatus,
   RoadbookPointType,
+  RoadbookResolution,
   RoadbookRideDay,
   RoadbookValidationIssue,
 } from './roadbook-types.ts'
@@ -66,6 +68,8 @@ export interface RoadbookPointMatch extends RoadbookPoint {
   readonly matchedSegmentFraction?: number
   readonly linkedWaypointId?: string
   readonly standaloneWaypoint: boolean
+  readonly resolution: RoadbookResolution
+  readonly resolutionJustification?: string
 }
 
 export interface RoadbookWaypointLink {
@@ -190,6 +194,10 @@ export interface RoadbookMatchSummary {
   readonly matchedPointCount: number
   readonly needsReviewPointCount: number
   readonly unmatchedPointCount: number
+  readonly activePointCount: number
+  readonly informationalPointCount: number
+  readonly excludedPointCount: number
+  readonly userDecisionRequiredPointCount: number
   readonly linkedWaypointCount: number
   readonly standaloneWaypointCount: number
   readonly theoreticalPauseCount: number
@@ -300,6 +308,7 @@ function createUnmatchedPoint(
       ? {}
       : { isResupplyCandidate: options.isResupplyCandidate }),
     status: 'unmatched',
+    resolution: resolveRoadbookResolution(id, 'unmatched'),
     sourceKind,
     alternatives: [],
     overrideApplied: false,
@@ -1177,6 +1186,15 @@ function getPointLinkMaximumTrackDistanceKm(
     : config.waypointLinkMaximumTrackDistanceKm
 }
 
+function applyPointResolution(point: RoadbookPointMatch): RoadbookPointMatch {
+  const entry = getRoadbookResolutionEntry(point.id)
+  return {
+    ...point,
+    resolution: resolveRoadbookResolution(point.id, point.status),
+    ...(entry === null ? {} : { resolutionJustification: entry.justification }),
+  }
+}
+
 function linkMatchedPoints(
   dayId: RideDayId,
   points: readonly RoadbookPointMatch[],
@@ -1653,6 +1671,14 @@ function buildSummary(
     matchedPointCount: points.filter(({ status }) => status === 'matched').length,
     needsReviewPointCount: points.filter(({ status }) => status === 'needs-review').length,
     unmatchedPointCount: points.filter(({ status }) => status === 'unmatched').length,
+    activePointCount: points.filter(({ resolution }) => resolution === 'matched').length,
+    informationalPointCount: points.filter(
+      ({ resolution }) => resolution === 'informational',
+    ).length,
+    excludedPointCount: points.filter(({ resolution }) => resolution === 'excluded').length,
+    userDecisionRequiredPointCount: points.filter(
+      ({ resolution }) => resolution === 'user-decision-required',
+    ).length,
     linkedWaypointCount: links.length,
     standaloneWaypointCount: standaloneWaypoints.length,
     theoreticalPauseCount: days.reduce(
@@ -1672,6 +1698,11 @@ export function assertRoadbookMatchReport(report: RoadbookMatchReport): void {
     report.summary.matchedPointCount +
     report.summary.needsReviewPointCount +
     report.summary.unmatchedPointCount
+  const resolutionTotal =
+    report.summary.activePointCount +
+    report.summary.informationalPointCount +
+    report.summary.excludedPointCount +
+    report.summary.userDecisionRequiredPointCount
 
   if (
     report.tripId !== 'rga-2026' ||
@@ -1682,9 +1713,16 @@ export function assertRoadbookMatchReport(report: RoadbookMatchReport): void {
     report.allPointMatches.length !== flattenedPoints.length ||
     report.summary.pointCount !== flattenedPoints.length ||
     ids.size !== flattenedPoints.length ||
-    statusTotal !== flattenedPoints.length
+    statusTotal !== flattenedPoints.length ||
+    resolutionTotal !== flattenedPoints.length
   ) {
     fail('totaux, ordre ou identifiants incohérents.')
+  }
+
+  for (const point of flattenedPoints) {
+    if (point.resolution === 'matched' && point.status !== 'matched') {
+      fail(`résolution matched incohérente avec le statut : ${point.id}.`)
+    }
   }
 
   report.days.forEach((day, index) => {
@@ -1856,7 +1894,7 @@ export function buildRoadbookMatchReport(
         type: 'ride',
         status: 'ready',
         roadbook: roadbookDay,
-        points: linked.points,
+        points: linked.points.map(applyPointResolution),
         theoreticalPauses: createTheoreticalPauses(timelineDay.route),
         lodgings: roadbookDay.lodgings,
         stats: createDayStats(roadbookDay, gpxResult),

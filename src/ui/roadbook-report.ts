@@ -12,6 +12,7 @@ import type {
   RoadbookMatchMethod,
   RoadbookPointStatus,
   RoadbookPointType,
+  RoadbookResolution,
 } from '../trip/roadbook-types.ts'
 
 const decimalFormatter = new Intl.NumberFormat('fr-FR', {
@@ -26,16 +27,44 @@ const coordinateFormatter = new Intl.NumberFormat('fr-FR', {
   maximumFractionDigits: 5,
 })
 
-const pointStatusLabels: Record<RoadbookPointStatus, string> = {
-  matched: 'Appariés',
-  'needs-review': 'À contrôler',
-  unmatched: 'Non appariés',
-}
-
 const pointStatusItemLabels: Record<RoadbookPointStatus, string> = {
   matched: 'Apparié',
   'needs-review': 'À contrôler',
   unmatched: 'Non apparié',
+}
+
+const resolutionLabels: Record<RoadbookResolution, string> = {
+  matched: 'Actif',
+  informational: 'Information',
+  excluded: 'Exclu',
+  'user-decision-required': 'Décision requise',
+}
+
+const resolutionGroupLabels: Record<RoadbookResolution, string> = {
+  matched: 'Points actifs',
+  informational: 'Informations seulement',
+  excluded: 'Exclus',
+  'user-decision-required': 'Décisions requises',
+}
+
+const resolutionOrder = [
+  'matched',
+  'user-decision-required',
+  'informational',
+  'excluded',
+] as const satisfies readonly RoadbookResolution[]
+
+function getResolutionTagClass(resolution: RoadbookResolution): string {
+  switch (resolution) {
+    case 'matched':
+      return 'tag--ride'
+    case 'informational':
+      return 'tag--data'
+    case 'excluded':
+      return 'tag--muted'
+    case 'user-decision-required':
+      return 'tag--variant'
+  }
 }
 
 const pointTypeLabels: Record<RoadbookPointType, string> = {
@@ -63,11 +92,6 @@ const matchMethodLabels: Record<RoadbookMatchMethod, string> = {
   manual: 'Validation manuelle',
 }
 
-const statusOrder = [
-  'matched',
-  'needs-review',
-  'unmatched',
-] as const satisfies readonly RoadbookPointStatus[]
 
 function escapeHtml(value: string): string {
   return value
@@ -114,17 +138,6 @@ function hasSourceCoordinates(point: RoadbookPointMatch): boolean {
     point.sourceLatitude !== undefined &&
     point.sourceLongitude !== undefined
   )
-}
-
-function getStatusTagClass(status: RoadbookPointStatus): string {
-  switch (status) {
-    case 'matched':
-      return 'tag--ride'
-    case 'needs-review':
-      return 'tag--data'
-    case 'unmatched':
-      return 'tag--error'
-  }
 }
 
 function getMatchReason(point: RoadbookPointMatch): string {
@@ -206,12 +219,13 @@ function renderPoint(point: RoadbookPointMatch): string {
       data-roadbook-point-standalone="${point.standaloneWaypoint}"
       data-roadbook-point-resupply-candidate="${point.isResupplyCandidate === true}"
       data-roadbook-point-pause-candidate="${point.isPauseCandidate === true}"
+      data-roadbook-point-resolution="${point.resolution}"
     >
       <header class="roadbook-report__point-heading">
         <span>${point.dayId} · ${pointTypeLabels[point.type]}</span>
         <strong>${escapeHtml(point.name)}</strong>
-        <span class="tag ${getStatusTagClass(point.status)}">
-          ${pointStatusItemLabels[point.status]}
+        <span class="tag ${getResolutionTagClass(point.resolution)}">
+          ${resolutionLabels[point.resolution]}
         </span>
       </header>
 
@@ -241,8 +255,12 @@ function renderPoint(point: RoadbookPointMatch): string {
           <dd>${escapeHtml(method)}</dd>
         </div>
         <div>
-          <dt>Statut</dt>
+          <dt>Statut d’appariement</dt>
           <dd>${pointStatusItemLabels[point.status]}</dd>
+        </div>
+        <div>
+          <dt>Résolution</dt>
+          <dd>${resolutionLabels[point.resolution]}</dd>
         </div>
         <div>
           <dt>Distance cumulée</dt>
@@ -266,9 +284,18 @@ function renderPoint(point: RoadbookPointMatch): string {
           }</dd>
         </div>
         <div class="roadbook-report__reason">
-          <dt>Motif</dt>
+          <dt>Motif d’appariement</dt>
           <dd>${escapeHtml(getMatchReason(point))}</dd>
         </div>
+        ${
+          point.resolutionJustification === undefined
+            ? ''
+            : `
+              <div class="roadbook-report__reason">
+                <dt>Justification de la résolution</dt>
+                <dd>${escapeHtml(point.resolutionJustification)}</dd>
+              </div>`
+        }
       </dl>
 
       ${renderAlternatives(point)}
@@ -290,13 +317,13 @@ function renderActiveSummaryItem(point: RoadbookPointMatch): string {
 function renderActivePoints(report: RoadbookMatchReport): string {
   const activeCols = report.allPointMatches.filter(
     (point) =>
-      point.status === 'matched' &&
+      point.resolution === 'matched' &&
       (point.sourceKind === 'col' ||
         (point.sourceKind === 'option' && point.type === 'summit')),
   )
   const activePassages = report.allPointMatches.filter(
     (point) =>
-      point.status === 'matched' && point.sourceKind === 'passage-group',
+      point.resolution === 'matched' && point.sourceKind === 'passage-group',
   )
 
   return `
@@ -316,29 +343,29 @@ function renderActivePoints(report: RoadbookMatchReport): string {
     </div>`
 }
 
-function renderStatusGroup(
-  status: RoadbookPointStatus,
+function renderResolutionGroup(
+  resolution: RoadbookResolution,
   points: readonly RoadbookPointMatch[],
 ): string {
-  const statusPoints = points.filter((point) => point.status === status)
-  const openAttribute = status === 'matched' ? '' : ' open'
+  const groupPoints = points.filter((point) => point.resolution === resolution)
+  const openAttribute = resolution === 'user-decision-required' ? ' open' : ''
 
   return `
     <details
-      class="roadbook-report__group roadbook-report__group--${status}"
-      data-roadbook-report-group="${status}"
-      data-roadbook-report-group-count="${statusPoints.length}"
+      class="roadbook-report__group roadbook-report__group--${resolution}"
+      data-roadbook-report-group="${resolution}"
+      data-roadbook-report-group-count="${groupPoints.length}"
       ${openAttribute}
     >
       <summary>
-        <strong>${pointStatusLabels[status]}</strong>
-        <span>${statusPoints.length}</span>
+        <strong>${resolutionGroupLabels[resolution]}</strong>
+        <span>${groupPoints.length}</span>
       </summary>
       <ol class="roadbook-report__points">
         ${
-          statusPoints.length === 0
+          groupPoints.length === 0
             ? '<li class="roadbook-report__empty">Aucun point dans ce groupe.</li>'
-            : statusPoints.map(renderPoint).join('')
+            : groupPoints.map(renderPoint).join('')
         }
       </ol>
     </details>`
@@ -372,11 +399,35 @@ function renderValidation(report: RoadbookMatchReport): string {
     </div>`
 }
 
+function renderResolutionCounters(report: RoadbookMatchReport): string {
+  const { summary } = report
+
+  return `
+    <dl class="roadbook-report__counters roadbook-report__counters--resolution" aria-label="Compteurs de résolution des points roadbook">
+      <div>
+        <dt>Points actifs</dt>
+        <dd data-roadbook-report-count="active">${summary.activePointCount}</dd>
+      </div>
+      <div>
+        <dt>Informations seulement</dt>
+        <dd data-roadbook-report-count="informational">${summary.informationalPointCount}</dd>
+      </div>
+      <div>
+        <dt>Exclus</dt>
+        <dd data-roadbook-report-count="excluded">${summary.excludedPointCount}</dd>
+      </div>
+      <div>
+        <dt>Décisions requises</dt>
+        <dd data-roadbook-report-count="user-decision-required">${summary.userDecisionRequiredPointCount}</dd>
+      </div>
+    </dl>`
+}
+
 function renderCounters(report: RoadbookMatchReport): string {
   const { summary } = report
 
   return `
-    <dl class="roadbook-report__counters" aria-label="Compteurs du diagnostic global">
+    <dl class="roadbook-report__counters" aria-label="Compteurs techniques du diagnostic global">
       <div>
         <dt>Journées</dt>
         <dd>${summary.dayCount}</dd>
@@ -394,15 +445,15 @@ function renderCounters(report: RoadbookMatchReport): string {
         <dd>${summary.pointCount}</dd>
       </div>
       <div>
-        <dt>Appariés</dt>
+        <dt>Appariés (statut brut)</dt>
         <dd data-roadbook-report-count="matched">${summary.matchedPointCount}</dd>
       </div>
       <div>
-        <dt>À contrôler</dt>
+        <dt>À contrôler (statut brut)</dt>
         <dd data-roadbook-report-count="needs-review">${summary.needsReviewPointCount}</dd>
       </div>
       <div>
-        <dt>Non appariés</dt>
+        <dt>Non appariés (statut brut)</dt>
         <dd data-roadbook-report-count="unmatched">${summary.unmatchedPointCount}</dd>
       </div>
       <div>
@@ -503,15 +554,20 @@ export function renderRoadbookReport(
       </p>
     </header>
 
-    ${renderCounters(report)}
-    ${renderValidation(report)}
-    ${renderActivePoints(report)}
+    ${renderResolutionCounters(report)}
 
-    <div class="roadbook-report__groups">
-      ${statusOrder
-        .map((status) =>
-          renderStatusGroup(status, report.allPointMatches),
-        )
-        .join('')}
-    </div>`
+    <details class="roadbook-report__disclosure" data-roadbook-diagnostics-disclosure>
+      <summary>Diagnostic technique</summary>
+      ${renderCounters(report)}
+      ${renderValidation(report)}
+      ${renderActivePoints(report)}
+
+      <div class="roadbook-report__groups">
+        ${resolutionOrder
+          .map((resolution) =>
+            renderResolutionGroup(resolution, report.allPointMatches),
+          )
+          .join('')}
+      </div>
+    </details>`
 }

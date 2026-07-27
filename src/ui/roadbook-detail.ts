@@ -13,7 +13,7 @@ import type {
 import type {
   RoadbookDescription,
   RoadbookMatchMethod,
-  RoadbookPointStatus,
+  RoadbookResolution,
 } from '../trip/roadbook-types.ts'
 import type { RideDayTimeline, TripDayTimeline } from '../trip/types.ts'
 
@@ -25,10 +25,18 @@ const integerFormatter = new Intl.NumberFormat('fr-FR', {
   maximumFractionDigits: 0,
 })
 
-const pointStatusLabels: Record<RoadbookPointStatus, string> = {
-  matched: 'Apparié',
-  'needs-review': 'À contrôler',
-  unmatched: 'Non apparié',
+const resolutionLabels: Record<RoadbookResolution, string> = {
+  matched: 'Actif',
+  informational: 'Information',
+  excluded: 'Exclu',
+  'user-decision-required': 'Décision requise',
+}
+
+const resolutionGroupLabels: Record<RoadbookResolution, string> = {
+  matched: 'Points actifs',
+  informational: 'Informations seulement',
+  excluded: 'Exclus',
+  'user-decision-required': 'Décisions requises',
 }
 
 const matchMethodLabels: Record<RoadbookMatchMethod, string> = {
@@ -94,20 +102,22 @@ function formatSignedMetric(
   return `${sign}${formatter.format(Math.abs(value))} ${unit}`
 }
 
-function getStatusTagClass(status: RoadbookPointStatus): string {
-  switch (status) {
+function getResolutionTagClass(resolution: RoadbookResolution): string {
+  switch (resolution) {
     case 'matched':
       return 'tag--ride'
-    case 'needs-review':
+    case 'informational':
       return 'tag--data'
-    case 'unmatched':
-      return 'tag--error'
+    case 'excluded':
+      return 'tag--muted'
+    case 'user-decision-required':
+      return 'tag--variant'
   }
 }
 
 function renderMatchBadge(point: RoadbookPointMatch | undefined): string {
   if (point === undefined) {
-    return '<span class="tag tag--error" data-roadbook-point-status="missing">Absent du diagnostic</span>'
+    return '<span class="tag tag--error" data-roadbook-point-resolution="missing">Absent du diagnostic</span>'
   }
 
   const method =
@@ -117,11 +127,11 @@ function renderMatchBadge(point: RoadbookPointMatch | undefined): string {
 
   return `
     <span
-      class="tag ${getStatusTagClass(point.status)}"
-      data-roadbook-point-status="${point.status}"
-      title="${escapeHtml(`${pointStatusLabels[point.status]}${method}`)}"
+      class="tag ${getResolutionTagClass(point.resolution)}"
+      data-roadbook-point-resolution="${point.resolution}"
+      title="${escapeHtml(`${resolutionLabels[point.resolution]}${method}`)}"
     >
-      ${pointStatusLabels[point.status]}
+      ${resolutionLabels[point.resolution]}
     </span>`
 }
 
@@ -160,26 +170,33 @@ function renderDescriptionList(
   )
 }
 
-function renderStatusCounters(points: readonly RoadbookPointMatch[]): string {
-  const matched = points.filter(({ status }) => status === 'matched').length
-  const needsReview = points.filter(
-    ({ status }) => status === 'needs-review',
+function renderResolutionCounters(points: readonly RoadbookPointMatch[]): string {
+  const active = points.filter(({ resolution }) => resolution === 'matched').length
+  const informational = points.filter(
+    ({ resolution }) => resolution === 'informational',
   ).length
-  const unmatched = points.filter(({ status }) => status === 'unmatched').length
+  const excluded = points.filter(({ resolution }) => resolution === 'excluded').length
+  const decisionRequired = points.filter(
+    ({ resolution }) => resolution === 'user-decision-required',
+  ).length
 
   return `
-    <dl class="roadbook-detail__counters" aria-label="Compteurs d’appariement">
+    <dl class="roadbook-detail__counters" aria-label="Compteurs de résolution des points de la journée">
       <div>
-        <dt>Appariés</dt>
-        <dd data-roadbook-detail-count="matched">${matched}</dd>
+        <dt>${resolutionGroupLabels.matched}</dt>
+        <dd data-roadbook-detail-count="matched">${active}</dd>
       </div>
       <div>
-        <dt>À contrôler</dt>
-        <dd data-roadbook-detail-count="needs-review">${needsReview}</dd>
+        <dt>${resolutionGroupLabels.informational}</dt>
+        <dd data-roadbook-detail-count="informational">${informational}</dd>
       </div>
       <div>
-        <dt>Non appariés</dt>
-        <dd data-roadbook-detail-count="unmatched">${unmatched}</dd>
+        <dt>${resolutionGroupLabels.excluded}</dt>
+        <dd data-roadbook-detail-count="excluded">${excluded}</dd>
+      </div>
+      <div>
+        <dt>${resolutionGroupLabels['user-decision-required']}</dt>
+        <dd data-roadbook-detail-count="user-decision-required">${decisionRequired}</dd>
       </div>
     </dl>`
 }
@@ -284,36 +301,77 @@ function renderCols(dayMatch: Extract<RoadbookDayMatchReport, { type: 'ride' }>)
     </ul>`
 }
 
-function renderPassageGroup(
+function renderPassageItem(passage: { readonly id: string; readonly label: string }, match: RoadbookPointMatch | undefined): string {
+  return `
+    <li data-roadbook-detail-point="${escapeHtml(passage.id)}">
+      <div class="roadbook-detail__item-heading">
+        <strong>${escapeHtml(passage.label)}</strong>
+        ${renderMatchBadge(match)}
+      </div>
+      <small>Heure théorique : ${renderPointEta(match)}</small>
+    </li>`
+}
+
+function renderMainPassages(
   dayMatch: Extract<RoadbookDayMatchReport, { type: 'ride' }>,
 ): string {
-  const { resupplyPassages } = dayMatch.roadbook
+  const mainPassages = dayMatch.roadbook.resupplyPassages.filter((passage) => {
+    const match = dayMatch.points.find(({ id }) => id === passage.id)
+    return match?.resolution === 'matched'
+  })
 
-  if (resupplyPassages.length === 0) {
-    return '<p class="roadbook-detail__empty">Aucun passage ou ravitaillement documenté.</p>'
+  if (mainPassages.length === 0) {
+    return '<p class="roadbook-detail__empty">Aucun arrêt principal documenté.</p>'
   }
 
   return `
-    <div class="roadbook-detail__source-group" data-roadbook-passage-group>
-      <p>
-        Libellés conservés comme groupe éditorial du roadbook ; leur nature exacte
-        n’est pas déduite automatiquement.
-      </p>
-      <ul class="roadbook-detail__items">
-        ${resupplyPassages
-          .map((passage) => {
-            const match = dayMatch.points.find(({ id }) => id === passage.id)
-            return `
-              <li data-roadbook-detail-point="${escapeHtml(passage.id)}">
-                <div class="roadbook-detail__item-heading">
-                  <strong>${escapeHtml(passage.label)}</strong>
-                  ${renderMatchBadge(match)}
-                </div>
-                <small>Heure théorique : ${renderPointEta(match)}</small>
-              </li>`
-          })
-          .join('')}
-      </ul>
+    <ul class="roadbook-detail__items">
+      ${mainPassages
+        .map((passage) =>
+          renderPassageItem(
+            passage,
+            dayMatch.points.find(({ id }) => id === passage.id),
+          ),
+        )
+        .join('')}
+    </ul>`
+}
+
+function renderOtherPassages(
+  dayMatch: Extract<RoadbookDayMatchReport, { type: 'ride' }>,
+): string {
+  const secondaryPassages = dayMatch.roadbook.resupplyPassages.filter((passage) => {
+    const match = dayMatch.points.find(({ id }) => id === passage.id)
+    return match?.resolution !== 'matched'
+  })
+  const secondaryContent =
+    secondaryPassages.length === 0
+      ? '<p class="roadbook-detail__empty">Aucun autre passage documenté.</p>'
+      : `
+        <ul class="roadbook-detail__items">
+          ${secondaryPassages
+            .map((passage) =>
+              renderPassageItem(
+                passage,
+                dayMatch.points.find(({ id }) => id === passage.id),
+              ),
+            )
+            .join('')}
+        </ul>`
+
+  return `
+    <p class="roadbook-detail__hint">
+      Libellés conservés comme groupe éditorial du roadbook ; leur nature exacte
+      n’est pas déduite automatiquement.
+    </p>
+    <div class="roadbook-detail__subsection">
+      <h5>Passages secondaires</h5>
+      ${secondaryContent}
+    </div>
+    ${renderPauses(dayMatch)}
+    <div class="roadbook-detail__subsection">
+      <h5>Options</h5>
+      ${renderOptions(dayMatch)}
     </div>`
 }
 
@@ -462,7 +520,6 @@ function renderRideDay(
           ${escapeHtml(roadbook.startName)} → ${escapeHtml(roadbook.endName)}
         </p>
       </div>
-      ${renderStatusCounters(dayMatch.points)}
     </header>
 
     <p class="roadbook-detail__ambiance">${escapeHtml(roadbook.ambiance)}</p>
@@ -480,52 +537,46 @@ function renderRideDay(
       </div>
     </dl>
 
-    ${renderStatsComparison(stats.gpx, stats.roadbook, stats.deltaGpxMinusRoadbook)}
-
     <section class="roadbook-detail__section" aria-labelledby="roadbook-detail-cols">
       <h4 id="roadbook-detail-cols">Cols</h4>
       ${renderCols(dayMatch)}
     </section>
 
     <section class="roadbook-detail__section" aria-labelledby="roadbook-detail-passages">
-      <h4 id="roadbook-detail-passages">Passages et ravitaillements</h4>
-      ${renderPassageGroup(dayMatch)}
+      <h4 id="roadbook-detail-passages">Arrêts principaux</h4>
+      ${renderMainPassages(dayMatch)}
     </section>
 
-    <section class="roadbook-detail__section" aria-labelledby="roadbook-detail-pauses">
-      <h4 id="roadbook-detail-pauses">Pauses</h4>
-      ${renderPauses(dayMatch)}
-    </section>
+    <details class="roadbook-detail__disclosure" data-roadbook-other-passages>
+      <summary>Autres passages</summary>
+      ${renderOtherPassages(dayMatch)}
+    </details>
 
-    <section class="roadbook-detail__section" aria-labelledby="roadbook-detail-variant">
-      <h4 id="roadbook-detail-variant">Variante et options</h4>
-      <div class="roadbook-detail__variant">
-        <strong>Variante</strong>
+    <details class="roadbook-detail__disclosure" data-roadbook-source-detail>
+      <summary>Roadbook</summary>
+      ${renderResolutionCounters(dayMatch.points)}
+      ${renderStatsComparison(stats.gpx, stats.roadbook, stats.deltaGpxMinusRoadbook)}
+      <div class="roadbook-detail__subsection">
+        <h5>Variante</h5>
         <p>${escapeHtml(roadbook.variant ?? 'Aucune variante documentée.')}</p>
       </div>
       <div class="roadbook-detail__subsection">
-        <h5>Options</h5>
-        ${renderOptions(dayMatch)}
+        <h5>Logements</h5>
+        ${renderDescriptionList(
+          dayMatch.lodgings,
+          'Aucun logement documenté.',
+          'roadbook-detail__descriptions',
+        )}
       </div>
-    </section>
-
-    <section class="roadbook-detail__section" aria-labelledby="roadbook-detail-lodgings">
-      <h4 id="roadbook-detail-lodgings">Logements</h4>
-      ${renderDescriptionList(
-        dayMatch.lodgings,
-        'Aucun logement documenté.',
-        'roadbook-detail__descriptions',
-      )}
-    </section>
-
-    <section class="roadbook-detail__section" aria-labelledby="roadbook-detail-notes">
-      <h4 id="roadbook-detail-notes">Notes</h4>
-      ${renderTextList(
-        roadbook.notes,
-        'Aucune note complémentaire.',
-        'roadbook-detail__notes',
-      )}
-    </section>`
+      <div class="roadbook-detail__subsection">
+        <h5>Notes</h5>
+        ${renderTextList(
+          roadbook.notes,
+          'Aucune note complémentaire.',
+          'roadbook-detail__notes',
+        )}
+      </div>
+    </details>`
 }
 
 function renderOffDay(
@@ -544,11 +595,11 @@ function renderOffDay(
 
     <p class="roadbook-detail__ambiance">${escapeHtml(roadbook.ambiance)}</p>
 
-    <section class="roadbook-detail__section" aria-labelledby="roadbook-detail-logistics">
-      <h4 id="roadbook-detail-logistics">Logistique</h4>
+    <section class="roadbook-detail__section" aria-labelledby="roadbook-detail-activities">
+      <h4 id="roadbook-detail-activities">Activités</h4>
       ${renderDescriptionList(
-        roadbook.logistics,
-        'Aucune consigne logistique documentée.',
+        roadbook.activities,
+        'Aucune activité documentée.',
         'roadbook-detail__descriptions',
       )}
     </section>
@@ -562,32 +613,33 @@ function renderOffDay(
       )}
     </section>
 
-    <section class="roadbook-detail__section" aria-labelledby="roadbook-detail-activities">
-      <h4 id="roadbook-detail-activities">Activités</h4>
-      ${renderDescriptionList(
-        roadbook.activities,
-        'Aucune activité documentée.',
-        'roadbook-detail__descriptions',
-      )}
-    </section>
-
-    <section class="roadbook-detail__section" aria-labelledby="roadbook-detail-lodgings">
-      <h4 id="roadbook-detail-lodgings">Logements</h4>
-      ${renderDescriptionList(
-        dayMatch.lodgings,
-        'Aucun logement documenté.',
-        'roadbook-detail__descriptions',
-      )}
-    </section>
-
-    <section class="roadbook-detail__section" aria-labelledby="roadbook-detail-notes">
-      <h4 id="roadbook-detail-notes">Notes</h4>
-      ${renderTextList(
-        roadbook.notes,
-        'Aucune note complémentaire.',
-        'roadbook-detail__notes',
-      )}
-    </section>
+    <details class="roadbook-detail__disclosure" data-roadbook-source-detail>
+      <summary>Roadbook</summary>
+      <div class="roadbook-detail__subsection">
+        <h5>Logistique</h5>
+        ${renderDescriptionList(
+          roadbook.logistics,
+          'Aucune consigne logistique documentée.',
+          'roadbook-detail__descriptions',
+        )}
+      </div>
+      <div class="roadbook-detail__subsection">
+        <h5>Logements</h5>
+        ${renderDescriptionList(
+          dayMatch.lodgings,
+          'Aucun logement documenté.',
+          'roadbook-detail__descriptions',
+        )}
+      </div>
+      <div class="roadbook-detail__subsection">
+        <h5>Notes</h5>
+        ${renderTextList(
+          roadbook.notes,
+          'Aucune note complémentaire.',
+          'roadbook-detail__notes',
+        )}
+      </div>
+    </details>
 
     <p class="roadbook-detail__next-day">
       <strong>Prochaine journée roulée</strong>
@@ -603,6 +655,10 @@ function clearDetailData(container: HTMLElement): void {
   delete container.dataset.roadbookMatchedCount
   delete container.dataset.roadbookNeedsReviewCount
   delete container.dataset.roadbookUnmatchedCount
+  delete container.dataset.roadbookActiveCount
+  delete container.dataset.roadbookInformationalCount
+  delete container.dataset.roadbookExcludedCount
+  delete container.dataset.roadbookDecisionRequiredCount
 }
 
 export function renderRoadbookDetailLoading(container: HTMLElement): void {
@@ -658,11 +714,27 @@ export function renderRoadbookDayDetail(
   const unmatchedCount = dayMatch.points.filter(
     ({ status }) => status === 'unmatched',
   ).length
+  const activeCount = dayMatch.points.filter(
+    ({ resolution }) => resolution === 'matched',
+  ).length
+  const informationalCount = dayMatch.points.filter(
+    ({ resolution }) => resolution === 'informational',
+  ).length
+  const excludedCount = dayMatch.points.filter(
+    ({ resolution }) => resolution === 'excluded',
+  ).length
+  const decisionRequiredCount = dayMatch.points.filter(
+    ({ resolution }) => resolution === 'user-decision-required',
+  ).length
   const readyTimeline = findReadyTimeline(dayMatch, timelineDay)
 
   container.dataset.roadbookHasEta = String(readyTimeline !== null)
   container.dataset.roadbookMatchedCount = String(matchedCount)
   container.dataset.roadbookNeedsReviewCount = String(needsReviewCount)
   container.dataset.roadbookUnmatchedCount = String(unmatchedCount)
+  container.dataset.roadbookActiveCount = String(activeCount)
+  container.dataset.roadbookInformationalCount = String(informationalCount)
+  container.dataset.roadbookExcludedCount = String(excludedCount)
+  container.dataset.roadbookDecisionRequiredCount = String(decisionRequiredCount)
   container.innerHTML = renderRideDay(dayMatch, timelineDay)
 }

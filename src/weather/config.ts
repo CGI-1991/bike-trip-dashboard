@@ -1,0 +1,61 @@
+import type {
+  WeatherDailyVariable,
+  WeatherHourlyVariable,
+} from './types.ts'
+
+export const WEATHER_HOURLY_VARIABLES = [
+  'temperature_2m',
+  'apparent_temperature',
+  'relative_humidity_2m',
+  'precipitation_probability',
+  'precipitation',
+  'rain',
+  'showers',
+  'snowfall',
+  'weather_code',
+  'cloud_cover',
+  'visibility',
+  'wind_speed_10m',
+  'wind_direction_10m',
+  'wind_gusts_10m',
+  'freezing_level_height',
+] as const satisfies readonly WeatherHourlyVariable[]
+
+export const WEATHER_DAILY_VARIABLES = [
+  'temperature_2m_min',
+  'temperature_2m_max',
+  'apparent_temperature_min',
+  'apparent_temperature_max',
+  'precipitation_sum',
+  'precipitation_probability_max',
+  'weather_code',
+  'wind_speed_10m_max',
+  'wind_gusts_10m_max',
+  'wind_direction_10m_dominant',
+  'sunrise',
+  'sunset',
+] as const satisfies readonly WeatherDailyVariable[]
+
+export const weatherConfig = {
+  endpoint: 'https://api.open-meteo.com/v1/forecast',
+  provider: 'open-meteo',
+  timezone: 'Europe/Paris',
+  forecastDays: 16,
+  temperatureUnit: 'celsius',
+  windSpeedUnit: 'kmh',
+  precipitationUnit: 'mm',
+  timeformat: 'iso8601',
+  cacheKey: 'rga-2026-dashboard.weather.v1',
+  cacheVersion: 1,
+  cacheFreshMs: 30 * 60_000,
+  cacheMaximumEntries: 24,
+  cacheMaximumCharacters: 2_800_000,
+  maxConcurrentRequests: 2,
+  maxLocationsPerRequest: 16,
+  maxEtaForecastOffsetMinutes: 60,
+  dedupeDistanceM: 100,
+  dedupeElevationM: 30,
+  retainedEtaDayOffsets: 2,
+  hourlyVariables: WEATHER_HOURLY_VARIABLES,
+  dailyVariables: WEATHER_DAILY_VARIABLES,
+} as const

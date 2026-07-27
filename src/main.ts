@@ -2,6 +2,13 @@ import './style.css'
 import type { GpxAnalysisReport } from './gpx/types.ts'
 import { loadSettings, saveSettings } from './storage/settings.ts'
 import type { DashboardSettings } from './storage/settings.ts'
+import { getDateInTimezone } from './trip/calendar.ts'
+import { WeatherCache } from './weather/cache.ts'
+import { WeatherCoordinator } from './weather/coordinator.ts'
+import { weatherConfig } from './weather/config.ts'
+import { isTripDateInPast } from './weather/display-policy.ts'
+import { createOpenMeteoProvider } from './weather/open-meteo.ts'
+import type { WeatherDayState, WeatherSnapshot } from './weather/types.ts'
 import { isTripDayId, rga2026TripPlan } from './trip/plan.ts'
 import { loadRoadbookResources } from './trip/roadbook-loader.ts'
 import {
@@ -46,6 +53,16 @@ import {
   renderTripPlanLoading,
   renderTripTimeline,
 } from './ui/trip-plan.ts'
+import {
+  renderWeatherDetail,
+  renderWeatherDetailError,
+  renderWeatherDetailLoading,
+} from './ui/weather-detail.ts'
+import {
+  renderWeatherSummary,
+  renderWeatherSummaryError,
+  renderWeatherSummaryLoading,
+} from './ui/weather-summary.ts'
 
 function getRequiredElement<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector)
@@ -66,6 +83,15 @@ let currentRoadbookReport: RoadbookMatchReport | null = null
 let currentRoadbookError: unknown = null
 let currentGpxError: unknown = null
 let selectedDayId: TripDayId = 'J1'
+let currentWeatherError: unknown = null
+let currentWeatherSnapshot: WeatherSnapshot = {
+  selectedDayId,
+  states: new Map(),
+}
+const weatherCoordinator = new WeatherCoordinator({
+  provider: createOpenMeteoProvider(),
+  cache: new WeatherCache(),
+})
 
 const app = getRequiredElement<HTMLDivElement>('#app')
 app.innerHTML = renderDashboard(currentSettings, rga2026TripPlan)
@@ -87,6 +113,89 @@ const roadbookReportContainer = getRequiredElement<HTMLElement>(
   '[data-roadbook-diagnostics]',
 )
 const gpxAnalysisContainer = getRequiredElement<HTMLElement>('[data-gpx-analysis]')
+const weatherPanel = getRequiredElement<HTMLElement>('[data-weather-panel]')
+const weatherRefreshButton = getRequiredElement<HTMLButtonElement>(
+  '[data-weather-refresh]',
+)
+const weatherStatus = getRequiredElement<HTMLElement>('[data-weather-status]')
+const weatherUpdatedAt = getRequiredElement<HTMLTimeElement>(
+  '[data-weather-updated-at]',
+)
+
+const weatherStateLabels: Record<WeatherDayState['availability'], string> = {
+  loading: 'Chargement des prévisions',
+  available: 'Prévisions disponibles',
+  partial: 'Prévisions partielles',
+  'outside-horizon': 'Date hors horizon prévisionnel',
+  'stale-cache': 'Dernières prévisions en cache',
+  unavailable: 'Prévisions indisponibles',
+  error: 'Erreur météo',
+}
+
+function renderWeatherChrome(state: WeatherDayState | null): void {
+  const isPast =
+    state !== null &&
+    isTripDateInPast(
+      state.tripDate,
+      getDateInTimezone(new Date(), weatherConfig.timezone),
+    )
+  weatherStatus.textContent =
+    state === null
+      ? 'Prévisions en attente'
+      : isPast
+        ? 'Journée passée'
+        : weatherStateLabels[state.availability]
+  weatherRefreshButton.disabled =
+    state === null ||
+    state.isRefreshing ||
+    isPast ||
+    state.availability === 'outside-horizon' ||
+    state.availability === 'unavailable'
+  weatherRefreshButton.setAttribute(
+    'aria-disabled',
+    String(weatherRefreshButton.disabled),
+  )
+
+  if (state?.fetchedAt === null || state === null) {
+    weatherUpdatedAt.textContent = 'Aucune actualisation'
+    weatherUpdatedAt.removeAttribute('datetime')
+    return
+  }
+
+  const fetchedAt = new Date(state.fetchedAt)
+  weatherUpdatedAt.dateTime = state.fetchedAt
+  weatherUpdatedAt.textContent = Number.isNaN(fetchedAt.getTime())
+    ? 'Actualisation inconnue'
+    : `Mis à jour ${new Intl.DateTimeFormat('fr-FR', {
+        dateStyle: 'short',
+        timeStyle: 'short',
+        timeZone: 'Europe/Paris',
+      }).format(fetchedAt)}`
+}
+
+function renderCurrentWeatherSelection(): void {
+  try {
+    renderWeatherSummary(tripPlanContainer, currentWeatherSnapshot)
+    const state = currentWeatherSnapshot.states.get(selectedDayId) ?? null
+
+    if (state === null) {
+      if (currentWeatherError === null) {
+        renderWeatherDetailLoading(weatherPanel)
+      } else {
+        renderWeatherDetailError(weatherPanel, currentWeatherError)
+      }
+    } else {
+      renderWeatherDetail(weatherPanel, state)
+    }
+
+    renderWeatherChrome(state)
+  } catch (error) {
+    currentWeatherError = error
+    renderWeatherSummaryError(tripPlanContainer, error)
+    renderWeatherDetailError(weatherPanel, error)
+    renderWeatherChrome(null)
+  }
+}
 
 function focusSelectedTripDay(): void {
   tripPlanContainer
@@ -147,6 +256,7 @@ function renderCurrentTripSelection(restoreFocus = false): void {
   if (currentTripTimeline === null) {
     updatePendingTripSelection()
     renderCurrentRoadbookSelection(null)
+    renderCurrentWeatherSelection()
 
     if (restoreFocus) {
       focusSelectedTripDay()
@@ -162,12 +272,14 @@ function renderCurrentTripSelection(restoreFocus = false): void {
     renderTripPlanError(tripPlanContainer, rga2026TripPlan, selectedDayId, error)
     renderRouteEngineError(routeEngineContainer, error)
     renderRoadbookDetailError(roadbookDetailContainer, error)
+    renderWeatherDetailError(weatherPanel, error)
     return
   }
 
   renderTripTimeline(tripPlanContainer, currentTripTimeline, selectedDayId)
   renderTripDayRouteTimeline(routeEngineContainer, selectedDay, currentRoadbookReport)
   renderCurrentRoadbookSelection(selectedDay)
+  renderCurrentWeatherSelection()
   dayIndicator.textContent = `${selectedDay.day.id} sur ${rga2026TripPlan.totalDays} · ${
     selectedDay.type === 'off' ? 'OFF' : 'Roulé'
   }`
@@ -251,11 +363,19 @@ function refreshRoadbookIntegration(): void {
 
     currentRoadbookReport = report
     currentRoadbookError = null
+    currentWeatherError = null
+    weatherCoordinator.setContext(
+      rga2026TripPlan,
+      currentTripTimeline,
+      report,
+      selectedDayId,
+    )
     renderRoadbookReport(roadbookReportContainer, report)
     renderCurrentTripSelection()
   } catch (error) {
     currentRoadbookReport = null
     currentRoadbookError = error
+    currentWeatherError = error
     renderRoadbookReportError(roadbookReportContainer, error)
     renderCurrentTripSelection()
   }
@@ -274,6 +394,8 @@ function refreshTripTimeline(): void {
     renderTripPlanError(tripPlanContainer, rga2026TripPlan, selectedDayId, error)
     renderRouteEngineError(routeEngineContainer, error)
     renderRoadbookDetailError(roadbookDetailContainer, error)
+    currentWeatherError = error
+    renderCurrentWeatherSelection()
   }
 }
 
@@ -350,13 +472,34 @@ tripPlanContainer.addEventListener('click', (event) => {
   }
 
   selectedDayId = requestedDayId
+  weatherCoordinator.selectDay(requestedDayId)
   renderCurrentTripSelection(true)
+})
+
+weatherRefreshButton.addEventListener('click', () => {
+  void weatherCoordinator.refreshSelected().catch((error: unknown) => {
+    currentWeatherError = error
+    renderCurrentWeatherSelection()
+  })
 })
 
 renderTripPlanLoading(tripPlanContainer, rga2026TripPlan, selectedDayId)
 renderRouteEngineLoading(routeEngineContainer)
 renderRoadbookDetailLoading(roadbookDetailContainer)
 renderRoadbookReportLoading(roadbookReportContainer)
+renderWeatherSummaryLoading(tripPlanContainer)
+renderWeatherDetailLoading(weatherPanel)
+
+const unsubscribeWeather = weatherCoordinator.subscribe((snapshot) => {
+  currentWeatherSnapshot = snapshot
+  currentWeatherError = null
+  renderCurrentWeatherSelection()
+})
+
+window.addEventListener('beforeunload', () => {
+  unsubscribeWeather()
+  weatherCoordinator.dispose()
+})
 
 void loadRoadbookResources()
   .then((resources) => {
@@ -368,8 +511,10 @@ void loadRoadbookResources()
     currentRoadbookResources = null
     currentRoadbookReport = null
     currentRoadbookError = error
+    currentWeatherError = error
     renderRoadbookDetailError(roadbookDetailContainer, error)
     renderRoadbookReportError(roadbookReportContainer, error)
+    renderCurrentWeatherSelection()
   })
 
 void initializeGpxAnalysis(gpxAnalysisContainer, rga2026TripPlan.rideDays).then((report) => {
@@ -380,6 +525,8 @@ void initializeGpxAnalysis(gpxAnalysisContainer, rga2026TripPlan.rideDays).then(
     renderRouteEngineError(routeEngineContainer, error)
     renderRoadbookDetailError(roadbookDetailContainer, error)
     renderRoadbookReportError(roadbookReportContainer, error)
+    currentWeatherError = error
+    renderCurrentWeatherSelection()
     return
   }
 
@@ -394,5 +541,7 @@ void initializeGpxAnalysis(gpxAnalysisContainer, rga2026TripPlan.rideDays).then(
     renderRouteEngineError(routeEngineContainer, error)
     renderRoadbookDetailError(roadbookDetailContainer, error)
     renderRoadbookReportError(roadbookReportContainer, error)
+    currentWeatherError = error
+    renderCurrentWeatherSelection()
   }
 })

@@ -24,6 +24,17 @@ export type RoadbookPointStatus =
   | 'needs-review'
   | 'unmatched'
 
+/**
+ * Editorial classification layered on top of `RoadbookPointStatus`. Status is the
+ * matching engine's geometric verdict against the GPX; resolution is the product
+ * decision about how (or whether) a point should surface as an active waypoint.
+ */
+export type RoadbookResolution =
+  | 'matched'
+  | 'informational'
+  | 'excluded'
+  | 'user-decision-required'
+
 export type RoadbookMatchMethod =
   | 'endpoint'
   | 'named-gpx-point'

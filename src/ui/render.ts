@@ -111,7 +111,7 @@ export function renderDashboard(
       <main class="dashboard">
         <aside class="phase-notice" aria-label="Périmètre de cette version">
           <strong>Plan de voyage consolidé</strong>
-          <span>12 jours calendaires, 10 journées roulées et 2 journées OFF. Météo non connectée.</span>
+          <span>12 jours calendaires, 10 journées roulées et 2 journées OFF. Données météo réelles selon disponibilité.</span>
         </aside>
 
         <div class="trip-dashboard-layout">
@@ -156,6 +156,51 @@ export function renderDashboard(
           </section>
         </div>
 
+        <section class="card weather-card" aria-labelledby="weather-card-title">
+          <div class="section-heading section-heading--compact weather-card__heading">
+            <div>
+              <p class="eyebrow">Journée sélectionnée</p>
+              <h2 id="weather-card-title">Météo de la journée</h2>
+            </div>
+            <div class="weather-card__actions">
+              <span
+                class="tag tag--data"
+                data-weather-status
+                role="status"
+                aria-live="polite"
+              >
+                En attente
+              </span>
+              <button
+                class="button button--quiet"
+                type="button"
+                data-weather-refresh
+                aria-controls="selected-day-weather"
+              >
+                Actualiser la météo
+              </button>
+            </div>
+          </div>
+          <p class="weather-card__updated">
+            Dernière mise à jour :
+            <time data-weather-updated-at>Aucune donnée reçue</time>
+          </p>
+          <div
+            class="weather-detail"
+            id="selected-day-weather"
+            data-weather-panel
+            data-weather-state="loading"
+            data-weather-source="none"
+            data-weather-refreshing="false"
+            data-weather-has-data="false"
+            aria-busy="true"
+          >
+            <p class="weather-detail__message" role="status" aria-live="polite">
+              Chargement de la météo de la journée…
+            </p>
+          </div>
+        </section>
+
         <section class="card roadbook-detail-card" aria-labelledby="roadbook-detail-title">
           <div class="section-heading section-heading--compact">
             <div>
@@ -177,10 +222,10 @@ export function renderDashboard(
         <section class="card roadbook-diagnostics-card" aria-labelledby="roadbook-diagnostics-title">
           <div class="section-heading section-heading--compact">
             <div>
-              <p class="eyebrow">Contrôle provisoire</p>
+              <p class="eyebrow">Points actifs, informatifs, exclus, décisions</p>
               <h2 id="roadbook-diagnostics-title">Validation roadbook / GPX</h2>
             </div>
-            <span class="tag tag--data">3 statuts</span>
+            <span class="tag tag--data">4 résolutions</span>
           </div>
           <div
             class="roadbook-diagnostics"

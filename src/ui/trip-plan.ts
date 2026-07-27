@@ -3,12 +3,14 @@ import {
   formatRouteClockTime,
 } from '../route/time.ts'
 import type { RouteClockTime } from '../route/types.ts'
+import { getTripDate } from '../trip/calendar.ts'
 import type {
   OffDay,
   RideDay,
   RideDayTimeline,
   TripDay,
   TripDayId,
+  TripDayNumber,
   TripDayTimeline,
   TripPlan,
   TripTimeline,
@@ -18,6 +20,16 @@ const distanceFormatter = new Intl.NumberFormat('fr-FR', {
   minimumFractionDigits: 1,
   maximumFractionDigits: 1,
 })
+const dayDateFormatter = new Intl.DateTimeFormat('fr-FR', {
+  timeZone: 'UTC',
+  day: 'numeric',
+  month: 'short',
+})
+
+function formatDayDate(dayNumber: TripDayNumber): string {
+  const date = new Date(`${getTripDate(dayNumber)}T12:00:00Z`)
+  return Number.isNaN(date.getTime()) ? '' : dayDateFormatter.format(date)
+}
 const elevationFormatter = new Intl.NumberFormat('fr-FR', {
   maximumFractionDigits: 0,
 })
@@ -41,6 +53,22 @@ function formatGpxNumber(gpxNumber: number): string {
 
 function formatVariant(variant: string): string {
   return variant === 'Variante' ? variant : `Variante ${variant}`
+}
+
+function renderWeatherSlot(dayId: TripDayId): string {
+  return `
+    <span
+      class="trip-day__weather"
+      data-trip-day-weather="${dayId}"
+      data-weather-state="loading"
+      data-weather-source="none"
+      data-weather-cache-state="miss"
+      data-weather-refreshing="false"
+      data-weather-has-data="false"
+      aria-label="${dayId} : météo en attente"
+    >
+      Météo en attente
+    </span>`
 }
 
 function renderDayButtonStart(
@@ -67,7 +95,10 @@ function renderDayButtonStart(
         data-trip-day-select="${day.id}"
         aria-pressed="${isSelected}"
       >
-        <span class="trip-day__number">${day.id}</span>`
+        <span class="trip-day__number-group">
+          <span class="trip-day__number">${day.id}</span>
+          <time class="trip-day__date" datetime="${getTripDate(day.dayNumber)}">${escapeHtml(formatDayDate(day.dayNumber))}</time>
+        </span>`
 }
 
 function renderReadyRideDay(
@@ -90,6 +121,7 @@ function renderReadyRideDay(
             <span>${distanceFormatter.format(route.summary.distanceKm)} km</span>
             <span>+${elevationFormatter.format(route.summary.elevationGainM)} m</span>
           </span>
+          ${renderWeatherSlot(day.id)}
         </span>
         <span class="trip-day__schedule">
           <small>
@@ -119,6 +151,7 @@ function renderUnavailableRideDay(
           <span class="trip-day__metrics trip-day__metrics--error">
             Analyse de la trace impossible
           </span>
+          ${renderWeatherSlot(day.id)}
         </span>
         <span class="trip-day__schedule trip-day__schedule--empty">
           <strong>—</strong>
@@ -141,10 +174,10 @@ function renderOffDay(
           </span>
           <span class="trip-day__route">${escapeHtml(day.locationName)}</span>
           <span class="trip-day__metrics">Prochaine journée roulée : ${day.nextRideDayId}</span>
+          ${renderWeatherSlot(day.id)}
         </span>
         <span class="trip-day__schedule trip-day__schedule--off">
-          <small>Aucune</small>
-          <strong>ETA</strong>
+          <strong>Journée OFF</strong>
         </span>
       </button>
     </li>`
@@ -163,6 +196,7 @@ function renderStaticDay(day: TripDay, selectedDayId: TripDayId): string {
           </span>
           <span class="trip-day__meta">GPX ${formatGpxNumber(day.gpxNumber)}</span>
           <span class="trip-day__metrics">Calcul en attente</span>
+          ${renderWeatherSlot(day.id)}
         </span>
         <span class="trip-day__schedule trip-day__schedule--empty">
           <strong>—</strong>
