@@ -133,6 +133,7 @@ function makeState(overrides = {}) {
     receivedDates: ['2026-07-27', '2026-08-12'],
     data: null,
     isRefreshing: false,
+    departureScenarios: null,
     ...overrides,
   }
 }

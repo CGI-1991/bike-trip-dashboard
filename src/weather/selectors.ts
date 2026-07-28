@@ -204,7 +204,11 @@ export function extractTodayReference(
   }
 }
 
-function getSuccessfulLocation(
+/**
+ * Exported so the departure-scenario engine (`weather/alerts/`) can reassociate
+ * shifted ETAs against the same already-fetched result, without a new fetch.
+ */
+export function getSuccessfulLocationForecast(
   result: WeatherForecastResult,
   locationId: string,
 ): NormalizedLocationForecast | null {
@@ -259,7 +263,7 @@ function associateRideDay(
         )
       }
 
-      const forecast = getSuccessfulLocation(result, locationId)
+      const forecast = getSuccessfulLocationForecast(result, locationId)
       if (forecast === null) {
         return createUnavailableWaypoint(
           samplePoint,
@@ -301,7 +305,7 @@ function associateRideDay(
     const forecast =
       locationId === undefined
         ? null
-        : getSuccessfulLocation(result, locationId)
+        : getSuccessfulLocationForecast(result, locationId)
     return {
       samplePointId: samplePoint.id,
       weather:
@@ -337,7 +341,7 @@ function associateOffDay(
     throw new Error(`Localisation OFF absente : ${definition.dayId}`)
   }
 
-  const forecast = getSuccessfulLocation(result, location.id)
+  const forecast = getSuccessfulLocationForecast(result, location.id)
   const hourly =
     forecast?.hourly.filter(
       ({ time }) => time.slice(0, 10) === definition.tripDate,

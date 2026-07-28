@@ -2191,12 +2191,16 @@ ul {
 }
 
 .trip-day__weather {
-  display: block;
-  overflow: hidden;
+  display: grid;
+  gap: 1px;
   color: var(--ink-faint);
   font-size: 0.6rem;
   font-weight: 700;
   line-height: 1.25;
+}
+
+.trip-day__weather-line {
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2214,6 +2218,22 @@ ul {
 .trip-day__weather[data-weather-state='unavailable'],
 .trip-day__weather[data-weather-state='error'] {
   color: var(--danger-text);
+}
+
+.trip-day__weather[data-weather-risk-level='green'] {
+  color: var(--forest-700);
+}
+
+.trip-day__weather[data-weather-risk-level='orange'] {
+  color: var(--warning-text);
+}
+
+.trip-day__weather[data-weather-risk-level='red'] {
+  color: var(--danger-text);
+}
+
+.trip-day__weather[data-weather-risk-level='unknown'] {
+  color: var(--ink-faint);
 }
 
 .trip-day__schedule--off strong {
@@ -2372,4 +2392,160 @@ ul {
 .weather-waypoint--next {
   border-left-color: var(--forest-950);
   box-shadow: var(--shadow);
+}
+
+.tag--risk-green {
+  color: var(--forest-800);
+  background: var(--forest-50);
+  border-color: #a9c9c0;
+}
+
+.tag--risk-orange {
+  color: var(--warning-text);
+  background: var(--warning-bg);
+  border-color: #e8b88f;
+}
+
+.tag--risk-red {
+  color: var(--danger-text);
+  background: var(--danger-bg);
+  border-color: #e2aaa4;
+}
+
+.tag--risk-unknown {
+  color: var(--ink-faint);
+  background: var(--surface-muted);
+  border-color: var(--line-strong);
+}
+
+.weather-waypoint__alerts {
+  margin-top: 5px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.weather-risk-summary {
+  margin-top: 8px;
+  padding: 9px 10px;
+  display: grid;
+  gap: 6px;
+  background: var(--surface-muted);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.weather-risk-summary__heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-soft);
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.weather-risk-summary__alerts {
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  list-style: none;
+}
+
+.weather-risk-summary__alert {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-soft);
+  font-size: 0.68rem;
+  line-height: 1.3;
+}
+
+.weather-risk-summary__coverage {
+  margin: 0;
+  color: var(--ink-faint);
+  font-size: 0.64rem;
+}
+
+.weather-recommendation {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  color: var(--ink-soft);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.35;
+  background: var(--surface-muted);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line-strong);
+  border-radius: 8px;
+}
+
+.weather-recommendation--change {
+  color: var(--forest-800);
+  background: var(--forest-50);
+  border-color: #a9c9c0;
+  border-left-color: var(--forest-700);
+}
+
+.weather-scenario-list {
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 7px;
+  list-style: none;
+}
+
+.weather-scenario {
+  padding: 8px 9px;
+  background: var(--surface-muted);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line-strong);
+  border-radius: 8px;
+}
+
+.weather-scenario--current {
+  border-left-color: var(--forest-700);
+}
+
+.weather-scenario--recommended {
+  background: var(--forest-50);
+  border-color: #a9c9c0;
+}
+
+.weather-scenario--incoherent {
+  opacity: 0.65;
+}
+
+.weather-scenario__heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+}
+
+.weather-scenario__heading strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.weather-scenario__times {
+  margin: 4px 0 0;
+  color: var(--ink-soft);
+  font-size: 0.66rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.weather-scenario__metrics {
+  margin-top: 5px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 7px;
+}
+
+.weather-scenario__metrics > div {
+  min-width: 0;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
 }

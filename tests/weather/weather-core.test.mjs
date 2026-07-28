@@ -624,6 +624,7 @@ test('renders distinct ride, OFF and outside-horizon weather panels', () => {
       receivedDates: ['2026-07-27', '2026-08-11'],
       data: rideData,
       isRefreshing: false,
+      departureScenarios: null,
     },
     new Date('2026-08-08T10:00:00.000Z'),
   )
@@ -660,6 +661,7 @@ test('renders distinct ride, OFF and outside-horizon weather panels', () => {
       receivedDates: ['2026-08-14'],
       data: offData,
       isRefreshing: false,
+      departureScenarios: null,
     },
     new Date('2026-08-12T10:00:00.000Z'),
   )
@@ -681,6 +683,7 @@ test('renders distinct ride, OFF and outside-horizon weather panels', () => {
       receivedDates: [],
       data: null,
       isRefreshing: false,
+      departureScenarios: null,
     },
     new Date('2026-08-08T10:00:00.000Z'),
   )

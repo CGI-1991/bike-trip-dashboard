@@ -1,6 +1,7 @@
 import { getDateInTimezone } from '../trip/calendar.ts'
 import type { RoadbookMatchReport } from '../trip/roadbook-match.ts'
 import type { TripDayId, TripPlan, TripTimeline } from '../trip/types.ts'
+import { computeDepartureScenarios } from './alerts/departure-scenarios.ts'
 import { WeatherCache } from './cache.ts'
 import { weatherConfig } from './config.ts'
 import { isTripDateInPast } from './display-policy.ts'
@@ -284,6 +285,7 @@ export class WeatherCoordinator {
         receivedDates: [],
         data: null,
         isRefreshing: false,
+        departureScenarios: null,
         message:
           definition.unavailableReason ??
           'Aucune localisation météo disponible.',
@@ -370,6 +372,7 @@ export class WeatherCoordinator {
         receivedDates: [],
         data: null,
         isRefreshing: false,
+        departureScenarios: null,
         message: 'Journée passée : aucune donnée conservée, aucune actualisation.',
       })
       return
@@ -387,6 +390,7 @@ export class WeatherCoordinator {
         receivedDates: [],
         data: null,
         isRefreshing: false,
+        departureScenarios: null,
         message: 'Date hors de l’horizon prévisionnel disponible.',
       })
       return
@@ -410,6 +414,7 @@ export class WeatherCoordinator {
       receivedDates: [],
       data: null,
       isRefreshing: true,
+      departureScenarios: null,
     }
   }
 
@@ -439,6 +444,8 @@ export class WeatherCoordinator {
           : isComplete
             ? 'available'
             : 'partial'
+      const departureScenarios =
+        definition.dayType === 'off' ? null : computeDepartureScenarios(definition, result)
 
       this.states.set(definition.dayId, {
         dayId: definition.dayId,
@@ -451,6 +458,7 @@ export class WeatherCoordinator {
         receivedDates: result.datesCovered,
         data,
         isRefreshing,
+        departureScenarios,
         ...(message === undefined ? {} : { message }),
       })
     } catch (error) {
@@ -465,6 +473,7 @@ export class WeatherCoordinator {
         receivedDates: result.datesCovered,
         data: null,
         isRefreshing: false,
+        departureScenarios: null,
         message: getErrorMessage(error),
       })
     }
@@ -628,6 +637,7 @@ export class WeatherCoordinator {
       receivedDates: [],
       data: null,
       isRefreshing: false,
+      departureScenarios: null,
       message,
     })
   }

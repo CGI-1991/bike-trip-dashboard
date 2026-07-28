@@ -201,6 +201,25 @@ export interface WaypointWeather {
   readonly reason?: string
 }
 
+/**
+ * A departure-time scenario before risk evaluation: shifted ETAs reassociated
+ * against the day's already-fetched forecast (see
+ * `weather/alerts/departure-scenarios.ts`). Declared here, rather than in the
+ * alerts module, so `WeatherDayState` can reference it without an import
+ * cycle back into `weather/alerts/`.
+ */
+export interface DepartureScenarioWaypoints {
+  readonly offsetMinutes: number
+  readonly isCurrent: boolean
+  readonly isCoherent: boolean
+  readonly incoherenceReason: string | null
+  readonly departureTimeLocal: LocalIsoDateTime | null
+  readonly arrivalTimeLocal: LocalIsoDateTime | null
+  readonly waypoints: readonly WaypointWeather[]
+  readonly coveredPointCount: number
+  readonly missingPointCount: number
+}
+
 export interface RideWeatherSummary {
   readonly temperatureMinC: number | null
   readonly temperatureMaxC: number | null
@@ -272,6 +291,12 @@ export interface WeatherDayState {
   readonly data: WeatherDayData | null
   readonly isRefreshing: boolean
   readonly message?: string
+  /**
+   * Weather-only departure-time scenarios (no risk yet — see
+   * `weather/alerts/departure-scenarios.ts`), computed once per fetch from the
+   * raw provider result. `null` for OFF days, and whenever `data` is `null`.
+   */
+  readonly departureScenarios: readonly DepartureScenarioWaypoints[] | null
 }
 
 export interface WeatherSnapshot {
