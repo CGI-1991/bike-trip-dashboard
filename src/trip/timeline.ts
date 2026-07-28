@@ -5,6 +5,7 @@ import { buildRouteProfile, scheduleRouteTimeline } from '../route/engine.ts'
 import { createRouteClockTime } from '../route/time.ts'
 import type { RouteClockTime, RouteEngineSettings } from '../route/types.ts'
 import { assertTripPlan } from './plan.ts'
+import { createContextualPauseAnchors } from './pause-plan.ts'
 import type {
   OffDayTimeline,
   RideDay,
@@ -339,7 +340,11 @@ export function scheduleTripTimeline(
     }
 
     try {
-      const route = scheduleRouteTimeline(dayProfile.routeProfile, settings)
+      const contextualProfile: typeof dayProfile.routeProfile = {
+        ...dayProfile.routeProfile,
+        pauseAnchors: createContextualPauseAnchors(dayProfile.routeProfile, settings.averageSpeedKph),
+      }
+      const route = scheduleRouteTimeline(contextualProfile, settings)
       return {
         type: 'ride',
         status: 'ready',

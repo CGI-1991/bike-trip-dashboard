@@ -398,15 +398,22 @@ function renderWaypointWeather(
 
 function splitEssentialWaypoints(
   waypoints: readonly WaypointWeather[],
-): { readonly essential: readonly WaypointWeather[]; readonly other: readonly WaypointWeather[] } {
+): { readonly essential: readonly WaypointWeather[]; readonly other: readonly WaypointWeather[]; readonly references: readonly WaypointWeather[] } {
   const essential: WaypointWeather[] = []
   const other: WaypointWeather[] = []
+  const references: WaypointWeather[] = []
 
   for (const item of waypoints) {
-    ;(ESSENTIAL_POINT_TYPES.has(item.samplePoint.type) ? essential : other).push(item)
+    if (item.samplePoint.role === 'weather-reference') references.push(item)
+    else (ESSENTIAL_POINT_TYPES.has(item.samplePoint.type) ? essential : other).push(item)
   }
 
-  return { essential, other }
+  return { essential, other, references }
+}
+
+function renderWeatherReferences(waypoints: readonly WaypointWeather[]): string {
+  if (waypoints.length === 0) return ''
+  return `<details class="weather-detail__disclosure" data-weather-references><summary>Météo des lieux proches et arrêts possibles (${waypoints.length})</summary><p class="weather-detail__notice">Hors parcours : météo aux coordonnées réelles, heure du point GPX le plus proche. Sans effet sur la distance, les ETA ou le risque global tant que l’arrêt n’est pas planifié.</p><ol class="weather-waypoint-list">${waypoints.map((item) => renderWaypointWeather(item)).join('')}</ol></details>`
 }
 
 function renderOtherPassagesDisclosure(
@@ -721,7 +728,7 @@ function renderOperationalRide(
   scenarios: readonly DepartureWeatherScenario[],
   recommendation: DepartureRecommendation,
 ): string {
-  const { essential, other } = splitEssentialWaypoints(data.waypoints)
+  const { essential, other, references } = splitEssentialWaypoints(data.waypoints)
   const summary = data.routeSummary
   const totalPointCount = summary.coveredPointCount + summary.missingPointCount
 
@@ -748,6 +755,7 @@ function renderOperationalRide(
             : `<ol class="weather-waypoint-list">${essential.map((item) => renderWaypointWeather(item, '', getAlertsForPoint(risk.alerts, item.samplePoint.id))).join('')}</ol>`
         }
         ${renderOtherPassagesDisclosure(other, risk.alerts)}
+        ${renderWeatherReferences(references)}
       </section>
       ${renderScenarioComparison(scenarios, recommendation)}
     </section>`
@@ -762,7 +770,7 @@ function renderLiveRide(
   scenarios: readonly DepartureWeatherScenario[],
   recommendation: DepartureRecommendation,
 ): string {
-  const { essential: upcomingEssential, other: upcomingOther } = splitEssentialWaypoints(
+  const { essential: upcomingEssential, other: upcomingOther, references: upcomingReferences } = splitEssentialWaypoints(
     progress.upcoming,
   )
   const nextAlerts =
@@ -809,6 +817,7 @@ function renderLiveRide(
             : `<ol class="weather-waypoint-list">${upcomingEssential.map((item) => renderWaypointWeather(item, '', getAlertsForPoint(risk.alerts, item.samplePoint.id))).join('')}</ol>`
         }
         ${renderOtherPassagesDisclosure(upcomingOther, risk.alerts)}
+        ${renderWeatherReferences(upcomingReferences)}
       </section>
       ${hasDeparted ? '' : renderScenarioComparison(scenarios, recommendation)}
     </section>`

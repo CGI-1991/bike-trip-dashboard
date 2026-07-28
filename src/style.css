@@ -2549,3 +2549,90 @@ ul {
   padding-top: 4px;
   border-top: 1px solid var(--line);
 }
+/* Phase E: final mobile application shell */
+[hidden] { display: none !important; }
+
+.app-shell { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
+.dashboard { max-width: 760px; padding: 14px 12px 24px; overflow-x: clip; }
+.app-view { display: grid; gap: 12px; min-width: 0; }
+.view-heading { display: grid; gap: 4px; }
+.view-heading h2 { font-size: clamp(1.55rem, 7vw, 2rem); }
+.view-heading > p:last-child { color: var(--ink-soft); line-height: 1.45; }
+.app-view > .card, .technical-details { margin: 0; min-width: 0; }
+.detail-nav, .section-heading, .settings-actions, .weather-status-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.detail-nav > div { display: flex; gap: 6px; }
+.detail-nav [data-day-previous], .detail-nav [data-day-next] { min-width: 44px; padding: 0; font-size: 1.5rem; }
+.today-card { display: grid; gap: 14px; border-top: 4px solid var(--forest-700); }
+.today-card h3 { font-size: 1.35rem; }
+.today-route { font-size: 1.05rem; font-weight: 750; }
+.today-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.today-metrics div { padding: 9px; background: var(--surface-muted); border-radius: 9px; }
+.today-metrics dt { color: var(--ink-soft); font-size: .75rem; }
+.today-metrics dd { margin-top: 2px; font-weight: 800; }
+.today-weather { display: grid; gap: 3px; padding: 11px; background: var(--forest-50); border-radius: 10px; }
+.today-weather small { color: var(--ink-soft); }
+.today-checklist { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.today-checklist li { padding: 8px; background: var(--surface-muted); border-radius: 8px; }
+.app-nav { position: fixed; z-index: 20; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: repeat(3, 1fr); min-height: 64px; padding: 5px max(8px, env(safe-area-inset-right)) max(5px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); background: rgba(255,255,255,.97); border-top: 1px solid var(--line); box-shadow: 0 -4px 18px rgb(16 45 40 / 9%); }
+.app-nav a { min-height: 50px; display: grid; place-items: center; padding: 6px; color: var(--ink-soft); border-radius: 9px; font-size: .8rem; font-weight: 800; text-decoration: none; }
+.app-nav a.is-active { color: #fff; background: var(--forest-800); }
+.technical-details > summary, .roadbook-detail__disclosure > summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font-weight: 800; }
+.technical-details[open] > summary { margin-bottom: 16px; }
+.technical-details section + section { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--line); }
+.settings-form { display: grid; gap: 16px; }
+.settings-actions { align-items: stretch; }
+.settings-actions .button { flex: 1; }
+.weather-status-line { margin: 9px 0; color: var(--ink-soft); font-size: .78rem; flex-wrap: wrap; }
+.trip-day__button { min-height: 64px; }
+.trip-day-list { gap: 8px; }
+.trip-day { border-radius: 11px; }
+.trip-day--off { background: #fff8dd; border-left: 4px solid #bd8b17; }
+button:disabled { cursor: not-allowed; opacity: .55; }
+
+@media (max-width: 430px) {
+  .app-header__inner { min-height: 68px; }
+  .card { padding: 13px; }
+  .section-heading { align-items: flex-start; }
+  .weather-card__heading { flex-direction: column; }
+  .weather-card__heading .button { width: 100%; }
+  .settings-actions { flex-direction: column; }
+  .trip-day__button { grid-template-columns: 52px minmax(0, 1fr); }
+  .trip-day__schedule { grid-column: 2; align-items: flex-start; text-align: left; }
+  .scenario-comparison, table { display: block; max-width: 100%; overflow-x: auto; }
+}
+
+@media (min-width: 900px) {
+  .dashboard { max-width: 1120px; padding-top: 20px; }
+  .app-view[data-app-view='day-detail'] { grid-template-columns: minmax(0, 1.35fr) minmax(320px, .65fr); align-items: start; }
+  .app-view[data-app-view='day-detail'] > .detail-nav, .app-view[data-app-view='day-detail'] > .view-heading { grid-column: 1 / -1; }
+  .app-view[data-app-view='day-detail'] > .technical-details { grid-column: 1 / -1; }
+  .app-view[data-app-view='trip'] .trip-day-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+.detail-links, .day-tabs, .point-filters { display: flex; gap: 7px; overflow-x: auto; scrollbar-width: thin; }
+.detail-links a, .detail-links button { color: var(--forest-800); background: transparent; border: 0; min-height: 44px; padding: 0 4px; font-weight: 750; }
+.day-tabs { padding: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+.day-tabs button { flex: 1; min-width: 94px; min-height: 44px; color: var(--ink-soft); background: transparent; border: 0; border-radius: 9px; font-weight: 800; }
+.day-tabs button[aria-selected='true'] { color: #fff; background: var(--forest-800); }
+.points-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin: 12px 0; }
+.points-metrics div { padding: 9px; background: var(--surface-muted); border-radius: 8px; }
+.points-metrics dt { color: var(--ink-soft); font-size: .72rem; }
+.points-metrics dd { margin-top: 2px; font-weight: 800; }
+.point-filters { margin-bottom: 12px; padding-bottom: 4px; }
+.point-filters button { min-width: max-content; min-height: 44px; padding: 0 12px; color: var(--forest-800); background: var(--forest-50); border: 1px solid #b8d2ca; border-radius: 999px; font-weight: 700; }
+.point-filters button[aria-pressed='true'] { color: #fff; background: var(--forest-800); }
+.point-list { display: grid; gap: 7px; }
+.point-row { border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+.point-row summary { min-height: 58px; padding: 8px 10px; display: grid; grid-template-columns: auto 1fr; gap: 2px 9px; align-items: center; cursor: pointer; }
+.point-row summary > span:last-child { text-align: right; }
+.point-row__type { color: var(--forest-700); font-size: .7rem; font-weight: 800; text-transform: uppercase; }
+.point-row summary > span:not(.point-row__type) { color: var(--ink-soft); font-size: .76rem; }
+.point-row dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; padding: 10px; background: var(--surface-muted); }
+.point-row dt { color: var(--ink-soft); font-size: .7rem; }
+.point-row dd { overflow-wrap: anywhere; font-size: .82rem; }
+.point-row > p { padding: 10px; }
+.secondary-sheet > summary { min-height: 44px; font-weight: 800; cursor: pointer; }
+
+@media (min-width: 700px) {
+  .points-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}

@@ -1,8 +1,8 @@
 import './style.css'
 import type { GpxAnalysisReport } from './gpx/types.ts'
-import { loadSettings, saveSettings } from './storage/settings.ts'
+import { defaultSettings, loadSettings, saveSettings } from './storage/settings.ts'
 import type { DashboardSettings } from './storage/settings.ts'
-import { getDateInTimezone } from './trip/calendar.ts'
+import { getDateInTimezone, getTripDate } from './trip/calendar.ts'
 import { WeatherCache } from './weather/cache.ts'
 import { WeatherCoordinator } from './weather/coordinator.ts'
 import { weatherConfig } from './weather/config.ts'
@@ -33,6 +33,9 @@ import type {
 } from './trip/types.ts'
 import { initializeGpxAnalysis } from './ui/gpx-analysis.ts'
 import { renderDashboard } from './ui/render.ts'
+import { renderDayPoints } from './ui/day-points.ts'
+import { getTripPeriod, hashForDay, parseAppHash } from './ui/app-state.ts'
+import type { AppView } from './ui/app-state.ts'
 import {
   renderRoadbookDayDetail,
   renderRoadbookDetailError,
@@ -96,9 +99,6 @@ const weatherCoordinator = new WeatherCoordinator({
 const app = getRequiredElement<HTMLDivElement>('#app')
 app.innerHTML = renderDashboard(currentSettings, rga2026TripPlan)
 
-const settingsButton = getRequiredElement<HTMLButtonElement>('[data-open-settings]')
-const closeSettingsButton = getRequiredElement<HTMLButtonElement>('[data-close-settings]')
-const settingsDialog = getRequiredElement<HTMLDialogElement>('#settings-dialog')
 const settingsForm = getRequiredElement<HTMLFormElement>('#settings-form')
 const averageSpeedInput = getRequiredElement<HTMLInputElement>('#average-speed')
 const departureTimeInput = getRequiredElement<HTMLInputElement>('#departure-time')
@@ -106,9 +106,11 @@ const breakDurationInput = getRequiredElement<HTMLInputElement>('#break-duration
 const saveStatus = getRequiredElement<HTMLElement>('#save-status')
 const settingsFeedback = getRequiredElement<HTMLElement>('#settings-feedback')
 const dayIndicator = getRequiredElement<HTMLElement>('[data-day-indicator]')
+const todayPanel = getRequiredElement<HTMLElement>('[data-today-panel]')
 const tripPlanContainer = getRequiredElement<HTMLElement>('[data-trip-plan]')
 const routeEngineContainer = getRequiredElement<HTMLElement>('[data-route-engine]')
 const roadbookDetailContainer = getRequiredElement<HTMLElement>('[data-roadbook-detail]')
+const dayPointsContainer = getRequiredElement<HTMLElement>('[data-day-points]')
 const roadbookReportContainer = getRequiredElement<HTMLElement>(
   '[data-roadbook-diagnostics]',
 )
@@ -121,6 +123,30 @@ const weatherStatus = getRequiredElement<HTMLElement>('[data-weather-status]')
 const weatherUpdatedAt = getRequiredElement<HTMLTimeElement>(
   '[data-weather-updated-at]',
 )
+let returnView: Exclude<AppView, 'day-detail'> = 'today'
+
+function showView(view: AppView): void {
+  for (const section of document.querySelectorAll<HTMLElement>('[data-app-view]')) {
+    section.hidden = section.dataset.appView !== view
+  }
+  for (const link of document.querySelectorAll<HTMLAnchorElement>('[data-nav-view]')) {
+    const active = link.dataset.navView === view
+    link.classList.toggle('is-active', active)
+    if (active) link.setAttribute('aria-current', 'page')
+    else link.removeAttribute('aria-current')
+  }
+  window.scrollTo({ top: 0 })
+}
+
+function syncHash(): void {
+  const route = parseAppHash(window.location.hash, selectedDayId)
+  if (route.currentView === 'day-detail') {
+    selectedDayId = route.selectedDayId
+    weatherCoordinator.selectDay(selectedDayId)
+  }
+  showView(route.currentView)
+  renderCurrentTripSelection()
+}
 
 const weatherStateLabels: Record<WeatherDayState['availability'], string> = {
   loading: 'Chargement des prévisions',
@@ -233,8 +259,10 @@ function renderCurrentRoadbookSelection(
   if (currentRoadbookReport === null) {
     if (currentRoadbookError === null) {
       renderRoadbookDetailLoading(roadbookDetailContainer)
+      renderDayPoints(dayPointsContainer, null, timelineDay)
     } else {
       renderRoadbookDetailError(roadbookDetailContainer, currentRoadbookError)
+      renderDayPoints(dayPointsContainer, null, timelineDay)
     }
     return
   }
@@ -250,6 +278,7 @@ function renderCurrentRoadbookSelection(
   }
 
   renderRoadbookDayDetail(roadbookDetailContainer, dayMatch, timelineDay)
+  renderDayPoints(dayPointsContainer, dayMatch, timelineDay)
 }
 
 function renderCurrentTripSelection(restoreFocus = false): void {
@@ -280,6 +309,7 @@ function renderCurrentTripSelection(restoreFocus = false): void {
   renderTripDayRouteTimeline(routeEngineContainer, selectedDay, currentRoadbookReport)
   renderCurrentRoadbookSelection(selectedDay)
   renderCurrentWeatherSelection()
+  renderToday()
   dayIndicator.textContent = `${selectedDay.day.id} sur ${rga2026TripPlan.totalDays} · ${
     selectedDay.type === 'off' ? 'OFF' : 'Roulé'
   }`
@@ -287,6 +317,26 @@ function renderCurrentTripSelection(restoreFocus = false): void {
   if (restoreFocus) {
     focusSelectedTripDay()
   }
+}
+
+function renderToday(): void {
+  const period = getTripPeriod(new Date())
+  const dayId = period.dayId
+  const timelineDay = currentTripTimeline === null ? null : getTripTimelineDay(currentTripTimeline, dayId)
+  const day = rga2026TripPlan.days.find(({ id }) => id === dayId) ?? rga2026TripPlan.days[0]
+  const date = getTripDate(day.dayNumber)
+  const intro = period.kind === 'before' ? `${period.daysUntilStart} jours avant le départ` : period.kind === 'after' ? 'Voyage terminé' : 'Étape du jour'
+  const route = day.type === 'ride' ? `${day.startName} → ${day.endName}` : `${day.title} · ${day.locationName}`
+  let metrics = ''
+  if (timelineDay?.type === 'ride' && timelineDay.status === 'ready') {
+    const arrivalMinutes = timelineDay.arrivalTime.clockMinutes
+    const arrival = `${String(Math.floor(arrivalMinutes / 60)).padStart(2, '0')}:${String(arrivalMinutes % 60).padStart(2, '0')}`
+    metrics = `<dl class="today-metrics"><div><dt>Distance</dt><dd>${timelineDay.route.summary.distanceKm.toFixed(1)} km</dd></div><div><dt>D+</dt><dd>${Math.round(timelineDay.route.summary.elevationGainM)} m</dd></div><div><dt>Départ</dt><dd>${timelineDay.startTime}</dd></div><div><dt>ETA</dt><dd>${timelineDay.arrivalTime.dayOffset === 0 ? '' : `J+${timelineDay.arrivalTime.dayOffset} `}${arrival}</dd></div></dl>`
+  }
+  const weather = currentWeatherSnapshot.states.get(dayId)
+  const availability = weather === undefined ? 'Prévision en attente' : weatherStateLabels[weather.availability]
+  todayPanel.dataset.todayState = period.kind
+  todayPanel.innerHTML = `<p class="eyebrow">${intro}</p><h3>${day.id} · <time datetime="${date}">${new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'long', year: 'numeric', timeZone: rga2026TripPlan.timezone }).format(new Date(`${date}T12:00:00Z`))}</time></h3><p class="today-route">${route}</p>${metrics}<div class="today-weather"><strong>Météo</strong><span>${availability}</span><small>Mode météo selon l’horizon${period.kind === 'before' && weather?.availability === 'outside-horizon' ? ' · Aujourd’hui sur le parcours, pas la prévision du voyage' : ''}</small></div>${day.type === 'off' ? '<ul class="today-checklist"><li>Récupération</li><li>Lessive et courses</li><li>Check vélo</li></ul>' : ''}<a class="button button--primary button--full" href="${hashForDay(day.id)}">Voir la journée</a>`
 }
 
 function applyMatchedRoadbookPauses(
@@ -413,30 +463,6 @@ function readSettingsForm(): DashboardSettings {
   }
 }
 
-function openSettings(): void {
-  populateSettingsForm(currentSettings)
-  settingsFeedback.textContent = ''
-  settingsDialog.showModal()
-  averageSpeedInput.focus()
-}
-
-function closeSettings(): void {
-  settingsDialog.close()
-}
-
-settingsButton.addEventListener('click', openSettings)
-closeSettingsButton.addEventListener('click', closeSettings)
-
-settingsDialog.addEventListener('click', (event) => {
-  if (event.target === settingsDialog) {
-    closeSettings()
-  }
-})
-
-settingsDialog.addEventListener('close', () => {
-  settingsButton.focus()
-})
-
 settingsForm.addEventListener('submit', (event) => {
   event.preventDefault()
 
@@ -453,8 +479,63 @@ settingsForm.addEventListener('submit', (event) => {
 
   currentSettings = nextSettings
   refreshTripTimeline()
-  saveStatus.textContent = 'Réglages enregistrés et chronologies recalculées.'
-  closeSettings()
+  settingsFeedback.textContent = 'Réglages enregistrés et chronologies recalculées.'
+  saveStatus.textContent = settingsFeedback.textContent
+})
+
+getRequiredElement<HTMLButtonElement>('[data-restore-settings]').addEventListener('click', () => {
+  populateSettingsForm(defaultSettings)
+  settingsFeedback.textContent = 'Valeurs par défaut restaurées dans le formulaire. Enregistrez pour confirmer.'
+})
+
+getRequiredElement<HTMLButtonElement>('[data-settings-back]').addEventListener('click', () => history.back())
+getRequiredElement<HTMLButtonElement>('[data-detail-back]').addEventListener('click', () => {
+  window.location.hash = returnView === 'trip' ? '#/trip' : '#/today'
+})
+
+function moveDay(offset: -1 | 1): void {
+  const index = rga2026TripPlan.days.findIndex(({ id }) => id === selectedDayId)
+  const next = rga2026TripPlan.days[index + offset]
+  if (next !== undefined) window.location.hash = hashForDay(next.id)
+}
+
+getRequiredElement<HTMLButtonElement>('[data-day-previous]').addEventListener('click', () => moveDay(-1))
+getRequiredElement<HTMLButtonElement>('[data-day-next]').addEventListener('click', () => moveDay(1))
+window.addEventListener('hashchange', syncHash)
+
+for (const tab of document.querySelectorAll<HTMLButtonElement>('[data-day-tab]')) {
+  tab.addEventListener('click', () => {
+    const requested = tab.dataset.dayTab
+    for (const panel of document.querySelectorAll<HTMLElement>('[data-day-panel]')) {
+      panel.hidden = panel.dataset.dayPanel !== requested
+    }
+    for (const candidate of document.querySelectorAll<HTMLButtonElement>('[data-day-tab]')) {
+      candidate.setAttribute('aria-selected', String(candidate === tab))
+    }
+  })
+}
+
+dayPointsContainer.addEventListener('click', (event) => {
+  const target = event.target instanceof Element ? event.target.closest<HTMLButtonElement>('[data-point-filter]') : null
+  if (target === null) return
+  const filter = target.dataset.pointFilter ?? 'all'
+  for (const row of dayPointsContainer.querySelectorAll<HTMLElement>('[data-point-category]')) {
+    row.hidden = filter !== 'all' && row.dataset.pointCategory !== filter
+  }
+  for (const button of dayPointsContainer.querySelectorAll<HTMLButtonElement>('[data-point-filter]')) {
+    button.setAttribute('aria-pressed', String(button === target))
+  }
+})
+
+getRequiredElement<HTMLButtonElement>('[data-open-roadbook]').addEventListener('click', () => {
+  const sheet = getRequiredElement<HTMLDetailsElement>('[data-roadbook-sheet]')
+  sheet.open = true
+  sheet.scrollIntoView({ behavior: 'smooth' })
+})
+getRequiredElement<HTMLButtonElement>('[data-open-sources]').addEventListener('click', () => {
+  const sheet = getRequiredElement<HTMLDetailsElement>('[data-sources-sheet]')
+  sheet.open = true
+  sheet.scrollIntoView({ behavior: 'smooth' })
 })
 
 tripPlanContainer.addEventListener('click', (event) => {
@@ -473,7 +554,8 @@ tripPlanContainer.addEventListener('click', (event) => {
 
   selectedDayId = requestedDayId
   weatherCoordinator.selectDay(requestedDayId)
-  renderCurrentTripSelection(true)
+  returnView = 'trip'
+  window.location.hash = hashForDay(requestedDayId)
 })
 
 weatherRefreshButton.addEventListener('click', () => {
@@ -489,11 +571,15 @@ renderRoadbookDetailLoading(roadbookDetailContainer)
 renderRoadbookReportLoading(roadbookReportContainer)
 renderWeatherSummaryLoading(tripPlanContainer)
 renderWeatherDetailLoading(weatherPanel)
+renderToday()
+if (window.location.hash === '') window.location.replace('#/today')
+else syncHash()
 
 const unsubscribeWeather = weatherCoordinator.subscribe((snapshot) => {
   currentWeatherSnapshot = snapshot
   currentWeatherError = null
   renderCurrentWeatherSelection()
+  renderToday()
 })
 
 window.addEventListener('beforeunload', () => {
