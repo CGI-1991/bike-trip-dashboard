@@ -10,6 +10,8 @@ import { isTripDateInPast } from './weather/display-policy.ts'
 import { createOpenMeteoProvider } from './weather/open-meteo.ts'
 import type { WeatherDayState, WeatherSnapshot } from './weather/types.ts'
 import { isTripDayId, rga2026TripPlan } from './trip/plan.ts'
+import { getAccommodationForDay, loadAccommodations, renderAccommodation } from './trip/accommodations.ts'
+import type { Accommodation } from './trip/accommodations.ts'
 import { createContextualPauseAnchors, getPauseDayPlan, loadPausePlan, savePausePlan, upsertPauseDayPlan } from './trip/pause-plan.ts'
 import type { PauseDayPlan, PausePlace, PausePlanDocument } from './trip/pause-plan.ts'
 import { getRoadbookPointRole } from './trip/point-role.ts'
@@ -88,6 +90,7 @@ let currentTripProfile: TripProfile | null = null
 let currentTripTimeline: TripTimeline | null = null
 let currentGpxReport: GpxAnalysisReport | null = null
 let currentRoadbookResources: RoadbookResources | null = null
+let currentAccommodations: readonly Accommodation[] = []
 let currentRoadbookReport: RoadbookMatchReport | null = null
 let currentRoadbookError: unknown = null
 let currentGpxError: unknown = null
@@ -118,6 +121,8 @@ const tripPlanContainer = getRequiredElement<HTMLElement>('[data-trip-plan]')
 const routeEngineContainer = getRequiredElement<HTMLElement>('[data-route-engine]')
 const roadbookDetailContainer = getRequiredElement<HTMLElement>('[data-roadbook-detail]')
 const dayPointsContainer = getRequiredElement<HTMLElement>('[data-day-points]')
+const accommodationContainer = getRequiredElement<HTMLElement>('[data-accommodation-card]')
+const gpxDownload = getRequiredElement<HTMLAnchorElement>('[data-gpx-download]')
 const roadbookReportContainer = getRequiredElement<HTMLElement>(
   '[data-roadbook-diagnostics]',
 )
@@ -352,6 +357,15 @@ function renderCurrentTripSelection(restoreFocus = false): void {
 
   renderTripTimeline(tripPlanContainer, currentTripTimeline, selectedDayId)
   renderTripDayRouteTimeline(routeEngineContainer, selectedDay, currentRoadbookReport)
+  renderAccommodation(accommodationContainer, getAccommodationForDay(currentAccommodations, selectedDayId))
+  if (selectedDay.type === 'ride') {
+    const base = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL : `${import.meta.env.BASE_URL}/`
+    gpxDownload.href = `${base}data/gpx/${encodeURIComponent(selectedDay.day.gpxFile)}`
+    gpxDownload.hidden = false
+  } else {
+    gpxDownload.hidden = true
+    gpxDownload.removeAttribute('href')
+  }
   renderCurrentRoadbookSelection(selectedDay)
   renderCurrentWeatherSelection()
   renderToday()
@@ -654,7 +668,11 @@ getRequiredElement<HTMLButtonElement>('[data-day-previous]').addEventListener('c
 getRequiredElement<HTMLButtonElement>('[data-day-next]').addEventListener('click', () => moveDay(1))
 window.addEventListener('hashchange', syncHash)
 
-getRequiredElement<HTMLButtonElement>('[data-open-pause-editor]').addEventListener('click', openPauseEditor)
+for (const button of document.querySelectorAll<HTMLButtonElement>('[data-open-pause-editor]')) button.addEventListener('click', () => {
+  const requestedDay = button.dataset.pauseDay
+  if (requestedDay !== undefined && isTripDayId(requestedDay)) selectedDayId = requestedDay
+  openPauseEditor()
+})
 for (const button of document.querySelectorAll<HTMLButtonElement>('[data-pause-cancel]')) button.addEventListener('click', () => pauseEditor.close())
 for (const radio of document.querySelectorAll<HTMLInputElement>('input[name="pause-mode"]')) radio.addEventListener('change', () => {
   const automatic = createAutomaticDraft()
@@ -686,13 +704,10 @@ getRequiredElement<HTMLButtonElement>('[data-pause-save]').addEventListener('cli
   saveStatus.textContent = 'Plan de pauses enregistré et ETA recalculées.'
 })
 
-routeEngineContainer.addEventListener('click', (event) => {
-  const button = event.target instanceof Element ? event.target.closest<HTMLButtonElement>('[data-route-detail-toggle]') : null
-  if (button === null) return
-  const expanded = button.getAttribute('aria-pressed') !== 'true'
-  button.setAttribute('aria-pressed', String(expanded))
-  button.textContent = expanded ? 'Masquer le parcours détaillé' : 'Afficher le parcours détaillé'
-  routeEngineContainer.classList.toggle('route-engine--detailed', expanded)
+routeEngineContainer.addEventListener('change', (event) => {
+  const toggle = event.target instanceof HTMLInputElement ? event.target.closest<HTMLInputElement>('[data-route-detail-toggle]') : null
+  if (toggle === null) return
+  routeEngineContainer.classList.toggle('route-engine--detailed', toggle.checked)
 })
 
 for (const tab of document.querySelectorAll<HTMLButtonElement>('[data-day-tab]')) {
@@ -717,18 +732,6 @@ dayPointsContainer.addEventListener('click', (event) => {
   for (const button of dayPointsContainer.querySelectorAll<HTMLButtonElement>('[data-point-filter]')) {
     button.setAttribute('aria-pressed', String(button === target))
   }
-})
-
-getRequiredElement<HTMLButtonElement>('[data-open-roadbook]').addEventListener('click', () => {
-  const sheet = getRequiredElement<HTMLDetailsElement>('[data-roadbook-sheet]')
-  sheet.open = true
-  sheet.scrollIntoView({ behavior: 'smooth' })
-})
-getRequiredElement<HTMLButtonElement>('[data-open-sources]').addEventListener('click', () => {
-  const sheet = getRequiredElement<HTMLDetailsElement>('[data-sources-sheet]')
-  sheet.classList.add('is-visible')
-  sheet.open = true
-  sheet.scrollIntoView({ behavior: 'smooth' })
 })
 
 tripPlanContainer.addEventListener('click', (event) => {
@@ -794,6 +797,16 @@ void loadRoadbookResources()
     renderRoadbookDetailError(roadbookDetailContainer, error)
     renderRoadbookReportError(roadbookReportContainer, error)
     renderCurrentWeatherSelection()
+  })
+
+void loadAccommodations()
+  .then((accommodations) => {
+    currentAccommodations = accommodations
+    renderAccommodation(accommodationContainer, getAccommodationForDay(accommodations, selectedDayId))
+  })
+  .catch(() => {
+    currentAccommodations = []
+    renderAccommodation(accommodationContainer, null)
   })
 
 void initializeGpxAnalysis(gpxAnalysisContainer, rga2026TripPlan.rideDays).then((report) => {

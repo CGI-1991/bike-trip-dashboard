@@ -10,21 +10,23 @@ import { renderTripTimeline } from '../../src/ui/trip-plan.ts'
 
 const settings = { averageSpeedKph: 18, departureTime: '08:00', totalBreakMinutes: 60 }
 
-test('detail exposes exactly the three permanent tabs', () => {
+test('detail exposes exactly Parcours and Météo', () => {
   const html = renderDashboard(settings)
-  assert.equal((html.match(/data-day-tab=/g) ?? []).length, 3)
-  assert.match(html, />Chronologie<.*>Points<.*>Météo</s)
+  assert.equal((html.match(/data-day-tab=/g) ?? []).length, 2)
+  assert.match(html, />Parcours<.*>Météo</s)
+  assert.doesNotMatch(html, />Chronologie<|>Points</)
   assert.doesNotMatch(html, /data-day-tab="(?:roadbook|sources)"/)
   assert.match(html, /data-day-header/)
 })
 
-test('Roadbook and Sources remain secondary, and pause editor has two modes', () => {
+test('Roadbook and Sources remain secondary, and pause editor lives in settings', () => {
   const html = renderDashboard(settings)
   assert.match(html, /<details[^>]+data-roadbook-sheet/)
   assert.match(html, /<details[^>]+data-sources-sheet/)
   assert.equal((html.match(/name="pause-mode"/g) ?? []).length, 2)
   assert.match(html, /data-pause-save/)
   assert.match(html, /data-pause-restore/)
+  assert.match(html, /Pauses par étape/)
 })
 
 test('unique day header owns route metrics once', () => {
@@ -84,7 +86,8 @@ test('compact chronology keeps retained pauses and cols, but not an unretained r
   assert.match(container.innerHTML, /Pause 30 min · ravitaillement/)
   assert.match(container.innerHTML, /data-route-waypoint-type="summit"[\s\S]*data-route-compact-visible="true"/)
   assert.match(container.innerHTML, /data-route-waypoint-type="resupply"[\s\S]*data-route-compact-visible="false"/)
-  assert.match(container.innerHTML, /Afficher le parcours détaillé/)
+  assert.match(container.innerHTML, /Afficher tous les points/)
+  assert.doesNotMatch(container.innerHTML, /<table/)
 })
 
 test('Voyage cards contain structure and weather slot, never diagnostics', () => {
