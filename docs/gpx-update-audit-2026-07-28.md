@@ -19,7 +19,16 @@ Les amplitudes altimétriques restent cohérentes. Les écarts importants de D+/
 
 ## Analyse du cœur des tracés
 
-Les cinq premiers et cinq derniers kilomètres ont été exclus avant comparaison. J1, J3, J4, J6, J7, J10, J11 et J12 ne montrent pas d’écart durable supérieur à 500 m. J2 présente quelques écarts courts. J9 présente des écarts au cœur du parcours atteignant environ 2,3 km : le nouveau GPX est conservé comme source de vérité, mais il ne doit pas être décrit comme un simple raccordement local.
+Les cinq premiers et cinq derniers kilomètres ont été exclus avant comparaison. J1, J3, J4, J6, J7, J10, J11 et J12 ne montrent pas d’écart durable supérieur à 500 m. J2 présente quelques écarts courts.
+
+Pour J9, la comparaison point à trace contre `2f8171c` confirme une vraie variante locale et plusieurs raccordements, pas une simple différence d’échantillonnage :
+
+- métriques : 127,64 → 131,46 km (`+3,82 km`), D+ 3 574 → 3 229 m (`−346 m`), D− 3 658 → 3 290 m (`−368 m`) ;
+- divergence centrale : km 79,54 à 80,30 du nouveau tracé, soit environ 0,76 km, entre `44.533661, 6.463648` et `44.532640, 6.454249`, avec près de 970 m d’écart maximal à l’ancien tracé ;
+- raccordement final : km 126,74 à 127,81 puis km 129,69 à 131,46, lié à l’arrivée déplacée vers Faucon-de-Barcelonnette ;
+- divergence initiale : environ 0,92 km autour du nouvel hébergement de départ à Briançon.
+
+Verdict : nouveau GPX conservé ; zone centrale à valider visuellement. État recommandé : **prêt à committer après validation J9**.
 
 ## Extrémités et hébergements
 

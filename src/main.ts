@@ -39,7 +39,6 @@ import type {
 import { initializeGpxAnalysis } from './ui/gpx-analysis.ts'
 import { renderDashboard } from './ui/render.ts'
 import { renderDayHeader } from './ui/day-header.ts'
-import { renderDayPoints } from './ui/day-points.ts'
 import { getTripPeriod, hashForDay, parseAppHash } from './ui/app-state.ts'
 import type { AppView } from './ui/app-state.ts'
 import {
@@ -56,7 +55,10 @@ import {
   renderRouteEngineError,
   renderRouteEngineLoading,
   renderTripDayRouteTimeline,
+  setRouteDetail,
 } from './ui/route-engine.ts'
+import { renderElevationProfile } from './ui/elevation-profile.ts'
+import { closeExpandedRouteMap, renderRouteMap } from './ui/route-map.ts'
 import {
   renderTripPlanError,
   renderTripPlanLoading,
@@ -120,9 +122,11 @@ const dayHeaderContainer = getRequiredElement<HTMLElement>('[data-day-header]')
 const tripPlanContainer = getRequiredElement<HTMLElement>('[data-trip-plan]')
 const routeEngineContainer = getRequiredElement<HTMLElement>('[data-route-engine]')
 const roadbookDetailContainer = getRequiredElement<HTMLElement>('[data-roadbook-detail]')
-const dayPointsContainer = getRequiredElement<HTMLElement>('[data-day-points]')
 const accommodationContainer = getRequiredElement<HTMLElement>('[data-accommodation-card]')
 const gpxDownload = getRequiredElement<HTMLAnchorElement>('[data-gpx-download]')
+const routeMapContainer = getRequiredElement<HTMLElement>('[data-route-map]')
+const routeMapDialog = getRequiredElement<HTMLDialogElement>('[data-route-map-dialog]')
+const elevationProfileContainer = getRequiredElement<HTMLElement>('[data-elevation-profile]')
 const roadbookReportContainer = getRequiredElement<HTMLElement>(
   '[data-roadbook-diagnostics]',
 )
@@ -253,17 +257,14 @@ function renderSelectedDayHeader(): void {
 
 function getPausePlaces(dayId: TripDayId): readonly PausePlace[] {
   const places = new Map<string, PausePlace>()
-  const profileDay = currentTripProfile?.days.find(({ day }) => day.id === dayId)
-  if (profileDay?.type === 'ride' && profileDay.status === 'ready') {
-    for (const anchor of createContextualPauseAnchors(profileDay.routeProfile, currentSettings.averageSpeedKph)) places.set(`automatic:${anchor.id}`, { id: `automatic:${anchor.id}`, name: anchor.name, trackDistanceKm: anchor.position.distanceKm, offRoute: false })
-  }
   const dayReport = getRoadbookDayMatch(dayId)
   if (dayReport?.type === 'ride') {
     for (const point of dayReport.points) {
       const role = getRoadbookPointRole(point)
-      if (point.matchedTrackDistanceKm === undefined || role === 'excluded' || role === 'information') continue
-      if (!(point.isPauseCandidate || point.isResupplyCandidate || point.type === 'village' || point.type === 'col' || point.type === 'summit' || role === 'weather-reference')) continue
-      places.set(point.id, { id: point.id, name: point.name, trackDistanceKm: point.matchedTrackDistanceKm, offRoute: role === 'weather-reference' })
+      const bonette = point.id === 'j10-option-cime-de-la-bonette'
+      const eligibleType = point.type === 'village' || point.type === 'resupply' || point.type === 'col' || point.type === 'summit' || point.type === 'passage' || point.type === 'pause'
+      if (point.matchedTrackDistanceKm === undefined || !(eligibleType || point.isPauseCandidate || point.isResupplyCandidate || role === 'weather-reference' || bonette)) continue
+      places.set(point.id, { id: point.id, name: bonette ? `${point.name} — option hors parcours` : point.name, trackDistanceKm: point.matchedTrackDistanceKm, offRoute: role !== 'route-point' })
     }
   }
   return [...places.values()].sort((a, b) => a.trackDistanceKm - b.trackDistanceKm)
@@ -309,10 +310,8 @@ function renderCurrentRoadbookSelection(
   if (currentRoadbookReport === null) {
     if (currentRoadbookError === null) {
       renderRoadbookDetailLoading(roadbookDetailContainer)
-      renderDayPoints(dayPointsContainer, null, timelineDay)
     } else {
       renderRoadbookDetailError(roadbookDetailContainer, currentRoadbookError)
-      renderDayPoints(dayPointsContainer, null, timelineDay)
     }
     return
   }
@@ -328,7 +327,6 @@ function renderCurrentRoadbookSelection(
   }
 
   renderRoadbookDayDetail(roadbookDetailContainer, dayMatch, timelineDay)
-  renderDayPoints(dayPointsContainer, dayMatch, timelineDay)
 }
 
 function renderCurrentTripSelection(restoreFocus = false): void {
@@ -357,14 +355,22 @@ function renderCurrentTripSelection(restoreFocus = false): void {
 
   renderTripTimeline(tripPlanContainer, currentTripTimeline, selectedDayId)
   renderTripDayRouteTimeline(routeEngineContainer, selectedDay, currentRoadbookReport)
-  renderAccommodation(accommodationContainer, getAccommodationForDay(currentAccommodations, selectedDayId))
-  if (selectedDay.type === 'ride') {
+  const accommodation = getAccommodationForDay(currentAccommodations, selectedDayId)
+  renderAccommodation(accommodationContainer, accommodation)
+  if (selectedDay.type === 'ride' && selectedDay.status === 'ready') {
     const base = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL : `${import.meta.env.BASE_URL}/`
     gpxDownload.href = `${base}data/gpx/${encodeURIComponent(selectedDay.day.gpxFile)}`
+    gpxDownload.download = `${selectedDay.day.id}-${selectedDay.day.startName}-${selectedDay.day.endName}.gpx`
     gpxDownload.hidden = false
+    const gpx = currentGpxReport?.files.find((file) => file.status === 'success' && file.source.fileName === selectedDay.day.gpxFile)
+    const successfulGpx = gpx?.status === 'success' ? gpx : null
+    renderRouteMap(routeMapContainer, routeMapDialog, successfulGpx, selectedDay, currentRoadbookReport, accommodation)
+    renderElevationProfile(elevationProfileContainer, successfulGpx, selectedDay, currentRoadbookReport)
   } else {
     gpxDownload.hidden = true
     gpxDownload.removeAttribute('href')
+    routeMapContainer.innerHTML = '<p>Pas de carte cycliste pour une journée OFF.</p>'
+    elevationProfileContainer.innerHTML = '<p>Pas de profil cycliste pour une journée OFF.</p>'
   }
   renderCurrentRoadbookSelection(selectedDay)
   renderCurrentWeatherSelection()
@@ -707,8 +713,11 @@ getRequiredElement<HTMLButtonElement>('[data-pause-save]').addEventListener('cli
 routeEngineContainer.addEventListener('change', (event) => {
   const toggle = event.target instanceof HTMLInputElement ? event.target.closest<HTMLInputElement>('[data-route-detail-toggle]') : null
   if (toggle === null) return
-  routeEngineContainer.classList.toggle('route-engine--detailed', toggle.checked)
+  setRouteDetail(routeEngineContainer, toggle.checked)
 })
+
+for (const button of document.querySelectorAll<HTMLButtonElement>('[data-close-map]')) button.addEventListener('click', () => closeExpandedRouteMap(routeMapDialog))
+routeMapDialog.addEventListener('cancel', (event) => { event.preventDefault(); closeExpandedRouteMap(routeMapDialog) })
 
 for (const tab of document.querySelectorAll<HTMLButtonElement>('[data-day-tab]')) {
   tab.addEventListener('click', () => {
@@ -721,18 +730,6 @@ for (const tab of document.querySelectorAll<HTMLButtonElement>('[data-day-tab]')
     }
   })
 }
-
-dayPointsContainer.addEventListener('click', (event) => {
-  const target = event.target instanceof Element ? event.target.closest<HTMLButtonElement>('[data-point-filter]') : null
-  if (target === null) return
-  const filter = target.dataset.pointFilter ?? 'all'
-  for (const row of dayPointsContainer.querySelectorAll<HTMLElement>('[data-point-category]')) {
-    row.hidden = filter !== 'all' && row.dataset.pointCategory !== filter
-  }
-  for (const button of dayPointsContainer.querySelectorAll<HTMLButtonElement>('[data-point-filter]')) {
-    button.setAttribute('aria-pressed', String(button === target))
-  }
-})
 
 tripPlanContainer.addEventListener('click', (event) => {
   const target = event.target

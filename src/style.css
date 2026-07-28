@@ -1578,6 +1578,38 @@ ul {
 .accommodation-card address { color: var(--ink-soft); font-style: normal; }
 .accommodation-card__actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .secondary-sheet, .technical-details { overflow: visible; }
+.route-detail-control { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.switch { min-height: 48px; display: inline-flex; align-items: center; gap: 9px; cursor: pointer; }
+.switch input { position: absolute; inline-size: 1px; block-size: 1px; opacity: 0; }
+.switch__track { inline-size: 48px; block-size: 28px; padding: 3px; border-radius: 999px; background: #9ca3af; transition: background .18s ease; }
+.switch__track span { display: block; inline-size: 22px; block-size: 22px; border-radius: 50%; background: #fff; box-shadow: 0 1px 4px rgb(0 0 0 / 25%); transition: transform .18s ease; }
+.switch input:checked + .switch__track { background: var(--forest-700); }
+.switch input:checked + .switch__track span { transform: translateX(20px); }
+.switch input:focus-visible + .switch__track { outline: 3px solid #2563eb; outline-offset: 2px; }
+.route-point__time { display: grid; gap: 1px; }
+.route-point__time small { color: var(--ink-soft); font-size: .65rem; text-transform: uppercase; }
+.route-point--off-route { border-style: dashed; border-color: #d97706; }
+.route-point--off-route .route-point__main > small:last-child { color: #9a3412; font-weight: 750; }
+.route-point[hidden] { display: none !important; }
+.route-map-card, .elevation-profile-card { display: grid; gap: 10px; }
+.route-map { position: relative; min-height: 280px; overflow: hidden; border-radius: 10px; background: #e5e7eb; }
+.route-map__canvas { height: 280px; }
+.route-map .leaflet-container { font-family: inherit; }
+.route-map__fallback { position: absolute; z-index: 500; inset: auto 8px 8px; margin: 0; padding: 7px 9px; border-radius: 7px; background: rgb(255 255 255 / 92%); font-size: .78rem; }
+.route-map-dialog { width: min(94vw, 1100px); max-width: none; padding: 14px; border: 0; border-radius: 14px; }
+.route-map-dialog::backdrop { background: rgb(3 18 16 / 70%); }
+.route-map-dialog > header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.route-map--expanded { height: min(75vh, 720px); }
+.route-map--expanded > .leaflet-container, [data-route-map-expanded] { height: min(75vh, 720px); }
+.elevation-profile { margin: 0; }
+.elevation-profile svg { display: block; width: 100%; height: clamp(190px, 28vw, 280px); overflow: visible; }
+.profile-area { fill: rgb(15 118 110 / 15%); }
+.profile-line { fill: none; stroke: var(--forest-700); stroke-width: 3; vector-effect: non-scaling-stroke; }
+.profile-pause { stroke: #7c3aed; stroke-width: 2; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; }
+.profile-marker circle { fill: #1d4ed8; stroke: #fff; stroke-width: 2; vector-effect: non-scaling-stroke; }
+.profile-marker--off-route circle { fill: #fff; stroke: #b45309; stroke-width: 3; }
+.elevation-profile text { fill: var(--ink-soft); font-size: 13px; }
+.elevation-profile figcaption { color: var(--ink-soft); font-size: .78rem; }
 
 @media (max-width: 430px) {
   .dashboard { width: 100%; padding-inline: 10px; }
@@ -1586,6 +1618,8 @@ ul {
   .route-point__distance { grid-column: 2; }
   .section-heading { gap: 8px; }
   .section-heading [data-gpx-download] { width: 100%; }
+  .route-map, .route-map__canvas { min-height: 230px; height: 230px; }
+  .route-point summary { grid-template-columns: 4.4rem minmax(0, 1fr); }
 }
 
 @media (min-width: 920px) {
