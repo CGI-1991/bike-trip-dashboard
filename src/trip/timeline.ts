@@ -5,11 +5,13 @@ import { buildRouteProfile, scheduleRouteTimeline } from '../route/engine.ts'
 import { createRouteClockTime } from '../route/time.ts'
 import type { RouteClockTime, RouteEngineSettings } from '../route/types.ts'
 import { assertTripPlan } from './plan.ts'
-import { createContextualPauseAnchors } from './pause-plan.ts'
+import { createContextualPauseAnchors, createCustomPauseAnchors, getPauseDayPlan } from './pause-plan.ts'
+import type { PausePlanDocument, PausePlace } from './pause-plan.ts'
 import type {
   OffDayTimeline,
   RideDay,
   RideDayTimeline,
+  RideDayId,
   TripDayTimeline,
   TripPlan,
   TripProfile,
@@ -200,9 +202,8 @@ function assertReadyRideDayTimeline(
   if (
     route.settings.averageSpeedKph !== settings.averageSpeedKph ||
     route.settings.departureTime !== settings.departureTime ||
-    route.settings.totalBreakMinutes !== settings.totalBreakMinutes ||
-    pauseMinutes !== settings.totalBreakMinutes ||
-    route.summary.pauseDurationMinutes !== settings.totalBreakMinutes ||
+    pauseMinutes !== route.settings.totalBreakMinutes ||
+    route.summary.pauseDurationMinutes !== route.settings.totalBreakMinutes ||
     Math.abs(
       route.summary.arrivalTimeMinutes -
         route.summary.departureTimeMinutes -
@@ -320,6 +321,8 @@ export function assertTripTimeline(timeline: TripTimeline): void {
 export function scheduleTripTimeline(
   profile: TripProfile,
   settings: RouteEngineSettings,
+  pausePlan: PausePlanDocument = { version: 1, days: [] },
+  pausePlacesByDay: Readonly<Partial<Record<RideDayId, readonly PausePlace[]>>> = {},
 ): TripTimeline {
   const days: TripDayTimeline[] = profile.days.map((dayProfile) => {
     if (dayProfile.type === 'off') {
@@ -340,11 +343,19 @@ export function scheduleTripTimeline(
     }
 
     try {
+      const automaticAnchors = createContextualPauseAnchors(dayProfile.routeProfile, settings.averageSpeedKph)
+      const dayPausePlan = getPauseDayPlan(pausePlan, dayProfile.day.id)
+      const customAnchors = dayPausePlan === null ? null : createCustomPauseAnchors(dayProfile.routeProfile, dayPausePlan, pausePlacesByDay[dayProfile.day.id] ?? [])
+      const pauseAnchors = customAnchors ?? automaticAnchors
+      const daySettings: RouteEngineSettings = {
+        ...settings,
+        totalBreakMinutes: customAnchors === null ? settings.totalBreakMinutes : dayPausePlan?.pauses.filter(({ active }) => active).reduce((total, pause) => total + pause.durationMinutes, 0) ?? 0,
+      }
       const contextualProfile: typeof dayProfile.routeProfile = {
         ...dayProfile.routeProfile,
-        pauseAnchors: createContextualPauseAnchors(dayProfile.routeProfile, settings.averageSpeedKph),
+        pauseAnchors,
       }
-      const route = scheduleRouteTimeline(contextualProfile, settings)
+      const route = scheduleRouteTimeline(contextualProfile, daySettings)
       return {
         type: 'ride',
         status: 'ready',

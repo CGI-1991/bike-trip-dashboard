@@ -66,13 +66,6 @@ function renderRouteClockTime(value: RouteClockTime): string {
   return `<time aria-label='${escapeHtml(describeRouteClockTime(value))}'>${escapeHtml(formatRouteClockTime(value))}</time>`
 }
 
-function formatDuration(totalMinutes: number): string {
-  const roundedMinutes = Math.round(totalMinutes)
-  const hours = Math.floor(roundedMinutes / 60)
-  const minutes = roundedMinutes % 60
-  return hours === 0 ? `${minutes} min` : `${hours} h ${String(minutes).padStart(2, '0')}`
-}
-
 function formatAltitude(altitudeM: number | null): string {
   return altitudeM === null ? '—' : `${integerFormatter.format(altitudeM)} m`
 }
@@ -95,11 +88,19 @@ function renderAutomaticWaypointRow(
   primaryPoint: RoadbookPointMatch | undefined,
 ): RenderedWaypointRow {
   const pointIds = link?.roadbookPointIds.join(' ') ?? ''
-  const typeLabel = primaryPoint === undefined
-    ? waypointTypeLabels[waypoint.type]
-    : roadbookPointTypeLabels[primaryPoint.type]
+  const pause = timeline.pauses.find(({ startWaypointId }) => startWaypointId === waypoint.id)
+  const pauseFunction =
+    primaryPoint?.type === 'resupply' || primaryPoint?.isResupplyCandidate === true
+      ? ' · ravitaillement'
+      : ''
+  const typeLabel = pause === undefined
+    ? primaryPoint === undefined
+      ? waypointTypeLabels[waypoint.type]
+      : roadbookPointTypeLabels[primaryPoint.type]
+    : `Pause ${pause.durationMinutes} min${pauseFunction}`
   const displayName = link?.displayName ?? waypoint.name
   const technicalName = link === undefined ? '' : `<small>${escapeHtml(waypoint.name)}</small>`
+  const compactVisible = waypoint.type === 'route-start' || waypoint.type === 'route-end' || waypoint.type === 'summit' || waypoint.type === 'pause-start' || primaryPoint?.type === 'col' || primaryPoint?.type === 'summit' || primaryPoint?.subtype === 'strategic-passage'
 
   return {
     elapsedMinutes: waypoint.progress.elapsedMinutes,
@@ -113,6 +114,7 @@ function renderAutomaticWaypointRow(
           data-route-elapsed="${waypoint.progress.elapsedMinutes}"
           data-route-distance="${waypoint.progress.distanceKm}"
           data-route-gpx="${waypoint.sourceFileNumber}"
+          data-route-compact-visible="${compactVisible}"
           ${pointIds.length === 0 ? '' : `data-roadbook-point-ids="${escapeHtml(pointIds)}"`}
         >
           <td>${renderRouteClockTime(
@@ -128,7 +130,7 @@ function renderAutomaticWaypointRow(
           </td>
           <td>${distanceFormatter.format(waypoint.progress.distanceKm)} km</td>
           <td>${formatAltitude(waypoint.progress.altitudeM)}</td>
-          <td>${formatGpxNumber(waypoint.sourceFileNumber)}</td>
+          <td class="route-technical-column">${formatGpxNumber(waypoint.sourceFileNumber)}</td>
         </tr>`,
   }
 }
@@ -138,6 +140,7 @@ function renderStandaloneWaypointRow(
   waypoint: RoadbookStandaloneWaypoint,
 ): RenderedWaypointRow {
   const gpxNumber = timeline.summary.firstSourceFileNumber
+  const compactVisible = waypoint.type === 'col' || waypoint.type === 'summit' || waypoint.type === 'start' || waypoint.type === 'end'
 
   return {
     elapsedMinutes: waypoint.eta.totalMinutesFromDeparture,
@@ -151,6 +154,7 @@ function renderStandaloneWaypointRow(
         data-route-elapsed="${waypoint.eta.totalMinutesFromDeparture}"
         data-route-distance="${waypoint.trackDistanceKm}"
         data-route-gpx="${gpxNumber}"
+        data-route-compact-visible="${compactVisible}"
         data-roadbook-point-ids="${escapeHtml(waypoint.roadbookPointIds.join(' '))}"
       >
         <td>${renderRouteClockTime(waypoint.eta)}</td>
@@ -161,7 +165,7 @@ function renderStandaloneWaypointRow(
         </td>
         <td>${distanceFormatter.format(waypoint.trackDistanceKm)} km</td>
         <td>${formatAltitude(waypoint.altitudeM)}</td>
-        <td>${formatGpxNumber(gpxNumber)}</td>
+        <td class="route-technical-column">${formatGpxNumber(gpxNumber)}</td>
       </tr>`,
   }
 }
@@ -298,29 +302,7 @@ function renderReadyRideTimeline(
   container.dataset.routeFirstElapsed = String(firstElapsedMinutes)
   container.setAttribute('aria-busy', 'false')
   container.innerHTML = `
-    <div class="route-engine__status" role="status" aria-live="polite">
-      <strong>${day.id} · ${escapeHtml(day.name)}</strong>
-      <span>GPX ${formatGpxNumber(day.gpxNumber)} · ${summary.waypointCount} waypoints</span>
-    </div>
-
-    <dl class="route-engine__summary">
-      <div>
-        <dt>Départ</dt>
-        <dd>${escapeHtml(dayTimeline.startTime)}</dd>
-      </div>
-      <div>
-        <dt>Durée roulée</dt>
-        <dd>${formatDuration(summary.movingDurationMinutes)}</dd>
-      </div>
-      <div>
-        <dt>Pauses</dt>
-        <dd>${formatDuration(summary.pauseDurationMinutes)}</dd>
-      </div>
-      <div>
-        <dt>ETA d’arrivée</dt>
-        <dd>${renderRouteClockTime(dayTimeline.arrivalTime)}</dd>
-      </div>
-    </dl>
+    <p class="route-engine__compact-note">Départ, pauses retenues, cols, sommets importants et arrivée.</p>
 
     <div
       class="route-table-wrapper"
@@ -336,16 +318,13 @@ function renderReadyRideTimeline(
             <th scope="col">Type</th>
             <th scope="col">Distance</th>
             <th scope="col">Altitude</th>
-            <th scope="col">GPX</th>
+            <th class="route-technical-column" scope="col">GPX</th>
           </tr>
         </thead>
         <tbody>${renderWaypointRows(route, day.id, roadbookReport)}</tbody>
       </table>
     </div>
-
-    <p class="route-engine__note">
-      Chronologie propre à ${day.id} : temps écoulé remis à zéro et aucune propagation vers le jour suivant.
-    </p>`
+    <button class="button button--quiet button--full" type="button" data-route-detail-toggle aria-pressed="false">Afficher le parcours détaillé</button>`
 }
 
 export function renderTripDayRouteTimeline(

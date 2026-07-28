@@ -205,6 +205,7 @@ function createRideSamplePoint(
 function createWeatherReferenceSamplePoint(
   tripDate: WeatherSamplePoint['tripDate'],
   point: RoadbookPointMatch,
+  plannedReferenceIds: ReadonlySet<string>,
 ): WeatherSamplePoint | null {
   if (
     getRoadbookPointRole(point) !== 'weather-reference' ||
@@ -227,7 +228,7 @@ function createWeatherReferenceSamplePoint(
     references: [createReference(point)],
     source: 'roadbook-weather-reference',
     role: 'weather-reference',
-    contributesToDayRisk: false,
+    contributesToDayRisk: plannedReferenceIds.has(point.id),
   }
 }
 
@@ -319,6 +320,7 @@ export function buildWeatherDayDefinitions(
   timeline: TripTimeline,
   report: RoadbookMatchReport,
   today: WeatherSamplePoint['tripDate'],
+  plannedReferenceIds: ReadonlySet<string> = new Set(),
 ): readonly WeatherDayDefinition[] {
   const calendarByDayId = new Map(
     buildTripCalendar(plan).map(({ dayId, date }) => [dayId, date]),
@@ -373,7 +375,7 @@ export function buildWeatherDayDefinitions(
     const routePoints = pointGroups.map((group) => createRideSamplePoint(tripDate, group))
     const weatherReferences = report.allPointMatches
       .filter(({ dayId }) => dayId === day.id)
-      .map((point) => createWeatherReferenceSamplePoint(tripDate, point))
+      .map((point) => createWeatherReferenceSamplePoint(tripDate, point, plannedReferenceIds))
       .filter((point): point is WeatherSamplePoint => point !== null)
     const samplePoints = [...routePoints, ...weatherReferences]
 
