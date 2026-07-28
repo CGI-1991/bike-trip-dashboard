@@ -9,15 +9,14 @@ import type {
 import { createRouteClockTime } from '../route/time.ts'
 import type {
   RouteClockTime,
-  RoutePause,
   RouteProgress,
-  RouteSegment,
   RouteTimeline,
   RouteWaypoint,
 } from '../route/types.ts'
 import { roadbookMatchConfig } from './roadbook-config.ts'
 import type { RoadbookMatchConfig } from './roadbook-config.ts'
 import { getRoadbookResolutionEntry, resolveRoadbookResolution } from './roadbook-resolutions.ts'
+import { roadbookSuppressions, suppressedDocumentedPointIds } from './roadbook-suppressions.ts'
 import type {
   RoadbookDay,
   RoadbookDescription,
@@ -202,6 +201,8 @@ export interface RoadbookMatchSummary {
   readonly standaloneWaypointCount: number
   readonly theoreticalPauseCount: number
   readonly matchedRoadbookPauseCount: number
+  /** Documented points permanently removed by user decision — see roadbook-suppressions.ts. */
+  readonly suppressedPointCount: number
 }
 
 export interface RoadbookMatchValidationReport {
@@ -241,7 +242,7 @@ interface DayContext {
   readonly vertices: readonly TrackVertex[]
 }
 
-interface SourcePoint {
+export interface SourcePoint {
   readonly point: RoadbookPointMatch
   readonly sourceOrder: number
 }
@@ -564,11 +565,21 @@ function createProjectionFields(
   }
 }
 
-function createSourcePoints(day: RoadbookRideDay): readonly SourcePoint[] {
+/**
+ * Builds the per-day list of roadbook points before any GPX matching. This is
+ * the earliest choke point in the pipeline and where permanently suppressed
+ * points (roadbook-suppressions.ts) are filtered out — exported so that
+ * filtering can be tested directly without fixturing a full match report.
+ */
+export function createSourcePoints(day: RoadbookRideDay): readonly SourcePoint[] {
   const dayPrefix = `j${String(day.dayNumber).padStart(2, '0')}`
   const points: SourcePoint[] = []
   let sourceOrder = 0
   const add = (point: RoadbookPointMatch): void => {
+    // Permanently suppressed points (see roadbook-suppressions.ts) never enter the
+    // operational model at all — not merely hidden, but absent from every
+    // downstream consumer (matching, weather sampling, map, profile, pauses).
+    if (suppressedDocumentedPointIds.has(point.id)) return
     points.push({ point, sourceOrder })
     sourceOrder++
   }
@@ -1186,12 +1197,20 @@ function getPointLinkMaximumTrackDistanceKm(
     : config.waypointLinkMaximumTrackDistanceKm
 }
 
-function applyPointResolution(point: RoadbookPointMatch): RoadbookPointMatch {
+/**
+ * Applies the editorial resolution layer (`roadbook-resolutions.ts`) to a
+ * matched point: the active/informational/excluded/user-decision-required
+ * verdict, its justification, and — where curated — a display-only rename
+ * (e.g. the Tignes / Val d'Isère pause becoming "Val-d'Isère" once Tignes is
+ * suppressed). Exported so this final rename step is directly testable.
+ */
+export function applyPointResolution(point: RoadbookPointMatch): RoadbookPointMatch {
   const entry = getRoadbookResolutionEntry(point.id)
   return {
     ...point,
     resolution: resolveRoadbookResolution(point.id, point.status),
     ...(entry === null ? {} : { resolutionJustification: entry.justification }),
+    ...(entry?.displayName === undefined ? {} : { name: entry.displayName }),
   }
 }
 
@@ -1688,6 +1707,7 @@ function buildSummary(
     matchedRoadbookPauseCount: points.filter(
       ({ type, status }) => type === 'pause' && status === 'matched',
     ).length,
+    suppressedPointCount: roadbookSuppressions.length,
   }
 }
 
@@ -1785,9 +1805,21 @@ export function buildRoadbookMatchReport(
   timeline: TripTimeline,
   config: RoadbookMatchConfig = roadbookMatchConfig,
 ): RoadbookMatchReport {
+  // Suppressed points (see roadbook-suppressions.ts) are filtered out of the
+  // overrides too, before any validation or matching runs — otherwise the
+  // known-point cross-check below would flag them as "override without a
+  // matching roadbook point" once their source point disappears from
+  // `createSourcePoints`, surfacing a user-confirmed removal as an error.
+  const operationalOverrides: RoadbookOverridesDocument = {
+    ...overrides,
+    overrides: overrides.overrides.filter(
+      (override) => !suppressedDocumentedPointIds.has(override.pointId),
+    ),
+  }
+
   const initialValidation = validateRoadbookMatchInputs(
     document,
-    overrides,
+    operationalOverrides,
     plan,
     gpxResults,
     timeline,
@@ -1800,7 +1832,19 @@ export function buildRoadbookMatchReport(
   }
 
   const issues = [...initialValidation.issues]
-  const overridesByPointId = createOverridesMap(overrides, issues)
+
+  for (const skipped of operationalOverrides.skippedOverrides) {
+    const label = skipped.pointId ?? 'inconnu'
+    for (const issue of skipped.issues) {
+      issues.push({
+        path: `overrides.${label}`,
+        dayId: issue.dayId,
+        message: `Override ignoré localement (projection à confirmer) : ${issue.message}`,
+      })
+    }
+  }
+
+  const overridesByPointId = createOverridesMap(operationalOverrides, issues)
   const inspectionCounters = { textualAttempts: 0, textualMatches: 0 }
   const links: RoadbookWaypointLink[] = []
   const standaloneWaypoints: RoadbookStandaloneWaypoint[] = []
@@ -1913,7 +1957,7 @@ export function buildRoadbookMatchReport(
     }
   })
 
-  for (const override of overrides.overrides) {
+  for (const override of operationalOverrides.overrides) {
     if (!knownPointIds.has(override.pointId)) {
       issues.push({
         path: `overrides.${override.pointId}`,
@@ -1944,258 +1988,4 @@ export function buildRoadbookMatchReport(
 
   assertRoadbookMatchReport(report)
   return report
-}
-
-function getPauseMinutesBeforeDistance(
-  distanceKm: number,
-  pauses: readonly RoutePause[],
-): number {
-  return pauses.reduce(
-    (total, pause) =>
-      pause.distanceKm < distanceKm - roadbookMatchConfig.comparisonEpsilon
-        ? total + pause.durationMinutes
-        : total,
-    0,
-  )
-}
-
-function rescheduleProgress(
-  progress: RouteProgress,
-  pauses: readonly RoutePause[],
-  departureTimeMinutes: number,
-): RouteProgress {
-  const elapsedMinutes =
-    progress.movingElapsedMinutes +
-    getPauseMinutesBeforeDistance(progress.distanceKm, pauses)
-  return {
-    ...progress,
-    elapsedMinutes,
-    theoreticalTimeMinutes: departureTimeMinutes + elapsedMinutes,
-  }
-}
-
-function createPauseWaypoints(
-  pause: RoutePause,
-  progress: RouteProgress,
-): readonly [RouteWaypoint, RouteWaypoint] {
-  const startWaypoint: RouteWaypoint = {
-    id: pause.startWaypointId,
-    type: 'pause-start',
-    name: `${pause.name} — début`,
-    latitude: pause.latitude,
-    longitude: pause.longitude,
-    sourceFileNumber: pause.sourceFileNumber,
-    sourceFileName: pause.sourceFileName,
-    progress: {
-      ...progress,
-      altitudeM: pause.altitudeM,
-      elapsedMinutes: pause.startElapsedMinutes,
-      theoreticalTimeMinutes: pause.startTimeMinutes,
-    },
-  }
-  const endWaypoint: RouteWaypoint = {
-    ...startWaypoint,
-    id: pause.endWaypointId,
-    type: 'pause-end',
-    name: `${pause.name} — fin`,
-    progress: {
-      ...startWaypoint.progress,
-      estimatedSpeedKph: 0,
-      elapsedMinutes: pause.endElapsedMinutes,
-      theoreticalTimeMinutes: pause.endTimeMinutes,
-    },
-  }
-  return [startWaypoint, endWaypoint]
-}
-
-function assertPauseIntegratedTimeline(
-  original: RouteTimeline,
-  updated: RouteTimeline,
-): void {
-  const originalPauseMinutes = original.pauses.reduce(
-    (total, pause) => total + pause.durationMinutes,
-    0,
-  )
-  const updatedPauseMinutes = updated.pauses.reduce(
-    (total, pause) => total + pause.durationMinutes,
-    0,
-  )
-
-  if (
-    originalPauseMinutes !== updatedPauseMinutes ||
-    updatedPauseMinutes !== original.settings.totalBreakMinutes ||
-    Math.abs(updated.summary.totalDurationMinutes - original.summary.totalDurationMinutes) >
-      roadbookMatchConfig.comparisonEpsilon ||
-    Math.abs(updated.summary.arrivalTimeMinutes - original.summary.arrivalTimeMinutes) >
-      roadbookMatchConfig.comparisonEpsilon
-  ) {
-    fail('la relocalisation a modifié la durée ou la somme des pauses.')
-  }
-
-  for (let index = 1; index < updated.waypoints.length; index++) {
-    const previous = updated.waypoints[index - 1]
-    const current = updated.waypoints[index]
-    if (
-      previous === undefined ||
-      current === undefined ||
-      current.progress.elapsedMinutes + roadbookMatchConfig.comparisonEpsilon <
-        previous.progress.elapsedMinutes ||
-      current.progress.distanceKm + roadbookMatchConfig.comparisonEpsilon <
-        previous.progress.distanceKm
-    ) {
-      fail('les waypoints ne restent pas ordonnés après relocalisation de pause.')
-    }
-  }
-}
-
-export function applyRoadbookPauseMatches(
-  route: RouteTimeline,
-  dayMatches: readonly RoadbookPointMatch[],
-): RouteTimeline {
-  const matchedPauses = dayMatches.filter(
-    (point) =>
-      point.sourceKind === 'pause' &&
-      point.type === 'pause' &&
-      point.status === 'matched' &&
-      point.overrideApplied,
-  )
-
-  if (matchedPauses.length === 0) {
-    return route
-  }
-
-  if (matchedPauses.length > 1) {
-    fail('une seule pause roadbook peut relocaliser la pause principale.')
-  }
-
-  const match = matchedPauses[0]
-  if (
-    match?.matchedTrackDistanceKm === undefined ||
-    match.matchedLatitude === undefined ||
-    match.matchedLongitude === undefined
-  ) {
-    fail('la pause roadbook matched ne possède pas de projection complète.')
-  }
-
-  const mainPause =
-    route.pauses.find(({ id }) => id === 'pause-main') ??
-    [...route.pauses].sort(
-      (left, right) => right.durationMinutes - left.durationMinutes,
-    )[0]
-  if (mainPause === undefined) {
-    fail('aucune pause théorique principale ne peut être relocalisée.')
-  }
-
-  const targetProgress = createRouteProgressAtDistance(
-    route,
-    match.matchedTrackDistanceKm,
-  )
-  const relocatedPause: RoutePause = {
-    ...mainPause,
-    latitude: match.matchedLatitude,
-    longitude: match.matchedLongitude,
-    distanceKm: match.matchedTrackDistanceKm,
-    altitudeM: match.matchedElevationM ?? targetProgress.altitudeM,
-  }
-  const positionedPauses = route.pauses
-    .map((pause) => (pause.id === mainPause.id ? relocatedPause : pause))
-    .sort((left, right) => left.distanceKm - right.distanceKm)
-  let precedingPauseMinutes = 0
-  const scheduledPauses: RoutePause[] = positionedPauses.map((pause) => {
-    const movingProgress =
-      pause.id === mainPause.id
-        ? targetProgress
-        : createRouteProgressAtDistance(route, pause.distanceKm)
-    const startElapsedMinutes =
-      movingProgress.movingElapsedMinutes + precedingPauseMinutes
-    const endElapsedMinutes = startElapsedMinutes + pause.durationMinutes
-    precedingPauseMinutes += pause.durationMinutes
-    return {
-      ...pause,
-      startElapsedMinutes,
-      endElapsedMinutes,
-      startTimeMinutes: route.summary.departureTimeMinutes + startElapsedMinutes,
-      endTimeMinutes: route.summary.departureTimeMinutes + endElapsedMinutes,
-    }
-  })
-  const standardWaypoints = route.waypoints
-    .filter(({ type }) => type !== 'pause-start' && type !== 'pause-end')
-    .map((waypoint) => ({
-      ...waypoint,
-      progress: rescheduleProgress(
-        waypoint.progress,
-        scheduledPauses,
-        route.summary.departureTimeMinutes,
-      ),
-    }))
-  const pauseWaypoints = scheduledPauses.flatMap((pause) => {
-    const progress =
-      pause.id === mainPause.id
-        ? targetProgress
-        : createRouteProgressAtDistance(route, pause.distanceKm)
-    return createPauseWaypoints(pause, {
-      ...progress,
-      distanceKm: pause.distanceKm,
-      altitudeM: pause.altitudeM,
-    })
-  })
-  const waypoints = [...standardWaypoints, ...pauseWaypoints].sort(
-    (left, right) =>
-      left.progress.elapsedMinutes - right.progress.elapsedMinutes ||
-      left.progress.distanceKm - right.progress.distanceKm ||
-      left.id.localeCompare(right.id),
-  )
-  const segments: RouteSegment[] = route.segments.map((segment) => {
-    const startProgress = rescheduleProgress(
-      segment.startProgress,
-      scheduledPauses,
-      route.summary.departureTimeMinutes,
-    )
-    const endProgress = rescheduleProgress(
-      segment.endProgress,
-      scheduledPauses,
-      route.summary.departureTimeMinutes,
-    )
-    return {
-      ...segment,
-      startElapsedMinutes: startProgress.elapsedMinutes,
-      endElapsedMinutes: endProgress.elapsedMinutes,
-      startTimeMinutes: startProgress.theoreticalTimeMinutes,
-      endTimeMinutes: endProgress.theoreticalTimeMinutes,
-      startProgress,
-      endProgress,
-      waypointIds: waypoints
-        .filter(({ sourceFileNumber }) => sourceFileNumber === segment.sourceFileNumber)
-        .map(({ id }) => id),
-    }
-  })
-  const updated: RouteTimeline = {
-    ...route,
-    segments,
-    waypoints,
-    pauses: scheduledPauses,
-    summary: {
-      ...route.summary,
-      pauseDurationMinutes: scheduledPauses.reduce(
-        (total, pause) => total + pause.durationMinutes,
-        0,
-      ),
-      totalDurationMinutes:
-        route.summary.movingDurationMinutes +
-        scheduledPauses.reduce(
-          (total, pause) => total + pause.durationMinutes,
-          0,
-        ),
-      arrivalTimeMinutes:
-        route.summary.departureTimeMinutes +
-        route.summary.movingDurationMinutes +
-        scheduledPauses.reduce(
-          (total, pause) => total + pause.durationMinutes,
-          0,
-        ),
-    },
-  }
-
-  assertPauseIntegratedTimeline(route, updated)
-  return updated
 }

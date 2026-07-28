@@ -1,7 +1,6 @@
 import type { RouteEngineConfig } from '../route/config.ts'
 import type {
   RouteClockTime,
-  RouteEngineSettings,
   RouteProfile,
   RouteTimeline,
 } from '../route/types.ts'
@@ -141,9 +140,13 @@ export interface TripTimelineSummary {
   readonly totalElevationGainM: number
 }
 
+/**
+ * No single `settings` field: each ride day's own settings live on its own
+ * `RideDayTimeline.route.settings` — there is no longer one value shared by
+ * all ten ride days (see `RideDaySettingsResolver` in `timeline.ts`).
+ */
 export interface TripTimeline {
   readonly tripId: TripPlan['id']
-  readonly settings: RouteEngineSettings
   readonly days: readonly TripDayTimeline[]
   readonly summary: TripTimelineSummary
 }

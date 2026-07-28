@@ -6,6 +6,7 @@ import {
   resolveRoadbookResolution,
   roadbookResolutionOverrides,
 } from '../../src/trip/roadbook-resolutions.ts'
+import { suppressedDocumentedPointIds } from '../../src/trip/roadbook-suppressions.ts'
 import { deduplicateMatchedWeatherPoints } from '../../src/weather/sample-points.ts'
 
 const VALID_RESOLUTIONS = new Set([
@@ -26,18 +27,32 @@ test('every curated entry is well-formed and uniquely keyed', () => {
     seenIds.add(entry.pointId)
   }
 
-  assert.equal(roadbookResolutionOverrides.length, 12)
+  assert.equal(roadbookResolutionOverrides.length, 5)
 })
 
-test('excludes the Cime de la Bonette option as an unridden loop', () => {
-  const entry = getRoadbookResolutionEntry('j10-option-cime-de-la-bonette')
-  assert.equal(entry?.resolution, 'excluded')
-  assert.match(entry.justification, /non parcourue/)
+test('permanently suppressed points have no curated resolution entry — they are filtered out before this layer', () => {
+  const suppressed = [
+    'j01-passage-bellevaux',
+    'j03-passage-crest-voland',
+    'j04-passage-areches',
+    'j04-passage-les-chapieux',
+    'j06-passage-tignes',
+    'j09-passage-chateau-queyras',
+    'j10-option-cime-de-la-bonette',
+  ]
+
+  for (const pointId of suppressed) {
+    assert.equal(getRoadbookResolutionEntry(pointId), null, `${pointId} should have no resolution entry`)
+    assert.ok(suppressedDocumentedPointIds.has(pointId), `${pointId} should be in the suppression layer`)
+  }
 })
 
-test('excludes Bellevaux and Tignes as localities the track does not actually reach', () => {
-  assert.equal(getRoadbookResolutionEntry('j01-passage-bellevaux')?.resolution, 'excluded')
-  assert.equal(getRoadbookResolutionEntry('j06-passage-tignes')?.resolution, 'excluded')
+test('the Tignes / Val d’Isère pause group now enriches Val-d’Isère only', () => {
+  const entry = getRoadbookResolutionEntry('j06-pause-tignes-val-d-isere')
+  assert.equal(entry?.resolution, 'informational')
+  // The displayed name is the user-facing surface this rule protects: no "Tignes" there.
+  assert.equal(entry?.displayName, 'Val-d’Isère')
+  assert.doesNotMatch(entry.displayName, /Tignes/)
 })
 
 test('keeps combined pause objects as informational group notes, not unmatched geography', () => {
@@ -50,20 +65,6 @@ test('keeps combined pause objects as informational group notes, not unmatched g
   ]
 
   for (const pointId of pauseIds) {
-    const entry = getRoadbookResolutionEntry(pointId)
-    assert.equal(entry?.resolution, 'informational', `${pointId} should be informational`)
-  }
-})
-
-test('demotes the four distance-ambiguous needs-review passages to informational', () => {
-  const informationalPassageIds = [
-    'j03-passage-crest-voland',
-    'j04-passage-areches',
-    'j04-passage-les-chapieux',
-    'j09-passage-chateau-queyras',
-  ]
-
-  for (const pointId of informationalPassageIds) {
     const entry = getRoadbookResolutionEntry(pointId)
     assert.equal(entry?.resolution, 'informational', `${pointId} should be informational`)
   }

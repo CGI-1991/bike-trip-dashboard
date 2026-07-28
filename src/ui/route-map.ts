@@ -4,20 +4,53 @@ import type { GpxAnalysisSuccess } from '../gpx/types.ts'
 import type { Accommodation } from '../trip/accommodations.ts'
 import type { RoadbookMatchReport } from '../trip/roadbook-match.ts'
 import type { RideDayTimeline } from '../trip/types.ts'
+import { buildRouteMapModel } from './route-map-model.ts'
+import type { RouteMapMarkerModel, RouteMapModel } from './route-map-model.ts'
+import {
+  PAUSE_ACCENT_COLOR_HEX,
+  getRouteMarkerLegendEntries,
+  getRouteMarkerStyle,
+} from './route-marker-style.ts'
+import type { RouteMarkerCategory, RouteMarkerShape } from './route-marker-style.ts'
+
+export { buildRouteMapModel } from './route-map-model.ts'
+export type { RouteMapMarkerModel, RouteMapModel } from './route-map-model.ts'
 
 const mapInstances = new WeakMap<HTMLElement, L.Map>()
 const openHandlers = new WeakMap<HTMLButtonElement, EventListener>()
 function destroy(container: HTMLElement): void { const map = mapInstances.get(container); if (map !== undefined) { map.remove(); mapInstances.delete(container) } }
 
-export interface RouteMapModel { readonly coordinates: readonly L.LatLngTuple[]; readonly documentedPoints: readonly { name: string; coordinate: L.LatLngTuple; offRoute: boolean }[]; readonly pauses: readonly { name: string; coordinate: L.LatLngTuple; durationMinutes: number }[]; readonly accommodation: { name: string; coordinate: L.LatLngTuple } | null }
-
-export function buildRouteMapModel(gpx: GpxAnalysisSuccess, timeline: RideDayTimeline, report: RoadbookMatchReport | null, accommodation: Accommodation | null): RouteMapModel {
-  const coordinates = gpx.segments.flatMap(({ points }) => points.map(({ latitude, longitude }) => [latitude, longitude] as L.LatLngTuple))
-  const documentedPoints = (report?.allPointMatches.filter(({ dayId, sourceLatitude, sourceLongitude, matchedLatitude, matchedLongitude }) => dayId === timeline.day.id && (sourceLatitude !== undefined && sourceLongitude !== undefined || matchedLatitude !== undefined && matchedLongitude !== undefined)) ?? []).map((point) => ({ name: point.name, coordinate: [point.sourceLatitude ?? point.matchedLatitude as number, point.sourceLongitude ?? point.matchedLongitude as number] as L.LatLngTuple, offRoute: point.resolution !== 'matched' }))
-  const end = coordinates.at(-1) ?? [0, 0]
-  const pauses = timeline.route.pauses.map(({ name, latitude, longitude, durationMinutes }) => ({ name, coordinate: [latitude, longitude] as L.LatLngTuple, durationMinutes }))
-  return { coordinates, documentedPoints, pauses, accommodation: accommodation === null ? null : { name: accommodation.name, coordinate: accommodation.latitude === undefined || accommodation.longitude === undefined ? end : [accommodation.latitude, accommodation.longitude] } }
+function shapeStyle(shape: RouteMarkerShape): string {
+  if (shape === 'circle') return 'border-radius: 50%;'
+  if (shape === 'rounded-square') return 'border-radius: 30%;'
+  return 'border-radius: 20%; transform: rotate(45deg);'
 }
+
+function createRouteDivIcon(category: RouteMarkerCategory, options: { readonly offRoute?: boolean; readonly pauseActive?: boolean } = {}): L.DivIcon {
+  const style = getRouteMarkerStyle(category)
+  const size = style.sizePx
+  const ring = options.pauseActive === true ? `box-shadow: 0 0 0 3px ${PAUSE_ACCENT_COLOR_HEX};` : ''
+  const surface = options.offRoute === true
+    ? `background: transparent; border: 2px dashed ${style.colorHex};`
+    : `background: ${style.colorHex}; border: 2px solid #ffffff;`
+  const counterRotate = style.shape === 'diamond' ? 'transform: rotate(-45deg);' : ''
+  const symbolMarkup = style.symbol === '' ? '' : `<span style="display:block; ${counterRotate} font: 700 ${Math.round(size * 0.55)}px/1 system-ui, sans-serif; color:#ffffff;">${style.symbol}</span>`
+  const html = `<span role="img" aria-label="${style.label}" style="box-sizing:border-box; display:flex; align-items:center; justify-content:center; width:${size}px; height:${size}px; ${shapeStyle(style.shape)} ${surface} ${ring}">${symbolMarkup}</span>`
+  return L.divIcon({ html, className: `route-marker route-marker--${category}`, iconSize: [size, size], iconAnchor: [size / 2, size / 2] })
+}
+
+function markerTooltip(marker: RouteMapMarkerModel): string {
+  const base = marker.category === 'start'
+    ? `Départ — ${marker.name}`
+    : marker.category === 'finish'
+      ? `Arrivée — ${marker.name}`
+      : marker.name
+  const pause = marker.pauseDurationMinutes === undefined ? '' : ` · Pause ${marker.pauseDurationMinutes} min`
+  const offRoute = marker.offRoute ? ' · Hors parcours' : ''
+  return `${base}${pause}${offRoute}`
+}
+
+function toLatLng(tuple: readonly [number, number]): L.LatLngTuple { return [tuple[0], tuple[1]] }
 
 function createMap(container: HTMLElement, model: RouteMapModel, interactive: boolean, onTileError: () => void): L.Map {
   destroy(container)
@@ -25,15 +58,24 @@ function createMap(container: HTMLElement, model: RouteMapModel, interactive: bo
   mapInstances.set(container, map)
   const tiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap contributors', maxZoom: 19 })
   tiles.on('tileerror', onTileError).addTo(map)
-  const line = L.polyline([...model.coordinates], { color: '#0f766e', weight: 4 }).addTo(map)
-  const start = model.coordinates[0]; const end = model.coordinates.at(-1)
-  if (start !== undefined) L.circleMarker(start, { radius: 6, color: '#166534', fillOpacity: 1 }).bindTooltip('Départ').addTo(map)
-  if (end !== undefined) L.circleMarker(end, { radius: 6, color: '#991b1b', fillOpacity: 1 }).bindTooltip('Arrivée').addTo(map)
-  for (const point of model.documentedPoints) L.circleMarker(point.coordinate, { radius: 4, color: point.offRoute ? '#b45309' : '#1d4ed8', dashArray: point.offRoute ? '3 2' : undefined, fillOpacity: point.offRoute ? 0 : .8 }).bindTooltip(point.name).addTo(map)
-  for (const pause of model.pauses) L.circleMarker(pause.coordinate, { radius: 6, color: '#7c3aed', fillOpacity: 1 }).bindTooltip(`Pause ${pause.durationMinutes} min · ${pause.name}`).addTo(map)
-  if (model.accommodation !== null) L.circleMarker(model.accommodation.coordinate, { radius: 7, color: '#7c3aed', fillOpacity: .8 }).bindTooltip(`Hébergement · ${model.accommodation.name}`).addTo(map)
+  const line = L.polyline(model.coordinates.map(toLatLng), { color: '#0f766e', weight: 4 }).addTo(map)
+  for (const marker of model.markers) {
+    L.marker(toLatLng(marker.coordinate), { icon: createRouteDivIcon(marker.category, { offRoute: marker.offRoute, pauseActive: marker.pauseActive }) })
+      .bindTooltip(markerTooltip(marker))
+      .addTo(map)
+  }
   if (model.coordinates.length > 1) map.fitBounds(line.getBounds(), { padding: [12, 12] })
   return map
+}
+
+function renderLegend(container: HTMLElement): void {
+  const legend = document.createElement('p')
+  legend.className = 'route-map__legend'
+  legend.setAttribute('aria-label', 'Légende des marqueurs de parcours')
+  legend.innerHTML = getRouteMarkerLegendEntries()
+    .map(({ symbol, label }) => `<span class="route-map__legend-item"><strong aria-hidden="true">${symbol}</strong> ${label}</span>`)
+    .join(' · ')
+  container.appendChild(legend)
 }
 
 export function renderRouteMap(container: HTMLElement, dialog: HTMLDialogElement, gpx: GpxAnalysisSuccess | null, timeline: RideDayTimeline | null, report: RoadbookMatchReport | null, accommodation: Accommodation | null): void {
@@ -43,6 +85,7 @@ export function renderRouteMap(container: HTMLElement, dialog: HTMLDialogElement
   container.innerHTML = '<div class="route-map__canvas" data-route-map-canvas></div><p class="route-map__fallback" hidden data-route-map-fallback>Fond de carte indisponible. Le tracé reste accessible dans le profil.</p>'
   const canvas = container.querySelector<HTMLElement>('[data-route-map-canvas]') as HTMLElement; const fallback = container.querySelector<HTMLElement>('[data-route-map-fallback]') as HTMLElement
   createMap(canvas, model, false, () => { fallback.hidden = false })
+  renderLegend(container)
   const expanded = dialog.querySelector<HTMLElement>('[data-route-map-expanded]') as HTMLElement
   const open = dialog.previousElementSibling?.querySelector<HTMLButtonElement>('[data-explore-map]')
   if (open !== null && open !== undefined) {

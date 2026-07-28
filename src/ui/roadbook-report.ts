@@ -89,6 +89,7 @@ const matchMethodLabels: Record<RoadbookMatchMethod, string> = {
   'manual-confirmed-profile-candidate': 'Candidat de profil confirmé manuellement',
   'manual-anchor-projected-to-track': 'Ancre manuelle projetée sur le GPX',
   'manual-track-loop-confirmation': 'Boucle du tracé confirmée manuellement',
+  'manual-anchor-reprojected-current-gpx': 'Ancre validée, projection recalculée sur le GPX définitif',
   manual: 'Validation manuelle',
 }
 

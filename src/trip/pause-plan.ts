@@ -41,14 +41,50 @@ function closestDistance(profile: RouteProfile, target: number): RouteProfilePos
   return candidates(profile).reduce((best, candidate) => Math.abs(candidate.distanceKm - target) < Math.abs(best.distanceKm - target) ? candidate : best)
 }
 
-export function createContextualPauseAnchors(profile: RouteProfile, averageSpeedKph: number): readonly RouteProfilePauseAnchor[] {
+/**
+ * Nearest still-unused documented place to a theoretical target distance —
+ * the automatic mode's only source of pause locations. Never a technical GPX
+ * waypoint (summit/valley/slope-change/time-marker): those are internal to
+ * the route engine and must never surface as a visible pause.
+ */
+function pickNearestUnusedPlace(
+  places: readonly PausePlace[],
+  targetDistanceKm: number,
+  usedPlaceIds: ReadonlySet<string>,
+): PausePlace | null {
+  const available = places.filter(({ id }) => !usedPlaceIds.has(id))
+  if (available.length === 0) return null
+  return available.reduce((best, candidate) =>
+    Math.abs(candidate.trackDistanceKm - targetDistanceKm) < Math.abs(best.trackDistanceKm - targetDistanceKm)
+      ? candidate
+      : best,
+  )
+}
+
+export function createContextualPauseAnchors(
+  profile: RouteProfile,
+  averageSpeedKph: number,
+  places: readonly PausePlace[],
+): readonly RouteProfilePauseAnchor[] {
   const count = getPauseCount((profile.summary.weightedDistanceKm / averageSpeedKph) * 60)
-  return fractionsByCount[count].map((fraction, index) => ({
-    id: index === Math.floor((count - 1) / 2) ? 'main' : `context-${index + 1}`,
-    name: index === Math.floor((count - 1) / 2) ? 'Pause principale' : `Pause ${index + 1}`,
-    durationShare: sharesByCount[count][index] ?? 0,
-    position: closestWeighted(profile, profile.summary.weightedDistanceKm * fraction),
-  }))
+  const usedPlaceIds = new Set<string>()
+  const anchors: RouteProfilePauseAnchor[] = []
+
+  fractionsByCount[count].forEach((fraction, index) => {
+    const theoreticalTarget = closestWeighted(profile, profile.summary.weightedDistanceKm * fraction)
+    const place = pickNearestUnusedPlace(places, theoreticalTarget.distanceKm, usedPlaceIds)
+    if (place === null) return
+    usedPlaceIds.add(place.id)
+    anchors.push({
+      id: index === Math.floor((count - 1) / 2) ? 'main' : `context-${index + 1}`,
+      name: place.name,
+      durationShare: sharesByCount[count][index] ?? 0,
+      position: closestDistance(profile, place.trackDistanceKm),
+      pointId: place.id,
+    })
+  })
+
+  return anchors
 }
 
 export function getPauseDayPlan(document: PausePlanDocument, dayId: RideDayId): PauseDayPlan | null {
@@ -61,13 +97,38 @@ export function removePauseDayPlan(document: PausePlanDocument, dayId: RideDayId
   return { version: 1, days: document.days.filter((day) => day.dayId !== dayId) }
 }
 
+/**
+ * Custom mode resolves each pause by `placeId` against the day's *current*
+ * documented places — never a stored position. A pause saved on a point that
+ * no longer exists (suppressed, or a stale id) silently drops out here rather
+ * than surfacing a phantom location.
+ */
 export function createCustomPauseAnchors(profile: RouteProfile, plan: PauseDayPlan, places: readonly PausePlace[]): readonly RouteProfilePauseAnchor[] | null {
   if (plan.mode !== 'custom') return null
   const placeById = new Map(places.map((place) => [place.id, place]))
-  return plan.pauses.filter(({ active, durationMinutes }) => active && durationMinutes > 0).sort((a, b) => a.order - b.order).flatMap((pause) => {
-    const place = placeById.get(pause.placeId)
-    return place === undefined ? [] : [{ id: pause.id, name: pause.placeName, durationShare: pause.durationMinutes, position: closestDistance(profile, place.trackDistanceKm) }]
-  })
+  const resolved = plan.pauses
+    .filter(({ active, durationMinutes }) => active && durationMinutes > 0)
+    .sort((a, b) => a.order - b.order)
+    .flatMap((pause) => {
+      const place = placeById.get(pause.placeId)
+      return place === undefined ? [] : [{ id: pause.id, place, durationMinutes: pause.durationMinutes }]
+    })
+  // Two saved entries can end up targeting the same documented point (a
+  // stale duplicate from an earlier edit) — merge them into one pause rather
+  // than creating two RoutePause objects on the same point.
+  const mergedByPlaceId = new Map<string, { id: string; place: PausePlace; durationMinutes: number }>()
+  for (const entry of resolved) {
+    const existing = mergedByPlaceId.get(entry.place.id)
+    if (existing === undefined) mergedByPlaceId.set(entry.place.id, { ...entry })
+    else existing.durationMinutes += entry.durationMinutes
+  }
+  return [...mergedByPlaceId.values()].map(({ id, place, durationMinutes }) => ({
+    id,
+    name: place.name,
+    durationShare: durationMinutes,
+    position: closestDistance(profile, place.trackDistanceKm),
+    pointId: place.id,
+  }))
 }
 
 function isPauseItem(value: unknown): value is PausePlanItem {
