@@ -125,6 +125,51 @@ Bonette) ou une pause éditoriale combinant deux localités déjà appariées
 individuellement. Seuls les points résolus `matched` sont transmis au
 fournisseur météo.
 
+## Corriger manuellement un point documenté
+
+Si un point du roadbook affiche une position, une altitude ou une projection
+incorrecte, la correction se fait sans toucher aux index du GPX à la main :
+
+1. **Identifier le point** — son `pointId` déterministe (ex. `j01-col-col-du-feu`)
+   apparaît dans `public/data/trip/roadbook-overrides.json`, dans le rapport
+   `docs/point-data-audit-2026-07-28.json`/`.md`, et dans le panneau *Sources et
+   données* de l'application.
+2. **Renseigner ou corriger son ancre** — dans `roadbook-overrides.json`, éditer
+   uniquement `sourceAnchor.latitude` / `sourceAnchor.longitude` (la position
+   géographique réelle et validée du point). Ne jamais éditer `gpxProjection`,
+   `matchDistanceM`, `segmentIndex`/`pointIndex` à la main : ces champs sont
+   calculés, pas saisis.
+3. **Exécuter le reconstructeur** :
+   ```bash
+   python scripts/rebuild-point-projections.py
+   ```
+   Le script reprojette `sourceAnchor` sur le GPX définitif du jour concerné,
+   régénère `gpxProjection`, `anchorDistanceM` et le commentaire de justification
+   pour les 53 overrides, puis régénère `docs/point-data-audit-2026-07-28.json`
+   et `.md`.
+4. **Contrôler le rapport** — relire `docs/point-data-audit-2026-07-28.md` pour
+   vérifier que le point corrigé n'a pas d'anomalie inattendue (distance à la
+   trace, altitude, rôle).
+5. **Lancer les tests** :
+   ```bash
+   npm test
+   ```
+   `tests/trip/point-data-audit.test.mjs` et `tests/trip/roadbook-validation.test.mjs`
+   vérifient que les 53 overrides restent valides et que le contrat de
+   `matchMethod` (`manual-anchor-reprojected-current-gpx`) est respecté.
+
+Si le point ne doit pas être un waypoint géographique actif (option non
+parcourue, pause éditoriale combinant deux lieux, passage jugé trop éloigné de
+la trace), la décision se prend dans `src/trip/roadbook-resolutions.ts` plutôt
+que dans `roadbook-overrides.json` : voir la section *Overrides* ci-dessus.
+
+Une entrée d'override individuellement invalide (ex. `matchMethod` inconnu) ne
+bloque plus le chargement de l'ensemble du roadbook : elle est ignorée
+localement, journalisée dans `RoadbookOverridesDocument.skippedOverrides`, et
+remontée comme anomalie locale dans le panneau *Sources et données* — le point
+concerné retombe sur ses autres méthodes d'appariement (point nommé du GPX,
+candidat de profil) plutôt que de disparaître.
+
 ## Calendrier confirmé
 
 `src/trip/calendar.ts` centralise la seule date pivot du voyage :
@@ -142,10 +187,19 @@ dupliquées ailleurs dans le code.
 
 ## Réglages localStorage
 
-Les préférences utilisateur (vitesse moyenne, heure de départ, durée totale des
-pauses par journée roulée) sont enregistrées dans `localStorage` sous la clé
-`rga-2026-dashboard.settings.v1` (voir `src/storage/settings.ts`). Elles ne
-quittent jamais le navigateur.
+Chacune des dix journées roulées (J1–J4, J6–J7, J9–J12 ; jamais les journées
+OFF J5/J8) a ses propres réglages — vitesse moyenne, heure de départ, durée
+totale des pauses — enregistrés dans `localStorage` sous la clé
+`rga-2026-dashboard.ride-day-settings.v1` (voir
+`src/storage/ride-day-settings.ts`). Modifier une étape ne recalcule que son
+ETA et sa météo ; les neuf autres restent inchangées, sauf action explicite
+« Appliquer ces valeurs à toutes les étapes ».
+
+L'ancien réglage global unique (`rga-2026-dashboard.settings.v1`, voir
+`src/storage/settings.ts`) reste lu une seule fois, au premier chargement
+suivant cette mise à jour, comme valeur initiale commune aux dix étapes — il
+n'est plus jamais écrit ni utilisé ensuite. Ces préférences ne quittent jamais
+le navigateur.
 
 ## Cache météo
 

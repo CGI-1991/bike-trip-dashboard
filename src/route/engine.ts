@@ -925,10 +925,19 @@ function createScheduledPauses(
   profile: RouteProfile,
   totalBreakMinutes: number,
 ): readonly ScheduledPause[] {
-  const durations = allocatePauseDurations(totalBreakMinutes, profile.pauseAnchors)
+  // Anchors must be in increasing-distance order before the cumulative
+  // `precedingPauseMinutes` sum is computed below — automatic-mode anchors
+  // already come out this way, but custom-mode anchors are user-ordered
+  // (`PausePlanItem.order`) and may not match the anchors' actual position on
+  // the track. Sorting here, not just the final `RoutePause[]` output, keeps
+  // every later pause's ETA offset correct regardless of input order.
+  const orderedAnchors = [...profile.pauseAnchors].sort(
+    (left, right) => left.position.weightedDistanceKm - right.position.weightedDistanceKm,
+  )
+  const durations = allocatePauseDurations(totalBreakMinutes, orderedAnchors)
   let precedingPauseMinutes = 0
 
-  return profile.pauseAnchors
+  return orderedAnchors
     .map((anchor, index): ScheduledPause => {
       const durationMinutes = durations[index] ?? 0
       const scheduledPause = { anchor, durationMinutes, precedingPauseMinutes }
@@ -1181,6 +1190,7 @@ export function scheduleRouteTimeline(
       endTimeMinutes: departureTimeMinutes + endElapsedMinutes,
       startWaypointId: startWaypoint.id,
       endWaypointId: endWaypoint.id,
+      ...(pause.anchor.pointId === undefined ? {} : { pointId: pause.anchor.pointId }),
     })
   }
 

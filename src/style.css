@@ -1513,13 +1513,7 @@ ul {
 .risk-pill--red { color: #842c25; background: #fcebea; }
 .risk-pill--unknown { color: var(--ink-soft); background: var(--surface-muted); }
 .day-tabs { overflow: visible; }
-.route-engine [data-route-compact-visible='false'], .route-engine .route-technical-column { display: none; }
-.route-engine.route-engine--detailed [data-route-compact-visible='false'] { display: table-row; }
-.route-engine.route-engine--detailed .route-technical-column { display: table-cell; }
-.route-engine__compact-note { margin: 10px 0; color: var(--ink-soft); font-size: .82rem; }
 .weather-detail__day-heading, .roadbook-detail__header, .roadbook-detail__schedule { display: none; }
-[data-sources-sheet] { display: none; }
-[data-sources-sheet].is-visible { display: block; }
 
 .pause-editor { width: min(calc(100% - 20px), 680px); max-height: min(88vh, 760px); padding: 0; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 18px 60px rgb(0 0 0 / 25%); }
 .pause-editor::backdrop { background: rgb(10 30 26 / 55%); }
@@ -1556,46 +1550,40 @@ ul {
 .app-view[data-app-view='day-detail'] > * { grid-column: 1 !important; min-width: 0; }
 .day-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); overflow: hidden; }
 .day-tabs button { min-width: 0; }
-.route-point-list { display: grid; gap: 8px; }
-.route-point { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: #fff; }
-.route-point summary { display: grid; grid-template-columns: 4.7rem minmax(0, 1fr) auto; gap: 8px; align-items: center; min-height: 62px; padding: 10px; cursor: pointer; list-style: none; }
-.route-point summary::-webkit-details-marker { display: none; }
-.route-point__time { font-weight: 850; }
+/* Static Parcours cards: roadbook points only, no expand/collapse, no technical
+   block — see route-engine.ts. Same time/main/distance grid as before, just on
+   a plain <li> instead of a <details>/<summary> pair. */
+.route-point-list { display: grid; gap: 8px; list-style: none; margin: 0; padding: 0; }
+.route-point { display: grid; grid-template-columns: 4.7rem minmax(0, 1fr) auto; gap: 8px; align-items: center; min-height: 62px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.route-point__time { display: grid; gap: 1px; font-weight: 850; }
+.route-point__time small { color: var(--ink-soft); font-size: .65rem; text-transform: uppercase; }
 .route-point__main { display: grid; min-width: 0; }
-.route-point__main strong { overflow-wrap: anywhere; }
+.route-point__main strong { display: flex; align-items: baseline; gap: 5px; overflow-wrap: anywhere; }
 .route-point__main small, .route-point__distance { color: var(--ink-soft); }
+.route-point__symbol { font-size: .82em; }
 .route-point__distance { white-space: nowrap; font-size: .8rem; }
-.route-point__details { display: grid; gap: 4px; padding: 10px; background: var(--surface-muted); font-size: .84rem; }
-.route-engine [data-route-compact-visible='false'] { display: none; }
-.route-engine.route-engine--detailed [data-route-compact-visible='false'] { display: block; }
-.route-detail-toggle { display: flex; align-items: center; gap: 8px; min-height: 48px; margin-top: 10px; font-weight: 800; }
-.documented-points { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; }
-.documented-points > summary, .pause-stage > summary { min-height: 44px; cursor: pointer; font-weight: 800; }
+.route-point__pause-tag { grid-column: 1 / -1; justify-self: start; padding: 2px 8px; border-radius: 999px; background: #ede9fe; color: #5b21b6; font-size: .74rem; font-weight: 700; }
+.route-point__status { grid-column: 1 / -1; color: #9a3412; font-weight: 750; }
+.route-point--off-route { border-style: dashed; border-color: #d97706; }
 .pause-stages { display: grid; gap: 10px; margin-top: 18px; }
+.pause-stage > summary { min-height: 44px; cursor: pointer; font-weight: 800; }
 .pause-stage summary { display: grid; grid-template-columns: 3rem minmax(0, 1fr); align-items: center; }
-.pause-stage > p { color: var(--ink-soft); }
+.pause-stage__summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 12px; margin: 8px 0; }
+.pause-stage__summary dt { color: var(--ink-soft); font-size: .72rem; }
+.pause-stage__summary dd { margin: 0; font-weight: 700; }
+.day-settings-fields { display: grid; gap: 10px; }
+[data-automatic-break-field].is-derived { opacity: .75; }
 .accommodation-card { display: grid; gap: 7px; margin: 12px 0 18px; padding: 14px; border: 1px solid #b8d2ca; border-radius: 10px; background: var(--forest-50); }
 .accommodation-card address { color: var(--ink-soft); font-style: normal; }
 .accommodation-card__actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .secondary-sheet, .technical-details { overflow: visible; }
-.route-detail-control { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-.switch { min-height: 48px; display: inline-flex; align-items: center; gap: 9px; cursor: pointer; }
-.switch input { position: absolute; inline-size: 1px; block-size: 1px; opacity: 0; }
-.switch__track { inline-size: 48px; block-size: 28px; padding: 3px; border-radius: 999px; background: #9ca3af; transition: background .18s ease; }
-.switch__track span { display: block; inline-size: 22px; block-size: 22px; border-radius: 50%; background: #fff; box-shadow: 0 1px 4px rgb(0 0 0 / 25%); transition: transform .18s ease; }
-.switch input:checked + .switch__track { background: var(--forest-700); }
-.switch input:checked + .switch__track span { transform: translateX(20px); }
-.switch input:focus-visible + .switch__track { outline: 3px solid #2563eb; outline-offset: 2px; }
-.route-point__time { display: grid; gap: 1px; }
-.route-point__time small { color: var(--ink-soft); font-size: .65rem; text-transform: uppercase; }
-.route-point--off-route { border-style: dashed; border-color: #d97706; }
-.route-point--off-route .route-point__main > small:last-child { color: #9a3412; font-weight: 750; }
-.route-point[hidden] { display: none !important; }
 .route-map-card, .elevation-profile-card { display: grid; gap: 10px; }
 .route-map { position: relative; min-height: 280px; overflow: hidden; border-radius: 10px; background: #e5e7eb; }
 .route-map__canvas { height: 280px; }
 .route-map .leaflet-container { font-family: inherit; }
 .route-map__fallback { position: absolute; z-index: 500; inset: auto 8px 8px; margin: 0; padding: 7px 9px; border-radius: 7px; background: rgb(255 255 255 / 92%); font-size: .78rem; }
+.route-map__legend { margin: 6px 0 0; color: var(--ink-soft); font-size: .74rem; }
+.route-map__legend-item strong { color: var(--ink); }
 .route-map-dialog { width: min(94vw, 1100px); max-width: none; padding: 14px; border: 0; border-radius: 14px; }
 .route-map-dialog::backdrop { background: rgb(3 18 16 / 70%); }
 .route-map-dialog > header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
@@ -1605,21 +1593,23 @@ ul {
 .elevation-profile svg { display: block; width: 100%; height: clamp(190px, 28vw, 280px); overflow: visible; }
 .profile-area { fill: rgb(15 118 110 / 15%); }
 .profile-line { fill: none; stroke: var(--forest-700); stroke-width: 3; vector-effect: non-scaling-stroke; }
-.profile-pause { stroke: #7c3aed; stroke-width: 2; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; }
-.profile-marker circle { fill: #1d4ed8; stroke: #fff; stroke-width: 2; vector-effect: non-scaling-stroke; }
-.profile-marker--off-route circle { fill: #fff; stroke: #b45309; stroke-width: 3; }
+/* Fill/stroke/stroke-width come from the marker's own inline style (see
+   `renderProfileMarker` in elevation-profile.ts) — the same category/color/
+   shape data the map reads from `route-marker-style.ts`. Only shape-agnostic
+   rendering concerns live here. */
+.profile-marker circle, .profile-marker rect { vector-effect: non-scaling-stroke; }
+.profile-marker text { font-family: inherit; pointer-events: none; }
 .elevation-profile text { fill: var(--ink-soft); font-size: 13px; }
 .elevation-profile figcaption { color: var(--ink-soft); font-size: .78rem; }
 
 @media (max-width: 430px) {
   .dashboard { width: 100%; padding-inline: 10px; }
   .app-view[data-app-view='day-detail'] { width: 100%; }
-  .route-point summary { grid-template-columns: 4.1rem minmax(0, 1fr); }
   .route-point__distance { grid-column: 2; }
   .section-heading { gap: 8px; }
   .section-heading [data-gpx-download] { width: 100%; }
   .route-map, .route-map__canvas { min-height: 230px; height: 230px; }
-  .route-point summary { grid-template-columns: 4.4rem minmax(0, 1fr); }
+  .route-point { grid-template-columns: 4.4rem minmax(0, 1fr); }
 }
 
 @media (min-width: 920px) {

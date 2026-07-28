@@ -1,7 +1,14 @@
 import './style.css'
 import type { GpxAnalysisReport } from './gpx/types.ts'
-import { defaultSettings, loadSettings, saveSettings } from './storage/settings.ts'
-import type { DashboardSettings } from './storage/settings.ts'
+import { defaultSettings } from './storage/settings.ts'
+import {
+  applyRideDaySettingsToAllDays,
+  getRideDaySettings,
+  loadRideDaySettings,
+  saveRideDaySettings,
+  upsertRideDaySettings,
+} from './storage/ride-day-settings.ts'
+import type { RideDaySettings, RideDaySettingsDocument } from './storage/ride-day-settings.ts'
 import { getDateInTimezone, getTripDate } from './trip/calendar.ts'
 import { WeatherCache } from './weather/cache.ts'
 import { WeatherCoordinator } from './weather/coordinator.ts'
@@ -16,10 +23,7 @@ import { createContextualPauseAnchors, getPauseDayPlan, loadPausePlan, savePause
 import type { PauseDayPlan, PausePlace, PausePlanDocument } from './trip/pause-plan.ts'
 import { getRoadbookPointRole } from './trip/point-role.ts'
 import { loadRoadbookResources } from './trip/roadbook-loader.ts'
-import {
-  applyRoadbookPauseMatches,
-  buildRoadbookMatchReport,
-} from './trip/roadbook-match.ts'
+import { buildRoadbookMatchReport } from './trip/roadbook-match.ts'
 import type {
   RoadbookDayMatchReport,
   RoadbookMatchReport,
@@ -31,6 +35,7 @@ import {
   scheduleTripTimeline,
 } from './trip/timeline.ts'
 import type {
+  RideDayId,
   TripDayTimeline,
   TripDayId,
   TripProfile,
@@ -55,7 +60,6 @@ import {
   renderRouteEngineError,
   renderRouteEngineLoading,
   renderTripDayRouteTimeline,
-  setRouteDetail,
 } from './ui/route-engine.ts'
 import { renderElevationProfile } from './ui/elevation-profile.ts'
 import { closeExpandedRouteMap, renderRouteMap } from './ui/route-map.ts'
@@ -85,9 +89,18 @@ function getRequiredElement<T extends Element>(selector: string): T {
   return element
 }
 
-let currentSettings = loadSettings()
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;')
+}
+
+let currentRideDaySettings: RideDaySettingsDocument = loadRideDaySettings()
 let currentPausePlan: PausePlanDocument = loadPausePlan()
-let pausePlanHydrated = false
+let roadbookPlacesHydrated = false
 let currentTripProfile: TripProfile | null = null
 let currentTripTimeline: TripTimeline | null = null
 let currentGpxReport: GpxAnalysisReport | null = null
@@ -108,14 +121,9 @@ const weatherCoordinator = new WeatherCoordinator({
 })
 
 const app = getRequiredElement<HTMLDivElement>('#app')
-app.innerHTML = renderDashboard(currentSettings, rga2026TripPlan)
+app.innerHTML = renderDashboard(currentRideDaySettings, rga2026TripPlan)
 
-const settingsForm = getRequiredElement<HTMLFormElement>('#settings-form')
-const averageSpeedInput = getRequiredElement<HTMLInputElement>('#average-speed')
-const departureTimeInput = getRequiredElement<HTMLInputElement>('#departure-time')
-const breakDurationInput = getRequiredElement<HTMLInputElement>('#break-duration')
 const saveStatus = getRequiredElement<HTMLElement>('#save-status')
-const settingsFeedback = getRequiredElement<HTMLElement>('#settings-feedback')
 const dayIndicator = getRequiredElement<HTMLElement>('[data-day-indicator]')
 const todayPanel = getRequiredElement<HTMLElement>('[data-today-panel]')
 const dayHeaderContainer = getRequiredElement<HTMLElement>('[data-day-header]')
@@ -143,7 +151,13 @@ const pauseEditor = getRequiredElement<HTMLDialogElement>('#pause-editor')
 const pauseEditorList = getRequiredElement<HTMLElement>('[data-pause-editor-list]')
 const pauseFeedback = getRequiredElement<HTMLElement>('[data-pause-feedback]')
 const pauseIntro = getRequiredElement<HTMLElement>('[data-pause-intro]')
+const pauseTotalSummary = getRequiredElement<HTMLElement>('[data-pause-total-summary]')
+const dayDepartureTimeInput = getRequiredElement<HTMLInputElement>('[data-day-departure-time]')
+const dayAverageSpeedInput = getRequiredElement<HTMLInputElement>('[data-day-average-speed]')
+const dayTotalBreakInput = getRequiredElement<HTMLInputElement>('[data-day-total-break]')
+const automaticBreakField = getRequiredElement<HTMLElement>('[data-automatic-break-field]')
 let pauseDraft: PauseDayPlan | null = null
+let daySettingsDraft: RideDaySettings | null = null
 let returnView: Exclude<AppView, 'day-detail'> = 'today'
 
 function showView(view: AppView): void {
@@ -261,10 +275,9 @@ function getPausePlaces(dayId: TripDayId): readonly PausePlace[] {
   if (dayReport?.type === 'ride') {
     for (const point of dayReport.points) {
       const role = getRoadbookPointRole(point)
-      const bonette = point.id === 'j10-option-cime-de-la-bonette'
       const eligibleType = point.type === 'village' || point.type === 'resupply' || point.type === 'col' || point.type === 'summit' || point.type === 'passage' || point.type === 'pause'
-      if (point.matchedTrackDistanceKm === undefined || !(eligibleType || point.isPauseCandidate || point.isResupplyCandidate || role === 'weather-reference' || bonette)) continue
-      places.set(point.id, { id: point.id, name: bonette ? `${point.name} — option hors parcours` : point.name, trackDistanceKm: point.matchedTrackDistanceKm, offRoute: role !== 'route-point' })
+      if (point.matchedTrackDistanceKm === undefined || !(eligibleType || point.isPauseCandidate || point.isResupplyCandidate)) continue
+      places.set(point.id, { id: point.id, name: point.name, trackDistanceKm: point.matchedTrackDistanceKm, offRoute: role !== 'route-point' })
     }
   }
   return [...places.values()].sort((a, b) => a.trackDistanceKm - b.trackDistanceKm)
@@ -354,8 +367,8 @@ function renderCurrentTripSelection(restoreFocus = false): void {
   }
 
   renderTripTimeline(tripPlanContainer, currentTripTimeline, selectedDayId)
-  renderTripDayRouteTimeline(routeEngineContainer, selectedDay, currentRoadbookReport)
   const accommodation = getAccommodationForDay(currentAccommodations, selectedDayId)
+  renderTripDayRouteTimeline(routeEngineContainer, selectedDay, currentRoadbookReport, accommodation)
   renderAccommodation(accommodationContainer, accommodation)
   if (selectedDay.type === 'ride' && selectedDay.status === 'ready') {
     const base = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL : `${import.meta.env.BASE_URL}/`
@@ -365,12 +378,21 @@ function renderCurrentTripSelection(restoreFocus = false): void {
     const gpx = currentGpxReport?.files.find((file) => file.status === 'success' && file.source.fileName === selectedDay.day.gpxFile)
     const successfulGpx = gpx?.status === 'success' ? gpx : null
     renderRouteMap(routeMapContainer, routeMapDialog, successfulGpx, selectedDay, currentRoadbookReport, accommodation)
-    renderElevationProfile(elevationProfileContainer, successfulGpx, selectedDay, currentRoadbookReport)
+    renderElevationProfile(elevationProfileContainer, successfulGpx, selectedDay, currentRoadbookReport, accommodation)
   } else {
     gpxDownload.hidden = true
     gpxDownload.removeAttribute('href')
-    routeMapContainer.innerHTML = '<p>Pas de carte cycliste pour une journée OFF.</p>'
-    elevationProfileContainer.innerHTML = '<p>Pas de profil cycliste pour une journée OFF.</p>'
+    // The day's type (ride/off) comes only from the calendar/trip plan, never
+    // from whether a timeline could be built — a ride day whose GPX/pauses
+    // temporarily failed must never read as a genuine OFF day.
+    if (selectedDay.type === 'off') {
+      routeMapContainer.innerHTML = '<p>Pas de carte cycliste pour une journée OFF.</p>'
+      elevationProfileContainer.innerHTML = '<p>Pas de profil cycliste pour une journée OFF.</p>'
+    } else {
+      const cause = selectedDay.status === 'unavailable' ? escapeHtml(selectedDay.message) : ''
+      routeMapContainer.innerHTML = `<p>Carte temporairement indisponible.${cause === '' ? '' : ` ${cause}`}</p>`
+      elevationProfileContainer.innerHTML = `<p>Profil temporairement indisponible.${cause === '' ? '' : ` ${cause}`}</p>`
+    }
   }
   renderCurrentRoadbookSelection(selectedDay)
   renderCurrentWeatherSelection()
@@ -437,40 +459,6 @@ function renderToday(): void {
   todayPanel.innerHTML = `<p class="eyebrow">${intro}</p><h3>${day.id} · <time datetime="${date}">${new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'long', year: 'numeric', timeZone: rga2026TripPlan.timezone }).format(new Date(`${date}T12:00:00Z`))}</time></h3><p class="today-route">${route}</p>${metrics}<div class="today-weather"><strong>Météo</strong><span>${riskLabel}</span><small>Mode météo selon l’horizon${period.kind === 'before' && weather?.availability === 'outside-horizon' ? ' · Aujourd’hui sur le parcours, pas la prévision du voyage' : ''}</small></div>${primaryAlert}${recommendation}${nextPoint}<a class="button button--primary button--full" href="${hashForDay(day.id)}">Voir la journée</a>`
 }
 
-function applyMatchedRoadbookPauses(
-  timeline: TripTimeline,
-  report: RoadbookMatchReport,
-): TripTimeline {
-  const matchesByDayId = new Map(report.days.map((day) => [day.dayId, day]))
-  let changed = false
-  const days = timeline.days.map((dayTimeline): TripDayTimeline => {
-    if (dayTimeline.type !== 'ride' || dayTimeline.status !== 'ready') {
-      return dayTimeline
-    }
-
-    if (getPauseDayPlan(currentPausePlan, dayTimeline.day.id)?.mode === 'custom') {
-      return dayTimeline
-    }
-
-    const dayMatch = matchesByDayId.get(dayTimeline.day.id)
-
-    if (dayMatch?.type !== 'ride' || dayMatch.status !== 'ready') {
-      return dayTimeline
-    }
-
-    const route = applyRoadbookPauseMatches(dayTimeline.route, dayMatch.points)
-
-    if (route === dayTimeline.route) {
-      return dayTimeline
-    }
-
-    changed = true
-    return { ...dayTimeline, route }
-  })
-
-  return changed ? { ...timeline, days } : timeline
-}
-
 function refreshRoadbookIntegration(): void {
   if (
     currentTripTimeline === null ||
@@ -490,35 +478,25 @@ function refreshRoadbookIntegration(): void {
 
   try {
     const { roadbook, overrides } = currentRoadbookResources
-    let report = buildRoadbookMatchReport(
+    const report = buildRoadbookMatchReport(
       roadbook,
       overrides,
       rga2026TripPlan,
       currentGpxReport.files,
       currentTripTimeline,
     )
-    const integratedTimeline = applyMatchedRoadbookPauses(
-      currentTripTimeline,
-      report,
-    )
-
-    if (integratedTimeline !== currentTripTimeline) {
-      currentTripTimeline = integratedTimeline
-      report = buildRoadbookMatchReport(
-        roadbook,
-        overrides,
-        rga2026TripPlan,
-        currentGpxReport.files,
-        integratedTimeline,
-      )
-    }
 
     currentRoadbookReport = report
     currentRoadbookError = null
     currentWeatherError = null
-    if (!pausePlanHydrated && currentPausePlan.days.length > 0 && currentTripProfile !== null) {
-      pausePlanHydrated = true
-      currentTripTimeline = scheduleTripTimeline(currentTripProfile, currentSettings, currentPausePlan, getPausePlacesByDay())
+    // Automatic and custom pauses are both resolved against real documented
+    // points (see pause-plan.ts), which only exist once the roadbook report
+    // above has run at least once — the very first scheduling pass (before
+    // that report exists) has no places to anchor pauses to. Re-schedule once
+    // this happens so every day's pauses land on their intended points.
+    if (!roadbookPlacesHydrated && currentTripProfile !== null) {
+      roadbookPlacesHydrated = true
+      currentTripTimeline = scheduleTripTimeline(currentTripProfile, getDaySettings, currentPausePlan, getPausePlacesByDay())
       refreshRoadbookIntegration()
       return
     }
@@ -540,13 +518,17 @@ function refreshRoadbookIntegration(): void {
   }
 }
 
+function getDaySettings(dayId: RideDayId): RideDaySettings {
+  return getRideDaySettings(currentRideDaySettings, dayId)
+}
+
 function refreshTripTimeline(): void {
   if (currentTripProfile === null) {
     return
   }
 
   try {
-    currentTripTimeline = scheduleTripTimeline(currentTripProfile, currentSettings, currentPausePlan, getPausePlacesByDay())
+    currentTripTimeline = scheduleTripTimeline(currentTripProfile, getDaySettings, currentPausePlan, getPausePlacesByDay())
     refreshRoadbookIntegration()
   } catch (error) {
     currentTripTimeline = null
@@ -558,44 +540,22 @@ function refreshTripTimeline(): void {
   }
 }
 
-function populateSettingsForm(settings: DashboardSettings): void {
-  averageSpeedInput.value = String(settings.averageSpeedKph)
-  departureTimeInput.value = settings.departureTime
-  breakDurationInput.value = String(settings.totalBreakMinutes)
-}
-
-function readSettingsForm(): DashboardSettings {
-  return {
-    averageSpeedKph: averageSpeedInput.valueAsNumber,
-    departureTime: departureTimeInput.value,
-    totalBreakMinutes: breakDurationInput.valueAsNumber,
+function updateStageSummaries(): void {
+  for (const stage of document.querySelectorAll<HTMLElement>('[data-pause-stage]')) {
+    const dayId = stage.dataset.pauseStage
+    if (dayId === undefined || !isTripDayId(dayId) || dayId === 'J5' || dayId === 'J8') continue
+    const settings = getRideDaySettings(currentRideDaySettings, dayId as RideDayId)
+    const plan = getPauseDayPlan(currentPausePlan, dayId as RideDayId)
+    const departure = stage.querySelector<HTMLElement>('[data-stage-departure]')
+    const speed = stage.querySelector<HTMLElement>('[data-stage-speed]')
+    const breaks = stage.querySelector<HTMLElement>('[data-stage-breaks]')
+    const planLabel = stage.querySelector<HTMLElement>('[data-stage-plan]')
+    if (departure !== null) departure.textContent = settings.departureTime
+    if (speed !== null) speed.textContent = `${settings.averageSpeedKph} km/h`
+    if (breaks !== null) breaks.textContent = `${settings.totalBreakMinutes} min`
+    if (planLabel !== null) planLabel.textContent = plan?.mode === 'custom' ? 'Personnalisé' : 'Automatique'
   }
 }
-
-settingsForm.addEventListener('submit', (event) => {
-  event.preventDefault()
-
-  if (!settingsForm.reportValidity()) {
-    return
-  }
-
-  const nextSettings = readSettingsForm()
-
-  if (!saveSettings(nextSettings)) {
-    settingsFeedback.textContent = 'Enregistrement impossible dans ce navigateur.'
-    return
-  }
-
-  currentSettings = nextSettings
-  refreshTripTimeline()
-  settingsFeedback.textContent = 'Réglages enregistrés et chronologies recalculées.'
-  saveStatus.textContent = settingsFeedback.textContent
-})
-
-getRequiredElement<HTMLButtonElement>('[data-restore-settings]').addEventListener('click', () => {
-  populateSettingsForm(defaultSettings)
-  settingsFeedback.textContent = 'Valeurs par défaut restaurées dans le formulaire. Enregistrez pour confirmer.'
-})
 
 getRequiredElement<HTMLButtonElement>('[data-settings-back]').addEventListener('click', () => history.back())
 getRequiredElement<HTMLButtonElement>('[data-detail-back]').addEventListener('click', () => {
@@ -613,30 +573,39 @@ function getReadySelectedRide(): Extract<TripDayTimeline, { type: 'ride'; status
   return day?.type === 'ride' && day.status === 'ready' ? day : null
 }
 
-function createAutomaticDraft(): PauseDayPlan | null {
-  const day = getReadySelectedRide()
-  if (day === null) return null
-  const profileDay = currentTripProfile?.days.find(({ day: candidate }) => candidate.id === day.day.id)
+function createAutomaticPauseDraft(dayId: RideDayId, settings: RideDaySettings): PauseDayPlan | null {
+  const profileDay = currentTripProfile?.days.find(({ day: candidate }) => candidate.id === dayId)
   if (profileDay?.type !== 'ride' || profileDay.status !== 'ready') return null
-  const anchors = createContextualPauseAnchors(profileDay.routeProfile, currentSettings.averageSpeedKph)
+  const anchors = createContextualPauseAnchors(profileDay.routeProfile, settings.averageSpeedKph, getPausePlaces(dayId))
   const durations: number[] = []
   let allocated = 0
   anchors.forEach((anchor, index) => {
-    const duration = index === anchors.length - 1 ? currentSettings.totalBreakMinutes - allocated : Math.floor(currentSettings.totalBreakMinutes * anchor.durationShare)
+    const duration = index === anchors.length - 1 ? settings.totalBreakMinutes - allocated : Math.floor(settings.totalBreakMinutes * anchor.durationShare)
     durations.push(duration)
     allocated += duration
   })
   return {
-    dayId: day.day.id,
+    dayId,
     mode: 'automatic',
-    pauses: anchors.map((anchor, order) => ({ id: anchor.id, active: true, placeId: `automatic:${anchor.id}`, placeName: anchor.name, durationMinutes: durations[order] ?? 0, order, origin: 'automatic' })),
+    // Every anchor now resolves to a real documented point (see pause-plan.ts);
+    // `placeId` is that point's own roadbook id, never a synthetic position.
+    pauses: anchors.map((anchor, order) => ({ id: anchor.id, active: true, placeId: anchor.pointId ?? anchor.id, placeName: anchor.name, durationMinutes: durations[order] ?? 0, order, origin: 'automatic' })),
+  }
+}
+
+function readDaySettingsFromForm(dayId: RideDayId): RideDaySettings {
+  return {
+    dayId,
+    departureTime: dayDepartureTimeInput.value,
+    averageSpeedKph: dayAverageSpeedInput.valueAsNumber,
+    totalBreakMinutes: dayTotalBreakInput.valueAsNumber,
   }
 }
 
 function readPauseDraftFromForm(): PauseDayPlan | null {
   if (pauseDraft === null) return null
   const mode = getRequiredElement<HTMLInputElement>('input[name="pause-mode"]:checked').value
-  if (mode === 'automatic') return createAutomaticDraft()
+  if (mode === 'automatic') return createAutomaticPauseDraft(pauseDraft.dayId, readDaySettingsFromForm(pauseDraft.dayId))
   const pauses = [...pauseEditorList.querySelectorAll<HTMLElement>('[data-pause-item]')].map((item, order) => {
     const select = item.querySelector<HTMLSelectElement>('select')
     const duration = item.querySelector<HTMLInputElement>('input[type="number"]')
@@ -648,13 +617,19 @@ function readPauseDraftFromForm(): PauseDayPlan | null {
 }
 
 function renderPauseEditor(): void {
-  if (pauseDraft === null) return
+  if (pauseDraft === null || daySettingsDraft === null) return
   const places = getPausePlaces(pauseDraft.dayId)
+  const isAutomatic = pauseDraft.mode === 'automatic'
   for (const radio of document.querySelectorAll<HTMLInputElement>('input[name="pause-mode"]')) radio.checked = radio.value === pauseDraft.mode
-  pauseIntro.textContent = pauseDraft.mode === 'automatic' ? `${pauseDraft.pauses.length} pause(s) proposées selon le temps de roulage.` : 'Activez les pauses utiles, choisissez un lieu existant et ajustez leur durée.'
-  getRequiredElement<HTMLButtonElement>('[data-pause-save]').textContent =
-    pauseDraft.mode === 'automatic' ? 'Utiliser ce plan' : 'Enregistrer'
-  if (pauseDraft.mode === 'automatic') {
+  dayDepartureTimeInput.value = daySettingsDraft.departureTime
+  dayAverageSpeedInput.value = String(daySettingsDraft.averageSpeedKph)
+  const activeDurationSum = pauseDraft.pauses.filter(({ active }) => active).reduce((total, pause) => total + pause.durationMinutes, 0)
+  dayTotalBreakInput.disabled = !isAutomatic
+  dayTotalBreakInput.value = String(isAutomatic ? daySettingsDraft.totalBreakMinutes : activeDurationSum)
+  automaticBreakField.classList.toggle('is-derived', !isAutomatic)
+  pauseIntro.textContent = isAutomatic ? `${pauseDraft.pauses.length} pause(s) proposées selon le temps de roulage.` : 'Activez les pauses utiles, choisissez un lieu existant et ajustez leur durée.'
+  pauseTotalSummary.textContent = isAutomatic ? '' : `Total des pauses actives : ${activeDurationSum} min (devient le temps total de pause de l’étape à l’enregistrement).`
+  if (isAutomatic) {
     pauseEditorList.innerHTML = pauseDraft.pauses.map((pause) => `<article class="pause-editor__item"><strong>${pause.placeName}</strong><span>${pause.durationMinutes} min</span></article>`).join('')
     return
   }
@@ -662,9 +637,13 @@ function renderPauseEditor(): void {
 }
 
 function openPauseEditor(): void {
-  const automatic = createAutomaticDraft()
+  const day = getReadySelectedRide()
+  if (day === null) return
+  const dayId = day.day.id
+  daySettingsDraft = getRideDaySettings(currentRideDaySettings, dayId)
+  const automatic = createAutomaticPauseDraft(dayId, daySettingsDraft)
   if (automatic === null) return
-  pauseDraft = getPauseDayPlan(currentPausePlan, automatic.dayId) ?? automatic
+  pauseDraft = getPauseDayPlan(currentPausePlan, dayId) ?? automatic
   pauseFeedback.textContent = ''
   renderPauseEditor()
   pauseEditor.showModal()
@@ -681,9 +660,18 @@ for (const button of document.querySelectorAll<HTMLButtonElement>('[data-open-pa
 })
 for (const button of document.querySelectorAll<HTMLButtonElement>('[data-pause-cancel]')) button.addEventListener('click', () => pauseEditor.close())
 for (const radio of document.querySelectorAll<HTMLInputElement>('input[name="pause-mode"]')) radio.addEventListener('change', () => {
-  const automatic = createAutomaticDraft()
-  if (automatic === null || pauseDraft === null) return
+  if (pauseDraft === null || daySettingsDraft === null) return
+  const settings = readDaySettingsFromForm(pauseDraft.dayId)
+  const automatic = createAutomaticPauseDraft(pauseDraft.dayId, settings)
+  if (automatic === null) return
   pauseDraft = radio.value === 'automatic' ? automatic : { ...automatic, mode: 'custom', pauses: automatic.pauses.map((pause) => ({ ...pause, origin: 'custom' })) }
+  renderPauseEditor()
+})
+for (const input of [dayDepartureTimeInput, dayAverageSpeedInput, dayTotalBreakInput]) input.addEventListener('input', () => {
+  if (pauseDraft === null || pauseDraft.mode !== 'automatic') return
+  const automatic = createAutomaticPauseDraft(pauseDraft.dayId, readDaySettingsFromForm(pauseDraft.dayId))
+  if (automatic === null) return
+  pauseDraft = automatic
   renderPauseEditor()
 })
 pauseEditorList.addEventListener('click', (event) => {
@@ -697,23 +685,48 @@ pauseEditorList.addEventListener('click', (event) => {
   } else return
   renderPauseEditor()
 })
-getRequiredElement<HTMLButtonElement>('[data-pause-restore]').addEventListener('click', () => { pauseDraft = createAutomaticDraft(); renderPauseEditor() })
+getRequiredElement<HTMLButtonElement>('[data-pause-restore]').addEventListener('click', () => {
+  if (pauseDraft === null || daySettingsDraft === null) return
+  pauseDraft = createAutomaticPauseDraft(pauseDraft.dayId, readDaySettingsFromForm(pauseDraft.dayId)) ?? pauseDraft
+  renderPauseEditor()
+})
+getRequiredElement<HTMLButtonElement>('[data-restore-day-settings]').addEventListener('click', () => {
+  if (pauseDraft === null) return
+  daySettingsDraft = { dayId: pauseDraft.dayId, ...defaultSettings }
+  if (pauseDraft.mode === 'automatic') {
+    pauseDraft = createAutomaticPauseDraft(pauseDraft.dayId, daySettingsDraft) ?? pauseDraft
+  }
+  renderPauseEditor()
+  pauseFeedback.textContent = 'Valeurs par défaut restaurées dans le formulaire. Enregistrez pour confirmer.'
+})
+getRequiredElement<HTMLButtonElement>('[data-apply-all-days]').addEventListener('click', () => {
+  if (pauseDraft === null) return
+  const settings = readDaySettingsFromForm(pauseDraft.dayId)
+  const next = applyRideDaySettingsToAllDays({ averageSpeedKph: settings.averageSpeedKph, departureTime: settings.departureTime, totalBreakMinutes: settings.totalBreakMinutes })
+  if (!saveRideDaySettings(next)) { pauseFeedback.textContent = 'Enregistrement impossible dans ce navigateur.'; return }
+  currentRideDaySettings = next
+  refreshTripTimeline()
+  updateStageSummaries()
+  pauseFeedback.textContent = 'Valeurs appliquées à toutes les étapes et ETA recalculées.'
+})
 getRequiredElement<HTMLButtonElement>('[data-pause-save]').addEventListener('click', () => {
   const plan = readPauseDraftFromForm()
   if (plan === null) return
-  const next = upsertPauseDayPlan(currentPausePlan, plan)
-  if (!savePausePlan(next)) { pauseFeedback.textContent = 'Enregistrement impossible dans ce navigateur.'; return }
-  currentPausePlan = next
-  pausePlanHydrated = true
+  const formSettings = readDaySettingsFromForm(plan.dayId)
+  const effectiveSettings: RideDaySettings =
+    plan.mode === 'automatic'
+      ? formSettings
+      : { ...formSettings, totalBreakMinutes: plan.pauses.filter(({ active }) => active).reduce((total, pause) => total + pause.durationMinutes, 0) }
+  const nextRideDaySettings = upsertRideDaySettings(currentRideDaySettings, effectiveSettings)
+  if (!saveRideDaySettings(nextRideDaySettings)) { pauseFeedback.textContent = 'Enregistrement impossible dans ce navigateur.'; return }
+  const nextPausePlan = upsertPauseDayPlan(currentPausePlan, plan)
+  if (!savePausePlan(nextPausePlan)) { pauseFeedback.textContent = 'Enregistrement impossible dans ce navigateur.'; return }
+  currentRideDaySettings = nextRideDaySettings
+  currentPausePlan = nextPausePlan
   refreshTripTimeline()
+  updateStageSummaries()
   pauseEditor.close()
-  saveStatus.textContent = 'Plan de pauses enregistré et ETA recalculées.'
-})
-
-routeEngineContainer.addEventListener('change', (event) => {
-  const toggle = event.target instanceof HTMLInputElement ? event.target.closest<HTMLInputElement>('[data-route-detail-toggle]') : null
-  if (toggle === null) return
-  setRouteDetail(routeEngineContainer, toggle.checked)
+  saveStatus.textContent = `Réglages de ${plan.dayId} enregistrés et ETA recalculées.`
 })
 
 for (const button of document.querySelectorAll<HTMLButtonElement>('[data-close-map]')) button.addEventListener('click', () => closeExpandedRouteMap(routeMapDialog))
@@ -765,6 +778,7 @@ renderRoadbookReportLoading(roadbookReportContainer)
 renderWeatherSummaryLoading(tripPlanContainer)
 renderWeatherDetailLoading(weatherPanel)
 renderToday()
+updateStageSummaries()
 if (window.location.hash === '') window.location.replace('#/today')
 else syncHash()
 

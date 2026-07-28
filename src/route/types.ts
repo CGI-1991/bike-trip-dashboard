@@ -61,6 +61,14 @@ export interface RoutePause {
   readonly endTimeMinutes: number
   readonly startWaypointId: string
   readonly endWaypointId: string
+  /**
+   * The roadbook point this pause is attached to, when it originates from one
+   * (automatic or custom mode both resolve to a documented point — see
+   * `pause-plan.ts`). Display code must match a pause to its point by this id,
+   * never by nearest-waypoint proximity, so the pause never renders at a
+   * position slightly offset from the point's own marker.
+   */
+  readonly pointId?: string
 }
 
 export interface RouteSegment {
@@ -142,6 +150,8 @@ export interface RouteProfilePauseAnchor {
   readonly name: string
   readonly durationShare: number
   readonly position: RouteProfilePosition
+  /** The roadbook point this anchor was resolved from, if any — see `RoutePause.pointId`. */
+  readonly pointId?: string
 }
 
 export interface RouteProfileSegment {

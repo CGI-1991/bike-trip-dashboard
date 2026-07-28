@@ -43,6 +43,7 @@ export type RoadbookMatchMethod =
   | 'manual-confirmed-profile-candidate'
   | 'manual-anchor-projected-to-track'
   | 'manual-track-loop-confirmation'
+  | 'manual-anchor-reprojected-current-gpx'
   | 'manual'
 
 export type RoadbookPointSubtype =
@@ -183,6 +184,7 @@ export interface RoadbookPointOverride {
     | 'manual-confirmed-profile-candidate'
     | 'manual-anchor-projected-to-track'
     | 'manual-track-loop-confirmation'
+    | 'manual-anchor-reprojected-current-gpx'
   >
   readonly comment: string
   readonly validationSource: string
@@ -191,10 +193,22 @@ export interface RoadbookPointOverride {
   readonly pointSubtype?: RoadbookPointSubtype
 }
 
+/**
+ * An override entry that failed per-entry validation and was skipped so the rest
+ * of the document keeps loading. The underlying roadbook point falls back to its
+ * other matching strategies (named GPX point, profile candidate, raw point) — see
+ * `matchDayPoints` in `roadbook-match.ts`.
+ */
+export interface RoadbookOverrideDiagnostic {
+  readonly pointId?: string
+  readonly issues: readonly RoadbookValidationIssue[]
+}
+
 export interface RoadbookOverridesDocument {
   readonly version: 1
   readonly tripId: 'rga-2026'
   readonly overrides: readonly RoadbookPointOverride[]
+  readonly skippedOverrides: readonly RoadbookOverrideDiagnostic[]
 }
 
 export interface RoadbookResources {

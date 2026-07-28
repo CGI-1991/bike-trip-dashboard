@@ -238,7 +238,10 @@ function assertReadyRideDayTimeline(
   }
 }
 
-export function assertTripTimeline(timeline: TripTimeline): void {
+export function assertTripTimeline(
+  timeline: TripTimeline,
+  settingsByDay: ReadonlyMap<RideDayId, RouteEngineSettings>,
+): void {
   if (
     timeline.tripId !== 'rga-2026' ||
     timeline.days.length !== 12 ||
@@ -290,7 +293,11 @@ export function assertTripTimeline(timeline: TripTimeline): void {
     readyRideDays++
     totalDistanceKm += dayTimeline.route.summary.distanceKm
     totalElevationGainM += dayTimeline.route.summary.elevationGainM
-    assertReadyRideDayTimeline(dayTimeline, timeline.settings)
+    const daySettings = settingsByDay.get(dayTimeline.day.id)
+    if (daySettings === undefined) {
+      fail(`réglages absents pour ${dayTimeline.day.id}.`)
+    }
+    assertReadyRideDayTimeline(dayTimeline, daySettings)
   })
 
   const j5 = timeline.days[4]
@@ -318,12 +325,16 @@ export function assertTripTimeline(timeline: TripTimeline): void {
   }
 }
 
+/** Resolves each ride day's own settings — never one value shared by all ten. */
+export type RideDaySettingsResolver = (dayId: RideDayId) => RouteEngineSettings
+
 export function scheduleTripTimeline(
   profile: TripProfile,
-  settings: RouteEngineSettings,
+  getDaySettings: RideDaySettingsResolver,
   pausePlan: PausePlanDocument = { version: 1, days: [] },
   pausePlacesByDay: Readonly<Partial<Record<RideDayId, readonly PausePlace[]>>> = {},
 ): TripTimeline {
+  const usedSettingsByDay = new Map<RideDayId, RouteEngineSettings>()
   const days: TripDayTimeline[] = profile.days.map((dayProfile) => {
     if (dayProfile.type === 'off') {
       const offTimeline: OffDayTimeline = {
@@ -343,14 +354,37 @@ export function scheduleTripTimeline(
     }
 
     try {
-      const automaticAnchors = createContextualPauseAnchors(dayProfile.routeProfile, settings.averageSpeedKph)
+      const baseSettings = getDaySettings(dayProfile.day.id)
+      const places = pausePlacesByDay[dayProfile.day.id] ?? []
+      const automaticAnchors = createContextualPauseAnchors(dayProfile.routeProfile, baseSettings.averageSpeedKph, places)
       const dayPausePlan = getPauseDayPlan(pausePlan, dayProfile.day.id)
-      const customAnchors = dayPausePlan === null ? null : createCustomPauseAnchors(dayProfile.routeProfile, dayPausePlan, pausePlacesByDay[dayProfile.day.id] ?? [])
+      const customAnchorsRaw = dayPausePlan === null ? null : createCustomPauseAnchors(dayProfile.routeProfile, dayPausePlan, places)
+      // A custom plan whose every saved pause has become unresolvable (all
+      // pointIds suppressed, unknown, or every place still just missing on
+      // this first scheduling pass) recovers as automatic for this day only —
+      // its own configured total is preserved, its own places regenerate
+      // valid anchors, and no other day is affected.
+      const customAnchors = customAnchorsRaw !== null && customAnchorsRaw.length === 0 ? null : customAnchorsRaw
       const pauseAnchors = customAnchors ?? automaticAnchors
-      const daySettings: RouteEngineSettings = {
-        ...settings,
-        totalBreakMinutes: customAnchors === null ? settings.totalBreakMinutes : dayPausePlan?.pauses.filter(({ active }) => active).reduce((total, pause) => total + pause.durationMinutes, 0) ?? 0,
-      }
+      // The effective total must always match the anchors that actually
+      // resolved, never the raw configured/stored value: in custom mode a
+      // stale or suppressed placeId can silently drop an anchor (see
+      // createCustomPauseAnchors), and in automatic mode `places` can be
+      // empty on the very first scheduling pass, before the roadbook report
+      // exists to supply real documented points (see main.ts). Declaring a
+      // non-zero break with zero anchors to carry it is exactly the
+      // inconsistency `assertTimeline` rejects ("Le décalage horaire des
+      // pauses est incohérent.") — so the total collapses to 0 whenever there
+      // is nothing to attach it to, instead of leaving the whole day
+      // unavailable.
+      const totalBreakMinutes =
+        pauseAnchors.length === 0
+          ? 0
+          : customAnchors !== null
+            ? customAnchors.reduce((total, anchor) => total + anchor.durationShare, 0)
+            : baseSettings.totalBreakMinutes
+      const daySettings: RouteEngineSettings = { ...baseSettings, totalBreakMinutes }
+      usedSettingsByDay.set(dayProfile.day.id, daySettings)
       const contextualProfile: typeof dayProfile.routeProfile = {
         ...dayProfile.routeProfile,
         pauseAnchors,
@@ -360,7 +394,7 @@ export function scheduleTripTimeline(
         type: 'ride',
         status: 'ready',
         day: dayProfile.day,
-        startTime: settings.departureTime,
+        startTime: daySettings.departureTime,
         arrivalTime: createRouteClockTime(
           route.summary.departureTimeMinutes,
           route.summary.totalDurationMinutes,
@@ -382,7 +416,6 @@ export function scheduleTripTimeline(
   )
   const timeline: TripTimeline = {
     tripId: profile.tripId,
-    settings: { ...settings },
     days,
     summary: {
       totalDays: 12,
@@ -401,17 +434,17 @@ export function scheduleTripTimeline(
     },
   }
 
-  assertTripTimeline(timeline)
+  assertTripTimeline(timeline, usedSettingsByDay)
   return timeline
 }
 
 export function createTripTimeline(
   plan: TripPlan,
   results: readonly GpxAnalysisResult[],
-  settings: RouteEngineSettings,
+  getDaySettings: RideDaySettingsResolver,
   config: RouteEngineConfig = routeEngineConfig,
 ): TripTimeline {
-  return scheduleTripTimeline(buildTripProfile(plan, results, config), settings)
+  return scheduleTripTimeline(buildTripProfile(plan, results, config), getDaySettings)
 }
 
 export function getTripTimelineDay(

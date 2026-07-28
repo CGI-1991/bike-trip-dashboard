@@ -210,6 +210,7 @@ function createWeatherReferenceSamplePoint(
   if (
     getRoadbookPointRole(point) !== 'weather-reference' ||
     point.sourceLatitude === undefined || point.sourceLongitude === undefined ||
+    (point.elevationM === undefined && point.matchedElevationM === undefined) ||
     point.matchedTrackDistanceKm === undefined || point.eta === undefined
   ) return null
   return {
@@ -221,7 +222,7 @@ function createWeatherReferenceSamplePoint(
     type: point.type,
     latitude: point.sourceLatitude,
     longitude: point.sourceLongitude,
-    elevationM: point.elevationM ?? point.matchedElevationM ?? 0,
+    elevationM: point.elevationM ?? point.matchedElevationM as number,
     trackDistanceKm: point.matchedTrackDistanceKm,
     eta: point.eta,
     sourcePointIds: [point.id],

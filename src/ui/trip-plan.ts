@@ -275,7 +275,7 @@ export function renderTripTimeline(
       aria-live="polite"
     >
       <strong>${statusText}</strong>
-      <span>Chaque ETA repart de ${escapeHtml(timeline.settings.departureTime)}.</span>
+      <span>ETA calculées selon les réglages propres à chaque étape.</span>
     </p>
     <ol class="trip-day-list">
       ${timeline.days

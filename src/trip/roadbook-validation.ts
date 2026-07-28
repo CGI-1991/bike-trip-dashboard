@@ -2,7 +2,9 @@ import { rga2026TripPlan } from './plan.ts'
 import type {
   RoadbookDocument,
   RoadbookMatchMethod,
+  RoadbookOverrideDiagnostic,
   RoadbookOverridesDocument,
+  RoadbookPointOverride,
   RoadbookPointSubtype,
   RoadbookPointStatus,
   RoadbookPointType,
@@ -25,6 +27,7 @@ const manualMatchMethods: ReadonlySet<RoadbookMatchMethod> = new Set([
   'manual-confirmed-profile-candidate',
   'manual-anchor-projected-to-track',
   'manual-track-loop-confirmation',
+  'manual-anchor-reprojected-current-gpx',
 ])
 const roadbookPointTypes: ReadonlySet<RoadbookPointType> = new Set([
   'start',
@@ -1051,6 +1054,17 @@ function validateOverride(
   }
 }
 
+/**
+ * Validates the overrides document in two tiers, per the tolerant-loading policy:
+ *
+ * 1. Document-level structure (root shape, allowed keys, version, tripId, the
+ *    `overrides` array itself) is a hard failure — the document is unreadable and
+ *    the whole resource load must be rejected.
+ * 2. Each override entry is validated in isolation. An invalid entry is skipped
+ *    (recorded in `skippedOverrides`) instead of invalidating the other entries —
+ *    the underlying roadbook point still loads and falls back to its other
+ *    matching strategies (see `matchDayPoints` in `roadbook-match.ts`).
+ */
 export function validateRoadbookOverridesDocument(
   value: unknown,
   roadbook: RoadbookDocument,
@@ -1077,29 +1091,44 @@ export function validateRoadbookOverridesDocument(
     )
   }
 
-  if (validateArray(value.overrides, '$.overrides', context)) {
-    const targetIds = getRoadbookOverrideTargetIds(roadbook)
-    const seenPointIds = new Set<string>()
-
-    value.overrides.forEach((override, index) => {
-      validateOverride(
-        override,
-        index,
-        targetIds,
-        seenPointIds,
-        context,
-      )
-    })
-  }
-
   if (context.issues.length > 0) {
-    throw new RoadbookValidationError(
-      'Document overrides roadbook',
-      context.issues,
-    )
+    throw new RoadbookValidationError('Document overrides roadbook', context.issues)
   }
 
-  return value as unknown as RoadbookOverridesDocument
+  if (!validateArray(value.overrides, '$.overrides', context)) {
+    throw new RoadbookValidationError('Document overrides roadbook', context.issues)
+  }
+
+  const targetIds = getRoadbookOverrideTargetIds(roadbook)
+  const seenPointIds = new Set<string>()
+  const overrides: RoadbookPointOverride[] = []
+  const skippedOverrides: RoadbookOverrideDiagnostic[] = []
+
+  value.overrides.forEach((rawOverride, index) => {
+    const entryContext = createContext()
+
+    validateOverride(rawOverride, index, targetIds, seenPointIds, entryContext)
+
+    if (entryContext.issues.length === 0) {
+      overrides.push(rawOverride as RoadbookPointOverride)
+      return
+    }
+
+    skippedOverrides.push({
+      pointId:
+        isRecord(rawOverride) && typeof rawOverride.pointId === 'string'
+          ? rawOverride.pointId
+          : undefined,
+      issues: entryContext.issues,
+    })
+  })
+
+  return {
+    version: 1,
+    tripId: roadbook.tripId,
+    overrides,
+    skippedOverrides,
+  }
 }
 
 export function isRoadbookPointStatus(
