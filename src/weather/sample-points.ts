@@ -2,6 +2,7 @@ import { calculateHaversineDistanceKm } from '../gpx/parser.ts'
 import { addIsoDays, buildTripCalendar } from '../trip/calendar.ts'
 import type { RoadbookMatchReport, RoadbookPointMatch } from '../trip/roadbook-match.ts'
 import type { TripDay, TripPlan, TripTimeline } from '../trip/types.ts'
+import { getRoadbookPointRole } from '../trip/point-role.ts'
 import { weatherConfig } from './config.ts'
 import type {
   WeatherDayDefinition,
@@ -196,6 +197,38 @@ function createRideSamplePoint(
     sourcePointIds: group.members.map(({ id }) => id),
     references: group.members.map(createReference),
     source: 'roadbook-matched',
+    role: 'route-point',
+    contributesToDayRisk: true,
+  }
+}
+
+function createWeatherReferenceSamplePoint(
+  tripDate: WeatherSamplePoint['tripDate'],
+  point: RoadbookPointMatch,
+  plannedReferenceIds: ReadonlySet<string>,
+): WeatherSamplePoint | null {
+  if (
+    getRoadbookPointRole(point) !== 'weather-reference' ||
+    point.sourceLatitude === undefined || point.sourceLongitude === undefined ||
+    point.matchedTrackDistanceKm === undefined || point.eta === undefined
+  ) return null
+  return {
+    id: `weather-reference-${point.dayId}-${point.id}`,
+    dayId: point.dayId,
+    dayType: 'ride',
+    tripDate,
+    name: point.name,
+    type: point.type,
+    latitude: point.sourceLatitude,
+    longitude: point.sourceLongitude,
+    elevationM: point.elevationM ?? point.matchedElevationM ?? 0,
+    trackDistanceKm: point.matchedTrackDistanceKm,
+    eta: point.eta,
+    sourcePointIds: [point.id],
+    references: [createReference(point)],
+    source: 'roadbook-weather-reference',
+    role: 'weather-reference',
+    contributesToDayRisk: plannedReferenceIds.has(point.id),
   }
 }
 
@@ -287,6 +320,7 @@ export function buildWeatherDayDefinitions(
   timeline: TripTimeline,
   report: RoadbookMatchReport,
   today: WeatherSamplePoint['tripDate'],
+  plannedReferenceIds: ReadonlySet<string> = new Set(),
 ): readonly WeatherDayDefinition[] {
   const calendarByDayId = new Map(
     buildTripCalendar(plan).map(({ dayId, date }) => [dayId, date]),
@@ -338,9 +372,12 @@ export function buildWeatherDayDefinitions(
     const pointGroups = deduplicateMatchedWeatherPoints(
       report.allPointMatches.filter(({ dayId }) => dayId === day.id),
     )
-    const samplePoints = pointGroups.map((group) =>
-      createRideSamplePoint(tripDate, group),
-    )
+    const routePoints = pointGroups.map((group) => createRideSamplePoint(tripDate, group))
+    const weatherReferences = report.allPointMatches
+      .filter(({ dayId }) => dayId === day.id)
+      .map((point) => createWeatherReferenceSamplePoint(tripDate, point, plannedReferenceIds))
+      .filter((point): point is WeatherSamplePoint => point !== null)
+    const samplePoints = [...routePoints, ...weatherReferences]
 
     return {
       dayId: day.id,

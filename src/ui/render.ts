@@ -2,263 +2,28 @@ import type { DashboardSettings } from '../storage/settings.ts'
 import { rga2026TripPlan } from '../trip/plan.ts'
 import type { TripPlan } from '../trip/types.ts'
 
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;')
+function pauseEditor(): string {
+  return `<dialog class="pause-editor" id="pause-editor" aria-labelledby="pause-editor-title"><form method="dialog" data-pause-editor-form><header><div><p class="eyebrow">Étape sélectionnée</p><h2 id="pause-editor-title">Configurer les pauses</h2></div><button class="button button--quiet" type="button" data-pause-cancel>Fermer</button></header><fieldset class="pause-mode"><legend>Mode du plan</legend><label><input type="radio" name="pause-mode" value="automatic" checked> Automatique</label><label><input type="radio" name="pause-mode" value="custom"> Personnalisé</label></fieldset><p class="pause-editor__intro" data-pause-intro></p><div class="pause-editor__list" data-pause-editor-list></div><p role="status" aria-live="polite" data-pause-feedback></p><footer><button class="button button--primary" type="button" data-pause-save>Enregistrer</button><button class="button button--quiet" type="button" data-pause-restore>Restaurer le plan automatique</button><button class="button button--quiet" type="button" data-pause-cancel>Annuler</button></footer></form></dialog>`
 }
 
-function renderSettingsDialog(settings: DashboardSettings): string {
-  return `
-    <dialog class="settings-dialog" id="settings-dialog" aria-labelledby="settings-title">
-      <form class="settings-form" id="settings-form">
-        <div class="settings-dialog__header">
-          <div>
-            <p class="eyebrow">Préférences locales</p>
-            <h2 id="settings-title">Réglages</h2>
-          </div>
-          <button class="button button--quiet" type="button" data-close-settings>Fermer</button>
-        </div>
-
-        <p class="settings-dialog__intro">
-          Ces valeurs restent enregistrées dans ce navigateur et s’appliquent provisoirement
-          aux dix journées roulées.
-        </p>
-
-        <div class="field">
-          <label for="average-speed">Vitesse moyenne</label>
-          <div class="field__control">
-            <input
-              id="average-speed"
-              name="averageSpeedKph"
-              type="number"
-              min="8"
-              max="40"
-              step="0.5"
-              inputmode="decimal"
-              value="${settings.averageSpeedKph}"
-              required
-            />
-            <span>km/h</span>
-          </div>
-        </div>
-
-        <div class="field">
-          <label for="departure-time">Heure de départ</label>
-          <input
-            id="departure-time"
-            name="departureTime"
-            type="time"
-            value="${escapeHtml(settings.departureTime)}"
-            required
-          />
-        </div>
-
-        <div class="field">
-          <label for="break-duration">Durée totale des pauses par journée roulée</label>
-          <div class="field__control">
-            <input
-              id="break-duration"
-              name="totalBreakMinutes"
-              type="number"
-              min="0"
-              max="240"
-              step="5"
-              inputmode="numeric"
-              value="${settings.totalBreakMinutes}"
-              required
-            />
-            <span>minutes</span>
-          </div>
-        </div>
-
-        <p class="settings-feedback" id="settings-feedback" role="status" aria-live="polite"></p>
-        <button class="button button--primary button--full" type="submit">Enregistrer</button>
-      </form>
-    </dialog>`
+function settingsView(settings: DashboardSettings): string {
+  const rideDays = rga2026TripPlan.days.filter((day) => day.type === 'ride').map((day) => `<details class="card pause-stage" data-pause-stage="${day.id}"><summary><strong>${day.id}</strong><span>${day.name}</span></summary><p data-pause-stage-summary="${day.id}">Plan automatique</p><button class="button button--quiet" type="button" data-open-pause-editor data-pause-day="${day.id}">Configurer</button></details>`).join('')
+  return `<section class="app-view" data-app-view="settings" hidden><button class="button button--quiet" type="button" data-settings-back>← Retour</button><header class="view-heading"><p class="eyebrow">Préférences locales</p><h2>Réglages</h2><p>Réglages globaux pour les dix journées roulées. Ils recalculent les ETA et la météo associée.</p></header><form class="card settings-form" id="settings-form"><div class="field"><label for="average-speed">Vitesse moyenne</label><div class="field__control"><input id="average-speed" type="number" min="8" max="40" step="0.5" value="${settings.averageSpeedKph}" required><span>km/h</span></div></div><div class="field"><label for="departure-time">Heure de départ</label><input id="departure-time" type="time" value="${settings.departureTime}" required></div><div class="field"><label for="break-duration">Durée totale des pauses</label><div class="field__control"><input id="break-duration" type="number" min="0" max="240" step="5" value="${settings.totalBreakMinutes}" required><span>minutes</span></div></div><p id="settings-feedback" role="status" aria-live="polite"></p><div class="settings-actions"><button class="button button--primary" type="submit">Enregistrer</button><button class="button button--quiet" type="button" data-restore-settings>Valeurs par défaut</button></div></form><section class="pause-stages" aria-labelledby="pause-stages-title"><header class="view-heading"><p class="eyebrow">Planification locale</p><h3 id="pause-stages-title">Pauses par étape</h3></header>${rideDays}</section>${pauseEditor()}</section>`
 }
 
-export function renderDashboard(
-  settings: DashboardSettings,
-  plan: TripPlan = rga2026TripPlan,
-): string {
-  return `
-    <div class="app-shell">
-      <header class="app-header">
-        <div class="app-header__inner">
-          <div class="brand">
-            <h1>RGA 2026</h1>
-            <p>Route des Grandes Alpes</p>
-          </div>
-          <div class="app-header__actions">
-            <span class="stage-indicator" data-day-indicator>J1 sur ${plan.totalDays} · Roulé</span>
-            <button
-              class="button button--header"
-              type="button"
-              data-open-settings
-              aria-haspopup="dialog"
-              aria-controls="settings-dialog"
-            >
-              Réglages
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <main class="dashboard">
-        <aside class="phase-notice" aria-label="Périmètre de cette version">
-          <strong>Plan de voyage consolidé</strong>
-          <span>12 jours calendaires, 10 journées roulées et 2 journées OFF. Données météo réelles selon disponibilité.</span>
-        </aside>
-
-        <div class="trip-dashboard-layout">
-          <section class="card trip-plan-card" aria-labelledby="trip-plan-title">
-            <div class="section-heading section-heading--compact">
-              <div>
-                <p class="eyebrow">Chronologie réelle</p>
-                <h2 id="trip-plan-title">Voyage — 12 jours</h2>
-              </div>
-              <span class="tag tag--data">10 roulés · 2 OFF</span>
-            </div>
-            <div
-              class="trip-plan"
-              data-trip-plan
-              data-trip-state="loading"
-              aria-busy="true"
-            >
-              <p class="trip-plan__status" role="status" aria-live="polite">
-                Préparation du plan de voyage…
-              </p>
-            </div>
-          </section>
-
-          <section class="card route-engine-card" aria-labelledby="route-engine-title">
-            <div class="section-heading section-heading--compact">
-              <div>
-                <p class="eyebrow">Journée sélectionnée</p>
-                <h2 id="route-engine-title">Moteur d’itinéraire</h2>
-              </div>
-              <span class="tag tag--data">Calcul journalier</span>
-            </div>
-            <div
-              class="route-engine"
-              data-route-engine
-              data-route-state="loading"
-              aria-busy="true"
-            >
-              <p class="route-engine__message" role="status" aria-live="polite">
-                En attente de l’analyse des traces GPX…
-              </p>
-            </div>
-          </section>
-        </div>
-
-        <section class="card weather-card" aria-labelledby="weather-card-title">
-          <div class="section-heading section-heading--compact weather-card__heading">
-            <div>
-              <p class="eyebrow">Journée sélectionnée</p>
-              <h2 id="weather-card-title">Météo de la journée</h2>
-            </div>
-            <div class="weather-card__actions">
-              <span
-                class="tag tag--data"
-                data-weather-status
-                role="status"
-                aria-live="polite"
-              >
-                En attente
-              </span>
-              <button
-                class="button button--quiet"
-                type="button"
-                data-weather-refresh
-                aria-controls="selected-day-weather"
-              >
-                Actualiser la météo
-              </button>
-            </div>
-          </div>
-          <p class="weather-card__updated">
-            Dernière mise à jour :
-            <time data-weather-updated-at>Aucune donnée reçue</time>
-          </p>
-          <div
-            class="weather-detail"
-            id="selected-day-weather"
-            data-weather-panel
-            data-weather-state="loading"
-            data-weather-source="none"
-            data-weather-refreshing="false"
-            data-weather-has-data="false"
-            aria-busy="true"
-          >
-            <p class="weather-detail__message" role="status" aria-live="polite">
-              Chargement de la météo de la journée…
-            </p>
-          </div>
-        </section>
-
-        <section class="card roadbook-detail-card" aria-labelledby="roadbook-detail-title">
-          <div class="section-heading section-heading--compact">
-            <div>
-              <p class="eyebrow">Source métier sélectionnée</p>
-              <h2 id="roadbook-detail-title">Roadbook de la journée</h2>
-            </div>
-            <span class="tag tag--data">Données éditoriales</span>
-          </div>
-          <div
-            class="roadbook-detail"
-            data-roadbook-detail
-            data-roadbook-detail-state="loading"
-            aria-busy="true"
-          >
-            <p role="status" aria-live="polite">Chargement du roadbook…</p>
-          </div>
-        </section>
-
-        <section class="card roadbook-diagnostics-card" aria-labelledby="roadbook-diagnostics-title">
-          <div class="section-heading section-heading--compact">
-            <div>
-              <p class="eyebrow">Points actifs, informatifs, exclus, décisions</p>
-              <h2 id="roadbook-diagnostics-title">Validation roadbook / GPX</h2>
-            </div>
-            <span class="tag tag--data">4 résolutions</span>
-          </div>
-          <div
-            class="roadbook-diagnostics"
-            data-roadbook-diagnostics
-            data-roadbook-diagnostic-state="loading"
-            aria-busy="true"
-          >
-            <p role="status" aria-live="polite">Préparation du rapport d’appariement…</p>
-          </div>
-        </section>
-
-        <section class="card gpx-analysis-card" aria-labelledby="gpx-analysis-title">
-          <div class="section-heading section-heading--compact">
-            <div>
-              <p class="eyebrow">Sources géométriques</p>
-              <h2 id="gpx-analysis-title">Analyse des traces GPX</h2>
-            </div>
-            <span class="tag tag--data">10 GPX réels</span>
-          </div>
-          <div
-            class="gpx-analysis"
-            data-gpx-analysis
-            data-gpx-state="loading"
-            aria-busy="true"
-          >
-            <p class="gpx-analysis__loading" role="status" aria-live="polite">
-              Chargement et analyse des traces…
-            </p>
-          </div>
-        </section>
-      </main>
-
-      <div class="visually-hidden" id="save-status" role="status" aria-live="polite"></div>
-      ${renderSettingsDialog(settings)}
-    </div>`
+export function renderDashboard(settings: DashboardSettings, plan: TripPlan = rga2026TripPlan): string {
+  return `<div class="app-shell"><header class="app-header"><div class="app-header__inner"><div class="brand"><h1>RGA 2026</h1><p>Route des Grandes Alpes</p></div><span class="stage-indicator" data-day-indicator>J1 sur ${plan.totalDays}</span></div></header><main class="dashboard">
+  <section class="app-view" data-app-view="today"><header class="view-heading"><p class="eyebrow">L’essentiel maintenant</p><h2>Aujourd’hui</h2></header><article class="card today-card" data-today-panel data-today-state="loading"><p role="status">Préparation de la journée…</p></article></section>
+  <section class="app-view" data-app-view="trip" hidden><header class="view-heading"><p class="eyebrow">12 jours · 10 roulés · 2 OFF</p><h2>Voyage</h2></header><div class="trip-plan" data-trip-plan data-trip-state="loading" aria-busy="true"><p role="status">Préparation du voyage…</p></div></section>
+  <section class="app-view" data-app-view="day-detail" hidden><div class="detail-nav"><button class="button button--quiet" type="button" data-detail-back>← Retour</button><div><button class="button button--quiet" type="button" data-day-previous aria-label="Journée précédente">‹</button><button class="button button--quiet" type="button" data-day-next aria-label="Journée suivante">›</button></div></div><header class="card day-header" data-day-header><p role="status">Préparation de la journée…</p></header>
+    <section class="card route-map-card" data-route-visuals><div class="section-heading"><div><p class="eyebrow">Trace GPX</p><h3>Carte de l’étape</h3></div><button class="button button--quiet" type="button" data-explore-map>Explorer la carte</button></div><div class="route-map" data-route-map></div></section>
+    <dialog class="route-map-dialog" data-route-map-dialog aria-labelledby="expanded-map-title"><header><h2 id="expanded-map-title">Carte de l’étape</h2><button class="button button--quiet" type="button" data-close-map>Fermer</button></header><div class="route-map route-map--expanded" data-route-map-expanded></div></dialog>
+    <section class="card elevation-profile-card" data-route-visuals><p class="eyebrow">Relief</p><h3>Profil altimétrique</h3><div data-elevation-profile></div></section>
+    <a class="button button--primary button--full" data-gpx-download download hidden>Télécharger le GPX</a>
+    <nav class="day-tabs" aria-label="Sections de la journée"><button type="button" data-day-tab="route" aria-selected="true">Parcours</button><button type="button" data-day-tab="weather" aria-selected="false">Météo</button></nav>
+    <section class="card" data-day-panel="route"><div class="section-heading"><div><p class="eyebrow">Lieux documentés, ordre et horaires</p><h3>Parcours</h3></div></div><div data-route-engine data-route-state="loading" aria-busy="true"><p role="status">Analyse de la trace GPX…</p></div></section>
+    <section class="card weather-card" data-day-panel="weather" hidden><div class="section-heading weather-card__heading"><div><p class="eyebrow">Conditions qui influencent la décision</p><h3>Météo</h3></div><button class="button button--quiet" type="button" data-weather-refresh>Actualiser</button></div><div class="weather-status-line"><span class="tag tag--data" data-weather-status role="status">En attente</span><time data-weather-updated-at>Aucune actualisation</time></div><div id="selected-day-weather" data-weather-panel data-weather-state="loading" data-weather-source="none" data-weather-refreshing="false" data-weather-has-data="false" aria-busy="true"><p role="status">Chargement de la météo…</p></div></section>
+    <details class="card secondary-sheet" data-roadbook-sheet><summary>Roadbook</summary><div data-accommodation-card hidden></div><div data-roadbook-detail data-roadbook-detail-state="loading" aria-busy="true"><p role="status">Chargement du roadbook…</p></div></details>
+    <details class="card technical-details" data-sources-sheet><summary>Sources et données</summary><h3>Diagnostic roadbook / GPX</h3><div data-roadbook-diagnostics data-roadbook-diagnostic-state="loading" aria-busy="true"></div><h3>Analyse des traces GPX</h3><div data-gpx-analysis data-gpx-state="loading" aria-busy="true"></div></details>
+  </section>${settingsView(settings)}</main><nav class="app-nav" aria-label="Navigation principale"><a href="#/today" data-nav-view="today">Aujourd’hui</a><a href="#/trip" data-nav-view="trip">Voyage</a><a href="#/settings" data-nav-view="settings">Réglages</a></nav><div class="visually-hidden" id="save-status" role="status" aria-live="polite"></div></div>`
 }

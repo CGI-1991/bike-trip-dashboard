@@ -74,7 +74,9 @@ export interface WeatherSamplePoint {
   readonly eta?: RouteClockTime
   readonly sourcePointIds: readonly string[]
   readonly references: readonly WeatherSampleReference[]
-  readonly source: 'roadbook-matched' | 'adjacent-endpoint'
+  readonly source: 'roadbook-matched' | 'roadbook-weather-reference' | 'adjacent-endpoint'
+  readonly role?: 'route-point' | 'weather-reference'
+  readonly contributesToDayRisk?: boolean
 }
 
 export interface WeatherRequestLocation {

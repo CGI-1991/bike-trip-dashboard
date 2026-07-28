@@ -156,10 +156,11 @@ export class WeatherCoordinator {
     timeline: TripTimeline,
     report: RoadbookMatchReport,
     selectedDayId: TripDayId,
+    plannedReferenceIds: ReadonlySet<string> = new Set(),
   ): void {
     const today = getDateInTimezone(this.now(), weatherConfig.timezone)
     this.setDefinitions(
-      buildWeatherDayDefinitions(plan, timeline, report, today),
+      buildWeatherDayDefinitions(plan, timeline, report, today, plannedReferenceIds),
       selectedDayId,
     )
   }

@@ -263,11 +263,14 @@ export function evaluateRideDayRisk(
   context: DayRiskContext,
   thresholds: WeatherAlertThresholds = WEATHER_ALERT_THRESHOLDS,
 ): DayWeatherRiskSummary {
+  const riskWaypoints = data.waypoints.filter(
+    ({ samplePoint }) => samplePoint.contributesToDayRisk !== false,
+  )
   const hazardAlerts = markUpcoming(
-    data.waypoints.flatMap((waypoint) => evaluateWaypointAlerts(dayId, waypoint, thresholds)),
+    riskWaypoints.flatMap((waypoint) => evaluateWaypointAlerts(dayId, waypoint, thresholds)),
     context.upcomingPointIds,
   )
-  const essentialPoints = data.waypoints.filter(({ samplePoint }) => isEssentialCoveragePoint(samplePoint))
+  const essentialPoints = riskWaypoints.filter(({ samplePoint }) => isEssentialCoveragePoint(samplePoint))
   const essentialCoverageRatio =
     essentialPoints.length === 0
       ? null
