@@ -7,6 +7,7 @@ export const offlineResources = Object.freeze([
   'data/trip/accommodations.json',
   'data/trip/roadbook.json',
   'data/trip/roadbook-overrides.json',
+  'data/practical/practical-points.json',
   'data/gpx/manifest.json',
   'data/gpx/01_route-des-grandes-alpes-a-velo-thonon-les-bains-morzine-avoriaz.gpx',
   'data/gpx/02_route-des-grandes-alpes-a-velo-morzine-avoriaz-le-grand-bornand.gpx',

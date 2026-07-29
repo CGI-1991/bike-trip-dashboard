@@ -1,6 +1,7 @@
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import type { GpxAnalysisSuccess } from '../gpx/types.ts'
+import type { PracticalData } from '../practical/model.ts'
 import type { Accommodation } from '../trip/accommodations.ts'
 import type { RoadbookMatchReport } from '../trip/roadbook-match.ts'
 import type { RideDayTimeline } from '../trip/types.ts'
@@ -12,6 +13,10 @@ import {
   getRouteMarkerStyle,
 } from './route-marker-style.ts'
 import type { RouteMarkerCategory, RouteMarkerShape } from './route-marker-style.ts'
+import {
+  disposePracticalLayerPanel,
+  installPracticalLayerPanel,
+} from './practical-map.ts'
 
 export { buildRouteMapModel } from './route-map-model.ts'
 export type { RouteMapMarkerModel, RouteMapModel } from './route-map-model.ts'
@@ -102,9 +107,15 @@ export function renderCompactRouteMapModel(container: HTMLElement, model: RouteM
   createMap(canvas, model, { interactive: false, fitPadding: [12, 12] }, () => { fallback.hidden = false })
 }
 
-export function renderRouteMap(container: HTMLElement, dialog: HTMLDialogElement, gpx: GpxAnalysisSuccess | null, timeline: RideDayTimeline | null, report: RoadbookMatchReport | null, accommodation: Accommodation | null): void {
+export function renderRouteMap(container: HTMLElement, dialog: HTMLDialogElement, gpx: GpxAnalysisSuccess | null, timeline: RideDayTimeline | null, report: RoadbookMatchReport | null, accommodation: Accommodation | null, practicalData: PracticalData | null = null): void {
   destroy(container)
-  if (gpx === null || timeline === null) { container.innerHTML = '<p class="route-map__fallback">Carte indisponible.</p>'; return }
+  disposePracticalLayerPanel(dialog)
+  if (gpx === null || timeline === null) {
+    const practicalToggle = dialog.querySelector<HTMLButtonElement>('[data-practical-layers-toggle]')
+    if (practicalToggle !== null) practicalToggle.hidden = true
+    container.innerHTML = '<p class="route-map__fallback">Carte indisponible.</p>'
+    return
+  }
   const model = buildRouteMapModel(gpx, timeline, report, accommodation)
   container.innerHTML = '<div class="route-map__canvas" data-route-map-canvas></div><p class="route-map__fallback" hidden data-route-map-fallback>Fond de carte indisponible. Le tracé reste accessible dans le profil.</p>'
   const canvas = container.querySelector<HTMLElement>('[data-route-map-canvas]') as HTMLElement; const fallback = container.querySelector<HTMLElement>('[data-route-map-fallback]') as HTMLElement
@@ -117,14 +128,20 @@ export function renderRouteMap(container: HTMLElement, dialog: HTMLDialogElement
     if (previousHandler !== undefined) open.removeEventListener('click', previousHandler)
     const handler: EventListener = () => {
       expanded.innerHTML = ''
+      const expandedFallback = dialog.querySelector<HTMLElement>('[data-expanded-route-map-fallback]')
+      if (expandedFallback !== null) expandedFallback.hidden = true
       dialog.showModal()
       requestAnimationFrame(() => {
-        createMap(
+        const map = createMap(
           expanded,
           model,
           { interactive: true, fitPadding: [36, 36], maxInitialZoom: 13 },
-          () => undefined,
-        ).invalidateSize()
+          () => {
+            if (expandedFallback !== null) expandedFallback.hidden = false
+          },
+        )
+        map.invalidateSize()
+        installPracticalLayerPanel(dialog, map, practicalData, timeline.day.id)
       })
     }
     openHandlers.set(open, handler)
@@ -132,4 +149,9 @@ export function renderRouteMap(container: HTMLElement, dialog: HTMLDialogElement
   }
 }
 
-export function closeExpandedRouteMap(dialog: HTMLDialogElement): void { const expanded = dialog.querySelector<HTMLElement>('[data-route-map-expanded]'); if (expanded !== null) destroy(expanded); dialog.close() }
+export function closeExpandedRouteMap(dialog: HTMLDialogElement): void {
+  disposePracticalLayerPanel(dialog)
+  const expanded = dialog.querySelector<HTMLElement>('[data-route-map-expanded]')
+  if (expanded !== null) destroy(expanded)
+  dialog.close()
+}

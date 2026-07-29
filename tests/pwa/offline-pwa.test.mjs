@@ -55,6 +55,8 @@ test('the offline inventory contains the shell data and exactly ten real GPX fil
   )
   assert.ok(offlineResources.includes('data/gpx/manifest.json'))
   assert.ok(offlineResources.includes('manifest.webmanifest'))
+  assert.ok(offlineResources.includes('data/practical/practical-points.json'))
+  assert.ok(!offlineResources.includes('data/practical/rga-practical-points.kml'))
 
   for (const resource of offlineResources) {
     assert.doesNotMatch(resource, /^https?:|open-meteo|openstreetmap/i)
@@ -81,6 +83,7 @@ test('the service worker is scoped, atomic and never intercepts external weather
   assert.match(viteSource, /fileName: 'sw\.js'/)
   assert.match(viteSource, /configResolved\(config\)[\s\S]*projectRoot = config\.root/)
   assert.match(viteSource, /hash\.update\(readFileSync\(resolve\(projectRoot, 'public', resource\)\)\)/)
+  assert.match(viteSource, /for \(const resource of offlineResources\)/)
 })
 
 test('service worker registration respects the GitHub Pages base and bypasses HTTP caches', async () => {
