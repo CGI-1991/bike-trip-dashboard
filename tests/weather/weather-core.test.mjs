@@ -1097,7 +1097,7 @@ test('coordinator applies the latest ETA when an identical request completes in 
   coordinator.dispose()
 })
 
-test('coordinator does not fetch a day outside the expected horizon', async () => {
+test('coordinator fetches one grouped current-reference request outside the trip horizon', async () => {
   const definition = makeDefinition({
     dayId: 'J3',
     tripDate: '2026-08-12',
@@ -1110,9 +1110,13 @@ test('coordinator does not fetch a day outside the expected horizon', async () =
     now: () => new Date('2026-07-27T10:00:00.000Z'),
     provider: {
       id: 'open-meteo',
-      async fetchForecast() {
+      async fetchForecast(request) {
         calls += 1
-        throw new Error('unexpected fetch')
+        return makeForecastForRequest(
+          request,
+          '2026-07-27T10:00:00.000Z',
+          ['2026-07-27'],
+        )
       },
     },
   })
@@ -1120,8 +1124,9 @@ test('coordinator does not fetch a day outside the expected horizon', async () =
   coordinator.setDefinitions([definition], 'J3')
   await coordinator.waitForIdle()
 
-  assert.equal(calls, 0)
-  assert.equal(coordinator.getState('J3').availability, 'outside-horizon')
+  assert.equal(calls, 1)
+  assert.equal(coordinator.getState('J3').source, 'network')
+  assert.equal(coordinator.getState('J3').data.type, 'ride')
   coordinator.dispose()
 })
 

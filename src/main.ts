@@ -13,6 +13,7 @@ import { getDateInTimezone, getTripDate } from './trip/calendar.ts'
 import { WeatherCache } from './weather/cache.ts'
 import { WeatherCoordinator } from './weather/coordinator.ts'
 import { weatherConfig } from './weather/config.ts'
+import { buildDocumentedPointWeatherListViewModel } from './weather/documented-point-view-model.ts'
 import { isTripDateInPast } from './weather/display-policy.ts'
 import { createOpenMeteoProvider } from './weather/open-meteo.ts'
 import type { WeatherDayState, WeatherSnapshot } from './weather/types.ts'
@@ -342,6 +343,28 @@ function renderCurrentRoadbookSelection(
   renderRoadbookDayDetail(roadbookDetailContainer, dayMatch, timelineDay)
 }
 
+function renderSelectedRouteTimeline(
+  selectedDay: TripDayTimeline,
+  accommodation: Accommodation | null,
+): void {
+  const state = currentWeatherSnapshot.states.get(selectedDay.day.id) ?? null
+  const documentedPoints = currentRoadbookReport?.allPointMatches.filter(
+    ({ dayId }) => dayId === selectedDay.day.id,
+  ) ?? []
+  const weather = buildDocumentedPointWeatherListViewModel(
+    state,
+    documentedPoints,
+    getDateInTimezone(new Date(), weatherConfig.timezone),
+  )
+  renderTripDayRouteTimeline(
+    routeEngineContainer,
+    selectedDay,
+    currentRoadbookReport,
+    accommodation,
+    weather,
+  )
+}
+
 function renderCurrentTripSelection(restoreFocus = false): void {
   if (currentTripTimeline === null) {
     updatePendingTripSelection()
@@ -368,7 +391,7 @@ function renderCurrentTripSelection(restoreFocus = false): void {
 
   renderTripTimeline(tripPlanContainer, currentTripTimeline, selectedDayId)
   const accommodation = getAccommodationForDay(currentAccommodations, selectedDayId)
-  renderTripDayRouteTimeline(routeEngineContainer, selectedDay, currentRoadbookReport, accommodation)
+  renderSelectedRouteTimeline(selectedDay, accommodation)
   renderAccommodation(accommodationContainer, accommodation)
   if (selectedDay.type === 'ride' && selectedDay.status === 'ready') {
     const base = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL : `${import.meta.env.BASE_URL}/`
@@ -786,6 +809,15 @@ const unsubscribeWeather = weatherCoordinator.subscribe((snapshot) => {
   currentWeatherSnapshot = snapshot
   currentWeatherError = null
   renderCurrentWeatherSelection()
+  if (currentTripTimeline !== null) {
+    const selectedDay = getTripTimelineDay(currentTripTimeline, selectedDayId)
+    if (selectedDay !== null) {
+      renderSelectedRouteTimeline(
+        selectedDay,
+        getAccommodationForDay(currentAccommodations, selectedDayId),
+      )
+    }
+  }
   renderToday()
 })
 

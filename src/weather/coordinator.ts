@@ -4,7 +4,7 @@ import type { TripDayId, TripPlan, TripTimeline } from '../trip/types.ts'
 import { computeDepartureScenarios } from './alerts/departure-scenarios.ts'
 import { WeatherCache } from './cache.ts'
 import { weatherConfig } from './config.ts'
-import { isTripDateInPast } from './display-policy.ts'
+import { getNowLocalDateTime, isTripDateInPast } from './display-policy.ts'
 import {
   createWeatherRequest,
 } from './open-meteo.ts'
@@ -13,7 +13,6 @@ import { buildWeatherDayDefinitions } from './sample-points.ts'
 import {
   associateWeatherDay,
   isWeatherDayDataComplete,
-  isWithinExpectedWeatherHorizon,
 } from './selectors.ts'
 import type {
   WeatherCacheState,
@@ -230,7 +229,6 @@ export class WeatherCoordinator {
     if (
       definition === undefined ||
       request === undefined ||
-      !isWithinExpectedWeatherHorizon(definition.tripDate, this.now()) ||
       isTripDateInPast(
         definition.tripDate,
         getDateInTimezone(this.now(), weatherConfig.timezone),
@@ -316,8 +314,7 @@ export class WeatherCoordinator {
       )
       if (
         !isPast &&
-        cacheState === 'stale' &&
-        isWithinExpectedWeatherHorizon(definition.tripDate, this.now())
+        cacheState === 'stale'
       ) {
         const staleState = this.states.get(definition.dayId)
         if (staleState !== undefined) {
@@ -346,8 +343,7 @@ export class WeatherCoordinator {
       )
       if (
         !isPast &&
-        cached.state === 'stale' &&
-        isWithinExpectedWeatherHorizon(definition.tripDate, this.now())
+        cached.state === 'stale'
       ) {
         const staleState = this.states.get(definition.dayId)
         if (staleState !== undefined) {
@@ -375,24 +371,6 @@ export class WeatherCoordinator {
         isRefreshing: false,
         departureScenarios: null,
         message: 'Journée passée : aucune donnée conservée, aucune actualisation.',
-      })
-      return
-    }
-
-    if (!isWithinExpectedWeatherHorizon(definition.tripDate, this.now())) {
-      this.states.set(definition.dayId, {
-        dayId: definition.dayId,
-        dayType: definition.dayType,
-        tripDate: definition.tripDate,
-        availability: 'outside-horizon',
-        cacheState: 'miss',
-        source: 'none',
-        fetchedAt: null,
-        receivedDates: [],
-        data: null,
-        isRefreshing: false,
-        departureScenarios: null,
-        message: 'Date hors de l’horizon prévisionnel disponible.',
       })
       return
     }
@@ -436,7 +414,12 @@ export class WeatherCoordinator {
   ): void {
     try {
       const today = getDateInTimezone(this.now(), weatherConfig.timezone)
-      const data = associateWeatherDay(definition, result, today)
+      const data = associateWeatherDay(
+        definition,
+        result,
+        today,
+        getNowLocalDateTime(this.now(), weatherConfig.timezone),
+      )
       const isComplete =
         result.status === 'success' && isWeatherDayDataComplete(data)
       const availability =

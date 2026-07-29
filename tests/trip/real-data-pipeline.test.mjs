@@ -20,6 +20,12 @@ const { emptyPausePlan } = await import('../../src/trip/pause-plan.ts')
 const { createDefaultRideDaySettingsDocument, getRideDaySettings } = await import(
   '../../src/storage/ride-day-settings.ts'
 )
+const { buildWeatherDayDefinitions } = await import('../../src/weather/sample-points.ts')
+const { associateWeatherDay } = await import('../../src/weather/selectors.ts')
+const { buildDocumentedPointWeatherListViewModel } = await import(
+  '../../src/weather/documented-point-view-model.ts'
+)
+const { buildRouteDisplayPoints } = await import('../../src/ui/route-engine.ts')
 
 const root = new URL('../../', import.meta.url)
 const readText = (path) => readFile(new URL(path, root), 'utf8')
@@ -51,7 +57,7 @@ function pausePlacesByDay(report) {
 }
 
 /** Runs the exact same two-pass pipeline as `refreshTripTimeline`/`refreshRoadbookIntegration` in main.ts. */
-async function runRealPipeline(getDaySettings) {
+async function runRealPipeline(getDaySettings, pausePlan = emptyPausePlan) {
   const manifest = await readJson('public/data/gpx/manifest.json')
   assert.equal(manifest.files.length, 10, 'expected exactly ten manifest entries')
 
@@ -80,7 +86,7 @@ async function runRealPipeline(getDaySettings) {
 
   // Pass 2 — real documented points are now available; reschedule with them,
   // exactly like the `roadbookPlacesHydrated` retry in main.ts.
-  const timeline = scheduleTripTimeline(profile, getDaySettings, emptyPausePlan, pausePlacesByDay(firstReport))
+  const timeline = scheduleTripTimeline(profile, getDaySettings, pausePlan, pausePlacesByDay(firstReport))
   const report = buildRoadbookMatchReport(roadbook, overrides, rga2026TripPlan, gpxResults, timeline)
 
   return { timeline, report }
@@ -89,6 +95,58 @@ async function runRealPipeline(getDaySettings) {
 function defaultDaySettings() {
   const document = createDefaultRideDaySettingsDocument()
   return (dayId) => getRideDaySettings(document, dayId)
+}
+
+function syntheticHourly(time, locationIndex, hour) {
+  return {
+    time,
+    temperatureC: 10 + locationIndex + hour / 10,
+    apparentTemperatureC: 8 + locationIndex + hour / 10,
+    relativeHumidityPct: 70,
+    precipitationProbabilityPct: hour % 3 === 0 ? 45 : 15,
+    precipitationMm: hour % 3 === 0 ? 0.4 : 0,
+    rainMm: hour % 3 === 0 ? 0.4 : 0,
+    showersMm: 0,
+    snowfallCm: 0,
+    weatherCode: hour % 3 === 0 ? 61 : 2,
+    cloudCoverPct: 50,
+    visibilityM: 10_000,
+    windSpeedKph: 15,
+    windDirectionDeg: 240,
+    windGustsKph: locationIndex % 4 === 0 ? 50 : 25,
+    freezingLevelM: 3_500,
+  }
+}
+
+function syntheticForecast(definition) {
+  return {
+    provider: 'open-meteo',
+    requestKey: `synthetic-${definition.dayId}`,
+    fetchedAt: '2026-08-01T08:00:00.000Z',
+    status: 'success',
+    datesCovered: definition.requiredDates,
+    issues: [],
+    locations: definition.locations.map((location, locationIndex) => ({
+      status: 'success',
+      requestLocationId: location.id,
+      requestedLatitude: location.latitude,
+      requestedLongitude: location.longitude,
+      requestedElevationM: location.elevationM,
+      providerLatitude: location.latitude,
+      providerLongitude: location.longitude,
+      providerElevationM: location.elevationM,
+      timezone: 'Europe/Paris',
+      utcOffsetSeconds: 7_200,
+      hourly: definition.requiredDates.flatMap((date) =>
+        Array.from({ length: 24 }, (_, hour) =>
+          syntheticHourly(`${date}T${String(hour).padStart(2, '0')}:00`, locationIndex, hour),
+        ),
+      ),
+      daily: [],
+      missingVariables: [],
+      issues: [],
+    })),
+  }
 }
 
 test('the real ten-GPX / real-roadbook pipeline restores all ten ride days, none left unavailable', async () => {
@@ -169,4 +227,117 @@ test('changing J2’s settings alone never changes J1’s computed route on the 
 
   assert.deepEqual(j1AfterChange.route.summary, j1Baseline.route.summary)
   assert.equal(j1AfterChange.startTime, j1Baseline.startTime)
+})
+
+test('real roadbook and GPX data receive deterministic compact weather without technical or suppressed points', async () => {
+  const pausePlan = {
+    version: 1,
+    days: [{
+      dayId: 'J2',
+      mode: 'custom',
+      pauses: [{
+        id: 'cluses-break',
+        active: true,
+        placeId: 'j02-passage-cluses',
+        placeName: 'Cluses',
+        durationMinutes: 20,
+        order: 0,
+        origin: 'custom',
+      }],
+    }],
+  }
+  const { timeline, report } = await runRealPipeline(defaultDaySettings(), pausePlan)
+  const definitions = buildWeatherDayDefinitions(
+    rga2026TripPlan,
+    timeline,
+    report,
+    '2026-08-01',
+  )
+  const renderedByDay = new Map()
+
+  for (const dayId of ['J1', 'J2']) {
+    const definition = definitions.find((candidate) => candidate.dayId === dayId)
+    const dayTimeline = timeline.days.find((day) => day.day.id === dayId)
+    assert.ok(definition)
+    assert.equal(dayTimeline.status, 'ready')
+    const data = associateWeatherDay(
+      definition,
+      syntheticForecast(definition),
+      '2026-08-01',
+      '2026-08-01T10:00',
+    )
+    const state = {
+      dayId,
+      dayType: 'ride',
+      tripDate: definition.tripDate,
+      availability: 'available',
+      cacheState: 'fresh',
+      source: 'network',
+      fetchedAt: '2026-08-01T08:00:00.000Z',
+      receivedDates: definition.requiredDates,
+      data,
+      isRefreshing: false,
+      departureScenarios: null,
+    }
+    const documentedPoints = report.allPointMatches.filter((point) => point.dayId === dayId)
+    const model = buildDocumentedPointWeatherListViewModel(
+      state,
+      documentedPoints,
+      '2026-08-01',
+    )
+    const cards = buildRouteDisplayPoints(
+      dayTimeline.route,
+      dayId,
+      report,
+      null,
+      model,
+    )
+    renderedByDay.set(dayId, { documentedPoints, model, cards, dayTimeline })
+
+    const sampledPointIds = new Set(
+      definition.samplePoints.flatMap(({ sourcePointIds }) => sourcePointIds),
+    )
+    for (const pointId of sampledPointIds) {
+      assert.equal(model.pointWeatherById.has(pointId), true, `${dayId}: ${pointId} must join by stable id`)
+    }
+    assert.equal(new Set(cards.map(({ id }) => id)).size, cards.length)
+    assert.ok(cards.every(({ html }) => !/<details|Détail|route-point--generated/.test(html)))
+    assert.ok(cards.every(({ html }) => !/NaN/.test(html)))
+  }
+
+  const j1 = renderedByDay.get('J1')
+  const j1Names = j1.documentedPoints.map(({ name }) => name).join(' | ')
+  const j1Html = j1.cards.map(({ html }) => html).join('')
+  assert.match(j1Html, /Gare de Thonon-les-Bains/)
+  assert.match(j1Names, /Col du Feu/)
+  assert.match(j1Names, /Lullin/)
+  assert.match(j1Names, /Saint-Jean/)
+  assert.doesNotMatch(j1Names, /Bellevaux|repère kilométrique|rupture de pente/i)
+
+  const j2 = renderedByDay.get('J2')
+  const clusesPoints = j2.documentedPoints.filter(
+    (point) => point.name === 'Cluses' && getRoadbookPointRole(point) !== 'information',
+  )
+  assert.equal(clusesPoints.length, 1)
+  assert.equal(j2.cards.filter(({ html }) => /Cluses/.test(html)).length, 1)
+  const clusesId = clusesPoints[0].id
+  assert.equal(j2.model.pointWeatherById.has(clusesId), true)
+  assert.equal(j2.dayTimeline.route.pauses.filter(({ pointId }) => pointId === clusesId).length, 1)
+
+  const allNames = report.allPointMatches.map(({ name }) => name).join(' | ')
+  for (const suppressedName of [
+    'Bellevaux',
+    'Crest-Voland',
+    'Arêches',
+    'Les Chapieux',
+    'Tignes',
+    'Château-Queyras',
+    'Cime de la Bonette',
+  ]) {
+    assert.doesNotMatch(allNames, new RegExp(suppressedName, 'i'))
+  }
+
+  assert.equal(timeline.summary.rideDays, 10)
+  assert.equal(timeline.summary.offDays, 2)
+  assert.equal(timeline.summary.availableRideDays, 10)
 })
