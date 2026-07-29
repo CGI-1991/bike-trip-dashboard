@@ -1,5 +1,5 @@
 import { calculateHaversineDistanceKm } from '../gpx/parser.ts'
-import { addIsoDays, buildTripCalendar } from '../trip/calendar.ts'
+import { addIsoDays, buildTripCalendar, differenceInIsoDays } from '../trip/calendar.ts'
 import type { RoadbookMatchReport, RoadbookPointMatch } from '../trip/roadbook-match.ts'
 import type { TripDay, TripPlan, TripTimeline } from '../trip/types.ts'
 import { getRoadbookPointRole } from '../trip/point-role.ts'
@@ -316,6 +316,33 @@ function createRequiredDates(
   return [...new Set([...tripDates, today])].sort()
 }
 
+/**
+ * Outside the forecast horizon, only the three explicitly allowed current
+ * references are requested: start, highest documented col and finish.
+ */
+export function selectCurrentReferenceSamplePoints(
+  samplePoints: readonly WeatherSamplePoint[],
+): readonly WeatherSamplePoint[] {
+  const start = samplePoints.find((point) =>
+    point.references.some(({ type }) => type === 'start'),
+  )
+  const finish = samplePoints.find((point) =>
+    point.references.some(({ type }) => type === 'end'),
+  )
+  const mainCol = [...samplePoints]
+    .filter((point) => point.references.some(({ type }) => type === 'col'))
+    .sort(
+      (left, right) =>
+        right.elevationM - left.elevationM || left.id.localeCompare(right.id),
+    )[0]
+
+  return [...new Map(
+    [start, mainCol, finish]
+      .filter((point): point is WeatherSamplePoint => point !== undefined)
+      .map((point) => [point.id, point]),
+  ).values()]
+}
+
 export function buildWeatherDayDefinitions(
   plan: TripPlan,
   timeline: TripTimeline,
@@ -378,7 +405,12 @@ export function buildWeatherDayDefinitions(
       .filter(({ dayId }) => dayId === day.id)
       .map((point) => createWeatherReferenceSamplePoint(tripDate, point, plannedReferenceIds))
       .filter((point): point is WeatherSamplePoint => point !== null)
-    const samplePoints = [...routePoints, ...weatherReferences]
+    const allSamplePoints = [...routePoints, ...weatherReferences]
+    const dayOffset = differenceInIsoDays(tripDate, today)
+    const samplePoints =
+      dayOffset >= weatherConfig.forecastDays
+        ? selectCurrentReferenceSamplePoints(allSamplePoints)
+        : allSamplePoints
 
     return {
       dayId: day.id,

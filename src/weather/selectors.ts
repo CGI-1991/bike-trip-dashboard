@@ -8,6 +8,8 @@ import type { RouteClockTime } from '../route/types.ts'
 import { weatherConfig } from './config.ts'
 import { selectWorstWeatherCode } from './weather-code.ts'
 import type {
+  CurrentWaypointWeather,
+  DocumentedPointForecast,
   LocalIsoDateTime,
   NormalizedHourlyWeather,
   NormalizedLocationForecast,
@@ -234,10 +236,92 @@ function createUnavailableWaypoint(
   }
 }
 
+function associateDocumentedForecasts(
+  samplePoint: WeatherSamplePoint,
+  tripDate: IsoDate,
+  forecast: NormalizedLocationForecast | null,
+): readonly DocumentedPointForecast[] {
+  return samplePoint.references.map((reference): DocumentedPointForecast => {
+    const etaLocal = toEtaLocal(tripDate, reference.eta)
+
+    if (forecast === null) {
+      return {
+        pointId: reference.pointId,
+        etaLocal,
+        forecastTimeLocal: null,
+        forecastOffsetMinutes: null,
+        weather: null,
+        state: 'unavailable',
+        reason: 'Prévision de localisation indisponible.',
+      }
+    }
+
+    const nearest = selectNearestHourlyForecast(forecast.hourly, etaLocal)
+    if (nearest === null) {
+      return {
+        pointId: reference.pointId,
+        etaLocal,
+        forecastTimeLocal: null,
+        forecastOffsetMinutes: null,
+        weather: null,
+        state: 'unavailable',
+        reason: 'Aucune heure prévisionnelle assez proche.',
+      }
+    }
+
+    return {
+      pointId: reference.pointId,
+      etaLocal,
+      forecastTimeLocal: nearest.weather.time,
+      forecastOffsetMinutes: nearest.offsetMinutes,
+      weather: nearest.weather,
+      state: 'available',
+    }
+  })
+}
+
+function associateCurrentWaypoint(
+  samplePoint: WeatherSamplePoint,
+  forecast: NormalizedLocationForecast | null,
+  nowLocal: LocalIsoDateTime | undefined,
+): CurrentWaypointWeather {
+  if (forecast === null || nowLocal === undefined) {
+    return {
+      samplePoint,
+      forecastTimeLocal: null,
+      forecastOffsetMinutes: null,
+      weather: null,
+      state: 'unavailable',
+      reason: 'Information actuelle indisponible.',
+    }
+  }
+
+  const nearest = selectNearestHourlyForecast(forecast.hourly, nowLocal)
+  if (nearest === null) {
+    return {
+      samplePoint,
+      forecastTimeLocal: null,
+      forecastOffsetMinutes: null,
+      weather: null,
+      state: 'unavailable',
+      reason: 'Aucune observation horaire actuelle assez proche.',
+    }
+  }
+
+  return {
+    samplePoint,
+    forecastTimeLocal: nearest.weather.time,
+    forecastOffsetMinutes: nearest.offsetMinutes,
+    weather: nearest.weather,
+    state: 'available',
+  }
+}
+
 function associateRideDay(
   definition: WeatherDayDefinition,
   result: WeatherForecastResult,
   today: IsoDate,
+  nowLocal?: LocalIsoDateTime,
 ): RideDayWeather {
   const locationBySamplePointId = new Map(
     definition.locations.flatMap((location) =>
@@ -265,20 +349,34 @@ function associateRideDay(
 
       const forecast = getSuccessfulLocationForecast(result, locationId)
       if (forecast === null) {
-        return createUnavailableWaypoint(
-          samplePoint,
-          etaLocal,
-          'Prévision de localisation indisponible.',
-        )
+        return {
+          ...createUnavailableWaypoint(
+            samplePoint,
+            etaLocal,
+            'Prévision de localisation indisponible.',
+          ),
+          documentedForecasts: associateDocumentedForecasts(
+            samplePoint,
+            definition.tripDate,
+            null,
+          ),
+        }
       }
 
       const nearest = selectNearestHourlyForecast(forecast.hourly, etaLocal)
       if (nearest === null) {
-        return createUnavailableWaypoint(
-          samplePoint,
-          etaLocal,
-          'Aucune heure prévisionnelle assez proche.',
-        )
+        return {
+          ...createUnavailableWaypoint(
+            samplePoint,
+            etaLocal,
+            'Aucune heure prévisionnelle assez proche.',
+          ),
+          documentedForecasts: associateDocumentedForecasts(
+            samplePoint,
+            definition.tripDate,
+            forecast,
+          ),
+        }
       }
 
       return {
@@ -288,6 +386,11 @@ function associateRideDay(
         forecastOffsetMinutes: nearest.offsetMinutes,
         weather: nearest.weather,
         state: 'available',
+        documentedForecasts: associateDocumentedForecasts(
+          samplePoint,
+          definition.tripDate,
+          forecast,
+        ),
       }
     })
     .sort(
@@ -313,6 +416,14 @@ function associateRideDay(
         null,
     }
   })
+  const currentWaypoints = definition.samplePoints.map((samplePoint) => {
+    const locationId = locationBySamplePointId.get(samplePoint.id)
+    const forecast =
+      locationId === undefined
+        ? null
+        : getSuccessfulLocationForecast(result, locationId)
+    return associateCurrentWaypoint(samplePoint, forecast, nowLocal)
+  })
 
   return {
     type: 'ride',
@@ -325,6 +436,7 @@ function associateRideDay(
       waypoints.length - coveredPointCount,
     ),
     dailyByLocation,
+    currentWaypoints,
     todayReference: extractTodayReference(result, today),
   }
 }
@@ -370,9 +482,10 @@ export function associateWeatherDay(
   definition: WeatherDayDefinition,
   result: WeatherForecastResult,
   today: IsoDate,
+  nowLocal?: LocalIsoDateTime,
 ): WeatherDayData {
   return definition.dayType === 'ride'
-    ? associateRideDay(definition, result, today)
+    ? associateRideDay(definition, result, today, nowLocal)
     : associateOffDay(definition, result, today)
 }
 

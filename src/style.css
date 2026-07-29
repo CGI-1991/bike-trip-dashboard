@@ -1564,6 +1564,12 @@ ul {
 .route-point__distance { white-space: nowrap; font-size: .8rem; }
 .route-point__pause-tag { grid-column: 1 / -1; justify-self: start; padding: 2px 8px; border-radius: 999px; background: #ede9fe; color: #5b21b6; font-size: .74rem; font-weight: 700; }
 .route-point__status { grid-column: 1 / -1; color: #9a3412; font-weight: 750; }
+.route-point-weather { grid-column: 1 / -1; display: grid; gap: 3px; min-width: 0; color: var(--ink-soft); font-size: .78rem; line-height: 1.35; overflow-wrap: anywhere; }
+.route-point-weather__summary { min-width: 0; }
+.route-point-weather__risk { justify-self: start; color: #9a3412; font-weight: 800; }
+.route-point-weather--current { padding-top: 2px; border-top: 1px solid var(--line); }
+.route-point-weather--unavailable { font-style: italic; }
+.route-point-weather-note { margin: 0 0 8px; padding: 8px 10px; border-radius: 8px; background: var(--surface-muted); color: var(--ink-soft); font-size: .8rem; }
 .route-point--off-route { border-style: dashed; border-color: #d97706; }
 .pause-stages { display: grid; gap: 10px; margin-top: 18px; }
 .pause-stage > summary { min-height: 44px; cursor: pointer; font-weight: 800; }

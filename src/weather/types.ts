@@ -201,6 +201,27 @@ export interface WaypointWeather {
   readonly weather: NormalizedHourlyWeather | null
   readonly state: 'available' | 'unavailable'
   readonly reason?: string
+  /** Forecasts reassociated to each stable documented roadbook point id. */
+  readonly documentedForecasts?: readonly DocumentedPointForecast[]
+}
+
+export interface DocumentedPointForecast {
+  readonly pointId: string
+  readonly etaLocal: LocalIsoDateTime
+  readonly forecastTimeLocal: LocalIsoDateTime | null
+  readonly forecastOffsetMinutes: number | null
+  readonly weather: NormalizedHourlyWeather | null
+  readonly state: 'available' | 'unavailable'
+  readonly reason?: string
+}
+
+export interface CurrentWaypointWeather {
+  readonly samplePoint: WeatherSamplePoint
+  readonly forecastTimeLocal: LocalIsoDateTime | null
+  readonly forecastOffsetMinutes: number | null
+  readonly weather: NormalizedHourlyWeather | null
+  readonly state: 'available' | 'unavailable'
+  readonly reason?: string
 }
 
 /**
@@ -265,6 +286,8 @@ export interface RideDayWeather {
     readonly samplePointId: string
     readonly weather: NormalizedDailyWeather | null
   }[]
+  /** Current conditions, kept separate from the trip-date forecast. */
+  readonly currentWaypoints?: readonly CurrentWaypointWeather[]
   readonly todayReference: TodayReferenceWeather | null
 }
 
