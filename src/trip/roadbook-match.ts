@@ -488,10 +488,17 @@ function createRouteProgressAtDistance(
           Math.max(0, (trackDistanceKm - before.progress.distanceKm) / distanceDeltaKm),
         )
   const interpolate = (from: number, to: number): number => from + (to - from) * fraction
-  const movingElapsedMinutes = interpolate(
-    before.progress.movingElapsedMinutes,
-    after.progress.movingElapsedMinutes,
-  )
+  const timingSamples = route.terrainTiming ?? []
+  const timingAfterIndex = timingSamples.findIndex(({ distanceKm }) => distanceKm >= trackDistanceKm)
+  const timingAfter = timingSamples[timingAfterIndex < 0 ? timingSamples.length - 1 : timingAfterIndex]
+  const timingBefore = timingSamples[Math.max(0, (timingAfterIndex < 0 ? timingSamples.length - 1 : timingAfterIndex) - 1)]
+  const timingSpan = timingAfter === undefined || timingBefore === undefined ? 0 : timingAfter.distanceKm - timingBefore.distanceKm
+  const timingFraction = timingSpan <= roadbookMatchConfig.comparisonEpsilon
+    ? 0
+    : Math.min(1, Math.max(0, (trackDistanceKm - timingBefore.distanceKm) / timingSpan))
+  const movingElapsedMinutes = timingAfter === undefined || timingBefore === undefined
+    ? interpolate(before.progress.movingElapsedMinutes, after.progress.movingElapsedMinutes)
+    : timingBefore.movingElapsedMinutes + (timingAfter.movingElapsedMinutes - timingBefore.movingElapsedMinutes) * timingFraction
   const pauseMinutes = route.pauses.reduce(
     (total, pause) =>
       pause.distanceKm < trackDistanceKm - roadbookMatchConfig.comparisonEpsilon

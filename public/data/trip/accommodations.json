@@ -3,12 +3,12 @@
   "tripId": "rga-2026",
   "accommodations": [
     { "id": "morzine-le-soly", "dayIds": ["J1"], "name": "Hôtel Le Soly", "type": "hotel", "address": "234 Route de la Manche, 74110 Morzine", "website": "https://www.hotel-lesoly-morzine.fr/", "confirmed": true },
-    { "id": "grand-bornand-croix-saint-maurice", "dayIds": ["J2"], "name": "Hôtel La Croix Saint-Maurice", "type": "hotel", "address": "29 Place de la Grenette, 74450 Le Grand-Bornand", "website": "https://www.hotel-lacroixstmaurice.com/", "confirmed": true },
+    { "id": "grand-bornand-vermont", "dayIds": ["J2"], "name": "Hôtel et Spa Le Vermont", "type": "hotel", "address": "607 Route de la Vallée du Bouchet, 74450 Le Grand-Bornand", "website": "https://hotelspalevermont.com/", "confirmed": true },
     { "id": "beaufort-maison-doron", "dayIds": ["J3"], "name": "Maison Doron", "type": "hotel", "address": "20 Place de l’Église, 73270 Beaufort", "website": "https://www.maisondoron.com/", "confirmed": true },
     { "id": "bourg-airbnb", "dayIds": ["J4", "J5"], "name": "Airbnb Bourg-Saint-Maurice", "type": "airbnb", "address": "86 Rue des Diables Bleus, 73700 Bourg-Saint-Maurice", "latitude": 45.61376, "longitude": 6.76874, "confirmed": true },
     { "id": "termignon-outa", "dayIds": ["J6"], "name": "Hôtel L’Outa", "type": "hotel", "address": "2 Rue de la Savoie, 73500 Termignon", "website": "https://hotel-outa.com/", "confirmed": true },
     { "id": "briancon-airbnb", "dayIds": ["J7", "J8"], "name": "Airbnb Briançon", "type": "airbnb", "address": "24 Rue du Serre Paix, 05100 Briançon", "latitude": 44.90172, "longitude": 6.62979, "confirmed": true },
-    { "id": "faucon-eterlou", "dayIds": ["J9"], "name": "Gîte Auberge L’Éterlou", "type": "gite", "address": "Villevieille, 25 Route de Jausiers, 04400 Faucon-de-Barcelonnette", "confirmed": true },
+    { "id": "faucon-eterlou", "dayIds": ["J9"], "name": "Gîte Auberge L’Éterlou", "type": "gite", "address": "Villevieille, 25 Route de Jausiers, 04400 Faucon-de-Barcelonnette", "website": "https://www.ubaye-gite-hote-barcelonnette.fr/fr/", "confirmed": true },
     { "id": "saint-etienne-martine-serge", "dayIds": ["J10"], "name": "Chez Martine et Serge", "type": "chambre-hotes", "address": "1 Rue du Val Gelé, 06660 Saint-Étienne-de-Tinée", "website": "https://chezmartineetserge.fr/", "confirmed": true },
     { "id": "saint-martin-bonne-auberge", "dayIds": ["J11"], "name": "Hôtel La Bonne Auberge", "type": "hotel", "address": "98 Allée de Verdun, 06450 Saint-Martin-Vésubie", "website": "https://labonneauberge06.fr/", "confirmed": true },
     { "id": "nice-villa-saint-exupery", "dayIds": ["J12"], "name": "Villa Saint Exupéry Beach Hostel", "type": "hostel", "address": "6 Rue Sacha Guitry, 06000 Nice", "website": "https://villahostels.com/", "confirmed": true }

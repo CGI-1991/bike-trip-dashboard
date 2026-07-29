@@ -17,24 +17,33 @@ const rideDaySettings = {
   })),
 }
 
-test('detail exposes exactly Parcours and Météo', () => {
+test('detail exposes exactly Parcours, Météo and Infos, with Parcours selected by default', () => {
   const html = renderDashboard(rideDaySettings)
-  assert.equal((html.match(/data-day-tab=/g) ?? []).length, 2)
-  assert.match(html, />Parcours<.*>Météo</s)
+  assert.equal((html.match(/data-day-tab=/g) ?? []).length, 3)
+  assert.match(html, />Parcours<.*>Météo<.*>Infos</s)
+  assert.match(html, /data-day-tab="route"[^>]+aria-selected="true"[^>]+tabindex="0"/)
+  assert.equal((html.match(/aria-controls="day-panel-/g) ?? []).length, 3)
+  assert.equal((html.match(/role="tabpanel"/g) ?? []).length, 3)
   assert.doesNotMatch(html, />Chronologie<|>Points</)
   assert.doesNotMatch(html, /data-day-tab="(?:roadbook|sources)"/)
   assert.match(html, /data-day-header/)
 })
 
-test('Roadbook and Sources remain secondary, and the day editor lives in settings', () => {
+test('Infos owns logistics once, while diagnostics and the day editor live in settings', () => {
   const html = renderDashboard(rideDaySettings)
-  assert.match(html, /<details[^>]+data-roadbook-sheet/)
+  assert.doesNotMatch(html, /data-roadbook-sheet|Autres passages/)
   assert.match(html, /<details[^>]+data-sources-sheet/)
+  assert.match(html, /<summary>Diagnostic et sources<\/summary>/)
+  assert.doesNotMatch(html, /<details[^>]+data-sources-sheet[^>]+open/)
+  assert.match(html, /data-day-panel="infos"[^>]+hidden/)
+  assert.equal((html.match(/data-gpx-download/g) ?? []).length, 1)
+  assert.equal((html.match(/data-accommodation-card/g) ?? []).length, 1)
   assert.equal((html.match(/name="pause-mode"/g) ?? []).length, 2)
   assert.match(html, /data-pause-save/)
   assert.match(html, /data-pause-restore/)
   assert.match(html, /data-day-departure-time/)
   assert.match(html, /data-day-average-speed/)
+  assert.match(html, /Vitesse moyenne en mouvement/)
   assert.match(html, /data-day-total-break/)
   assert.match(html, /Réglages par étape/)
 })
@@ -91,11 +100,11 @@ test('Voyage cards contain structure and weather slot, never diagnostics', () =>
   assert.doesNotMatch(container.innerHTML, /diagnostic|coordonnées|index GPX/i)
 })
 
-test('Today is structurally limited to one alert and one recommendation', () => {
-  const source = readFileSync(new URL('../../src/main.ts', import.meta.url), 'utf8')
-  assert.equal((source.match(/class="today-alert"/g) ?? []).length, 1)
-  assert.equal((source.match(/class="today-recommendation"/g) ?? []).length, 1)
-  assert.equal((source.match(/class="today-next-point"/g) ?? []).length, 1)
+test('Today is structurally limited to one primary alert and no duplicated recommendation or next-point block', () => {
+  const source = readFileSync(new URL('../../src/ui/today-view.ts', import.meta.url), 'utf8')
+  assert.equal((source.match(/class="today-alert today-alert--/g) ?? []).length, 1)
+  assert.equal((source.match(/class="today-recommendation"/g) ?? []).length, 0)
+  assert.equal((source.match(/class="today-next-point"/g) ?? []).length, 0)
 })
 
 test('Weather keeps three alerts maximum and off-route references separate', () => {
@@ -103,4 +112,22 @@ test('Weather keeps three alerts maximum and off-route references separate', () 
   assert.match(source, /\.slice\(0, 3\)/)
   assert.match(source, /data-weather-references/)
   assert.match(source, /Météo des lieux proches et arrêts possibles/)
+})
+
+test('the settings editor uses shrinkable grid children so the native time input stays inside a 320 px dialog', () => {
+  const css = readFileSync(new URL('../../src/style.css', import.meta.url), 'utf8')
+  assert.match(css, /\.pause-editor \{[^}]*max-width: calc\(100vw - 20px\)/s)
+  assert.match(css, /\.pause-editor form \{[^}]*min-width: 0/s)
+  assert.match(css, /\.day-settings-fields, \.day-settings-fields \.field, \.field__control \{ min-width: 0; \}/)
+  assert.match(css, /\.day-settings-fields \{[^}]*grid-template-columns: minmax\(0, 1fr\)/s)
+  assert.match(css, /\.day-settings-fields input \{ width: 100%; min-width: 0; max-width: 100%; \}/)
+  assert.match(css, /\.pause-editor footer \.button \{ max-width: 100%; white-space: normal; \}/)
+})
+
+test('bottom navigation reserves content space and Today mobile actions remain shrinkable', () => {
+  const css = readFileSync(new URL('../../src/style.css', import.meta.url), 'utf8')
+  assert.match(css, /\.app-shell \{ padding-bottom: calc\(72px \+ env\(safe-area-inset-bottom\)\); \}/)
+  assert.match(css, /\.today-actions \{ min-width: 0;[^}]*flex-wrap: wrap/s)
+  assert.match(css, /\.today-actions \.button \{[^}]*min-width: 0/s)
+  assert.match(css, /\.today-weather-points \{[^}]*repeat\(3, minmax\(0, 1fr\)\)/s)
 })

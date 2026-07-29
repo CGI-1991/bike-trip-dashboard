@@ -78,6 +78,18 @@ function renderLegend(container: HTMLElement): void {
   container.appendChild(legend)
 }
 
+export function renderCompactRouteMapModel(container: HTMLElement, model: RouteMapModel | null): void {
+  destroy(container)
+  if (model === null || model.coordinates.length < 2) {
+    container.innerHTML = '<p class="route-map__fallback">Carte temporairement indisponible.</p>'
+    return
+  }
+  container.innerHTML = '<div class="route-map__canvas" data-today-route-map-canvas></div><p class="route-map__fallback" hidden data-today-route-map-fallback>Fond de carte indisponible. Le tracé reste accessible dans le détail.</p>'
+  const canvas = container.querySelector<HTMLElement>('[data-today-route-map-canvas]') as HTMLElement
+  const fallback = container.querySelector<HTMLElement>('[data-today-route-map-fallback]') as HTMLElement
+  createMap(canvas, model, false, () => { fallback.hidden = false })
+}
+
 export function renderRouteMap(container: HTMLElement, dialog: HTMLDialogElement, gpx: GpxAnalysisSuccess | null, timeline: RideDayTimeline | null, report: RoadbookMatchReport | null, accommodation: Accommodation | null): void {
   destroy(container)
   if (gpx === null || timeline === null) { container.innerHTML = '<p class="route-map__fallback">Carte indisponible.</p>'; return }

@@ -2,6 +2,8 @@ import { calculateHaversineDistanceKm } from '../gpx/parser.ts'
 import type { GpxAnalysisSuccess, GpxTrackPoint } from '../gpx/types.ts'
 import { routeEngineConfig } from './config.ts'
 import type { RouteEngineConfig } from './config.ts'
+import { buildTerrainProfileSeries, createNormalizedTerrainTiming, interpolateTerrainTiming } from './terrain-profile.ts'
+import type { NormalizedTerrainTiming } from './terrain-profile.ts'
 import type {
   RouteEngineSettings,
   RoutePause,
@@ -839,6 +841,7 @@ export function buildRouteProfile(
     segments: rawSegments.map(({ profile }) => profile),
     waypointSeeds,
     pauseAnchors,
+    terrainSeries: buildTerrainProfileSeries(allPoints),
     summary: {
       sourceGpxCount: rawSegments.length,
       sourceTrackSegmentCount,
@@ -932,7 +935,7 @@ function createScheduledPauses(
   // the track. Sorting here, not just the final `RoutePause[]` output, keeps
   // every later pause's ETA offset correct regardless of input order.
   const orderedAnchors = [...profile.pauseAnchors].sort(
-    (left, right) => left.position.weightedDistanceKm - right.position.weightedDistanceKm,
+    (left, right) => left.position.distanceKm - right.position.distanceKm,
   )
   const durations = allocatePauseDurations(totalBreakMinutes, orderedAnchors)
   let precedingPauseMinutes = 0
@@ -948,12 +951,12 @@ function createScheduledPauses(
 }
 
 function getPauseMinutesBefore(
-  weightedDistanceKm: number,
+  distanceKm: number,
   scheduledPauses: readonly ScheduledPause[],
 ): number {
   return scheduledPauses.reduce(
     (total, pause) =>
-      pause.anchor.position.weightedDistanceKm < weightedDistanceKm - comparisonEpsilon
+      pause.anchor.position.distanceKm < distanceKm - comparisonEpsilon
         ? total + pause.durationMinutes
         : total,
     0,
@@ -962,60 +965,26 @@ function getPauseMinutesBefore(
 
 function createProgress(
   position: RouteProfilePosition,
-  settings: RouteEngineSettings,
   departureTimeMinutes: number,
   scheduledPauses: readonly ScheduledPause[],
+  timing: NormalizedTerrainTiming,
 ): RouteProgress {
-  const movingElapsedMinutes =
-    (position.weightedDistanceKm / settings.averageSpeedKph) * 60
+  const terrain = interpolateTerrainTiming(timing, position.distanceKm)
+  const movingElapsedMinutes = terrain.movingElapsedMinutes
   const elapsedMinutes =
     movingElapsedMinutes +
-    getPauseMinutesBefore(position.weightedDistanceKm, scheduledPauses)
+    getPauseMinutesBefore(position.distanceKm, scheduledPauses)
 
   return {
     distanceKm: position.distanceKm,
     elevationGainM: position.elevationGainM,
     elevationLossM: position.elevationLossM,
     altitudeM: position.altitudeM,
-    localSlopePercent: position.localSlopePercent,
-    estimatedSpeedKph: settings.averageSpeedKph * position.speedMultiplier,
+    localSlopePercent: terrain.smoothedGradePercent,
+    estimatedSpeedKph: terrain.localSpeedKph,
     movingElapsedMinutes,
     elapsedMinutes,
     theoreticalTimeMinutes: departureTimeMinutes + elapsedMinutes,
-  }
-}
-
-function createPauseWaypoint(
-  pause: ScheduledPause,
-  type: 'pause-start' | 'pause-end',
-  elapsedMinutes: number,
-  settings: RouteEngineSettings,
-  departureTimeMinutes: number,
-): RouteWaypoint {
-  const position = pause.anchor.position
-  const movingElapsedMinutes =
-    (position.weightedDistanceKm / settings.averageSpeedKph) * 60
-
-  return {
-    id: `pause-${pause.anchor.id}-${type === 'pause-start' ? 'start' : 'end'}`,
-    type,
-    name: `${pause.anchor.name} — ${type === 'pause-start' ? 'début' : 'fin'}`,
-    latitude: position.latitude,
-    longitude: position.longitude,
-    sourceFileNumber: position.sourceFileNumber,
-    sourceFileName: position.sourceFileName,
-    progress: {
-      distanceKm: position.distanceKm,
-      elevationGainM: position.elevationGainM,
-      elevationLossM: position.elevationLossM,
-      altitudeM: position.altitudeM,
-      localSlopePercent: position.localSlopePercent,
-      estimatedSpeedKph:
-        type === 'pause-start' ? settings.averageSpeedKph * position.speedMultiplier : 0,
-      movingElapsedMinutes,
-      elapsedMinutes,
-      theoreticalTimeMinutes: departureTimeMinutes + elapsedMinutes,
-    },
   }
 }
 
@@ -1135,6 +1104,8 @@ export function scheduleRouteTimeline(
   validateSettings(settings)
 
   const departureTimeMinutes = parseDepartureTime(settings.departureTime)
+  const fallbackSeries = profile.waypointSeeds.map(({ position }) => ({ distanceKm: position.distanceKm, elevationM: position.altitudeM ?? 0, smoothedGradePercent: position.localSlopePercent, latitude: position.latitude, longitude: position.longitude })).sort((a, b) => a.distanceKm - b.distanceKm)
+  const timing = createNormalizedTerrainTiming(profile.terrainSeries?.length ? profile.terrainSeries : fallbackSeries, profile.summary.distanceKm, settings.averageSpeedKph)
   const scheduledPauses = createScheduledPauses(profile, settings.totalBreakMinutes)
   const standardWaypoints: RouteWaypoint[] = profile.waypointSeeds.map((seed) => ({
     id: seed.id,
@@ -1146,34 +1117,18 @@ export function scheduleRouteTimeline(
     sourceFileName: seed.position.sourceFileName,
     progress: createProgress(
       seed.position,
-      settings,
       departureTimeMinutes,
       scheduledPauses,
+      timing,
     ),
   }))
   const pauses: RoutePause[] = []
-  const pauseWaypoints: RouteWaypoint[] = []
-
   for (const pause of scheduledPauses) {
-    const movingElapsedMinutes =
-      (pause.anchor.position.weightedDistanceKm / settings.averageSpeedKph) * 60
+    const movingElapsedMinutes = interpolateTerrainTiming(timing, pause.anchor.position.distanceKm).movingElapsedMinutes
     const startElapsedMinutes = movingElapsedMinutes + pause.precedingPauseMinutes
     const endElapsedMinutes = startElapsedMinutes + pause.durationMinutes
-    const startWaypoint = createPauseWaypoint(
-      pause,
-      'pause-start',
-      startElapsedMinutes,
-      settings,
-      departureTimeMinutes,
-    )
-    const endWaypoint = createPauseWaypoint(
-      pause,
-      'pause-end',
-      endElapsedMinutes,
-      settings,
-      departureTimeMinutes,
-    )
-    pauseWaypoints.push(startWaypoint, endWaypoint)
+    const startWaypointId = `pause-${pause.anchor.id}-start`
+    const endWaypointId = `pause-${pause.anchor.id}-end`
     pauses.push({
       id: `pause-${pause.anchor.id}`,
       name: pause.anchor.name,
@@ -1188,13 +1143,13 @@ export function scheduleRouteTimeline(
       endElapsedMinutes,
       startTimeMinutes: departureTimeMinutes + startElapsedMinutes,
       endTimeMinutes: departureTimeMinutes + endElapsedMinutes,
-      startWaypointId: startWaypoint.id,
-      endWaypointId: endWaypoint.id,
+      startWaypointId,
+      endWaypointId,
       ...(pause.anchor.pointId === undefined ? {} : { pointId: pause.anchor.pointId }),
     })
   }
 
-  const waypoints = [...standardWaypoints, ...pauseWaypoints].sort(
+  const waypoints = [...standardWaypoints].sort(
     (left, right) =>
       left.progress.elapsedMinutes - right.progress.elapsedMinutes ||
       left.progress.distanceKm - right.progress.distanceKm ||
@@ -1204,15 +1159,15 @@ export function scheduleRouteTimeline(
   const segments: RouteSegment[] = profile.segments.map((segment) => {
     const startProgress = createProgress(
       segment.startPosition,
-      settings,
       departureTimeMinutes,
       scheduledPauses,
+      timing,
     )
     const endProgress = createProgress(
       segment.endPosition,
-      settings,
       departureTimeMinutes,
       scheduledPauses,
+      timing,
     )
 
     return {
@@ -1241,14 +1196,14 @@ export function scheduleRouteTimeline(
         .map(({ id }) => id),
     }
   })
-  const movingDurationMinutes =
-    (profile.summary.weightedDistanceKm / settings.averageSpeedKph) * 60
+  const movingDurationMinutes = timing.totalMovingMinutes
   const totalDurationMinutes = movingDurationMinutes + settings.totalBreakMinutes
   const timeline: RouteTimeline = {
     settings: { ...settings },
     segments,
     waypoints,
     pauses,
+    terrainTiming: timing.points,
     summary: {
       sourceGpxCount: profile.summary.sourceGpxCount,
       sourceTrackSegmentCount: profile.summary.sourceTrackSegmentCount,

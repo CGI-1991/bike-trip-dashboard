@@ -4,15 +4,21 @@ import type { Accommodation } from '../trip/accommodations.ts'
 import { resolveArrivalDisplay, resolveDepartureDisplay } from '../trip/endpoint-display.ts'
 import type { RoadbookMatchReport, RoadbookPointMatch } from '../trip/roadbook-match.ts'
 import type { RideDayTimeline } from '../trip/types.ts'
+import { buildTerrainProfileSeries } from '../route/terrain-profile.ts'
+import type { RouteProfilePosition, TerrainProfilePoint } from '../route/types.ts'
 import { PAUSE_ACCENT_COLOR_HEX, getRouteMarkerCategory, getRouteMarkerStyle } from './route-marker-style.ts'
 
-export interface ProfileSample { readonly distanceKm: number; readonly altitudeM: number }
+export interface ProfileSample extends TerrainProfilePoint { readonly altitudeM: number }
 
 export function sampleElevationProfile(gpx: GpxAnalysisSuccess, maximumPoints = 280): readonly ProfileSample[] {
   const points = gpx.segments.flatMap(({ points }) => points)
-  const values: ProfileSample[] = []
+  const source: RouteProfilePosition[] = []
   let distanceKm = 0
-  points.forEach((point, index) => { if (index > 0) distanceKm += calculateHaversineDistanceKm(points[index - 1] as GpxTrackPoint, point); if (point.elevationM !== null) values.push({ distanceKm, altitudeM: point.elevationM }) })
+  points.forEach((point, index) => {
+    if (index > 0) distanceKm += calculateHaversineDistanceKm(points[index - 1] as GpxTrackPoint, point)
+    source.push({ latitude: point.latitude, longitude: point.longitude, sourceFileNumber: gpx.summary?.fileNumber ?? 1, sourceFileName: gpx.summary?.fileName ?? 'profile.gpx', distanceKm, elevationGainM: 0, elevationLossM: 0, altitudeM: point.elevationM, localSlopePercent: 0, speedMultiplier: 1, weightedDistanceKm: distanceKm })
+  })
+  const values: ProfileSample[] = buildTerrainProfileSeries(source).map((point) => ({ ...point, altitudeM: point.elevationM }))
   if (values.length <= maximumPoints) return values
   const sampled: ProfileSample[] = [values[0] as ProfileSample]
   const bucketSize = (values.length - 2) / (maximumPoints - 2)
@@ -26,6 +32,62 @@ export function sampleElevationProfile(gpx: GpxAnalysisSuccess, maximumPoints = 
   }
   sampled.push(values.at(-1) as ProfileSample)
   return sampled
+}
+
+export function interpolateProfileSample(samples: readonly ProfileSample[], distanceKm: number): ProfileSample {
+  const afterIndex = samples.findIndex((sample) => sample.distanceKm >= distanceKm)
+  const after = samples[afterIndex < 0 ? samples.length - 1 : afterIndex] as ProfileSample
+  const before = samples[Math.max(0, (afterIndex < 0 ? samples.length - 1 : afterIndex) - 1)] as ProfileSample
+  const delta = after.distanceKm - before.distanceKm
+  const ratio = delta <= 1e-9 ? 0 : Math.min(1, Math.max(0, (distanceKm - before.distanceKm) / delta))
+  const lerp = (a: number, b: number) => a + (b - a) * ratio
+  return { distanceKm, altitudeM: lerp(before.altitudeM, after.altitudeM), elevationM: lerp(before.elevationM, after.elevationM), smoothedGradePercent: lerp(before.smoothedGradePercent, after.smoothedGradePercent), latitude: lerp(before.latitude, after.latitude), longitude: lerp(before.longitude, after.longitude) }
+}
+
+const profileControllers = new WeakMap<HTMLElement, AbortController>()
+
+function installProfileInteraction(container: HTMLElement, samples: readonly ProfileSample[], min: number, max: number, total: number): void {
+  if (typeof container.querySelector !== 'function') return
+  profileControllers.get(container)?.abort()
+  const controller = new AbortController()
+  profileControllers.set(container, controller)
+  const svg = container.querySelector<SVGSVGElement>('[data-profile-interactive]')
+  const cursor = container.querySelector<SVGGElement>('[data-profile-cursor]')
+  const line = container.querySelector<SVGLineElement>('[data-profile-cursor-line]')
+  const dot = container.querySelector<SVGCircleElement>('[data-profile-cursor-dot]')
+  const tooltip = container.querySelector<HTMLElement>('[data-profile-tooltip]')
+  const live = container.querySelector<HTMLElement>('[data-profile-live]')
+  if (svg === null || cursor === null || line === null || dot === null || tooltip === null || live === null) return
+  let selectedIndex = 0
+  const show = (distanceKm: number) => {
+    const sample = interpolateProfileSample(samples, Math.min(total, Math.max(0, distanceKm)))
+    selectedIndex = Math.max(0, samples.findIndex((candidate) => candidate.distanceKm >= sample.distanceKm))
+    const x = 20 + 760 * sample.distanceKm / Math.max(total, 0.1)
+    const y = 210 - 180 * (sample.altitudeM - min) / Math.max(max - min, 1)
+    line.setAttribute('x1', x.toFixed(1)); line.setAttribute('x2', x.toFixed(1))
+    dot.setAttribute('cx', x.toFixed(1)); dot.setAttribute('cy', y.toFixed(1))
+    cursor.removeAttribute('hidden')
+    const text = `${sample.distanceKm.toFixed(1)} km · ${Math.round(sample.altitudeM)} m · Pente moyenne : ${sample.smoothedGradePercent.toFixed(1)} %`
+    live.textContent = text
+    tooltip.innerHTML = `<strong>${sample.distanceKm.toFixed(1)} km</strong><span>${Math.round(sample.altitudeM)} m</span><span>Pente moyenne : ${sample.smoothedGradePercent.toFixed(1)} %</span>`
+    const ratio = sample.distanceKm / Math.max(total, 0.1)
+    tooltip.style.left = `${Math.min(86, Math.max(14, ratio * 100))}%`
+    tooltip.hidden = false
+  }
+  const fromPointer = (event: PointerEvent) => {
+    const rect = svg.getBoundingClientRect()
+    show(((event.clientX - rect.left) / Math.max(rect.width, 1)) * total)
+  }
+  svg.addEventListener('pointerdown', (event) => { svg.setPointerCapture?.(event.pointerId); fromPointer(event) }, { signal: controller.signal })
+  svg.addEventListener('pointermove', fromPointer, { signal: controller.signal })
+  svg.addEventListener('pointerleave', () => { cursor.setAttribute('hidden', ''); tooltip.hidden = true }, { signal: controller.signal })
+  svg.addEventListener('pointerup', (event) => { svg.releasePointerCapture?.(event.pointerId) }, { signal: controller.signal })
+  svg.addEventListener('keydown', (event) => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+    event.preventDefault()
+    selectedIndex = Math.min(samples.length - 1, Math.max(0, selectedIndex + (event.key === 'ArrowRight' ? 1 : -1)))
+    show((samples[selectedIndex] as ProfileSample).distanceKm)
+  }, { signal: controller.signal })
 }
 
 function escapeHtml(value: string): string { return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;') }
@@ -102,5 +164,6 @@ export function renderElevationProfile(
       return renderProfileMarker(point, label, x, y, min, pauseByPointId.get(point.id)?.durationMinutes)
     })
     .join('')
-  container.innerHTML = `<figure class="elevation-profile"><svg viewBox="0 0 800 240" role="img" aria-labelledby="profile-title-${timeline.day.id}" preserveAspectRatio="none"><title id="profile-title-${timeline.day.id}">Profil altimétrique de ${timeline.day.id}</title><path class="profile-area" d="${line} L780,214 L20,214 Z"/><path class="profile-line" d="${line}"/>${markers}<text x="20" y="20">${Math.round(max)} m</text><text x="20" y="230">${Math.round(min)} m</text><text x="700" y="230">${total.toFixed(1)} km</text></svg><figcaption>Profil GPX échantillonné · départ/arrivée, cols et passages documentés ; hors parcours en contour.</figcaption></figure>`
+  container.innerHTML = `<figure class="elevation-profile"><div class="elevation-profile__stage"><svg data-profile-interactive tabindex="0" viewBox="0 0 800 240" role="group" aria-labelledby="profile-title-${timeline.day.id}" aria-describedby="profile-live-${timeline.day.id}" preserveAspectRatio="none"><title id="profile-title-${timeline.day.id}">Profil altimétrique interactif de ${timeline.day.id}</title><path class="profile-area" d="${line} L780,214 L20,214 Z"/><path class="profile-line" d="${line}"/>${markers}<g class="profile-cursor" data-profile-cursor hidden><line data-profile-cursor-line y1="25" y2="214"/><circle data-profile-cursor-dot r="6"/></g><text x="20" y="20">${Math.round(max)} m</text><text x="20" y="230">${Math.round(min)} m</text><text x="700" y="230">${total.toFixed(1)} km</text></svg><div class="profile-tooltip" data-profile-tooltip hidden></div></div><p class="visually-hidden" id="profile-live-${timeline.day.id}" data-profile-live aria-live="polite"></p><figcaption>Survolez, touchez ou utilisez les flèches pour lire distance, altitude et pente moyenne.</figcaption></figure>`
+  installProfileInteraction(container, samples, min, max, total)
 }

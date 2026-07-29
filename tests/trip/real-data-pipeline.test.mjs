@@ -26,6 +26,7 @@ const { buildDocumentedPointWeatherListViewModel } = await import(
   '../../src/weather/documented-point-view-model.ts'
 )
 const { buildRouteDisplayPoints } = await import('../../src/ui/route-engine.ts')
+const { buildTodayViewModel } = await import('../../src/ui/today-view-model.ts')
 
 const root = new URL('../../', import.meta.url)
 const readText = (path) => readFile(new URL(path, root), 'utf8')
@@ -89,7 +90,7 @@ async function runRealPipeline(getDaySettings, pausePlan = emptyPausePlan) {
   const timeline = scheduleTripTimeline(profile, getDaySettings, pausePlan, pausePlacesByDay(firstReport))
   const report = buildRoadbookMatchReport(roadbook, overrides, rga2026TripPlan, gpxResults, timeline)
 
-  return { timeline, report }
+  return { timeline, report, profile, gpxResults }
 }
 
 function defaultDaySettings() {
@@ -146,6 +147,67 @@ function syntheticForecast(definition) {
       missingVariables: [],
       issues: [],
     })),
+  }
+}
+
+const j1FiftyMinutePausePlan = {
+  version: 1,
+  days: [{
+    dayId: 'J1',
+    mode: 'custom',
+    pauses: [
+      { id: 'j1-col-break', active: true, placeId: 'j01-col-col-du-feu', placeName: 'Col du Feu', durationMinutes: 10, order: 0, origin: 'custom' },
+      { id: 'j1-lullin-break', active: true, placeId: 'j01-passage-lullin', placeName: 'Lullin', durationMinutes: 30, order: 1, origin: 'custom' },
+      { id: 'j1-saint-jean-break', active: true, placeId: 'j01-passage-saint-jean-d-aulps', placeName: 'Saint-Jean-d’Aulps', durationMinutes: 10, order: 2, origin: 'custom' },
+    ],
+  }],
+}
+
+function j1Settings(averageSpeedKph, totalBreakMinutes = 50) {
+  const defaults = createDefaultRideDaySettingsDocument()
+  return (dayId) => dayId === 'J1'
+    ? { dayId, averageSpeedKph, departureTime: '08:00', totalBreakMinutes }
+    : getRideDaySettings(defaults, dayId)
+}
+
+function readyRide(timeline, dayId) {
+  const day = timeline.days.find((candidate) => candidate.day.id === dayId)
+  assert.equal(day?.type, 'ride')
+  assert.equal(day.status, 'ready')
+  return day
+}
+
+function pointById(report, dayId, pointId) {
+  const day = report.days.find((candidate) => candidate.dayId === dayId)
+  assert.equal(day?.type, 'ride')
+  const point = day.points.find((candidate) => candidate.id === pointId)
+  assert.ok(point, `${pointId} must exist in ${dayId}`)
+  assert.ok(point.eta, `${pointId} must have an ETA`)
+  return point
+}
+
+function syntheticWeatherState(report, dayId, now) {
+  const day = report.days.find((candidate) => candidate.dayId === dayId)
+  assert.equal(day?.type, 'ride')
+  const tripDate = `2026-08-${String(11 + day.dayNumber).padStart(2, '0')}`
+  const operational = day.points.filter((point) => point.eta !== undefined && point.resolution === 'matched' && ['start', 'end', 'col', 'summit'].includes(point.type))
+  const waypoints = operational.map((point) => {
+    const samplePoint = {
+      id: point.id, dayId, dayType: 'ride', tripDate, name: point.name, type: point.type,
+      latitude: point.matchedLatitude ?? point.sourceLatitude ?? 45,
+      longitude: point.matchedLongitude ?? point.sourceLongitude ?? 6,
+      elevationM: point.matchedElevationM ?? point.elevationM ?? 0,
+      trackDistanceKm: point.matchedTrackDistanceKm,
+      eta: point.eta,
+      sourcePointIds: [point.id], references: [], source: 'roadbook-matched', role: 'route-point', contributesToDayRisk: true,
+    }
+    const etaHour = String(Math.floor(point.eta.clockMinutes / 60)).padStart(2, '0')
+    const etaMinute = String(point.eta.clockMinutes % 60).padStart(2, '0')
+    const weather = { time: `${tripDate}T${etaHour}:${etaMinute}`, temperatureC: 14, apparentTemperatureC: 13, relativeHumidityPct: 60, precipitationProbabilityPct: 20, precipitationMm: 0, rainMm: 0, showersMm: 0, snowfallCm: 0, weatherCode: 2, cloudCoverPct: 30, visibilityM: 20_000, windSpeedKph: 15, windDirectionDeg: 180, windGustsKph: 25, freezingLevelM: 3_500 }
+    return { samplePoint, etaLocal: weather.time, forecastTimeLocal: weather.time, forecastOffsetMinutes: 0, weather, state: 'available' }
+  })
+  return {
+    dayId, dayType: 'ride', tripDate, availability: 'available', cacheState: 'fresh', source: 'cache', fetchedAt: now.toISOString(), receivedDates: [tripDate], data: { type: 'ride', dayId, tripDate, waypoints, routeSummary: { temperatureMinC: 14, temperatureMaxC: 18, apparentTemperatureMinC: 13, apparentTemperatureMaxC: 17, precipitationProbabilityMaxPct: 20, hourlyPrecipitationMaxMm: 0, windSpeedMaxKph: 15, windGustsMaxKph: 25, visibilityMinM: 20_000, freezingLevelMinM: 3_500, worstWeatherCode: 2, coveredPointCount: waypoints.length, missingPointCount: 0 }, dailyByLocation: [], todayReference: null }, isRefreshing: false, departureScenarios: null,
   }
 }
 
@@ -340,4 +402,107 @@ test('real roadbook and GPX data receive deterministic compact weather without t
   assert.equal(timeline.summary.rideDays, 10)
   assert.equal(timeline.summary.offDays, 2)
   assert.equal(timeline.summary.availableRideDays, 10)
+})
+
+test('real J1 preserves the configured moving average, applies 10+30+10 once and shows arrival-before-pause ETAs', async () => {
+  const { timeline, report, profile } = await runRealPipeline(j1Settings(18), j1FiftyMinutePausePlan)
+  const j1 = readyRide(timeline, 'J1')
+  const { route } = j1
+  const targetMovingMinutes = route.summary.distanceKm / 18 * 60
+
+  assert.ok(Math.abs(route.summary.movingDurationMinutes - targetMovingMinutes) < 1 / 60, 'moving time must be exact within one second')
+  assert.ok(Math.abs(route.summary.distanceKm / (route.summary.movingDurationMinutes / 60) - 18) < 1e-9, 'effective moving average must remain exactly 18 km/h')
+  assert.deepEqual(route.pauses.map(({ durationMinutes }) => durationMinutes), [10, 30, 10])
+  assert.equal(route.summary.pauseDurationMinutes, 50)
+  assert.ok(Math.abs(route.summary.totalDurationMinutes - (targetMovingMinutes + 50)) < 1 / 60)
+  assert.ok(Math.abs(j1.arrivalTime.totalMinutesFromDeparture - (targetMovingMinutes + 50)) < 1 / 60)
+  assert.ok(Math.abs(j1.arrivalTime.clockMinutes - (8 * 60 + targetMovingMinutes + 50)) <= 0.5, 'displayed clock is rounded to the nearest minute')
+  assert.ok(j1.arrivalTime.clockMinutes > 11 * 60 + 30 && j1.arrivalTime.clockMinutes < 11 * 60 + 40)
+  assert.equal(route.waypoints.some(({ type }) => type === 'pause-start' || type === 'pause-end'), false, 'pauses must not create waypoints')
+
+  for (const pause of route.pauses) {
+    const point = pointById(report, 'J1', pause.pointId)
+    assert.ok(Math.abs(point.eta.totalMinutesFromDeparture - pause.startElapsedMinutes) < 1e-6, `${point.name} ETA must be its arrival before its own pause`)
+  }
+  const j1Report = report.days.find(({ dayId }) => dayId === 'J1')
+  const etaValues = j1Report.points.flatMap((point) => point.eta === undefined ? [] : [point.eta.totalMinutesFromDeparture])
+  assert.deepEqual(etaValues, [...etaValues].sort((a, b) => a - b), 'J1 documented ETAs must be non-decreasing')
+
+  const profileDay = profile.days.find(({ day }) => day.id === 'J1')
+  assert.equal(profileDay.status, 'ready')
+  assert.ok(profileDay.routeProfile.terrainSeries.length > 2)
+  assert.ok(profileDay.routeProfile.terrainSeries.every((point) => Object.values(point).every(Number.isFinite)))
+})
+
+test('real J1 at 13.2 km/h moves the arrival near 12:35 while J2 remains unchanged', async () => {
+  const fast = await runRealPipeline(j1Settings(18), j1FiftyMinutePausePlan)
+  const prudent = await runRealPipeline(j1Settings(13.2), j1FiftyMinutePausePlan)
+  const fastJ1 = readyRide(fast.timeline, 'J1')
+  const prudentJ1 = readyRide(prudent.timeline, 'J1')
+  const fastJ2 = readyRide(fast.timeline, 'J2')
+  const prudentJ2 = readyRide(prudent.timeline, 'J2')
+
+  const targetMovingMinutes = prudentJ1.route.summary.distanceKm / 13.2 * 60
+  assert.ok(Math.abs(prudentJ1.route.summary.movingDurationMinutes - targetMovingMinutes) < 1 / 60)
+  assert.ok(Math.abs(prudentJ1.route.summary.distanceKm / (prudentJ1.route.summary.movingDurationMinutes / 60) - 13.2) < 1e-9)
+  assert.ok(prudentJ1.arrivalTime.clockMinutes > 12 * 60 + 30 && prudentJ1.arrivalTime.clockMinutes < 12 * 60 + 40)
+  assert.ok(prudentJ1.arrivalTime.clockMinutes > fastJ1.arrivalTime.clockMinutes)
+  assert.deepEqual(prudentJ2.route.summary, fastJ2.route.summary)
+  assert.equal(prudentJ2.startTime, fastJ2.startTime)
+})
+
+test('real consolidated Today models cover J1, corrected J2, OFF J5, J6, J9, J10 and the post-trip J12 state', async () => {
+  const { timeline, report, gpxResults } = await runRealPipeline(j1Settings(18), j1FiftyMinutePausePlan)
+  const accommodationDocument = await readJson('public/data/trip/accommodations.json')
+  const accommodations = accommodationDocument.accommodations
+  const buildDay = (dayId, instant) => {
+    const now = new Date(instant)
+    const planDay = rga2026TripPlan.days.find((day) => day.id === dayId)
+    const gpx = planDay.type === 'ride' ? gpxResults.find((result) => result.status === 'success' && result.source.fileName === planDay.gpxFile) : null
+    const states = planDay.type === 'ride' ? new Map([[dayId, syntheticWeatherState(report, dayId, now)]]) : new Map()
+    return buildTodayViewModel({ now, plan: rga2026TripPlan, timeline, roadbookReport: report, accommodations, weatherSnapshot: { selectedDayId: 'J12', states }, gpx, publicBaseUrl: '/' })
+  }
+
+  const j1 = buildDay('J1', '2026-08-01T12:00:00Z')
+  assert.equal(j1.dayId, 'J1')
+  assert.equal(j1.departureName, 'Gare de Thonon-les-Bains')
+  assert.equal(j1.accommodation.name, 'Hôtel Le Soly')
+  assert.ok(j1.mapModel.coordinates.length > 2)
+  assert.ok(j1.stats.distanceKm > 49 && j1.stats.distanceKm < 51)
+  assert.deepEqual(j1.weather.points.map(({ name }) => name), ['Gare de Thonon-les-Bains', 'Col du Feu', 'Hôtel Le Soly'])
+  assert.match(j1.dayHref, /J1/)
+  assert.match(j1.gpxHref, /01_route-des-grandes-alpes/)
+
+  const j2 = buildDay('J2', '2026-08-13T12:00:00Z')
+  assert.equal(j2.accommodation.id, 'grand-bornand-vermont')
+  assert.equal(j2.accommodation.name, 'Hôtel et Spa Le Vermont')
+  assert.equal(j2.accommodation.website, 'https://hotelspalevermont.com/')
+  assert.equal(j2.arrivalName, 'Hôtel et Spa Le Vermont')
+  assert.equal(j2.mapModel.markers.filter(({ category }) => category === 'finish').length, 1)
+  assert.equal(j2.mapModel.markers.find(({ category }) => category === 'finish').name, 'Hôtel et Spa Le Vermont')
+  assert.doesNotMatch(JSON.stringify(j2), /Croix Saint-Maurice|croix-saint-maurice/)
+
+  const j5 = buildDay('J5', '2026-08-16T12:00:00Z')
+  assert.equal(j5.type, 'off')
+  assert.equal(j5.locationName, 'Bourg-Saint-Maurice')
+  assert.equal('stats' in j5, false)
+  assert.equal('gpxHref' in j5, false)
+
+  const j6 = buildDay('J6', '2026-08-17T12:00:00Z')
+  assert.equal(j6.weather.points.find(({ role }) => role === 'main-col').name, 'Col de l’Iseran')
+  assert.doesNotMatch(JSON.stringify(j6), /Tignes/i)
+
+  const j9 = buildDay('J9', '2026-08-20T12:00:00Z')
+  assert.equal(j9.accommodation.name, 'Gîte Auberge L’Éterlou')
+  assert.equal(j9.accommodation.locality, 'Faucon-de-Barcelonnette')
+  assert.equal(j9.accommodation.website, 'https://www.ubaye-gite-hote-barcelonnette.fr/fr/')
+  assert.equal(j9.mapModel.markers.filter(({ category }) => category === 'finish').length, 1)
+
+  const j10 = buildDay('J10', '2026-08-21T12:00:00Z')
+  assert.equal(j10.weather.points.find(({ role }) => role === 'main-col').name, 'Col de la Bonette')
+  assert.doesNotMatch(JSON.stringify(j10), /Cime de la Bonette/)
+
+  const j12 = buildDay('J12', '2026-08-24T12:00:00Z')
+  assert.equal(j12.dayId, 'J12')
+  assert.equal(j12.statusLabel, 'Voyage terminé')
 })

@@ -37,8 +37,28 @@ function candidates(profile: RouteProfile): readonly RouteProfilePosition[] {
 function closestWeighted(profile: RouteProfile, target: number): RouteProfilePosition {
   return candidates(profile).reduce((best, candidate) => Math.abs(candidate.weightedDistanceKm - target) < Math.abs(best.weightedDistanceKm - target) ? candidate : best)
 }
-function closestDistance(profile: RouteProfile, target: number): RouteProfilePosition {
-  return candidates(profile).reduce((best, candidate) => Math.abs(candidate.distanceKm - target) < Math.abs(best.distanceKm - target) ? candidate : best)
+function interpolateDistance(profile: RouteProfile, target: number): RouteProfilePosition {
+  const points = [...candidates(profile)].sort((left, right) => left.distanceKm - right.distanceKm)
+  const totalDistanceKm = profile.summary.distanceKm ?? points.at(-1)?.distanceKm ?? 0
+  const boundedTarget = Math.min(totalDistanceKm, Math.max(0, target))
+  const afterIndex = points.findIndex(({ distanceKm }) => distanceKm >= boundedTarget)
+  const after = points[afterIndex < 0 ? points.length - 1 : afterIndex] as RouteProfilePosition
+  const before = points[Math.max(0, (afterIndex < 0 ? points.length - 1 : afterIndex) - 1)] as RouteProfilePosition
+  const span = after.distanceKm - before.distanceKm
+  const ratio = span <= 1e-9 ? 0 : (boundedTarget - before.distanceKm) / span
+  const interpolate = (from: number, to: number): number => from + (to - from) * ratio
+  return {
+    ...before,
+    distanceKm: boundedTarget,
+    weightedDistanceKm: interpolate(before.weightedDistanceKm, after.weightedDistanceKm),
+    latitude: interpolate(before.latitude, after.latitude),
+    longitude: interpolate(before.longitude, after.longitude),
+    elevationGainM: interpolate(before.elevationGainM, after.elevationGainM),
+    elevationLossM: interpolate(before.elevationLossM, after.elevationLossM),
+    altitudeM: before.altitudeM === null || after.altitudeM === null ? before.altitudeM ?? after.altitudeM : interpolate(before.altitudeM, after.altitudeM),
+    localSlopePercent: interpolate(before.localSlopePercent, after.localSlopePercent),
+    speedMultiplier: interpolate(before.speedMultiplier, after.speedMultiplier),
+  }
 }
 
 /**
@@ -79,7 +99,7 @@ export function createContextualPauseAnchors(
       id: index === Math.floor((count - 1) / 2) ? 'main' : `context-${index + 1}`,
       name: place.name,
       durationShare: sharesByCount[count][index] ?? 0,
-      position: closestDistance(profile, place.trackDistanceKm),
+      position: interpolateDistance(profile, place.trackDistanceKm),
       pointId: place.id,
     })
   })
@@ -126,7 +146,7 @@ export function createCustomPauseAnchors(profile: RouteProfile, plan: PauseDayPl
     id,
     name: place.name,
     durationShare: durationMinutes,
-    position: closestDistance(profile, place.trackDistanceKm),
+    position: interpolateDistance(profile, place.trackDistanceKm),
     pointId: place.id,
   }))
 }
