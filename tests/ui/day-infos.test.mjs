@@ -53,3 +53,29 @@ test('confirmed accommodation renders its address and Maps action inside its sin
   assert.match(container.innerHTML, /234 Route de la Manche/)
   assert.match(container.innerHTML, /Ouvrir dans Maps/)
 })
+
+test('ride Infos lists documented climb statistics in roadbook order', () => {
+  const container = { innerHTML: '' }
+  renderDayInfos(container, {
+    type: 'ride',
+    roadbook: {
+      type: 'ride',
+      ambiance: 'Deux cols documentés.',
+      notes: [],
+      variant: null,
+      cols: [
+        { id: 'col-1', name: 'Col du Premier', elevationM: 1_234, distanceKm: 8.5, elevationGainM: 650, averageGradientPercent: 7.6 },
+        { id: 'col-2', name: 'Col du Second', elevationM: 2_000, distanceKm: 12, elevationGainM: 900, averageGradientPercent: 7.5 },
+      ],
+    },
+    points: [],
+  })
+  assert.match(container.innerHTML, /Cols du jour/)
+  assert.equal((container.innerHTML.match(/class="day-infos__col"/g) ?? []).length, 2)
+  assert.ok(container.innerHTML.indexOf('Col du Premier') < container.innerHTML.indexOf('Col du Second'))
+  assert.match(container.innerHTML, /1.234 m/)
+  assert.match(container.innerHTML, /8,5 km/)
+  assert.match(container.innerHTML, /650 m/)
+  assert.match(container.innerHTML, /7,6 %/)
+  assert.match(container.innerHTML, /<dt>Montée<\/dt>.*<dt>D\+<\/dt>.*<dt>Pente moyenne<\/dt>/s)
+})

@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "generate:practical": "node scripts/generate-practical-data.mjs",
+    "prebuild": "npm run generate:practical",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "node --test \"tests/**/*.test.mjs\""

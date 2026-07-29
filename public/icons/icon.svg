@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">RGA 2026</title>
+  <rect width="512" height="512" rx="96" fill="#173b35"/>
+  <path d="M88 350 211 146l52 86 43-66 118 184H88Z" fill="#edf1ec"/>
+  <path d="m211 146 52 86-30 48-39-44-38 51-36 63H88l123-204Zm95 20 118 184h-55l-70-110-36 54-30-14 73-114Z" fill="#b8d2ca"/>
+  <path d="M126 370c52-39 88-49 126-36 39 14 69 9 134-37" fill="none" stroke="#e7a63b" stroke-width="28" stroke-linecap="round"/>
+  <circle cx="126" cy="370" r="18" fill="#fff"/>
+  <circle cx="386" cy="297" r="18" fill="#fff"/>
+</svg>

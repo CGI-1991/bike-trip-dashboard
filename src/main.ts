@@ -1,4 +1,7 @@
 import './style.css'
+import { bindNetworkStatus, registerServiceWorker } from './pwa.ts'
+import { loadPracticalData } from './practical/model.ts'
+import type { PracticalData } from './practical/model.ts'
 import type { GpxAnalysisReport } from './gpx/types.ts'
 import { defaultSettings } from './storage/settings.ts'
 import {
@@ -103,6 +106,7 @@ let roadbookPlacesHydrated = false
 let currentTripProfile: TripProfile | null = null
 let currentTripTimeline: TripTimeline | null = null
 let currentGpxReport: GpxAnalysisReport | null = null
+let currentPracticalData: PracticalData | null = null
 let currentRoadbookResources: RoadbookResources | null = null
 let currentAccommodations: readonly Accommodation[] = []
 let currentRoadbookReport: RoadbookMatchReport | null = null
@@ -121,6 +125,12 @@ const weatherCoordinator = new WeatherCoordinator({
 
 const app = getRequiredElement<HTMLDivElement>('#app')
 app.innerHTML = renderDashboard(currentRideDaySettings, rga2026TripPlan)
+
+const networkStatus = getRequiredElement<HTMLElement>('[data-network-status]')
+const unbindNetworkStatus = bindNetworkStatus(networkStatus)
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  void registerServiceWorker(import.meta.env.BASE_URL).catch(() => undefined)
+}
 
 const saveStatus = getRequiredElement<HTMLElement>('#save-status')
 const dayIndicator = getRequiredElement<HTMLElement>('[data-day-indicator]')
@@ -398,7 +408,7 @@ function renderCurrentTripSelection(restoreFocus = false): void {
     gpxDownload.hidden = false
     const gpx = currentGpxReport?.files.find((file) => file.status === 'success' && file.source.fileName === selectedDay.day.gpxFile)
     const successfulGpx = gpx?.status === 'success' ? gpx : null
-    renderRouteMap(routeMapContainer, routeMapDialog, successfulGpx, selectedDay, currentRoadbookReport, accommodation)
+    renderRouteMap(routeMapContainer, routeMapDialog, successfulGpx, selectedDay, currentRoadbookReport, accommodation, currentPracticalData)
     renderElevationProfile(elevationProfileContainer, successfulGpx, selectedDay, currentRoadbookReport, accommodation)
   } else {
     gpxDownload.hidden = true
@@ -792,6 +802,7 @@ const unsubscribeWeather = weatherCoordinator.subscribe((snapshot) => {
 })
 
 window.addEventListener('beforeunload', () => {
+  unbindNetworkStatus()
   unsubscribeWeather()
   weatherCoordinator.dispose()
 })
@@ -822,6 +833,15 @@ void loadAccommodations()
     currentAccommodations = []
     renderAccommodation(accommodationContainer, null)
     renderToday()
+  })
+
+void loadPracticalData(import.meta.env.BASE_URL)
+  .then((data) => {
+    currentPracticalData = data
+    if (currentTripTimeline !== null) renderCurrentTripSelection()
+  })
+  .catch(() => {
+    currentPracticalData = null
   })
 
 void initializeGpxAnalysis(gpxAnalysisContainer, rga2026TripPlan.rideDays).then((report) => {

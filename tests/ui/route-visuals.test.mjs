@@ -26,6 +26,18 @@ test('Leaflet map uses OSM attribution, compact interaction and no test tile req
   assert.match(source, /tileerror/)
 })
 
+test('the expanded map opens before its size and route bounds are fitted with modal padding', () => {
+  const source = readFileSync(new URL('../../src/ui/route-map.ts', import.meta.url), 'utf8')
+  const showModalIndex = source.indexOf('dialog.showModal()')
+  const animationFrameIndex = source.indexOf('requestAnimationFrame', showModalIndex)
+  const expandedFitIndex = source.indexOf('{ interactive: true, fitPadding: [36, 36], maxInitialZoom: 13 }', animationFrameIndex)
+  assert.ok(showModalIndex > 0)
+  assert.ok(animationFrameIndex > showModalIndex)
+  assert.ok(expandedFitIndex > animationFrameIndex)
+  assert.match(source, /\.invalidateSize\(\)/)
+  assert.match(source, /\{ interactive: false, fitPadding: \[12, 12\] \}/)
+})
+
 test('Parcours is built only from documented points — no technical route-start/route-end card, ever', () => {
   const route = {
     waypoints: [],
@@ -81,6 +93,10 @@ test('J1 resolves the precise departure/arrival labels through the roadbook day 
   assert.match(html, /data-route-point-category="start"/)
   assert.match(html, /data-route-point-category="finish"/)
   assert.match(html, /data-route-point-category="col-summit"/)
+  assert.match(html, /class='route-point__header'/)
+  assert.match(html, /class='route-point__name'/)
+  assert.match(html, /class='route-point__time'><small>Heure<\/small>/)
+  assert.match(html, /class='route-point__meta'/)
 })
 
 test('detail structure orders map, profile, tabs and the single Infos download', () => {
