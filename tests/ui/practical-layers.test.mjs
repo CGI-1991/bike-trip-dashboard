@@ -10,8 +10,9 @@ test('the practical layer panel exists only inside the expanded route-map dialog
   assert.equal((html.match(/data-practical-layers-toggle/g) ?? []).length, 1)
   assert.match(
     html,
-    /class="route-map-dialog"[\s\S]*data-practical-layers-toggle[\s\S]*data-route-map-expanded[\s\S]*data-practical-layers-panel/,
+    /class="route-map-dialog"[\s\S]*data-practical-layers-toggle[\s\S]*data-route-map-expanded[\s\S]*data-practical-layers-backdrop[\s\S]*data-practical-layers-panel/,
   )
+  assert.match(html, /data-practical-layers-panel role="dialog"[\s\S]*data-practical-layers-list[\s\S]*<footer>[\s\S]*data-practical-layers-hide-all/)
   const todayView = html.slice(
     html.indexOf('data-app-view="today"'),
     html.indexOf('data-app-view="trip"'),
@@ -26,7 +27,7 @@ test('practical markers are installed only after the expanded GPX map is created
   assert.doesNotMatch(source.slice(compactStart, expandedStart), /Practical|practical/)
   assert.match(
     source.slice(expandedStart),
-    /const map = createMap\([\s\S]*map\.invalidateSize\(\)[\s\S]*installPracticalLayerPanel\(dialog, map, practicalData, timeline\.day\.id\)/,
+    /map = createMap\([\s\S]*map\.invalidateSize\(\)[\s\S]*installPracticalLayerPanel\(dialog, map, practicalData, timeline\.day\.id/,
   )
   assert.equal((source.match(/fitBounds\(/g) ?? []).length, 1)
 })
@@ -56,15 +57,20 @@ test('popups use textContent and safe external bicycle links', () => {
   assert.doesNotMatch(popupSource, /innerHTML/)
 })
 
-test('the panel is keyboard-closeable and mobile constrained', () => {
+test('the panel is keyboard and backdrop closeable with a bounded mobile sheet', () => {
   const source = readFileSync(new URL('../../src/ui/practical-map.ts', import.meta.url), 'utf8')
   const css = readFileSync(new URL('../../src/style.css', import.meta.url), 'utf8')
   assert.match(source, /event\.key !== 'Escape'/)
   assert.match(source, /event\.preventDefault\(\)/)
   assert.match(source, /toggle\.focus\(\)/)
-  assert.match(css, /\.practical-layers-panel \{[^}]*max-width: calc\(100% - 20px\);[^}]*overflow-y: auto/s)
+  assert.match(source, /backdrop\.addEventListener\('click', \(\) => installedController\.close\(\)/)
+  assert.match(source, /hooks\.onOpened\?\.\(\)/)
+  assert.match(css, /\.practical-layers-panel \{[^}]*max-height: min\(70dvh,[^}]*grid-template-rows: auto minmax\(0, 1fr\) auto;[^}]*overflow: hidden/s)
+  assert.match(css, /\.practical-layers-panel > header \{[^}]*position: sticky/s)
+  assert.match(css, /\.practical-layers-list \{[^}]*overflow-y: auto;[^}]*overscroll-behavior: contain/s)
+  assert.match(css, /\.practical-layers-panel > footer \{[^}]*position: sticky;[^}]*env\(safe-area-inset-bottom\)/s)
   assert.match(css, /\.practical-layer-option \{[^}]*min-height: 44px;[^}]*minmax\(0, 1fr\)/s)
-  assert.match(css, /@media \(max-width: 430px\) \{[\s\S]*\.practical-layers-panel \{[^}]*width: calc\(100% - 12px\)/)
+  assert.match(css, /@media \(max-width: 430px\) \{[\s\S]*\.practical-layers-panel \{[^}]*bottom: 0;[^}]*width: calc\(100% - 12px\)/)
 })
 
 test('practical data stays outside roadbook, ETA, pauses, weather and compact map models', () => {

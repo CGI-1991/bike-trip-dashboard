@@ -4,7 +4,23 @@ import type { PracticalData, PracticalIconKey, PracticalLayer, PracticalPoint } 
 import { buildGoogleMapsBicyclingUrl, getPracticalLayersForDay } from './practical-map-model.ts'
 import type { PracticalLayerViewModel } from './practical-map-model.ts'
 
-const panelControllers = new WeakMap<HTMLDialogElement, AbortController>()
+export type PracticalPanelCloseReason = 'normal' | 'history' | 'dispose'
+
+export interface PracticalLayerPanelHooks {
+  readonly onOpened?: () => void
+  readonly onClosed?: (reason: PracticalPanelCloseReason) => void
+}
+
+export interface PracticalLayerPanelController {
+  isOpen(): boolean
+  close(reason?: PracticalPanelCloseReason): void
+}
+
+interface InstalledPanelController extends PracticalLayerPanelController {
+  dispose(): void
+}
+
+const panelControllers = new WeakMap<HTMLDialogElement, InstalledPanelController>()
 const activeGroups = new WeakMap<HTMLDialogElement, ReadonlyMap<string, L.LayerGroup>>()
 
 const iconSymbols: Readonly<Record<PracticalIconKey, string>> = {
@@ -68,18 +84,8 @@ function createLayerGroup(viewModel: PracticalLayerViewModel): L.LayerGroup {
   )
 }
 
-function hidePanel(
-  panel: HTMLElement,
-  toggle: HTMLButtonElement,
-  restoreFocus = true,
-): void {
-  panel.hidden = true
-  toggle.setAttribute('aria-expanded', 'false')
-  if (restoreFocus) toggle.focus()
-}
-
 export function disposePracticalLayerPanel(dialog: HTMLDialogElement): void {
-  panelControllers.get(dialog)?.abort()
+  panelControllers.get(dialog)?.dispose()
   panelControllers.delete(dialog)
   const groups = activeGroups.get(dialog)
   if (groups !== undefined) {
@@ -93,27 +99,53 @@ export function installPracticalLayerPanel(
   map: L.Map,
   data: PracticalData | null,
   dayId: string,
-): void {
+  hooks: PracticalLayerPanelHooks = {},
+): PracticalLayerPanelController {
   disposePracticalLayerPanel(dialog)
-  const controller = new AbortController()
-  panelControllers.set(dialog, controller)
-  const { signal } = controller
+  const eventController = new AbortController()
+  const { signal } = eventController
   const toggle = dialog.querySelector<HTMLButtonElement>('[data-practical-layers-toggle]')
+  const backdrop = dialog.querySelector<HTMLButtonElement>('[data-practical-layers-backdrop]')
   const panel = dialog.querySelector<HTMLElement>('[data-practical-layers-panel]')
   const list = dialog.querySelector<HTMLElement>('[data-practical-layers-list]')
   const close = dialog.querySelector<HTMLButtonElement>('[data-practical-layers-close]')
   const hideAll = dialog.querySelector<HTMLButtonElement>('[data-practical-layers-hide-all]')
-  if (toggle === null || panel === null || list === null || close === null || hideAll === null) {
+  if (
+    toggle === null
+    || backdrop === null
+    || panel === null
+    || list === null
+    || close === null
+    || hideAll === null
+  ) {
     throw new Error('Panneau de calques pratiques incomplet.')
   }
 
   const layerViews = getPracticalLayersForDay(data, dayId)
   toggle.hidden = layerViews.length === 0
   panel.hidden = true
+  backdrop.hidden = true
   toggle.setAttribute('aria-expanded', 'false')
   list.replaceChildren()
   const groups = new Map<string, L.LayerGroup>()
   activeGroups.set(dialog, groups)
+
+  const installedController: InstalledPanelController = {
+    isOpen: () => !panel.hidden,
+    close(reason = 'normal'): void {
+      if (panel.hidden) return
+      panel.hidden = true
+      backdrop.hidden = true
+      toggle.setAttribute('aria-expanded', 'false')
+      hooks.onClosed?.(reason)
+      if (reason !== 'dispose') toggle.focus()
+    },
+    dispose(): void {
+      installedController.close('dispose')
+      eventController.abort()
+    },
+  }
+  panelControllers.set(dialog, installedController)
 
   for (const viewModel of layerViews) {
     const label = document.createElement('label')
@@ -149,13 +181,24 @@ export function installPracticalLayerPanel(
     }, { signal })
   }
 
+  const openPanel = (): void => {
+    if (!panel.hidden) return
+    panel.hidden = false
+    backdrop.hidden = false
+    toggle.setAttribute('aria-expanded', 'true')
+    hooks.onOpened?.()
+    close.focus()
+  }
+
   toggle.addEventListener('click', () => {
-    const opening = panel.hidden
-    panel.hidden = !opening
-    toggle.setAttribute('aria-expanded', String(opening))
-    if (opening) list.querySelector<HTMLInputElement>('input')?.focus()
+    if (panel.hidden) {
+      openPanel()
+    } else {
+      installedController.close()
+    }
   }, { signal })
-  close.addEventListener('click', () => hidePanel(panel, toggle), { signal })
+  backdrop.addEventListener('click', () => installedController.close(), { signal })
+  close.addEventListener('click', () => installedController.close(), { signal })
   hideAll.addEventListener('click', () => {
     for (const input of list.querySelectorAll<HTMLInputElement>('input')) input.checked = false
     for (const group of groups.values()) group.remove()
@@ -164,6 +207,7 @@ export function installPracticalLayerPanel(
     if (event.key !== 'Escape' || panel.hidden) return
     event.preventDefault()
     event.stopPropagation()
-    hidePanel(panel, toggle)
+    installedController.close()
   }, { signal })
+  return installedController
 }

@@ -5,6 +5,9 @@ import type { PracticalData } from '../practical/model.ts'
 import type { Accommodation } from '../trip/accommodations.ts'
 import type { RoadbookMatchReport } from '../trip/roadbook-match.ts'
 import type { RideDayTimeline } from '../trip/types.ts'
+import { lockDocumentScroll } from './document-scroll-lock.ts'
+import { createMapOverlayHistory } from './map-overlay-history.ts'
+import type { MapOverlayHistoryController } from './map-overlay-history.ts'
 import { buildRouteMapModel } from './route-map-model.ts'
 import type { RouteMapMarkerModel, RouteMapModel } from './route-map-model.ts'
 import {
@@ -17,12 +20,17 @@ import {
   disposePracticalLayerPanel,
   installPracticalLayerPanel,
 } from './practical-map.ts'
+import type { PracticalLayerPanelController } from './practical-map.ts'
 
 export { buildRouteMapModel } from './route-map-model.ts'
 export type { RouteMapMarkerModel, RouteMapModel } from './route-map-model.ts'
 
 const mapInstances = new WeakMap<HTMLElement, L.Map>()
 const openHandlers = new WeakMap<HTMLButtonElement, EventListener>()
+const expandedOpeners = new WeakMap<HTMLDialogElement, HTMLButtonElement>()
+const expandedHistory = new WeakMap<HTMLDialogElement, MapOverlayHistoryController>()
+const scrollUnlocks = new WeakMap<HTMLDialogElement, () => void>()
+const pendingFrames = new WeakMap<HTMLDialogElement, number>()
 function destroy(container: HTMLElement): void { const map = mapInstances.get(container); if (map !== undefined) { map.remove(); mapInstances.delete(container) } }
 
 function shapeStyle(shape: RouteMarkerShape): string {
@@ -109,6 +117,9 @@ export function renderCompactRouteMapModel(container: HTMLElement, model: RouteM
 
 export function renderRouteMap(container: HTMLElement, dialog: HTMLDialogElement, gpx: GpxAnalysisSuccess | null, timeline: RideDayTimeline | null, report: RoadbookMatchReport | null, accommodation: Accommodation | null, practicalData: PracticalData | null = null): void {
   destroy(container)
+  if (dialog.open || scrollUnlocks.has(dialog) || expandedHistory.has(dialog)) {
+    closeExpandedRouteMap(dialog)
+  }
   disposePracticalLayerPanel(dialog)
   if (gpx === null || timeline === null) {
     const practicalToggle = dialog.querySelector<HTMLButtonElement>('[data-practical-layers-toggle]')
@@ -127,31 +138,103 @@ export function renderRouteMap(container: HTMLElement, dialog: HTMLDialogElement
     const previousHandler = openHandlers.get(open)
     if (previousHandler !== undefined) open.removeEventListener('click', previousHandler)
     const handler: EventListener = () => {
+      if (dialog.open || scrollUnlocks.has(dialog) || expandedHistory.has(dialog)) {
+        closeExpandedRouteMap(dialog)
+      }
       expanded.innerHTML = ''
       const expandedFallback = dialog.querySelector<HTMLElement>('[data-expanded-route-map-fallback]')
       if (expandedFallback !== null) expandedFallback.hidden = true
-      dialog.showModal()
-      requestAnimationFrame(() => {
-        const map = createMap(
-          expanded,
-          model,
-          { interactive: true, fitPadding: [36, 36], maxInitialZoom: 13 },
-          () => {
-            if (expandedFallback !== null) expandedFallback.hidden = false
-          },
-        )
-        map.invalidateSize()
-        installPracticalLayerPanel(dialog, map, practicalData, timeline.day.id)
+      expandedOpeners.set(dialog, open)
+      scrollUnlocks.set(dialog, lockDocumentScroll())
+
+      let map: L.Map | null = null
+      let panel: PracticalLayerPanelController | null = null
+      let popupOpen = false
+      const historyController = createMapOverlayHistory({
+        isMapOpen: () => dialog.open,
+        isPanelOpen: () => panel?.isOpen() ?? false,
+        closePopup: () => {
+          if (!popupOpen || map === null) return false
+          map.closePopup()
+          popupOpen = false
+          return true
+        },
+        closePanelFromHistory: () => panel?.close('history'),
+        closeMapFromHistory: () => closeExpandedRouteMap(dialog, 'history'),
       })
+      expandedHistory.set(dialog, historyController)
+
+      try {
+        dialog.showModal()
+        historyController.startMap()
+      } catch {
+        closeExpandedRouteMap(dialog, 'history')
+        return
+      }
+
+      const frame = requestAnimationFrame(() => {
+        pendingFrames.delete(dialog)
+        if (!dialog.open) return
+        try {
+          map = createMap(
+            expanded,
+            model,
+            { interactive: true, fitPadding: [36, 36], maxInitialZoom: 13 },
+            () => {
+              if (expandedFallback !== null) expandedFallback.hidden = false
+            },
+          )
+          map.on('popupopen', () => { popupOpen = true })
+          map.on('popupclose', () => { popupOpen = false })
+          map.invalidateSize()
+          panel = installPracticalLayerPanel(dialog, map, practicalData, timeline.day.id, {
+            onOpened: historyController.panelOpened,
+            onClosed: (reason) => {
+              if (reason === 'normal') historyController.panelClosedNormally()
+            },
+          })
+        } catch {
+          closeExpandedRouteMap(dialog)
+        }
+      })
+      pendingFrames.set(dialog, frame)
     }
     openHandlers.set(open, handler)
     open.addEventListener('click', handler)
   }
 }
 
-export function closeExpandedRouteMap(dialog: HTMLDialogElement): void {
-  disposePracticalLayerPanel(dialog)
-  const expanded = dialog.querySelector<HTMLElement>('[data-route-map-expanded]')
-  if (expanded !== null) destroy(expanded)
-  dialog.close()
+type ExpandedMapCloseReason = 'normal' | 'history'
+
+export function closeExpandedRouteMap(
+  dialog: HTMLDialogElement,
+  reason: ExpandedMapCloseReason = 'normal',
+): void {
+  const frame = pendingFrames.get(dialog)
+  if (frame !== undefined) {
+    cancelAnimationFrame(frame)
+    pendingFrames.delete(dialog)
+  }
+
+  const historyController = expandedHistory.get(dialog)
+  expandedHistory.delete(dialog)
+  if (reason === 'normal') {
+    historyController?.mapClosedNormally()
+  } else {
+    historyController?.dispose()
+  }
+
+  try {
+    disposePracticalLayerPanel(dialog)
+    const expanded = dialog.querySelector<HTMLElement>('[data-route-map-expanded]')
+    if (expanded !== null) destroy(expanded)
+    if (dialog.open) dialog.close()
+  } finally {
+    const unlock = scrollUnlocks.get(dialog)
+    scrollUnlocks.delete(dialog)
+    unlock?.()
+    const opener = expandedOpeners.get(dialog)
+    expandedOpeners.delete(dialog)
+    opener?.focus()
+  }
 }
