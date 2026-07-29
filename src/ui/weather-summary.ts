@@ -38,7 +38,7 @@ const integerFormatter = new Intl.NumberFormat('fr-FR', {
   maximumFractionDigits: 0,
 })
 
-function formatTemperatureRange(
+export function formatTemperatureRange(
   minimumC: number | null,
   maximumC: number | null,
 ): string | null {
@@ -57,7 +57,7 @@ function formatTemperatureRange(
   return `${decimalFormatter.format(minimumC)}–${decimalFormatter.format(maximumC)} °C`
 }
 
-function formatPrecipitation(
+export function formatPrecipitation(
   probabilityPct: number | null,
   amountMm: number | null,
 ): string | null {
@@ -70,7 +70,7 @@ function formatPrecipitation(
     : `Pluie ${decimalFormatter.format(amountMm)} mm`
 }
 
-function formatWind(
+export function formatWind(
   windSpeedKph: number | null,
   windGustsKph: number | null,
 ): string | null {
@@ -119,7 +119,7 @@ function renderOffSummary(data: OffDayWeather): string {
     .join(' · ')
 }
 
-function renderDataSummary(data: WeatherDayData): string {
+export function renderDataSummary(data: WeatherDayData): string {
   const summary =
     data.type === 'ride' ? renderRideSummary(data) : renderOffSummary(data)
   return summary.length === 0 ? 'Données météo partielles' : summary
@@ -157,7 +157,7 @@ const modeLabels: Record<WeatherDisplayMode, string> = {
   past: 'Terminée',
 }
 
-function renderTodayReferenceSummary(reference: TodayReferenceWeather | null): string {
+export function renderTodayReferenceSummary(reference: TodayReferenceWeather | null): string {
   if (reference === null) {
     return 'donnée indisponible'
   }

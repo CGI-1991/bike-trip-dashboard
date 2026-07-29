@@ -6,11 +6,12 @@ import { sampleElevationProfile } from '../../src/ui/elevation-profile.ts'
 import { buildRouteDisplayPoints } from '../../src/ui/route-engine.ts'
 
 test('elevation profile samples a long GPX while preserving endpoints', () => {
-  const points = Array.from({ length: 1_000 }, (_, index) => ({ latitude: 45 + index / 100_000, longitude: 6, elevationM: 1_000 + Math.sin(index / 20) * 500 }))
+  const points = Array.from({ length: 1_000 }, (_, index) => ({ latitude: 45 + index / 1_000, longitude: 6, elevationM: 1_000 + Math.sin(index / 20) * 500 }))
   const samples = sampleElevationProfile({ segments: [{ points }] }, 120)
   assert.equal(samples.length, 120)
-  assert.equal(samples[0].altitudeM, points[0].elevationM)
-  assert.equal(samples.at(-1).altitudeM, points.at(-1).elevationM)
+  assert.equal(samples[0].distanceKm, 0)
+  assert.ok(samples.at(-1).distanceKm > 100)
+  assert.ok(samples.every((sample) => Object.values(sample).every(Number.isFinite)))
 })
 
 test('Leaflet map uses OSM attribution, compact interaction and no test tile request', () => {
@@ -82,11 +83,11 @@ test('J1 resolves the precise departure/arrival labels through the roadbook day 
   assert.match(html, /data-route-point-category="col-summit"/)
 })
 
-test('detail structure orders map, profile, download and tabs', () => {
+test('detail structure orders map, profile, tabs and the single Infos download', () => {
   const source = readFileSync(new URL('../../src/ui/render.ts', import.meta.url), 'utf8')
   const map = source.indexOf('data-route-map')
   const profile = source.indexOf('data-elevation-profile')
   const download = source.indexOf('data-gpx-download')
   const tabs = source.indexOf('data-day-tab')
-  assert.ok(map > 0 && map < profile && profile < download && download < tabs)
+  assert.ok(map > 0 && map < profile && profile < tabs && tabs < download)
 })

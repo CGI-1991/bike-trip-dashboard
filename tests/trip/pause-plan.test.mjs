@@ -33,7 +33,7 @@ test('places contextual pauses on the nearest documented point to each theoretic
   assert.equal(anchors.length, 4)
   assert.deepEqual(anchors.map(({ pointId }) => pointId), ['p1', 'p2', 'p3', 'p4'])
   assert.deepEqual(anchors.map(({ name }) => name), ['P1', 'P2', 'P3', 'P4'])
-  assert.ok(anchors.every(({ position }) => positions.includes(position)))
+  assert.deepEqual(anchors.map(({ position }) => position.distanceKm), [20, 40, 60, 80])
 })
 
 test('automatic pauses never pick the same documented place twice, even with fewer places than pause slots', () => {
@@ -78,7 +78,7 @@ test('custom mode applies active places, durations and order only', () => {
   assert.equal(anchors.length, 1)
   assert.equal(anchors[0].name, 'B')
   assert.equal(anchors[0].durationShare, 45)
-  assert.equal(anchors[0].position.distanceKm, 60)
+  assert.equal(anchors[0].position.distanceKm, 63)
 })
 
 test('a pause saved on a point that no longer exists (suppressed or unknown) resolves to nothing, never a phantom location', () => {

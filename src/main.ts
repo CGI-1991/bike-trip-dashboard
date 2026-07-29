@@ -9,7 +9,7 @@ import {
   upsertRideDaySettings,
 } from './storage/ride-day-settings.ts'
 import type { RideDaySettings, RideDaySettingsDocument } from './storage/ride-day-settings.ts'
-import { getDateInTimezone, getTripDate } from './trip/calendar.ts'
+import { getDateInTimezone } from './trip/calendar.ts'
 import { WeatherCache } from './weather/cache.ts'
 import { WeatherCoordinator } from './weather/coordinator.ts'
 import { weatherConfig } from './weather/config.ts'
@@ -47,11 +47,7 @@ import { renderDashboard } from './ui/render.ts'
 import { renderDayHeader } from './ui/day-header.ts'
 import { getTripPeriod, hashForDay, parseAppHash } from './ui/app-state.ts'
 import type { AppView } from './ui/app-state.ts'
-import {
-  renderRoadbookDayDetail,
-  renderRoadbookDetailError,
-  renderRoadbookDetailLoading,
-} from './ui/roadbook-detail.ts'
+import { renderDayInfos, renderDayInfosError, renderDayInfosLoading } from './ui/day-infos.ts'
 import {
   renderRoadbookReport,
   renderRoadbookReportError,
@@ -63,7 +59,7 @@ import {
   renderTripDayRouteTimeline,
 } from './ui/route-engine.ts'
 import { renderElevationProfile } from './ui/elevation-profile.ts'
-import { closeExpandedRouteMap, renderRouteMap } from './ui/route-map.ts'
+import { closeExpandedRouteMap, renderCompactRouteMapModel, renderRouteMap } from './ui/route-map.ts'
 import {
   renderTripPlanError,
   renderTripPlanLoading,
@@ -79,6 +75,8 @@ import {
   renderWeatherSummaryError,
   renderWeatherSummaryLoading,
 } from './ui/weather-summary.ts'
+import { buildTodayViewModel } from './ui/today-view-model.ts'
+import { renderTodayView } from './ui/today-view.ts'
 
 function getRequiredElement<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector)
@@ -130,7 +128,7 @@ const todayPanel = getRequiredElement<HTMLElement>('[data-today-panel]')
 const dayHeaderContainer = getRequiredElement<HTMLElement>('[data-day-header]')
 const tripPlanContainer = getRequiredElement<HTMLElement>('[data-trip-plan]')
 const routeEngineContainer = getRequiredElement<HTMLElement>('[data-route-engine]')
-const roadbookDetailContainer = getRequiredElement<HTMLElement>('[data-roadbook-detail]')
+const roadbookDetailContainer = getRequiredElement<HTMLElement>('[data-day-infos-content]')
 const accommodationContainer = getRequiredElement<HTMLElement>('[data-accommodation-card]')
 const gpxDownload = getRequiredElement<HTMLAnchorElement>('[data-gpx-download]')
 const routeMapContainer = getRequiredElement<HTMLElement>('[data-route-map]')
@@ -319,13 +317,13 @@ function getRoadbookDayMatch(dayId: TripDayId): RoadbookDayMatchReport | null {
 }
 
 function renderCurrentRoadbookSelection(
-  timelineDay: TripDayTimeline | null,
+  _timelineDay: TripDayTimeline | null,
 ): void {
   if (currentRoadbookReport === null) {
     if (currentRoadbookError === null) {
-      renderRoadbookDetailLoading(roadbookDetailContainer)
+      renderDayInfosLoading(roadbookDetailContainer)
     } else {
-      renderRoadbookDetailError(roadbookDetailContainer, currentRoadbookError)
+      renderDayInfosError(roadbookDetailContainer, currentRoadbookError)
     }
     return
   }
@@ -333,14 +331,14 @@ function renderCurrentRoadbookSelection(
   const dayMatch = getRoadbookDayMatch(selectedDayId)
 
   if (dayMatch === null) {
-    renderRoadbookDetailError(
+    renderDayInfosError(
       roadbookDetailContainer,
       new Error(`Journée roadbook introuvable : ${selectedDayId}`),
     )
     return
   }
 
-  renderRoadbookDayDetail(roadbookDetailContainer, dayMatch, timelineDay)
+  renderDayInfos(roadbookDetailContainer, dayMatch)
 }
 
 function renderSelectedRouteTimeline(
@@ -384,7 +382,7 @@ function renderCurrentTripSelection(restoreFocus = false): void {
     const error = new Error(`Journée sélectionnée introuvable : ${selectedDayId}`)
     renderTripPlanError(tripPlanContainer, rga2026TripPlan, selectedDayId, error)
     renderRouteEngineError(routeEngineContainer, error)
-    renderRoadbookDetailError(roadbookDetailContainer, error)
+    renderDayInfosError(roadbookDetailContainer, error)
     renderWeatherDetailError(weatherPanel, error)
     return
   }
@@ -430,56 +428,27 @@ function renderCurrentTripSelection(restoreFocus = false): void {
 }
 
 function renderToday(): void {
-  const period = getTripPeriod(new Date())
-  const dayId = period.dayId
-  const timelineDay = currentTripTimeline === null ? null : getTripTimelineDay(currentTripTimeline, dayId)
-  const day = rga2026TripPlan.days.find(({ id }) => id === dayId) ?? rga2026TripPlan.days[0]
-  const date = getTripDate(day.dayNumber)
-  const intro = period.kind === 'before' ? `${period.daysUntilStart} jours avant le départ` : period.kind === 'after' ? 'Voyage terminé' : 'Étape du jour'
-  const route = day.type === 'ride' ? `${day.startName} → ${day.endName}` : `${day.title} · ${day.locationName}`
-  let metrics = ''
-  if (timelineDay?.type === 'ride' && timelineDay.status === 'ready') {
-    const arrivalMinutes = timelineDay.arrivalTime.clockMinutes
-    const arrival = `${String(Math.floor(arrivalMinutes / 60)).padStart(2, '0')}:${String(arrivalMinutes % 60).padStart(2, '0')}`
-    metrics = `<dl class="today-metrics"><div><dt>Distance</dt><dd>${timelineDay.route.summary.distanceKm.toFixed(1)} km</dd></div><div><dt>D+</dt><dd>${Math.round(timelineDay.route.summary.elevationGainM)} m</dd></div><div><dt>Départ</dt><dd>${timelineDay.startTime}</dd></div><div><dt>ETA</dt><dd>${timelineDay.arrivalTime.dayOffset === 0 ? '' : `J+${timelineDay.arrivalTime.dayOffset} `}${arrival}</dd></div></dl>`
-  }
-  const weather = currentWeatherSnapshot.states.get(dayId)
-  const availability = weather === undefined ? 'Prévision en attente' : weatherStateLabels[weather.availability]
-  const weatherSlot = tripPlanContainer.querySelector<HTMLElement>(
-    `[data-trip-day-weather="${dayId}"]`,
-  )
-  const weatherLines = weatherSlot === null
-    ? []
-    : [...weatherSlot.querySelectorAll<HTMLElement>('.trip-day__weather-line')]
-        .map(({ textContent }) => textContent?.trim() ?? '')
-        .filter((line) => line.length > 0)
-  const riskLevel = weatherSlot?.dataset.weatherRiskLevel
-  const riskLabel =
-    riskLevel === 'green'
-      ? 'Vert'
-      : riskLevel === 'orange'
-        ? 'Orange'
-        : riskLevel === 'red'
-          ? 'Rouge'
-          : availability
-  const primaryAlert =
-    (riskLevel === 'orange' || riskLevel === 'red') && weatherLines[0] !== undefined
-      ? `<p class="today-alert"><strong>Alerte principale</strong><span>${weatherLines[0]}</span></p>`
-      : ''
-  const recommendation =
-    weatherLines[2] === undefined
-      ? ''
-      : `<p class="today-recommendation"><strong>Recommandation</strong><span>${weatherLines[2]}</span></p>`
-  const nextWaypoint =
-    selectedDayId === dayId
-      ? weatherPanel.querySelector<HTMLElement>('.weather-waypoint--next')?.textContent?.trim()
-      : undefined
-  const nextPoint =
-    nextWaypoint === undefined || nextWaypoint.length === 0
-      ? ''
-      : `<p class="today-next-point"><strong>Prochain point théorique</strong><span>${nextWaypoint}</span></p>`
-  todayPanel.dataset.todayState = period.kind
-  todayPanel.innerHTML = `<p class="eyebrow">${intro}</p><h3>${day.id} · <time datetime="${date}">${new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'long', year: 'numeric', timeZone: rga2026TripPlan.timezone }).format(new Date(`${date}T12:00:00Z`))}</time></h3><p class="today-route">${route}</p>${metrics}<div class="today-weather"><strong>Météo</strong><span>${riskLabel}</span><small>Mode météo selon l’horizon${period.kind === 'before' && weather?.availability === 'outside-horizon' ? ' · Aujourd’hui sur le parcours, pas la prévision du voyage' : ''}</small></div>${primaryAlert}${recommendation}${nextPoint}<a class="button button--primary button--full" href="${hashForDay(day.id)}">Voir la journée</a>`
+  const now = new Date()
+  const todayDayId = getTripPeriod(now).dayId
+  const todayDay = rga2026TripPlan.days.find(({ id }) => id === todayDayId)
+  const gpx = todayDay?.type === 'ride'
+    ? currentGpxReport?.files.find((file) => file.status === 'success' && file.source.fileName === todayDay.gpxFile)
+    : null
+  const successfulGpx = gpx?.status === 'success' ? gpx : null
+  const base = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL : `${import.meta.env.BASE_URL}/`
+  const model = buildTodayViewModel({
+    now,
+    plan: rga2026TripPlan,
+    timeline: currentTripTimeline,
+    roadbookReport: currentRoadbookReport,
+    accommodations: currentAccommodations,
+    weatherSnapshot: currentWeatherSnapshot,
+    gpx: successfulGpx,
+    publicBaseUrl: base,
+  })
+  renderTodayView(todayPanel, model)
+  const mapContainer = todayPanel.querySelector<HTMLElement>('[data-today-route-map]')
+  if (mapContainer !== null && model.type === 'ride') renderCompactRouteMapModel(mapContainer, model.mapModel)
 }
 
 function refreshRoadbookIntegration(): void {
@@ -557,7 +526,7 @@ function refreshTripTimeline(): void {
     currentTripTimeline = null
     renderTripPlanError(tripPlanContainer, rga2026TripPlan, selectedDayId, error)
     renderRouteEngineError(routeEngineContainer, error)
-    renderRoadbookDetailError(roadbookDetailContainer, error)
+    renderDayInfosError(roadbookDetailContainer, error)
     currentWeatherError = error
     renderCurrentWeatherSelection()
   }
@@ -763,6 +732,7 @@ for (const tab of document.querySelectorAll<HTMLButtonElement>('[data-day-tab]')
     }
     for (const candidate of document.querySelectorAll<HTMLButtonElement>('[data-day-tab]')) {
       candidate.setAttribute('aria-selected', String(candidate === tab))
+      candidate.tabIndex = candidate === tab ? 0 : -1
     }
   })
 }
@@ -796,7 +766,7 @@ weatherRefreshButton.addEventListener('click', () => {
 
 renderTripPlanLoading(tripPlanContainer, rga2026TripPlan, selectedDayId)
 renderRouteEngineLoading(routeEngineContainer)
-renderRoadbookDetailLoading(roadbookDetailContainer)
+renderDayInfosLoading(roadbookDetailContainer)
 renderRoadbookReportLoading(roadbookReportContainer)
 renderWeatherSummaryLoading(tripPlanContainer)
 renderWeatherDetailLoading(weatherPanel)
@@ -837,7 +807,7 @@ void loadRoadbookResources()
     currentRoadbookReport = null
     currentRoadbookError = error
     currentWeatherError = error
-    renderRoadbookDetailError(roadbookDetailContainer, error)
+    renderDayInfosError(roadbookDetailContainer, error)
     renderRoadbookReportError(roadbookReportContainer, error)
     renderCurrentWeatherSelection()
   })
@@ -846,10 +816,12 @@ void loadAccommodations()
   .then((accommodations) => {
     currentAccommodations = accommodations
     renderAccommodation(accommodationContainer, getAccommodationForDay(accommodations, selectedDayId))
+    renderToday()
   })
   .catch(() => {
     currentAccommodations = []
     renderAccommodation(accommodationContainer, null)
+    renderToday()
   })
 
 void initializeGpxAnalysis(gpxAnalysisContainer, rga2026TripPlan.rideDays).then((report) => {
@@ -858,7 +830,7 @@ void initializeGpxAnalysis(gpxAnalysisContainer, rga2026TripPlan.rideDays).then(
     currentGpxError = error
     renderTripPlanError(tripPlanContainer, rga2026TripPlan, selectedDayId, error)
     renderRouteEngineError(routeEngineContainer, error)
-    renderRoadbookDetailError(roadbookDetailContainer, error)
+    renderDayInfosError(roadbookDetailContainer, error)
     renderRoadbookReportError(roadbookReportContainer, error)
     currentWeatherError = error
     renderCurrentWeatherSelection()
@@ -874,7 +846,7 @@ void initializeGpxAnalysis(gpxAnalysisContainer, rga2026TripPlan.rideDays).then(
     currentGpxError = error
     renderTripPlanError(tripPlanContainer, rga2026TripPlan, selectedDayId, error)
     renderRouteEngineError(routeEngineContainer, error)
-    renderRoadbookDetailError(roadbookDetailContainer, error)
+    renderDayInfosError(roadbookDetailContainer, error)
     renderRoadbookReportError(roadbookReportContainer, error)
     currentWeatherError = error
     renderCurrentWeatherSelection()

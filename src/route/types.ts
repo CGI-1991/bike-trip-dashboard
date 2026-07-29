@@ -121,6 +121,8 @@ export interface RouteTimeline {
   readonly segments: readonly RouteSegment[]
   readonly waypoints: readonly RouteWaypoint[]
   readonly pauses: readonly RoutePause[]
+  /** Shared normalized moving-time series used by roadbook ETA interpolation. */
+  readonly terrainTiming?: readonly TerrainTimingPoint[]
   readonly summary: RouteSummary
 }
 
@@ -187,9 +189,23 @@ export interface RouteProfileSummary {
   readonly lastSourceFileNumber: number
 }
 
+export interface TerrainProfilePoint {
+  readonly distanceKm: number
+  readonly elevationM: number
+  readonly smoothedGradePercent: number
+  readonly latitude: number
+  readonly longitude: number
+}
+
+export interface TerrainTimingPoint extends TerrainProfilePoint {
+  readonly movingElapsedMinutes: number
+  readonly localSpeedKph: number
+}
+
 export interface RouteProfile {
   readonly segments: readonly RouteProfileSegment[]
   readonly waypointSeeds: readonly RouteProfileWaypointSeed[]
   readonly pauseAnchors: readonly RouteProfilePauseAnchor[]
+  readonly terrainSeries?: readonly TerrainProfilePoint[]
   readonly summary: RouteProfileSummary
 }

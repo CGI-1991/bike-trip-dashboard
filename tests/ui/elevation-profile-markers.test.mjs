@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { renderElevationProfile } from '../../src/ui/elevation-profile.ts'
+import { interpolateProfileSample, renderElevationProfile } from '../../src/ui/elevation-profile.ts'
 
 function buildFixture() {
   const points = Array.from({ length: 200 }, (_, index) => ({
@@ -31,6 +31,49 @@ function buildFixture() {
   const container = { innerHTML: '' }
   renderElevationProfile(container, gpx, timeline, report, { name: 'Hôtel Le Soly', address: '234 Route de la Manche, 74110 Morzine' })
   return container.innerHTML
+}
+
+class FakeInteractiveElement {
+  constructor() {
+    this.attributes = new Map()
+    this.listeners = new Map()
+    this.hidden = true
+    this.innerHTML = ''
+    this.textContent = ''
+    this.style = {}
+  }
+  addEventListener(type, listener, options = {}) {
+    const listeners = this.listeners.get(type) ?? new Set()
+    listeners.add(listener)
+    this.listeners.set(type, listeners)
+    options.signal?.addEventListener('abort', () => listeners.delete(listener), { once: true })
+  }
+  emit(type, event = {}) { for (const listener of this.listeners.get(type) ?? []) listener(event) }
+  listenerCount(type) { return this.listeners.get(type)?.size ?? 0 }
+  setAttribute(name, value) { this.attributes.set(name, String(value)) }
+  getAttribute(name) { return this.attributes.get(name) ?? null }
+  removeAttribute(name) { this.attributes.delete(name) }
+  getBoundingClientRect() { return { left: 0, width: 800 } }
+  setPointerCapture() {}
+  releasePointerCapture() {}
+}
+
+function buildInteractiveFixture() {
+  const elements = Object.fromEntries([
+    '[data-profile-interactive]',
+    '[data-profile-cursor]',
+    '[data-profile-cursor-line]',
+    '[data-profile-cursor-dot]',
+    '[data-profile-tooltip]',
+    '[data-profile-live]',
+  ].map((selector) => [selector, new FakeInteractiveElement()]))
+  elements['[data-profile-cursor]'].setAttribute('hidden', '')
+  const container = { innerHTML: '', querySelector: (selector) => elements[selector] ?? null }
+  const points = Array.from({ length: 200 }, (_, index) => ({ latitude: 46 + index / 10_000, longitude: 6, elevationM: 400 + index }))
+  const gpx = { segments: [{ points }] }
+  const timeline = { day: { id: 'J1', gpxNumber: 1 }, route: { pauses: [] } }
+  renderElevationProfile(container, gpx, timeline, null)
+  return { container, elements, gpx, timeline }
 }
 
 test('the profile draws distinct shapes per category, matching the map (circle/rounded-square/diamond)', () => {
@@ -80,4 +123,80 @@ test('an off-route documented point keeps its category shape but renders hollow'
   renderElevationProfile(container, gpx, timeline, report)
   assert.match(container.innerHTML, /profile-marker--off-route/)
   assert.match(container.innerHTML, /profile-marker--passage/)
+})
+
+test('the static profile remains visible and exposes the complete interactive overlay', () => {
+  const html = buildFixture()
+  assert.match(html, /class="profile-area"/)
+  assert.match(html, /class="profile-line"/)
+  assert.match(html, /data-profile-interactive tabindex="0"/)
+  assert.match(html, /data-profile-cursor-line/)
+  assert.match(html, /data-profile-cursor-dot/)
+  assert.match(html, /data-profile-tooltip hidden/)
+  assert.match(html, /data-profile-live aria-live="polite"/)
+  assert.doesNotMatch(html, /NaN|Infinity/)
+})
+
+test('profile interpolation is continuous for distance, elevation and smoothed grade', () => {
+  const samples = [
+    { distanceKm: 0, altitudeM: 500, elevationM: 500, smoothedGradePercent: 0, latitude: 46, longitude: 6 },
+    { distanceKm: 2, altitudeM: 700, elevationM: 700, smoothedGradePercent: 8, latitude: 47, longitude: 7 },
+  ]
+  assert.deepEqual(interpolateProfileSample(samples, 0), samples[0])
+  assert.deepEqual(interpolateProfileSample(samples, 2), samples[1])
+  assert.deepEqual(interpolateProfileSample(samples, 1), {
+    distanceKm: 1,
+    altitudeM: 600,
+    elevationM: 600,
+    smoothedGradePercent: 4,
+    latitude: 46.5,
+    longitude: 6.5,
+  })
+})
+
+test('mouse, touch and keyboard move one cursor on the curve, keep the tooltip contained and clean old listeners', () => {
+  const { container, elements, gpx, timeline } = buildInteractiveFixture()
+  const svg = elements['[data-profile-interactive]']
+  const cursor = elements['[data-profile-cursor]']
+  const line = elements['[data-profile-cursor-line]']
+  const dot = elements['[data-profile-cursor-dot]']
+  const tooltip = elements['[data-profile-tooltip]']
+  const live = elements['[data-profile-live]']
+
+  assert.equal(svg.listenerCount('pointermove'), 1)
+  svg.emit('pointermove', { clientX: 400, pointerId: 1, pointerType: 'mouse' })
+  assert.equal(cursor.getAttribute('hidden'), null)
+  assert.equal(tooltip.hidden, false)
+  assert.equal(line.getAttribute('x1'), line.getAttribute('x2'))
+  assert.ok(Number.isFinite(Number(dot.getAttribute('cy'))))
+  assert.match(live.textContent, /km .* m .* Pente moyenne/s)
+  assert.ok(Number.parseFloat(tooltip.style.left) >= 14 && Number.parseFloat(tooltip.style.left) <= 86)
+
+  const mouseText = live.textContent
+  svg.emit('pointerdown', { clientX: 650, pointerId: 2, pointerType: 'touch' })
+  assert.notEqual(live.textContent, mouseText, 'touch uses the same continuous pointer interaction')
+  let prevented = false
+  svg.emit('keydown', { key: 'ArrowLeft', preventDefault: () => { prevented = true } })
+  assert.equal(prevented, true)
+
+  renderElevationProfile(container, gpx, timeline, null)
+  assert.equal(svg.listenerCount('pointermove'), 1, 'rerender aborts the previous listener set before installing the next one')
+  svg.emit('pointerleave')
+  assert.notEqual(cursor.getAttribute('hidden'), null)
+  assert.equal(tooltip.hidden, true)
+})
+
+test('J2 profile consolidates Le Grand-Bornand into one Vermont finish marker', () => {
+  const points = Array.from({ length: 100 }, (_, index) => ({ latitude: 46 + index / 10_000, longitude: 6, elevationM: 500 + index }))
+  const gpx = { segments: [{ points }] }
+  const timeline = { day: { id: 'J2', gpxNumber: 2 }, route: { pauses: [] } }
+  const start = { id: 'j02-start', dayId: 'J2', type: 'start', resolution: 'matched', name: 'Morzine', matchedTrackDistanceKm: 0, matchedElevationM: 500 }
+  const end = { id: 'j02-end', dayId: 'J2', type: 'end', resolution: 'matched', name: 'Le Grand-Bornand', matchedTrackDistanceKm: 10, matchedElevationM: 600 }
+  const report = { days: [{ dayId: 'J2', type: 'ride', roadbook: { id: 'J2', startName: 'Morzine', endName: 'Le Grand-Bornand' }, points: [start, end] }] }
+  const accommodation = { name: 'Hôtel et Spa Le Vermont', address: '607 Route de la Vallée du Bouchet, 74450 Le Grand-Bornand' }
+  const container = { innerHTML: '' }
+  renderElevationProfile(container, gpx, timeline, report, accommodation)
+  assert.equal((container.innerHTML.match(/profile-marker--finish/g) ?? []).length, 1)
+  assert.equal((container.innerHTML.match(/Hôtel et Spa Le Vermont/g) ?? []).length, 1)
+  assert.doesNotMatch(container.innerHTML, /Croix Saint-Maurice/)
 })
