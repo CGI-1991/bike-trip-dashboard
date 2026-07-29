@@ -52,8 +52,15 @@ function markerTooltip(marker: RouteMapMarkerModel): string {
 
 function toLatLng(tuple: readonly [number, number]): L.LatLngTuple { return [tuple[0], tuple[1]] }
 
-function createMap(container: HTMLElement, model: RouteMapModel, interactive: boolean, onTileError: () => void): L.Map {
+interface CreateMapOptions {
+  readonly interactive: boolean
+  readonly fitPadding: L.PointExpression
+  readonly maxInitialZoom?: number
+}
+
+function createMap(container: HTMLElement, model: RouteMapModel, options: CreateMapOptions, onTileError: () => void): L.Map {
   destroy(container)
+  const interactive = options.interactive
   const map = L.map(container, { attributionControl: true, dragging: interactive, touchZoom: interactive, doubleClickZoom: interactive, boxZoom: interactive, keyboard: interactive, scrollWheelZoom: false, zoomControl: interactive, tapHold: interactive })
   mapInstances.set(container, map)
   const tiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap contributors', maxZoom: 19 })
@@ -64,7 +71,12 @@ function createMap(container: HTMLElement, model: RouteMapModel, interactive: bo
       .bindTooltip(markerTooltip(marker))
       .addTo(map)
   }
-  if (model.coordinates.length > 1) map.fitBounds(line.getBounds(), { padding: [12, 12] })
+  if (model.coordinates.length > 1) {
+    map.fitBounds(line.getBounds(), {
+      padding: options.fitPadding,
+      maxZoom: options.maxInitialZoom,
+    })
+  }
   return map
 }
 
@@ -87,7 +99,7 @@ export function renderCompactRouteMapModel(container: HTMLElement, model: RouteM
   container.innerHTML = '<div class="route-map__canvas" data-today-route-map-canvas></div><p class="route-map__fallback" hidden data-today-route-map-fallback>Fond de carte indisponible. Le tracé reste accessible dans le détail.</p>'
   const canvas = container.querySelector<HTMLElement>('[data-today-route-map-canvas]') as HTMLElement
   const fallback = container.querySelector<HTMLElement>('[data-today-route-map-fallback]') as HTMLElement
-  createMap(canvas, model, false, () => { fallback.hidden = false })
+  createMap(canvas, model, { interactive: false, fitPadding: [12, 12] }, () => { fallback.hidden = false })
 }
 
 export function renderRouteMap(container: HTMLElement, dialog: HTMLDialogElement, gpx: GpxAnalysisSuccess | null, timeline: RideDayTimeline | null, report: RoadbookMatchReport | null, accommodation: Accommodation | null): void {
@@ -96,14 +108,25 @@ export function renderRouteMap(container: HTMLElement, dialog: HTMLDialogElement
   const model = buildRouteMapModel(gpx, timeline, report, accommodation)
   container.innerHTML = '<div class="route-map__canvas" data-route-map-canvas></div><p class="route-map__fallback" hidden data-route-map-fallback>Fond de carte indisponible. Le tracé reste accessible dans le profil.</p>'
   const canvas = container.querySelector<HTMLElement>('[data-route-map-canvas]') as HTMLElement; const fallback = container.querySelector<HTMLElement>('[data-route-map-fallback]') as HTMLElement
-  createMap(canvas, model, false, () => { fallback.hidden = false })
+  createMap(canvas, model, { interactive: false, fitPadding: [12, 12] }, () => { fallback.hidden = false })
   renderLegend(container)
   const expanded = dialog.querySelector<HTMLElement>('[data-route-map-expanded]') as HTMLElement
   const open = dialog.previousElementSibling?.querySelector<HTMLButtonElement>('[data-explore-map]')
   if (open !== null && open !== undefined) {
     const previousHandler = openHandlers.get(open)
     if (previousHandler !== undefined) open.removeEventListener('click', previousHandler)
-    const handler: EventListener = () => { expanded.innerHTML = ''; createMap(expanded, model, true, () => undefined); dialog.showModal(); requestAnimationFrame(() => mapInstances.get(expanded)?.invalidateSize()) }
+    const handler: EventListener = () => {
+      expanded.innerHTML = ''
+      dialog.showModal()
+      requestAnimationFrame(() => {
+        createMap(
+          expanded,
+          model,
+          { interactive: true, fitPadding: [36, 36], maxInitialZoom: 13 },
+          () => undefined,
+        ).invalidateSize()
+      })
+    }
     openHandlers.set(open, handler)
     open.addEventListener('click', handler)
   }

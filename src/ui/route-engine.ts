@@ -108,7 +108,7 @@ function documentedPoint(
   const distanceKm = point.matchedTrackDistanceKm
   const eta = point.eta
   const renderedEta = eta === undefined
-    ? '<span>Heure indisponible</span>'
+    ? '<span>Indisponible</span>'
     : renderClock(eta)
   const elapsedMinutes = eta?.totalMinutesFromDeparture ?? Number.MAX_SAFE_INTEGER
   const offRoute = point.resolution !== 'matched'
@@ -147,7 +147,7 @@ function documentedPoint(
     id: point.id,
     distanceKm,
     elapsedMinutes,
-    html: `<li class='route-point${offRoute ? ' route-point--off-route' : ''}${pause === undefined ? '' : ' route-point--pause'}' data-route-point-id='${escapeHtml(point.id)}' data-route-point-category=${attributeQuote}${category}${attributeQuote} data-route-distance='${distanceKm}' data-route-off-track='${offRoute}' data-route-pause-active='${pause !== undefined}' data-point-weather-status='${weather?.forecastStatus ?? 'none'}'><span class='route-point__time'>${renderedEta}</span><span class='route-point__main'><strong><span class='route-point__symbol' aria-hidden='true'>${symbol}</span> ${escapeHtml(displayName)}</strong><small>${altitude(point.matchedElevationM ?? point.elevationM)} · ${escapeHtml(functions.join(' · '))}</small><span class='route-point__distance'>${reference} ${distanceFormatter.format(distanceKm)} km</span></span>${pauseTag}${statusTag}${weatherTag}</li>`,
+    html: `<li class='route-point${offRoute ? ' route-point--off-route' : ''}${pause === undefined ? '' : ' route-point--pause'}' data-route-point-id='${escapeHtml(point.id)}' data-route-point-category=${attributeQuote}${category}${attributeQuote} data-route-distance='${distanceKm}' data-route-off-track='${offRoute}' data-route-pause-active='${pause !== undefined}' data-point-weather-status='${weather?.forecastStatus ?? 'none'}'><div class='route-point__header'><strong class='route-point__name'><span class='route-point__symbol' aria-hidden='true'>${symbol}</span> ${escapeHtml(displayName)}</strong><span class='route-point__time'><small>Heure</small>${renderedEta}</span></div><div class='route-point__meta'><span>${escapeHtml(functions.join(' · '))}</span><span>${altitude(point.matchedElevationM ?? point.elevationM)}</span><span class='route-point__distance'>${reference} ${distanceFormatter.format(distanceKm)} km</span></div>${statusTag}${weatherTag}${pauseTag}</li>`,
   }
 }
 

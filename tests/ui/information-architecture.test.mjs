@@ -115,13 +115,25 @@ test('Weather keeps three alerts maximum and off-route references separate', () 
 })
 
 test('the settings editor uses shrinkable grid children so the native time input stays inside a 320 px dialog', () => {
+  const html = renderDashboard(rideDaySettings)
   const css = readFileSync(new URL('../../src/style.css', import.meta.url), 'utf8')
+  assert.match(html, /class="field field--time"[^>]*>.*class="field__time-control"[^>]*><input[^>]+type="time"/s)
   assert.match(css, /\.pause-editor \{[^}]*max-width: calc\(100vw - 20px\)/s)
   assert.match(css, /\.pause-editor form \{[^}]*min-width: 0/s)
-  assert.match(css, /\.day-settings-fields, \.day-settings-fields \.field, \.field__control \{ min-width: 0; \}/)
+  assert.match(css, /\.day-settings-fields, \.day-settings-fields \.field, \.field__control, \.field__time-control \{ min-width: 0; \}/)
   assert.match(css, /\.day-settings-fields \{[^}]*grid-template-columns: minmax\(0, 1fr\)/s)
   assert.match(css, /\.day-settings-fields input \{ width: 100%; min-width: 0; max-width: 100%; \}/)
+  assert.match(css, /\.field__time-control input\[type='time'\] \{[^}]*flex: 1 1 0;[^}]*width: 0;[^}]*min-width: 0;[^}]*max-width: 100%/s)
   assert.match(css, /\.pause-editor footer \.button \{ max-width: 100%; white-space: normal; \}/)
+})
+
+test('Parcours cards and the weather notice use compact, wrapping visual hierarchies', () => {
+  const css = readFileSync(new URL('../../src/style.css', import.meta.url), 'utf8')
+  assert.match(css, /\.route-point__header \{[^}]*flex-wrap: wrap;[^}]*justify-content: space-between/s)
+  assert.match(css, /\.route-point__name \{[^}]*min-width: 0;[^}]*overflow-wrap: anywhere/s)
+  assert.match(css, /\.route-point__meta \{[^}]*flex-wrap: wrap;[^}]*min-width: 0/s)
+  assert.match(css, /\.route-point-weather \{[^}]*padding-top: 8px;[^}]*border-top: 1px solid var\(--line\)/s)
+  assert.match(css, /\.weather-detail__notice \{[^}]*flex: 1 1 100%;[^}]*width: 100%;[^}]*padding: 11px;[^}]*border-radius: 9px/s)
 })
 
 test('bottom navigation reserves content space and Today mobile actions remain shrinkable', () => {
