@@ -1596,15 +1596,15 @@ ul {
 .route-map__legend-item strong { color: var(--ink); }
 html.map-scroll-locked, body.map-scroll-locked { overflow: hidden; overscroll-behavior: none; }
 body.map-scroll-locked { position: fixed; top: var(--map-scroll-lock-y, 0); inset-inline-start: var(--map-scroll-lock-x, 0); width: 100%; height: 100%; }
-.route-map-dialog { position: fixed; inset: 0; box-sizing: border-box; width: 100dvw; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 0; overflow: hidden; border: 0; border-radius: 0; background: var(--surface); }
+.route-map-dialog { position: fixed; inset: 0; box-sizing: border-box; width: 100dvw; height: 100dvh; min-width: 0; min-height: 0; max-width: none; max-height: none; margin: 0; padding: 0; overflow: hidden; border: 0; border-radius: 0; background: var(--surface); }
 .route-map-dialog[open] { display: grid; grid-template-rows: auto minmax(0, 1fr); }
 .route-map-dialog::backdrop { background: rgb(3 18 16 / 70%); }
 .route-map-dialog > header { position: relative; z-index: 1200; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin: 0; padding-block: max(8px, env(safe-area-inset-top)) 8px; padding-inline: max(10px, env(safe-area-inset-left)) max(10px, env(safe-area-inset-right)); background: var(--surface); border-bottom: 1px solid var(--line); }
 .route-map-dialog > header h2 { min-width: 0; margin: 0; font-size: clamp(1rem, 4vw, 1.35rem); }
 .route-map-dialog__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
-.route-map-dialog__map-wrap { position: relative; min-width: 0; min-height: 0; overflow: hidden; padding-inline: env(safe-area-inset-left) env(safe-area-inset-right); padding-bottom: env(safe-area-inset-bottom); background: #e5e7eb; }
-.route-map--expanded { width: 100%; height: 100%; min-height: 0; border-radius: 0; }
-.route-map--expanded > .leaflet-container, [data-route-map-expanded] { width: 100%; height: 100%; min-height: 0; }
+.route-map-dialog__map-wrap { position: relative; width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden; padding-inline: env(safe-area-inset-left) env(safe-area-inset-right); padding-bottom: env(safe-area-inset-bottom); background: #e5e7eb; }
+.route-map-dialog__map-wrap > .route-map--expanded { width: 100%; height: 100%; min-width: 0; min-height: 0; max-height: none; border-radius: 0; }
+.route-map-dialog__map-wrap > .route-map--expanded.leaflet-container { width: 100%; height: 100%; min-height: 0; max-height: none; }
 .route-map__fallback--expanded { inset: auto 10px 10px; max-width: calc(100% - 20px); }
 .practical-layers-backdrop { position: absolute; z-index: 1090; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; background: rgb(3 18 16 / 22%); cursor: default; }
 .practical-layers-backdrop[hidden] { display: none; }

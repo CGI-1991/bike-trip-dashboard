@@ -69,6 +69,7 @@ interface CreateMapOptions {
   readonly interactive: boolean
   readonly fitPadding: L.PointExpression
   readonly maxInitialZoom?: number
+  readonly invalidateBeforeInitialFit?: boolean
 }
 
 function createMap(container: HTMLElement, model: RouteMapModel, options: CreateMapOptions, onTileError: () => void): L.Map {
@@ -85,6 +86,7 @@ function createMap(container: HTMLElement, model: RouteMapModel, options: Create
       .addTo(map)
   }
   if (model.coordinates.length > 1) {
+    if (options.invalidateBeforeInitialFit === true) map.invalidateSize()
     map.fitBounds(line.getBounds(), {
       padding: options.fitPadding,
       maxZoom: options.maxInitialZoom,
@@ -179,14 +181,18 @@ export function renderRouteMap(container: HTMLElement, dialog: HTMLDialogElement
           map = createMap(
             expanded,
             model,
-            { interactive: true, fitPadding: [36, 36], maxInitialZoom: 13 },
+            {
+              interactive: true,
+              fitPadding: [36, 36],
+              maxInitialZoom: 13,
+              invalidateBeforeInitialFit: true,
+            },
             () => {
               if (expandedFallback !== null) expandedFallback.hidden = false
             },
           )
           map.on('popupopen', () => { popupOpen = true })
           map.on('popupclose', () => { popupOpen = false })
-          map.invalidateSize()
           panel = installPracticalLayerPanel(dialog, map, practicalData, timeline.day.id, {
             onOpened: historyController.panelOpened,
             onClosed: (reason) => {
