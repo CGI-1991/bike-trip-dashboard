@@ -1594,19 +1594,26 @@ ul {
 .route-map__fallback { position: absolute; z-index: 500; inset: auto 8px 8px; margin: 0; padding: 7px 9px; border-radius: 7px; background: rgb(255 255 255 / 92%); font-size: .78rem; }
 .route-map__legend { margin: 6px 0 0; color: var(--ink-soft); font-size: .74rem; }
 .route-map__legend-item strong { color: var(--ink); }
-.route-map-dialog { width: min(94vw, 1100px); max-width: none; padding: 14px; border: 0; border-radius: 14px; }
+html.map-scroll-locked, body.map-scroll-locked { overflow: hidden; overscroll-behavior: none; }
+body.map-scroll-locked { position: fixed; top: var(--map-scroll-lock-y, 0); inset-inline-start: var(--map-scroll-lock-x, 0); width: 100%; height: 100%; }
+.route-map-dialog { position: fixed; inset: 0; box-sizing: border-box; width: 100dvw; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 0; overflow: hidden; border: 0; border-radius: 0; background: var(--surface); }
+.route-map-dialog[open] { display: grid; grid-template-rows: auto minmax(0, 1fr); }
 .route-map-dialog::backdrop { background: rgb(3 18 16 / 70%); }
-.route-map-dialog > header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin-bottom: 10px; }
+.route-map-dialog > header { position: relative; z-index: 1200; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin: 0; padding-block: max(8px, env(safe-area-inset-top)) 8px; padding-inline: max(10px, env(safe-area-inset-left)) max(10px, env(safe-area-inset-right)); background: var(--surface); border-bottom: 1px solid var(--line); }
+.route-map-dialog > header h2 { min-width: 0; margin: 0; font-size: clamp(1rem, 4vw, 1.35rem); }
 .route-map-dialog__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
-.route-map-dialog__map-wrap { position: relative; min-width: 0; }
-.route-map--expanded { height: min(75vh, 720px); }
-.route-map--expanded > .leaflet-container, [data-route-map-expanded] { height: min(75vh, 720px); }
+.route-map-dialog__map-wrap { position: relative; min-width: 0; min-height: 0; overflow: hidden; padding-inline: env(safe-area-inset-left) env(safe-area-inset-right); padding-bottom: env(safe-area-inset-bottom); background: #e5e7eb; }
+.route-map--expanded { width: 100%; height: 100%; min-height: 0; border-radius: 0; }
+.route-map--expanded > .leaflet-container, [data-route-map-expanded] { width: 100%; height: 100%; min-height: 0; }
 .route-map__fallback--expanded { inset: auto 10px 10px; max-width: calc(100% - 20px); }
-.practical-layers-panel { position: absolute; z-index: 1100; left: 50%; bottom: 10px; width: min(360px, calc(100% - 20px)); max-width: calc(100% - 20px); max-height: min(62vh, 460px); padding: 12px; overflow-y: auto; transform: translateX(-50%); color: var(--ink); background: rgb(255 255 255 / 97%); border: 1px solid var(--line); border-radius: 13px; box-shadow: 0 12px 34px rgb(16 45 40 / 24%); }
+.practical-layers-backdrop { position: absolute; z-index: 1090; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; background: rgb(3 18 16 / 22%); cursor: default; }
+.practical-layers-backdrop[hidden] { display: none; }
+.practical-layers-panel { position: absolute; z-index: 1100; left: 50%; bottom: max(10px, env(safe-area-inset-bottom)); width: min(400px, calc(100% - 20px)); max-width: calc(100% - 20px); max-height: min(70dvh, calc(100% - 20px)); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; padding: 0; overflow: hidden; overscroll-behavior: contain; transform: translateX(-50%); color: var(--ink); background: rgb(255 255 255 / 98%); border: 1px solid var(--line); border-radius: 13px; box-shadow: 0 12px 34px rgb(16 45 40 / 24%); }
 .practical-layers-panel[hidden] { display: none; }
-.practical-layers-panel > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.practical-layers-panel > header { position: sticky; z-index: 1; top: 0; display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding: 12px; background: inherit; border-bottom: 1px solid var(--line); }
 .practical-layers-panel h3 { margin-top: 2px; font-size: 1rem; }
-.practical-layers-list { display: grid; gap: 5px; margin-bottom: 10px; }
+.practical-layers-list { min-height: 0; display: grid; gap: 5px; padding: 10px 12px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.practical-layers-panel > footer { position: sticky; z-index: 1; bottom: 0; padding: 10px 12px max(10px, env(safe-area-inset-bottom)); background: inherit; border-top: 1px solid var(--line); }
 .practical-layer-option { min-width: 0; min-height: 44px; display: grid; grid-template-columns: auto 30px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 5px 7px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); cursor: pointer; }
 .practical-layer-option:focus-within { outline: 3px solid rgb(15 118 110 / 28%); outline-offset: 1px; }
 .practical-layer-option input { width: 20px; height: 20px; margin: 0; accent-color: var(--forest-700); }
@@ -2803,10 +2810,10 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 @media (max-width: 430px) {
   .app-header__inner { min-height: 68px; }
   .card { padding: 13px; }
-  .route-map-dialog { width: calc(100vw - 12px); padding: 10px; }
+  .route-map-dialog { width: 100dvw; height: 100dvh; padding: 0; }
   .route-map-dialog__actions { width: 100%; }
   .route-map-dialog__actions .button { flex: 1 1 8rem; }
-  .practical-layers-panel { bottom: 6px; width: calc(100% - 12px); max-width: calc(100% - 12px); padding: 10px; }
+  .practical-layers-panel { bottom: 0; width: calc(100% - 12px); max-width: calc(100% - 12px); max-height: min(78dvh, calc(100% - 6px)); border-radius: 14px 14px 0 0; }
   .section-heading { align-items: flex-start; }
   .weather-card__heading { flex-direction: column; }
   .weather-card__heading .button { width: 100%; }
@@ -2817,6 +2824,15 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   .trip-day__button { grid-template-columns: 52px minmax(0, 1fr); }
   .trip-day__schedule { grid-column: 2; align-items: flex-start; text-align: left; }
   .scenario-comparison, table { display: block; max-width: 100%; overflow-x: auto; }
+}
+
+@media (max-height: 600px) {
+  .route-map-dialog > header { padding-block: max(5px, env(safe-area-inset-top)) 5px; }
+  .route-map-dialog__actions .button { min-height: 38px; padding-block: 5px; }
+  .practical-layers-panel { max-height: calc(100% - 4px); }
+  .practical-layers-panel > header { padding-block: 8px; }
+  .practical-layers-list { padding-block: 7px; }
+  .practical-layers-panel > footer { padding-block: 7px max(7px, env(safe-area-inset-bottom)); }
 }
 
 @media (min-width: 700px) {
