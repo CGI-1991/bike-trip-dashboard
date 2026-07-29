@@ -253,9 +253,10 @@ function formatElevation(value: number | null): string {
   return value === null ? '—' : `${integerFormatter.format(value)} m`
 }
 
-function renderMetric(label: string, value: string): string {
+function renderMetric(label: string, value: string, className = ''): string {
+  const classAttribute = className.length === 0 ? '' : ` class="${className}"`
   return `
-    <div>
+    <div${classAttribute}>
       <dt>${escapeHtml(label)}</dt>
       <dd>${escapeHtml(value)}</dd>
     </div>`
@@ -300,6 +301,7 @@ function renderRideMetrics(summary: RideWeatherSummary): string {
       ${renderMetric(
         'Conditions les plus défavorables',
         getWeatherCodeLabel(summary.worstWeatherCode),
+        'weather-detail__metric--full',
       )}
     </dl>`
 }

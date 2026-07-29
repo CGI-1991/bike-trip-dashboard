@@ -15,22 +15,30 @@ function renderAccommodation(accommodation: TodayAccommodationViewModel | null):
 }
 
 function renderWeatherPoint(point: TodayWeatherPointViewModel): string {
-  const metrics = [
-    point.eta === null ? null : `<span>${escapeHtml(point.eta)}</span>`,
-    point.altitudeM === null ? null : `<span>${formatNumber(point.altitudeM)} m</span>`,
-    point.temperature === null ? null : `<span>${escapeHtml(point.temperature)}</span>`,
-    point.precipitation === null ? null : `<span>${escapeHtml(point.precipitation)}</span>`,
-    point.wind === null ? null : `<span>${escapeHtml(point.wind)}</span>`,
+  const roleLabels: Record<TodayWeatherPointViewModel['role'], string> = {
+    start: 'Départ',
+    'main-col': 'Col principal',
+    end: 'Arrivée',
+  }
+  const keyData = [
+    point.eta === null ? null : `<span><small>Heure</small><b>${escapeHtml(point.eta)}</b></span>`,
+    point.altitudeM === null ? null : `<span><small>Altitude</small><b>${formatNumber(point.altitudeM)} m</b></span>`,
   ].filter((value): value is string => value !== null).join('')
-  const risk = point.riskLevel === null || point.riskLevel === 'green' ? '' : `<span class="tag tag--risk-${point.riskLevel}">${point.riskLevel === 'red' ? 'Rouge' : point.riskLevel === 'orange' ? 'Orange' : 'Indéterminé'}</span>`
-  return `<li class="today-weather-point" data-today-weather-point="${point.role}"><strong>${escapeHtml(point.name)}</strong><div>${metrics}${risk}</div></li>`
+  const conditions = [
+    point.temperature === null ? null : `<span><small>Temp.</small><b>${escapeHtml(point.temperature)}</b></span>`,
+    point.precipitation === null ? null : `<span><small>Pluie</small><b>${escapeHtml(point.precipitation)}</b></span>`,
+    point.wind === null ? null : `<span><small>Rafales</small><b>${escapeHtml(point.wind)}</b></span>`,
+  ].filter((value): value is string => value !== null).join('')
+  const risk = point.riskLevel === null || point.riskLevel === 'green' ? '' : `<span class="tag tag--risk-${point.riskLevel}">Alerte ${point.riskLevel === 'red' ? 'rouge' : point.riskLevel === 'orange' ? 'orange' : 'indéterminée'}</span>`
+  return `<li class="today-weather-point" data-today-weather-point="${point.role}"><header><span class="today-weather-point__role">${roleLabels[point.role]}</span><strong>${escapeHtml(point.name)}</strong></header>${keyData.length === 0 ? '' : `<div class="today-weather-point__key-data">${keyData}</div>`}${conditions.length === 0 ? '' : `<div class="today-weather-point__conditions">${conditions}</div>`}${risk}</li>`
 }
 
 export function renderTodayView(container: HTMLElement, model: TodayViewModel): void {
   const status = `<p class="eyebrow today-status">${escapeHtml(model.statusLabel)}</p>`
   const heading = `<header class="today-heading"><div><h3>${model.dayId} · <time datetime="${model.date}">${escapeHtml(model.dateLabel)}</time></h3><p class="today-route">${escapeHtml(model.title)}</p></div></header>`
   const weatherPoints = model.weather.points.length === 0 ? '' : `<ol class="today-weather-points">${model.weather.points.map(renderWeatherPoint).join('')}</ol>`
-  const weather = `<section class="today-section today-weather"><div><p class="eyebrow">Météo</p><strong>${escapeHtml(model.weather.summary)}</strong><small>${escapeHtml(model.weather.context ?? model.weather.status)}</small></div>${weatherPoints}</section>`
+  const weatherContext = model.weather.context === null ? '' : `<small class="today-weather__context">${escapeHtml(model.weather.context)}</small>`
+  const weather = `<section class="today-section today-weather"><header class="today-weather__header"><div><p class="eyebrow">Météo</p><strong class="today-weather__summary">${escapeHtml(model.weather.summary)}</strong></div><span class="today-weather__status">${escapeHtml(model.weather.status)}</span></header>${weatherContext}${weatherPoints}</section>`
   const alert = model.weather.primaryAlert === null ? '' : `<section class="today-alert today-alert--${model.weather.primaryAlert.level}"><strong>${escapeHtml(model.weather.primaryAlert.title)}</strong><span>${escapeHtml([model.weather.primaryAlert.summary, model.weather.primaryAlert.place, model.weather.primaryAlert.time].filter(Boolean).join(' · '))}</span></section>`
   const errors = model.errors.map((error) => `<p class="today-local-error" role="status">${escapeHtml(error)}</p>`).join('')
   if (model.type === 'off') {

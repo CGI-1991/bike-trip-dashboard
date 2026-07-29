@@ -1,4 +1,5 @@
 import './style.css'
+import { bindNetworkStatus, registerServiceWorker } from './pwa.ts'
 import type { GpxAnalysisReport } from './gpx/types.ts'
 import { defaultSettings } from './storage/settings.ts'
 import {
@@ -121,6 +122,12 @@ const weatherCoordinator = new WeatherCoordinator({
 
 const app = getRequiredElement<HTMLDivElement>('#app')
 app.innerHTML = renderDashboard(currentRideDaySettings, rga2026TripPlan)
+
+const networkStatus = getRequiredElement<HTMLElement>('[data-network-status]')
+const unbindNetworkStatus = bindNetworkStatus(networkStatus)
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  void registerServiceWorker(import.meta.env.BASE_URL).catch(() => undefined)
+}
 
 const saveStatus = getRequiredElement<HTMLElement>('#save-status')
 const dayIndicator = getRequiredElement<HTMLElement>('[data-day-indicator]')
@@ -792,6 +799,7 @@ const unsubscribeWeather = weatherCoordinator.subscribe((snapshot) => {
 })
 
 window.addEventListener('beforeunload', () => {
+  unbindNetworkStatus()
   unsubscribeWeather()
   weatherCoordinator.dispose()
 })

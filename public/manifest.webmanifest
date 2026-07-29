@@ -1,0 +1,34 @@
+{
+  "id": "./",
+  "name": "RGA 2026 – Route des Grandes Alpes",
+  "short_name": "RGA 2026",
+  "description": "Tableau de bord mobile du voyage RGA 2026, disponible hors ligne.",
+  "lang": "fr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#edf1ec",
+  "theme_color": "#173b35",
+  "categories": ["travel", "navigation", "sports"],
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
