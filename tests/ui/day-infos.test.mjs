@@ -79,3 +79,25 @@ test('ride Infos lists documented climb statistics in roadbook order', () => {
   assert.match(container.innerHTML, /7,6 %/)
   assert.match(container.innerHTML, /<dt>Montée<\/dt>.*<dt>D\+<\/dt>.*<dt>Pente moyenne<\/dt>/s)
 })
+
+test('a col with a documented image (Col du Feu) becomes a clickable trigger opening the viewer; an undocumented col stays plain', () => {
+  const container = { innerHTML: '' }
+  renderDayInfos(container, {
+    type: 'ride',
+    roadbook: {
+      type: 'ride',
+      ambiance: 'Un col documenté, un autre non.',
+      notes: [],
+      variant: null,
+      cols: [
+        { id: 'j01-col-col-du-feu', name: 'Col du Feu', elevationM: 1_120, distanceKm: 5.5, elevationGainM: 430, averageGradientPercent: 7.8 },
+        { id: 'fictional-col', name: 'Col Sans Image Documentée', elevationM: 2_000, distanceKm: 12, elevationGainM: 900, averageGradientPercent: 6.2 },
+      ],
+    },
+    points: [],
+  })
+  assert.match(container.innerHTML, /class="day-infos__col day-infos__col--clickable"[^>]*><button[^>]+data-col-image-trigger[^>]+data-col-name="Col du Feu"[^>]+data-col-image-url="https:\/\/www\.alpes4ever\.com[^"]+"[^>]+data-col-image-source="Alpes4ever"/)
+  assert.doesNotMatch(container.innerHTML, /Col Sans Image Documentée[^]*data-col-image-trigger/, 'an undocumented col must never get a trigger')
+  const undocumentedBlock = container.innerHTML.slice(container.innerHTML.indexOf('Col Sans Image Documentée') - 40, container.innerHTML.indexOf('Col Sans Image Documentée') + 40)
+  assert.doesNotMatch(undocumentedBlock, /data-col-image-trigger/)
+})

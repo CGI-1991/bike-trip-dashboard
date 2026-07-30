@@ -9,7 +9,7 @@ const rideDaySettings = {
   version: 1,
   days: ['J1', 'J2', 'J3', 'J4', 'J6', 'J7', 'J9', 'J10', 'J11', 'J12'].map((dayId) => ({
     dayId,
-    averageSpeedKph: 20,
+    referenceSpeedKph: 20,
     departureTime: '08:00',
     totalBreakMinutes: 30,
   })),

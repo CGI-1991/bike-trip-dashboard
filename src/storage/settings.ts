@@ -1,5 +1,5 @@
 export interface DashboardSettings {
-  readonly averageSpeedKph: number
+  readonly referenceSpeedKph: number
   readonly departureTime: string
   readonly totalBreakMinutes: number
 }
@@ -7,7 +7,7 @@ export interface DashboardSettings {
 export const settingsStorageKey = 'rga-2026-dashboard.settings.v1'
 
 export const defaultSettings: DashboardSettings = {
-  averageSpeedKph: 18,
+  referenceSpeedKph: 18,
   departureTime: '08:00',
   totalBreakMinutes: 60,
 }
@@ -18,25 +18,27 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
 
-function isValidSettings(value: unknown): value is DashboardSettings {
+function parseSettings(value: unknown): DashboardSettings | null {
   if (!isRecord(value)) {
-    return false
+    return null
   }
 
-  const { averageSpeedKph, departureTime, totalBreakMinutes } = value
+  const referenceSpeedKph = value.referenceSpeedKph ?? value.averageSpeedKph
+  const { departureTime, totalBreakMinutes } = value
 
-  return (
-    typeof averageSpeedKph === 'number' &&
-    Number.isFinite(averageSpeedKph) &&
-    averageSpeedKph >= 8 &&
-    averageSpeedKph <= 40 &&
+  if (!(
+    typeof referenceSpeedKph === 'number' &&
+    Number.isFinite(referenceSpeedKph) &&
+    referenceSpeedKph >= 8 &&
+    referenceSpeedKph <= 40 &&
     typeof departureTime === 'string' &&
     timePattern.test(departureTime) &&
     typeof totalBreakMinutes === 'number' &&
     Number.isInteger(totalBreakMinutes) &&
     totalBreakMinutes >= 0 &&
     totalBreakMinutes <= 240
-  )
+  )) return null
+  return { referenceSpeedKph, departureTime, totalBreakMinutes }
 }
 
 export function loadSettings(storage: Storage = window.localStorage): DashboardSettings {
@@ -48,7 +50,7 @@ export function loadSettings(storage: Storage = window.localStorage): DashboardS
     }
 
     const parsedValue: unknown = JSON.parse(storedValue)
-    return isValidSettings(parsedValue) ? parsedValue : { ...defaultSettings }
+    return parseSettings(parsedValue) ?? { ...defaultSettings }
   } catch {
     return { ...defaultSettings }
   }
@@ -58,7 +60,7 @@ export function saveSettings(
   settings: DashboardSettings,
   storage: Storage = window.localStorage,
 ): boolean {
-  if (!isValidSettings(settings)) {
+  if (parseSettings(settings) === null) {
     return false
   }
 

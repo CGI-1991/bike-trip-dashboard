@@ -3,15 +3,15 @@ import { bindNetworkStatus, registerServiceWorker } from './pwa.ts'
 import { loadPracticalData } from './practical/model.ts'
 import type { PracticalData } from './practical/model.ts'
 import type { GpxAnalysisReport } from './gpx/types.ts'
-import { defaultSettings } from './storage/settings.ts'
 import {
-  applyRideDaySettingsToAllDays,
   getRideDaySettings,
   loadRideDaySettings,
   saveRideDaySettings,
+  updateReferenceSpeed,
   upsertRideDaySettings,
 } from './storage/ride-day-settings.ts'
 import type { RideDaySettings, RideDaySettingsDocument } from './storage/ride-day-settings.ts'
+import type { RouteEngineSettings } from './route/types.ts'
 import { getDateInTimezone } from './trip/calendar.ts'
 import { WeatherCache } from './weather/cache.ts'
 import { WeatherCoordinator } from './weather/coordinator.ts'
@@ -46,9 +46,12 @@ import type {
   TripTimeline,
 } from './trip/types.ts'
 import { initializeGpxAnalysis } from './ui/gpx-analysis.ts'
+import { downloadGpx, shareGpx } from './ui/gpx-share.ts'
+import type { GpxShareTarget } from './ui/gpx-share.ts'
+import { openImageViewer } from './ui/image-viewer.ts'
 import { renderDashboard } from './ui/render.ts'
 import { renderDayHeader } from './ui/day-header.ts'
-import { getTripPeriod, hashForDay, parseAppHash } from './ui/app-state.ts'
+import { hashForDay, parseAppHash } from './ui/app-state.ts'
 import type { AppView } from './ui/app-state.ts'
 import { renderDayInfos, renderDayInfosError, renderDayInfosLoading } from './ui/day-infos.ts'
 import {
@@ -63,6 +66,9 @@ import {
 } from './ui/route-engine.ts'
 import { renderElevationProfile } from './ui/elevation-profile.ts'
 import { closeExpandedRouteMap, renderCompactRouteMapModel, renderRouteMap } from './ui/route-map.ts'
+import { closeExpandedOverviewMap, renderOverviewMap } from './ui/overview-map.ts'
+import { buildOverviewViewModel } from './ui/overview-view-model.ts'
+import { renderOverviewView } from './ui/overview-view.ts'
 import {
   renderTripPlanError,
   renderTripPlanLoading,
@@ -78,7 +84,6 @@ import {
   renderWeatherSummaryError,
   renderWeatherSummaryLoading,
 } from './ui/weather-summary.ts'
-import { buildTodayViewModel } from './ui/today-view-model.ts'
 import { renderTodayView } from './ui/today-view.ts'
 
 function getRequiredElement<T extends Element>(selector: string): T {
@@ -112,6 +117,7 @@ let currentAccommodations: readonly Accommodation[] = []
 let currentRoadbookReport: RoadbookMatchReport | null = null
 let currentRoadbookError: unknown = null
 let currentGpxError: unknown = null
+let currentGpxTarget: GpxShareTarget | null = null
 let selectedDayId: TripDayId = 'J1'
 let currentWeatherError: unknown = null
 let currentWeatherSnapshot: WeatherSnapshot = {
@@ -140,9 +146,12 @@ const tripPlanContainer = getRequiredElement<HTMLElement>('[data-trip-plan]')
 const routeEngineContainer = getRequiredElement<HTMLElement>('[data-route-engine]')
 const roadbookDetailContainer = getRequiredElement<HTMLElement>('[data-day-infos-content]')
 const accommodationContainer = getRequiredElement<HTMLElement>('[data-accommodation-card]')
-const gpxDownload = getRequiredElement<HTMLAnchorElement>('[data-gpx-download]')
+const gpxDownloadButton = getRequiredElement<HTMLButtonElement>('[data-gpx-download]')
+const gpxShareDialog = getRequiredElement<HTMLDialogElement>('#gpx-share-dialog')
+const gpxShareStatus = getRequiredElement<HTMLElement>('[data-gpx-share-status]')
 const routeMapContainer = getRequiredElement<HTMLElement>('[data-route-map]')
 const routeMapDialog = getRequiredElement<HTMLDialogElement>('[data-route-map-dialog]')
+const overviewMapDialog = getRequiredElement<HTMLDialogElement>('[data-overview-map-dialog]')
 const elevationProfileContainer = getRequiredElement<HTMLElement>('[data-elevation-profile]')
 const roadbookReportContainer = getRequiredElement<HTMLElement>(
   '[data-roadbook-diagnostics]',
@@ -162,8 +171,9 @@ const pauseFeedback = getRequiredElement<HTMLElement>('[data-pause-feedback]')
 const pauseIntro = getRequiredElement<HTMLElement>('[data-pause-intro]')
 const pauseTotalSummary = getRequiredElement<HTMLElement>('[data-pause-total-summary]')
 const dayDepartureTimeInput = getRequiredElement<HTMLInputElement>('[data-day-departure-time]')
-const dayAverageSpeedInput = getRequiredElement<HTMLInputElement>('[data-day-average-speed]')
 const dayTotalBreakInput = getRequiredElement<HTMLInputElement>('[data-day-total-break]')
+const referenceSpeedInput = getRequiredElement<HTMLInputElement>('[data-reference-speed]')
+const referenceSpeedFeedback = getRequiredElement<HTMLElement>('[data-reference-speed-feedback]')
 const automaticBreakField = getRequiredElement<HTMLElement>('[data-automatic-break-field]')
 let pauseDraft: PauseDayPlan | null = null
 let daySettingsDraft: RideDaySettings | null = null
@@ -403,16 +413,18 @@ function renderCurrentTripSelection(restoreFocus = false): void {
   renderAccommodation(accommodationContainer, accommodation)
   if (selectedDay.type === 'ride' && selectedDay.status === 'ready') {
     const base = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL : `${import.meta.env.BASE_URL}/`
-    gpxDownload.href = `${base}data/gpx/${encodeURIComponent(selectedDay.day.gpxFile)}`
-    gpxDownload.download = `${selectedDay.day.id}-${selectedDay.day.startName}-${selectedDay.day.endName}.gpx`
-    gpxDownload.hidden = false
+    currentGpxTarget = {
+      url: `${base}data/gpx/${encodeURIComponent(selectedDay.day.gpxFile)}`,
+      filename: `${selectedDay.day.id}-${selectedDay.day.startName}-${selectedDay.day.endName}.gpx`,
+    }
+    gpxDownloadButton.hidden = false
     const gpx = currentGpxReport?.files.find((file) => file.status === 'success' && file.source.fileName === selectedDay.day.gpxFile)
     const successfulGpx = gpx?.status === 'success' ? gpx : null
     renderRouteMap(routeMapContainer, routeMapDialog, successfulGpx, selectedDay, currentRoadbookReport, accommodation, currentPracticalData)
     renderElevationProfile(elevationProfileContainer, successfulGpx, selectedDay, currentRoadbookReport, accommodation)
   } else {
-    gpxDownload.hidden = true
-    gpxDownload.removeAttribute('href')
+    currentGpxTarget = null
+    gpxDownloadButton.hidden = true
     // The day's type (ride/off) comes only from the calendar/trip plan, never
     // from whether a timeline could be built — a ride day whose GPX/pauses
     // temporarily failed must never read as a genuine OFF day.
@@ -439,26 +451,31 @@ function renderCurrentTripSelection(restoreFocus = false): void {
 
 function renderToday(): void {
   const now = new Date()
-  const todayDayId = getTripPeriod(now).dayId
-  const todayDay = rga2026TripPlan.days.find(({ id }) => id === todayDayId)
-  const gpx = todayDay?.type === 'ride'
-    ? currentGpxReport?.files.find((file) => file.status === 'success' && file.source.fileName === todayDay.gpxFile)
-    : null
-  const successfulGpx = gpx?.status === 'success' ? gpx : null
   const base = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL : `${import.meta.env.BASE_URL}/`
-  const model = buildTodayViewModel({
+  const model = buildOverviewViewModel({
     now,
     plan: rga2026TripPlan,
     timeline: currentTripTimeline,
     roadbookReport: currentRoadbookReport,
+    roadbookError: currentRoadbookError,
     accommodations: currentAccommodations,
     weatherSnapshot: currentWeatherSnapshot,
-    gpx: successfulGpx,
+    gpxReport: currentGpxReport,
     publicBaseUrl: base,
+    isOffline: !navigator.onLine,
   })
-  renderTodayView(todayPanel, model)
-  const mapContainer = todayPanel.querySelector<HTMLElement>('[data-today-route-map]')
-  if (mapContainer !== null && model.type === 'ride') renderCompactRouteMapModel(mapContainer, model.mapModel)
+  renderOverviewView(todayPanel, model)
+
+  const stageContainer = todayPanel.querySelector<HTMLElement>('[data-overview-stage]')
+  if (stageContainer !== null) {
+    renderTodayView(stageContainer, model.stage)
+    const mapContainer = stageContainer.querySelector<HTMLElement>('[data-today-route-map]')
+    if (mapContainer !== null && model.stage.type === 'ride') renderCompactRouteMapModel(mapContainer, model.stage.mapModel)
+  }
+
+  const overviewMapContainer = todayPanel.querySelector<HTMLElement>('[data-overview-map]')
+  const overviewExploreButton = todayPanel.querySelector<HTMLButtonElement>('[data-overview-explore-map]')
+  if (overviewMapContainer !== null) renderOverviewMap(overviewMapContainer, overviewMapDialog, model.mapModel, overviewExploreButton)
 }
 
 function refreshRoadbookIntegration(): void {
@@ -520,8 +537,9 @@ function refreshRoadbookIntegration(): void {
   }
 }
 
-function getDaySettings(dayId: RideDayId): RideDaySettings {
-  return getRideDaySettings(currentRideDaySettings, dayId)
+function getDaySettings(dayId: RideDayId): RouteEngineSettings {
+  const daySettings = getRideDaySettings(currentRideDaySettings, dayId)
+  return { ...daySettings, referenceSpeedKph: currentRideDaySettings.referenceSpeedKph }
 }
 
 function refreshTripTimeline(): void {
@@ -549,11 +567,9 @@ function updateStageSummaries(): void {
     const settings = getRideDaySettings(currentRideDaySettings, dayId as RideDayId)
     const plan = getPauseDayPlan(currentPausePlan, dayId as RideDayId)
     const departure = stage.querySelector<HTMLElement>('[data-stage-departure]')
-    const speed = stage.querySelector<HTMLElement>('[data-stage-speed]')
     const breaks = stage.querySelector<HTMLElement>('[data-stage-breaks]')
     const planLabel = stage.querySelector<HTMLElement>('[data-stage-plan]')
     if (departure !== null) departure.textContent = settings.departureTime
-    if (speed !== null) speed.textContent = `${settings.averageSpeedKph} km/h`
     if (breaks !== null) breaks.textContent = `${settings.totalBreakMinutes} min`
     if (planLabel !== null) planLabel.textContent = plan?.mode === 'custom' ? 'Personnalisé' : 'Automatique'
   }
@@ -578,7 +594,7 @@ function getReadySelectedRide(): Extract<TripDayTimeline, { type: 'ride'; status
 function createAutomaticPauseDraft(dayId: RideDayId, settings: RideDaySettings): PauseDayPlan | null {
   const profileDay = currentTripProfile?.days.find(({ day: candidate }) => candidate.id === dayId)
   if (profileDay?.type !== 'ride' || profileDay.status !== 'ready') return null
-  const anchors = createContextualPauseAnchors(profileDay.routeProfile, settings.averageSpeedKph, getPausePlaces(dayId))
+  const anchors = createContextualPauseAnchors(profileDay.routeProfile, currentRideDaySettings.referenceSpeedKph, getPausePlaces(dayId))
   const durations: number[] = []
   let allocated = 0
   anchors.forEach((anchor, index) => {
@@ -599,7 +615,6 @@ function readDaySettingsFromForm(dayId: RideDayId): RideDaySettings {
   return {
     dayId,
     departureTime: dayDepartureTimeInput.value,
-    averageSpeedKph: dayAverageSpeedInput.valueAsNumber,
     totalBreakMinutes: dayTotalBreakInput.valueAsNumber,
   }
 }
@@ -624,7 +639,6 @@ function renderPauseEditor(): void {
   const isAutomatic = pauseDraft.mode === 'automatic'
   for (const radio of document.querySelectorAll<HTMLInputElement>('input[name="pause-mode"]')) radio.checked = radio.value === pauseDraft.mode
   dayDepartureTimeInput.value = daySettingsDraft.departureTime
-  dayAverageSpeedInput.value = String(daySettingsDraft.averageSpeedKph)
   const activeDurationSum = pauseDraft.pauses.filter(({ active }) => active).reduce((total, pause) => total + pause.durationMinutes, 0)
   dayTotalBreakInput.disabled = !isAutomatic
   dayTotalBreakInput.value = String(isAutomatic ? daySettingsDraft.totalBreakMinutes : activeDurationSum)
@@ -669,7 +683,7 @@ for (const radio of document.querySelectorAll<HTMLInputElement>('input[name="pau
   pauseDraft = radio.value === 'automatic' ? automatic : { ...automatic, mode: 'custom', pauses: automatic.pauses.map((pause) => ({ ...pause, origin: 'custom' })) }
   renderPauseEditor()
 })
-for (const input of [dayDepartureTimeInput, dayAverageSpeedInput, dayTotalBreakInput]) input.addEventListener('input', () => {
+for (const input of [dayDepartureTimeInput, dayTotalBreakInput]) input.addEventListener('input', () => {
   if (pauseDraft === null || pauseDraft.mode !== 'automatic') return
   const automatic = createAutomaticPauseDraft(pauseDraft.dayId, readDaySettingsFromForm(pauseDraft.dayId))
   if (automatic === null) return
@@ -692,24 +706,20 @@ getRequiredElement<HTMLButtonElement>('[data-pause-restore]').addEventListener('
   pauseDraft = createAutomaticPauseDraft(pauseDraft.dayId, readDaySettingsFromForm(pauseDraft.dayId)) ?? pauseDraft
   renderPauseEditor()
 })
-getRequiredElement<HTMLButtonElement>('[data-restore-day-settings]').addEventListener('click', () => {
-  if (pauseDraft === null) return
-  daySettingsDraft = { dayId: pauseDraft.dayId, ...defaultSettings }
-  if (pauseDraft.mode === 'automatic') {
-    pauseDraft = createAutomaticPauseDraft(pauseDraft.dayId, daySettingsDraft) ?? pauseDraft
+getRequiredElement<HTMLButtonElement>('[data-save-reference-speed]').addEventListener('click', () => {
+  const next = updateReferenceSpeed(currentRideDaySettings, referenceSpeedInput.valueAsNumber)
+  if (next.referenceSpeedKph !== referenceSpeedInput.valueAsNumber) {
+    referenceSpeedFeedback.textContent = 'Vitesse invalide : plage acceptée 8 à 40 km/h.'
+    return
   }
-  renderPauseEditor()
-  pauseFeedback.textContent = 'Valeurs par défaut restaurées dans le formulaire. Enregistrez pour confirmer.'
-})
-getRequiredElement<HTMLButtonElement>('[data-apply-all-days]').addEventListener('click', () => {
-  if (pauseDraft === null) return
-  const settings = readDaySettingsFromForm(pauseDraft.dayId)
-  const next = applyRideDaySettingsToAllDays({ averageSpeedKph: settings.averageSpeedKph, departureTime: settings.departureTime, totalBreakMinutes: settings.totalBreakMinutes })
-  if (!saveRideDaySettings(next)) { pauseFeedback.textContent = 'Enregistrement impossible dans ce navigateur.'; return }
+  if (!saveRideDaySettings(next)) {
+    referenceSpeedFeedback.textContent = 'Enregistrement impossible dans ce navigateur.'
+    return
+  }
   currentRideDaySettings = next
   refreshTripTimeline()
   updateStageSummaries()
-  pauseFeedback.textContent = 'Valeurs appliquées à toutes les étapes et ETA recalculées.'
+  referenceSpeedFeedback.textContent = 'Vitesse de référence enregistrée et ETA recalculées pour les dix étapes.'
 })
 getRequiredElement<HTMLButtonElement>('[data-pause-save]').addEventListener('click', () => {
   const plan = readPauseDraftFromForm()
@@ -733,6 +743,72 @@ getRequiredElement<HTMLButtonElement>('[data-pause-save]').addEventListener('cli
 
 for (const button of document.querySelectorAll<HTMLButtonElement>('[data-close-map]')) button.addEventListener('click', () => closeExpandedRouteMap(routeMapDialog))
 routeMapDialog.addEventListener('cancel', (event) => { event.preventDefault(); closeExpandedRouteMap(routeMapDialog) })
+
+for (const button of document.querySelectorAll<HTMLButtonElement>('[data-overview-close-map]')) button.addEventListener('click', () => closeExpandedOverviewMap(overviewMapDialog))
+overviewMapDialog.addEventListener('cancel', (event) => { event.preventDefault(); closeExpandedOverviewMap(overviewMapDialog) })
+
+let currentGpxShareTarget: GpxShareTarget | null = null
+
+function openGpxShareDialog(target: GpxShareTarget | null): void {
+  if (target === null) return
+  currentGpxShareTarget = target
+  gpxShareStatus.textContent = ''
+  gpxShareDialog.showModal()
+}
+
+gpxDownloadButton.addEventListener('click', () => openGpxShareDialog(currentGpxTarget))
+dayHeaderContainer.addEventListener('click', (event) => {
+  if (event.target instanceof Element && event.target.closest('[data-gpx-quick-access]') !== null) openGpxShareDialog(currentGpxTarget)
+})
+todayPanel.addEventListener('click', (event) => {
+  if (!(event.target instanceof Element)) return
+  const trigger = event.target.closest<HTMLElement>('[data-overview-gpx-trigger]')
+  if (trigger === null) return
+  const { gpxUrl, gpxFilename } = trigger.dataset
+  if (gpxUrl === undefined || gpxFilename === undefined) return
+  openGpxShareDialog({ url: gpxUrl, filename: gpxFilename })
+})
+for (const button of document.querySelectorAll<HTMLButtonElement>('[data-gpx-share-close]')) button.addEventListener('click', () => gpxShareDialog.close())
+gpxShareDialog.addEventListener('cancel', (event) => { event.preventDefault(); gpxShareDialog.close() })
+getRequiredElement<HTMLButtonElement>('[data-gpx-share-action]').addEventListener('click', () => {
+  if (currentGpxShareTarget === null) return
+  const target = currentGpxShareTarget
+  gpxShareStatus.textContent = 'Préparation du fichier…'
+  void shareGpx(target)
+    .then((result) => {
+      if (result === 'cancelled') { gpxShareStatus.textContent = ''; return }
+      gpxShareStatus.textContent = result === 'shared' ? 'Partagé.' : 'Téléchargement lancé.'
+      gpxShareDialog.close()
+    })
+    .catch((error: unknown) => {
+      gpxShareStatus.textContent = error instanceof Error ? error.message : 'Partage impossible. Vérifiez votre connexion.'
+    })
+})
+getRequiredElement<HTMLButtonElement>('[data-gpx-direct-download]').addEventListener('click', () => {
+  if (currentGpxShareTarget === null) return
+  const target = currentGpxShareTarget
+  gpxShareStatus.textContent = 'Préparation du téléchargement…'
+  void downloadGpx(target)
+    .then(() => { gpxShareStatus.textContent = 'Téléchargement lancé.'; gpxShareDialog.close() })
+    .catch((error: unknown) => {
+      gpxShareStatus.textContent = error instanceof Error ? error.message : 'Téléchargement impossible. Vérifiez votre connexion.'
+    })
+})
+
+const imageViewerDialog = getRequiredElement<HTMLDialogElement>('#image-viewer-dialog')
+imageViewerDialog.addEventListener('click', (event) => {
+  if (event.target === imageViewerDialog) imageViewerDialog.close()
+})
+for (const button of imageViewerDialog.querySelectorAll<HTMLButtonElement>('[data-image-viewer-close]')) button.addEventListener('click', () => imageViewerDialog.close())
+imageViewerDialog.addEventListener('cancel', (event) => { event.preventDefault(); imageViewerDialog.close() })
+roadbookDetailContainer.addEventListener('click', (event) => {
+  if (!(event.target instanceof Element)) return
+  const trigger = event.target.closest<HTMLElement>('[data-col-image-trigger]')
+  if (trigger === null) return
+  const { colName, colImageUrl, colImageSource } = trigger.dataset
+  if (colName === undefined || colImageUrl === undefined || colImageSource === undefined) return
+  openImageViewer(imageViewerDialog, { title: colName, imageUrl: colImageUrl, sourceLabel: colImageSource })
+})
 
 for (const tab of document.querySelectorAll<HTMLButtonElement>('[data-day-tab]')) {
   tab.addEventListener('click', () => {

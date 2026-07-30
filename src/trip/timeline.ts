@@ -200,7 +200,7 @@ function assertReadyRideDayTimeline(
   }
 
   if (
-    route.settings.averageSpeedKph !== settings.averageSpeedKph ||
+    route.settings.referenceSpeedKph !== settings.referenceSpeedKph ||
     route.settings.departureTime !== settings.departureTime ||
     pauseMinutes !== route.settings.totalBreakMinutes ||
     route.summary.pauseDurationMinutes !== route.settings.totalBreakMinutes ||
@@ -356,7 +356,7 @@ export function scheduleTripTimeline(
     try {
       const baseSettings = getDaySettings(dayProfile.day.id)
       const places = pausePlacesByDay[dayProfile.day.id] ?? []
-      const automaticAnchors = createContextualPauseAnchors(dayProfile.routeProfile, baseSettings.averageSpeedKph, places)
+      const automaticAnchors = createContextualPauseAnchors(dayProfile.routeProfile, baseSettings.referenceSpeedKph, places)
       const dayPausePlan = getPauseDayPlan(pausePlan, dayProfile.day.id)
       const customAnchorsRaw = dayPausePlan === null ? null : createCustomPauseAnchors(dayProfile.routeProfile, dayPausePlan, places)
       // A custom plan whose every saved pause has become unresolvable (all

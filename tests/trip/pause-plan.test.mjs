@@ -154,7 +154,7 @@ test('custom-mode anchors are scheduled in distance order regardless of the plan
     { id: 'far', name: 'Far', trackDistanceKm: 80, offRoute: false },
     { id: 'near', name: 'Near', trackDistanceKm: 20, offRoute: false },
   ])
-  const route = scheduleRouteTimeline({ ...base, pauseAnchors: anchors }, { averageSpeedKph: 20, departureTime: '08:00', totalBreakMinutes: 30 })
+  const route = scheduleRouteTimeline({ ...base, pauseAnchors: anchors }, { referenceSpeedKph: 20, departureTime: '08:00', totalBreakMinutes: 30 })
   const distances = route.pauses.map((pause) => pause.distanceKm)
   assert.deepEqual(distances, [...distances].sort((a, b) => a - b), 'route.pauses must come out sorted by distance')
   const near = route.pauses.find((pause) => pause.pointId === 'near')
@@ -174,7 +174,7 @@ test('custom duration recalculates ETA without adding distance for an off-route 
   }
   const plan = { dayId: 'J6', mode: 'custom', pauses: [{ id: 'tignes', active: true, placeId: 'tignes', placeName: 'Tignes', durationMinutes: 45, order: 0, origin: 'custom' }] }
   const anchors = createCustomPauseAnchors({ ...base, pauseAnchors: [] }, plan, [{ id: 'tignes', name: 'Tignes', trackDistanceKm: 50, offRoute: true }])
-  const route = scheduleRouteTimeline({ ...base, pauseAnchors: anchors }, { averageSpeedKph: 20, departureTime: '08:00', totalBreakMinutes: 45 })
+  const route = scheduleRouteTimeline({ ...base, pauseAnchors: anchors }, { referenceSpeedKph: 20, departureTime: '08:00', totalBreakMinutes: 45 })
   assert.equal(route.summary.distanceKm, 100)
   assert.equal(route.summary.pauseDurationMinutes, 45)
   assert.equal(route.summary.arrivalTimeMinutes, route.summary.departureTimeMinutes + route.summary.movingDurationMinutes + 45)

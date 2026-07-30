@@ -59,7 +59,8 @@ export interface TodayRideStatsViewModel {
   readonly elevationGainM: number
   readonly departureTime: string
   readonly arrivalTime: string
-  readonly averageSpeedKph: number
+  /** Computed output (distance / moving time) — never the configured reference speed. */
+  readonly resultingAverageSpeedKph: number
   readonly totalBreakMinutes: number
 }
 
@@ -300,7 +301,7 @@ export function buildTodayViewModel(input: BuildTodayViewModelInput): TodayViewM
       elevationGainM: readyTimeline.route.summary.elevationGainM,
       departureTime: readyTimeline.startTime,
       arrivalTime: formatRouteClockTime(readyTimeline.arrivalTime),
-      averageSpeedKph: readyTimeline.route.settings.averageSpeedKph,
+      resultingAverageSpeedKph: readyTimeline.route.summary.estimatedAverageSpeedKph,
       totalBreakMinutes: readyTimeline.route.settings.totalBreakMinutes,
     },
     mapModel,

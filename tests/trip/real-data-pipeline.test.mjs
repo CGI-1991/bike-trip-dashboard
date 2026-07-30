@@ -95,7 +95,7 @@ async function runRealPipeline(getDaySettings, pausePlan = emptyPausePlan) {
 
 function defaultDaySettings() {
   const document = createDefaultRideDaySettingsDocument()
-  return (dayId) => getRideDaySettings(document, dayId)
+  return (dayId) => ({ ...getRideDaySettings(document, dayId), referenceSpeedKph: document.referenceSpeedKph })
 }
 
 function syntheticHourly(time, locationIndex, hour) {
@@ -163,11 +163,11 @@ const j1FiftyMinutePausePlan = {
   }],
 }
 
-function j1Settings(averageSpeedKph, totalBreakMinutes = 50) {
+function j1Settings(referenceSpeedKph, totalBreakMinutes = 50) {
   const defaults = createDefaultRideDaySettingsDocument()
   return (dayId) => dayId === 'J1'
-    ? { dayId, averageSpeedKph, departureTime: '08:00', totalBreakMinutes }
-    : getRideDaySettings(defaults, dayId)
+    ? { dayId, referenceSpeedKph, departureTime: '08:00', totalBreakMinutes }
+    : { ...getRideDaySettings(defaults, dayId), referenceSpeedKph: defaults.referenceSpeedKph }
 }
 
 function readyRide(timeline, dayId) {
@@ -277,13 +277,14 @@ test('pause invariants hold for every ride day: sum equals the effective total, 
 
 test('changing J2’s settings alone never changes J1’s computed route on the real pipeline', async () => {
   const baseDocument = createDefaultRideDaySettingsDocument()
-  const baseline = await runRealPipeline((dayId) => getRideDaySettings(baseDocument, dayId))
+  const baseSettings = (dayId) => ({ ...getRideDaySettings(baseDocument, dayId), referenceSpeedKph: baseDocument.referenceSpeedKph })
+  const baseline = await runRealPipeline(baseSettings)
   const j1Baseline = baseline.timeline.days.find((day) => day.day.id === 'J1')
 
   const changed = await runRealPipeline((dayId) =>
     dayId === 'J2'
-      ? { dayId, averageSpeedKph: 14, departureTime: '06:15', totalBreakMinutes: 90 }
-      : getRideDaySettings(baseDocument, dayId),
+      ? { dayId, referenceSpeedKph: 14, departureTime: '06:15', totalBreakMinutes: 90 }
+      : baseSettings(dayId),
   )
   const j1AfterChange = changed.timeline.days.find((day) => day.day.id === 'J1')
 
@@ -404,20 +405,26 @@ test('real roadbook and GPX data receive deterministic compact weather without t
   assert.equal(timeline.summary.availableRideDays, 10)
 })
 
-test('real J1 preserves the configured moving average, applies 10+30+10 once and shows arrival-before-pause ETAs', async () => {
+test('real J1 duration reflects the Col du Feu relief instead of the flat distance/reference estimate, applies 10+30+10 once and shows arrival-before-pause ETAs', async () => {
   const { timeline, report, profile } = await runRealPipeline(j1Settings(18), j1FiftyMinutePausePlan)
   const j1 = readyRide(timeline, 'J1')
   const { route } = j1
-  const targetMovingMinutes = route.summary.distanceKm / 18 * 60
+  const flatEstimateMinutes = route.summary.distanceKm / 18 * 60
 
-  assert.ok(Math.abs(route.summary.movingDurationMinutes - targetMovingMinutes) < 1 / 60, 'moving time must be exact within one second')
-  assert.ok(Math.abs(route.summary.distanceKm / (route.summary.movingDurationMinutes / 60) - 18) < 1e-9, 'effective moving average must remain exactly 18 km/h')
+  // The real climb makes the ride take noticeably longer than the naive
+  // distance/reference-speed estimate would — this is the exact behaviour the
+  // old "renormalize to configured average" engine could never produce.
+  assert.ok(route.summary.movingDurationMinutes - flatEstimateMinutes > 30, 'terrain must add real time over the flat estimate')
+  assert.ok(Math.abs(route.summary.movingDurationMinutes - 201.56) < 0.5, 'moving time must reflect the real terrain-derived duration')
+  const resultingAverageKph = route.summary.distanceKm / (route.summary.movingDurationMinutes / 60)
+  assert.equal(resultingAverageKph, route.summary.estimatedAverageSpeedKph, 'the summary average must be the same computed value exposed to the UI')
+  assert.ok(Math.abs(resultingAverageKph - 18) > 2, 'the resulting average must be a genuine output, not an echo of the configured reference speed')
   assert.deepEqual(route.pauses.map(({ durationMinutes }) => durationMinutes), [10, 30, 10])
-  assert.equal(route.summary.pauseDurationMinutes, 50)
-  assert.ok(Math.abs(route.summary.totalDurationMinutes - (targetMovingMinutes + 50)) < 1 / 60)
-  assert.ok(Math.abs(j1.arrivalTime.totalMinutesFromDeparture - (targetMovingMinutes + 50)) < 1 / 60)
-  assert.ok(Math.abs(j1.arrivalTime.clockMinutes - (8 * 60 + targetMovingMinutes + 50)) <= 0.5, 'displayed clock is rounded to the nearest minute')
-  assert.ok(j1.arrivalTime.clockMinutes > 11 * 60 + 30 && j1.arrivalTime.clockMinutes < 11 * 60 + 40)
+  assert.equal(route.summary.pauseDurationMinutes, 50, 'the 10+30+10 break total must be added exactly once')
+  assert.ok(Math.abs(route.summary.totalDurationMinutes - (route.summary.movingDurationMinutes + 50)) < 1e-6, 'total duration is moving time plus pauses, added once')
+  assert.ok(Math.abs(j1.arrivalTime.totalMinutesFromDeparture - route.summary.totalDurationMinutes) < 1e-6)
+  assert.ok(Math.abs(j1.arrivalTime.clockMinutes - (8 * 60 + route.summary.totalDurationMinutes)) <= 0.5, 'displayed clock is rounded to the nearest minute')
+  assert.ok(j1.arrivalTime.clockMinutes > 12 * 60 && j1.arrivalTime.clockMinutes < 12 * 60 + 20, 'arrival lands close to midday once the real climb is accounted for')
   assert.equal(route.waypoints.some(({ type }) => type === 'pause-start' || type === 'pause-end'), false, 'pauses must not create waypoints')
 
   for (const pause of route.pauses) {
@@ -434,7 +441,7 @@ test('real J1 preserves the configured moving average, applies 10+30+10 once and
   assert.ok(profileDay.routeProfile.terrainSeries.every((point) => Object.values(point).every(Number.isFinite)))
 })
 
-test('real J1 at 13.2 km/h moves the arrival near 12:35 while J2 remains unchanged', async () => {
+test('lowering J1’s reference speed to 13.2 km/h scales its real terrain-based duration accordingly while J2 stays untouched', async () => {
   const fast = await runRealPipeline(j1Settings(18), j1FiftyMinutePausePlan)
   const prudent = await runRealPipeline(j1Settings(13.2), j1FiftyMinutePausePlan)
   const fastJ1 = readyRide(fast.timeline, 'J1')
@@ -442,10 +449,20 @@ test('real J1 at 13.2 km/h moves the arrival near 12:35 while J2 remains unchang
   const fastJ2 = readyRide(fast.timeline, 'J2')
   const prudentJ2 = readyRide(prudent.timeline, 'J2')
 
-  const targetMovingMinutes = prudentJ1.route.summary.distanceKm / 13.2 * 60
-  assert.ok(Math.abs(prudentJ1.route.summary.movingDurationMinutes - targetMovingMinutes) < 1 / 60)
-  assert.ok(Math.abs(prudentJ1.route.summary.distanceKm / (prudentJ1.route.summary.movingDurationMinutes / 60) - 13.2) < 1e-9)
-  assert.ok(prudentJ1.arrivalTime.clockMinutes > 12 * 60 + 30 && prudentJ1.arrivalTime.clockMinutes < 12 * 60 + 40)
+  // Neither run's moving duration matches the flat distance/reference-speed
+  // estimate (the old, now-removed behaviour) — both reflect the real climb.
+  assert.ok(Math.abs(prudentJ1.route.summary.movingDurationMinutes - prudentJ1.route.summary.distanceKm / 13.2 * 60) > 30)
+  assert.ok(Math.abs(fastJ1.route.summary.movingDurationMinutes - fastJ1.route.summary.distanceKm / 18 * 60) > 30)
+
+  // A slower reference speed still scales the terrain-weighted ("equivalent
+  // distance") duration proportionally — grade factors don't depend on the
+  // reference speed, only on the GPX relief — so the ratio between the two
+  // runs' moving durations tracks the inverse ratio of their reference speeds.
+  const durationRatio = fastJ1.route.summary.movingDurationMinutes / prudentJ1.route.summary.movingDurationMinutes
+  assert.ok(Math.abs(durationRatio - 13.2 / 18) < 1e-6, 'duration must scale with the reference speed, not reset to a flat estimate')
+
+  assert.ok(prudentJ1.route.summary.movingDurationMinutes > fastJ1.route.summary.movingDurationMinutes, 'a lower reference speed takes longer on the same relief')
+  assert.ok(prudentJ1.arrivalTime.clockMinutes > 13 * 60 + 15 && prudentJ1.arrivalTime.clockMinutes < 13 * 60 + 35)
   assert.ok(prudentJ1.arrivalTime.clockMinutes > fastJ1.arrivalTime.clockMinutes)
   assert.deepEqual(prudentJ2.route.summary, fastJ2.route.summary)
   assert.equal(prudentJ2.startTime, fastJ2.startTime)

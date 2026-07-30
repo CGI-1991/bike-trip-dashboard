@@ -8,10 +8,10 @@ import { renderTripDayRouteTimeline } from '../../src/ui/route-engine.ts'
 import { renderTripTimeline } from '../../src/ui/trip-plan.ts'
 
 const rideDaySettings = {
-  version: 1,
+  version: 2,
+  referenceSpeedKph: 18,
   days: ['J1', 'J2', 'J3', 'J4', 'J6', 'J7', 'J9', 'J10', 'J11', 'J12'].map((dayId) => ({
     dayId,
-    averageSpeedKph: 18,
     departureTime: '08:00',
     totalBreakMinutes: 60,
   })),
@@ -42,10 +42,26 @@ test('Infos owns logistics once, while diagnostics and the day editor live in se
   assert.match(html, /data-pause-save/)
   assert.match(html, /data-pause-restore/)
   assert.match(html, /data-day-departure-time/)
-  assert.match(html, /data-day-average-speed/)
-  assert.match(html, /Vitesse moyenne en mouvement/)
   assert.match(html, /data-day-total-break/)
   assert.match(html, /Réglages par étape/)
+})
+
+test('the per-day dialog footer keeps exactly three actions, and the global reference speed lives in Réglages, not per day', () => {
+  const html = renderDashboard(rideDaySettings)
+  assert.doesNotMatch(html, /data-day-average-speed/, 'speed is no longer an editable per-day field')
+  assert.doesNotMatch(html, /data-restore-day-settings/, 'per-day "restore defaults" action is removed')
+  assert.doesNotMatch(html, /data-apply-all-days/, 'the "apply to all days" action is removed')
+  const dialogStart = html.indexOf('id="pause-editor"')
+  assert.ok(dialogStart >= 0)
+  const dialogEnd = html.indexOf('</dialog>', dialogStart)
+  const dialogHtml = html.slice(dialogStart, dialogEnd)
+  const footerMatch = /<footer>([^]*?)<\/footer>/.exec(dialogHtml)
+  assert.ok(footerMatch)
+  assert.equal((footerMatch[1].match(/<button/g) ?? []).length, 3)
+  assert.match(footerMatch[1], /data-pause-save[^]*data-pause-restore[^]*data-pause-cancel/, 'Enregistrer must come first, then Restaurer le plan automatique, then Annuler')
+  assert.match(html, /data-reference-speed[^>]*value="18"/)
+  assert.match(html, /Vitesse de référence sur terrain neutre, hors pauses\. Le relief du GPX est ensuite appliqué automatiquement\./)
+  assert.match(html, /data-save-reference-speed/)
 })
 
 test('unique day header owns route metrics once', () => {
@@ -67,7 +83,7 @@ test('Parcours keeps every documented point, roadbook-only, no Détail toggle or
     { id: 'slope', type: 'slope-change', name: 'Pente', sourceFileNumber: 1, progress: progress(300, 80) },
     { id: 'end', type: 'route-end', name: 'Arrivée', sourceFileNumber: 1, progress: progress(360, 100) },
   ]
-  const route = { waypoints, pauses: [{ pointId: 'ravito', durationMinutes: 30 }], settings: { averageSpeedKph: 18, departureTime: '08:00', totalBreakMinutes: 30 }, summary: { departureTimeMinutes: 480, waypointCount: 4, totalDurationMinutes: 360, pauseDurationMinutes: 30, firstSourceFileNumber: 1, lastSourceFileNumber: 1 } }
+  const route = { waypoints, pauses: [{ pointId: 'ravito', durationMinutes: 30 }], settings: { referenceSpeedKph: 18, departureTime: '08:00', totalBreakMinutes: 30 }, summary: { departureTimeMinutes: 480, waypointCount: 4, totalDurationMinutes: 360, pauseDurationMinutes: 30, firstSourceFileNumber: 1, lastSourceFileNumber: 1 } }
   const day = { type: 'ride', status: 'ready', day: { id: 'J1', gpxNumber: 1 }, route, arrivalTime: { totalMinutesFromDeparture: 360, clockMinutes: 840, dayOffset: 0 } }
   const report = { allPointMatches: [
     { id: 'ravito', dayId: 'J1', name: 'Val-d’Isère', type: 'resupply', resolution: 'matched', matchedTrackDistanceKm: 30, matchedElevationM: 1_000, eta: { totalMinutesFromDeparture: 120, clockMinutes: 600, dayOffset: 0 }, alternatives: [], overrideApplied: false, standaloneWaypoint: false, isResupplyCandidate: true },
