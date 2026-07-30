@@ -14,8 +14,8 @@ export interface RideDaySettingsDocument {
   readonly days: readonly RideDaySettings[]
 }
 
-export const rideDaySettingsStorageKey = 'rga-2026-dashboard.ride-day-settings.v2'
-export const legacyRideDaySettingsStorageKey = 'rga-2026-dashboard.ride-day-settings.v1'
+export const rideDaySettingsStorageKey = 'bike-trip-dashboard.ride-day-settings.v2'
+export const legacyRideDaySettingsStorageKey = 'bike-trip-dashboard.ride-day-settings.v1'
 
 /** Every ride day gets exactly one entry; OFF days J5 and J8 never do. */
 export const rideDaySettingsDayIds: readonly RideDayId[] = [

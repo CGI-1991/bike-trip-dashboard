@@ -1,10 +1,25 @@
-# RGA 2026 — Tableau de bord
+# Bike Trip Dashboard
 
-Tableau de bord mobile-first pour suivre, jour par jour, la traversée cyclotouriste
-de la Route des Grandes Alpes 2026 (Thonon-les-Bains → Nice, 12 jours, 10 journées
-roulées et 2 journées OFF) : chronologie et ETA calculés depuis les traces GPX
-réelles, croisement avec le roadbook éditorial, et météo Open-Meteo adaptée à
-l'échéance de chaque journée.
+Moteur générique de voyages à vélo, hérité techniquement du dépôt
+`CGI-1991/rga-2026-dashboard`. Le voyage actuellement chargé reste la **Route des
+Grandes Alpes 2026** (Thonon-les-Bains → Nice, 12 jours, 10 journées roulées et
+2 journées OFF) : chronologie et ETA calculés depuis les traces GPX réelles,
+croisement avec le roadbook éditorial, et météo Open-Meteo adaptée à l'échéance
+de chaque journée.
+
+- Dépôt : [`CGI-1991/bike-trip-dashboard`](https://github.com/CGI-1991/bike-trip-dashboard)
+- URL GitHub Pages : <https://cgi-1991.github.io/bike-trip-dashboard/>
+- [`CDC.md`](CDC.md) — cahier des charges du moteur générique multi-voyages (cible).
+- [`CDC_RGA_2026_REFERENCE.md`](CDC_RGA_2026_REFERENCE.md) — référence
+  historique et fonctionnelle de l'application RGA 2026 héritée, conservée comme
+  cas de non-régression.
+
+La migration vers le modèle générique `TripBundle` décrit dans `CDC.md` n'a pas
+encore commencé : l'application fonctionne aujourd'hui exactement comme
+l'application RGA 2026 d'origine, avec une identité technique (nom de paquet,
+base GitHub Pages, manifeste PWA, préfixe de cache, clés de stockage) propre à
+ce nouveau dépôt. L'import GPX générique, IndexedDB et le multi-voyages ne sont
+pas implémentés.
 
 ## Stack
 
@@ -190,30 +205,33 @@ dupliquées ailleurs dans le code.
 Chacune des dix journées roulées (J1–J4, J6–J7, J9–J12 ; jamais les journées
 OFF J5/J8) a ses propres réglages — vitesse moyenne, heure de départ, durée
 totale des pauses — enregistrés dans `localStorage` sous la clé
-`rga-2026-dashboard.ride-day-settings.v1` (voir
+`bike-trip-dashboard.ride-day-settings.v2` (voir
 `src/storage/ride-day-settings.ts`). Modifier une étape ne recalcule que son
 ETA et sa météo ; les neuf autres restent inchangées, sauf action explicite
 « Appliquer ces valeurs à toutes les étapes ».
 
-L'ancien réglage global unique (`rga-2026-dashboard.settings.v1`, voir
+L'ancien réglage global unique (`bike-trip-dashboard.settings.v1`, voir
 `src/storage/settings.ts`) reste lu une seule fois, au premier chargement
 suivant cette mise à jour, comme valeur initiale commune aux dix étapes — il
 n'est plus jamais écrit ni utilisé ensuite. Ces préférences ne quittent jamais
-le navigateur.
+le navigateur. Ce namespace de stockage (`bike-trip-dashboard.*`) est propre à
+ce dépôt et ne partage aucune clé avec l'application `rga-2026-dashboard`
+d'origine, bien que les deux soient publiées sur le même origin GitHub Pages
+(`cgi-1991.github.io`).
 
 ## Cache météo
 
 Les réponses Open-Meteo sont mises en cache dans `localStorage` sous la clé
-`rga-2026-dashboard.weather.v1` (voir `src/weather/cache.ts`), avec une durée de
-fraîcheur courte (30 minutes) : la dernière réponse valide reste affichée en cas
-d'échec réseau, et une actualisation automatique est tentée quand le cache
+`bike-trip-dashboard.weather.v1` (voir `src/weather/cache.ts`), avec une durée
+de fraîcheur courte (30 minutes) : la dernière réponse valide reste affichée en
+cas d'échec réseau, et une actualisation automatique est tentée quand le cache
 devient périmé — sauf pour une journée déjà passée, qui n'est plus interrogée.
 
 ## GitHub Pages
 
 Le site est statique et publié sur GitHub Pages via
 `.github/workflows/deploy-pages.yml` à chaque push sur `main`. `vite.config.ts`
-fixe `base: '/rga-2026-dashboard/'` pour que les chemins des assets soient
+fixe `base: '/bike-trip-dashboard/'` pour que les chemins des assets soient
 corrects sous ce sous-chemin.
 
 ## Fuseau horaire

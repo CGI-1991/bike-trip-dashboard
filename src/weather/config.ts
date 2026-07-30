@@ -45,7 +45,7 @@ export const weatherConfig = {
   windSpeedUnit: 'kmh',
   precipitationUnit: 'mm',
   timeformat: 'iso8601',
-  cacheKey: 'rga-2026-dashboard.weather.v1',
+  cacheKey: 'bike-trip-dashboard.weather.v1',
   cacheVersion: 1,
   cacheFreshMs: 30 * 60_000,
   cacheMaximumEntries: 24,

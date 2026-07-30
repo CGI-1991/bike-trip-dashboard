@@ -4,7 +4,7 @@ export interface DashboardSettings {
   readonly totalBreakMinutes: number
 }
 
-export const settingsStorageKey = 'rga-2026-dashboard.settings.v1'
+export const settingsStorageKey = 'bike-trip-dashboard.settings.v1'
 
 export const defaultSettings: DashboardSettings = {
   referenceSpeedKph: 18,

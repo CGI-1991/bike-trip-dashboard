@@ -67,7 +67,7 @@ test('the offline inventory contains the shell data and exactly ten real GPX fil
 
 test('the service worker is scoped, atomic and never intercepts external weather or map requests', () => {
   const source = readFileSync(projectFile('scripts/service-worker.template.js'), 'utf8')
-  assert.match(source, /CACHE_PREFIX = 'rga-2026-'/)
+  assert.match(source, /CACHE_PREFIX = 'bike-trip-dashboard-'/)
   assert.match(source, /CACHE_VERSION = '__CACHE_VERSION__'/)
   assert.match(source, /cache\.addAll\(PRECACHE_URLS\)/)
   assert.match(source, /name\.startsWith\(CACHE_PREFIX\) && name !== CACHE_NAME/)
@@ -81,7 +81,7 @@ test('the service worker is scoped, atomic and never intercepts external weather
   assert.doesNotMatch(source, /open-meteo|openstreetmap|tileLayer/i)
 
   const viteSource = readFileSync(projectFile('vite.config.ts'), 'utf8')
-  assert.match(viteSource, /base: '\/rga-2026-dashboard\/'/)
+  assert.match(viteSource, /base: '\/bike-trip-dashboard\/'/)
   assert.match(viteSource, /fileName: 'sw\.js'/)
   assert.match(viteSource, /configResolved\(config\)[\s\S]*projectRoot = config\.root/)
   assert.match(viteSource, /hash\.update\(readFileSync\(resolve\(projectRoot, 'public', resource\)\)\)/)
@@ -89,10 +89,10 @@ test('the service worker is scoped, atomic and never intercepts external weather
 })
 
 test('service worker registration respects the GitHub Pages base and bypasses HTTP caches', async () => {
-  assert.equal(normalizeBaseUrl('rga-2026-dashboard'), '/rga-2026-dashboard/')
-  assert.equal(getServiceWorkerUrl('/rga-2026-dashboard/'), '/rga-2026-dashboard/sw.js')
+  assert.equal(normalizeBaseUrl('bike-trip-dashboard'), '/bike-trip-dashboard/')
+  assert.equal(getServiceWorkerUrl('/bike-trip-dashboard/'), '/bike-trip-dashboard/sw.js')
   let registrationCall = null
-  const registration = { scope: '/rga-2026-dashboard/' }
+  const registration = { scope: '/bike-trip-dashboard/' }
   const serviceWorker = {
     async register(url, options) {
       registrationCall = { url, options }
@@ -101,13 +101,13 @@ test('service worker registration respects the GitHub Pages base and bypasses HT
   }
 
   assert.equal(
-    await registerServiceWorker('/rga-2026-dashboard/', serviceWorker),
+    await registerServiceWorker('/bike-trip-dashboard/', serviceWorker),
     registration,
   )
   assert.deepEqual(registrationCall, {
-    url: '/rga-2026-dashboard/sw.js',
+    url: '/bike-trip-dashboard/sw.js',
     options: {
-      scope: '/rga-2026-dashboard/',
+      scope: '/bike-trip-dashboard/',
       updateViaCache: 'none',
     },
   })
@@ -158,7 +158,7 @@ test('the running service worker never serves the app shell for a GPX, JSON, ima
   }
   const sandbox = {
     self: {
-      registration: { scope: 'https://example.test/rga-2026-dashboard/' },
+      registration: { scope: 'https://example.test/bike-trip-dashboard/' },
       addEventListener: (type, listener) => listeners.set(type, listener),
       clients: { claim: async () => {} },
     },
@@ -175,14 +175,14 @@ test('the running service worker never serves the app shell for a GPX, JSON, ima
 
   async function dispatch(pathname, mode) {
     let respondWithPromise = null
-    const request = { method: 'GET', mode, url: `https://example.test/rga-2026-dashboard/${pathname}` }
+    const request = { method: 'GET', mode, url: `https://example.test/bike-trip-dashboard/${pathname}` }
     fetchHandler({ request, respondWith: (promise) => { respondWithPromise = promise } })
     return respondWithPromise === null ? null : respondWithPromise
   }
 
-  const shellUrl = 'https://example.test/rga-2026-dashboard/'
-  const gpxUrl = 'https://example.test/rga-2026-dashboard/data/gpx/01_route-des-grandes-alpes.gpx'
-  const jsonUrl = 'https://example.test/rga-2026-dashboard/data/trip/roadbook.json'
+  const shellUrl = 'https://example.test/bike-trip-dashboard/'
+  const gpxUrl = 'https://example.test/bike-trip-dashboard/data/gpx/01_route-des-grandes-alpes.gpx'
+  const jsonUrl = 'https://example.test/bike-trip-dashboard/data/trip/roadbook.json'
 
   assert.deepEqual(await dispatch('', 'navigate'), { markerFor: shellUrl }, 'a real HTML navigation still gets the shell')
   assert.deepEqual(await dispatch('data/gpx/01_route-des-grandes-alpes.gpx', 'navigate'), { markerFor: gpxUrl }, 'a GPX requested in navigate mode must never receive the shell')
