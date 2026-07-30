@@ -11,7 +11,7 @@ export type RouteWaypointType =
   | 'pause-end'
 
 export interface RouteEngineSettings {
-  readonly averageSpeedKph: number
+  readonly referenceSpeedKph: number
   readonly departureTime: string
   readonly totalBreakMinutes: number
 }
@@ -106,6 +106,7 @@ export interface RouteSummary {
   readonly minAltitudeM: number | null
   readonly maxAltitudeM: number | null
   readonly movingDurationMinutes: number
+  readonly estimatedAverageSpeedKph: number
   readonly pauseDurationMinutes: number
   readonly totalDurationMinutes: number
   readonly departureTimeMinutes: number

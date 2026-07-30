@@ -40,6 +40,12 @@ async function cachedResourceResponse(url, request) {
   return (await cache.match(url)) ?? fetch(request)
 }
 
+// GPX traces, JSON data, images, the manifest and its icons must always be
+// served as themselves — never as the app shell — even when a browser (or an
+// iOS "save file" flow) issues that request in navigate mode instead of a
+// plain resource fetch.
+const RESOURCE_EXTENSION_PATTERN = /\.(?:gpx|json|png|jpe?g|svg|webp|gif|ico|webmanifest)$/i
+
 self.addEventListener('fetch', (event) => {
   const { request } = event
   if (request.method !== 'GET') return
@@ -50,13 +56,15 @@ self.addEventListener('fetch', (event) => {
     !requestUrl.pathname.startsWith(scopeUrl.pathname)
   ) return
 
-  if (request.mode === 'navigate') {
+  requestUrl.search = ''
+  const isKnownResource = PRECACHE_SET.has(requestUrl.href) || RESOURCE_EXTENSION_PATTERN.test(requestUrl.pathname)
+
+  if (request.mode === 'navigate' && !isKnownResource) {
     event.respondWith(cachedShellResponse())
     return
   }
 
-  requestUrl.search = ''
-  if (PRECACHE_SET.has(requestUrl.href)) {
+  if (isKnownResource) {
     event.respondWith(cachedResourceResponse(requestUrl.href, request))
   }
 })

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { existsSync, readFileSync } from 'node:fs'
 import test from 'node:test'
+import vm from 'node:vm'
 
 import { offlineResources } from '../../scripts/offline-resources.mjs'
 import {
@@ -73,7 +74,8 @@ test('the service worker is scoped, atomic and never intercepts external weather
   assert.match(source, /caches\.delete\(name\)/)
   assert.match(source, /requestUrl\.origin !== scopeUrl\.origin/)
   assert.match(source, /requestUrl\.pathname\.startsWith\(scopeUrl\.pathname\)/)
-  assert.match(source, /request\.mode === 'navigate'/)
+  assert.match(source, /request\.mode === 'navigate' && !isKnownResource/)
+  assert.match(source, /RESOURCE_EXTENSION_PATTERN.*gpx.*json/)
   assert.match(source, /cachedShellResponse\(\)/)
   assert.doesNotMatch(source, /skipWaiting/)
   assert.doesNotMatch(source, /open-meteo|openstreetmap|tileLayer/i)
@@ -137,6 +139,56 @@ test('the online state controls a discreet, reversible offline indicator', () =>
   assert.equal(element.hidden, false)
   unbind()
   assert.equal(listeners.size, 0)
+})
+
+test('the running service worker never serves the app shell for a GPX, JSON, image or manifest request, even in navigate mode', async () => {
+  const template = readFileSync(projectFile('scripts/service-worker.template.js'), 'utf8')
+  const source = template
+    .replace('__CACHE_VERSION__', 'test')
+    .replace('__BUILD_ASSETS__', JSON.stringify(['assets/app.js']))
+    .replace('__OFFLINE_RESOURCES__', JSON.stringify(['data/gpx/01_route-des-grandes-alpes.gpx', 'data/trip/roadbook.json']))
+
+  const listeners = new Map()
+  const fakeCache = {
+    addAll: async () => {},
+    match: async (urlOrRequest) => {
+      const url = typeof urlOrRequest === 'string' ? urlOrRequest : urlOrRequest.url
+      return { markerFor: url }
+    },
+  }
+  const sandbox = {
+    self: {
+      registration: { scope: 'https://example.test/rga-2026-dashboard/' },
+      addEventListener: (type, listener) => listeners.set(type, listener),
+      clients: { claim: async () => {} },
+    },
+    caches: { open: async () => fakeCache, keys: async () => [], delete: async () => true },
+    fetch: async () => { throw new Error('a real network fetch should never be needed for an already-cached resource in this test') },
+    URL,
+    Promise,
+  }
+  vm.createContext(sandbox)
+  vm.runInContext(source, sandbox)
+
+  const fetchHandler = listeners.get('fetch')
+  assert.equal(typeof fetchHandler, 'function')
+
+  async function dispatch(pathname, mode) {
+    let respondWithPromise = null
+    const request = { method: 'GET', mode, url: `https://example.test/rga-2026-dashboard/${pathname}` }
+    fetchHandler({ request, respondWith: (promise) => { respondWithPromise = promise } })
+    return respondWithPromise === null ? null : respondWithPromise
+  }
+
+  const shellUrl = 'https://example.test/rga-2026-dashboard/'
+  const gpxUrl = 'https://example.test/rga-2026-dashboard/data/gpx/01_route-des-grandes-alpes.gpx'
+  const jsonUrl = 'https://example.test/rga-2026-dashboard/data/trip/roadbook.json'
+
+  assert.deepEqual(await dispatch('', 'navigate'), { markerFor: shellUrl }, 'a real HTML navigation still gets the shell')
+  assert.deepEqual(await dispatch('data/gpx/01_route-des-grandes-alpes.gpx', 'navigate'), { markerFor: gpxUrl }, 'a GPX requested in navigate mode must never receive the shell')
+  assert.deepEqual(await dispatch('data/gpx/01_route-des-grandes-alpes.gpx', 'no-cors'), { markerFor: gpxUrl })
+  assert.deepEqual(await dispatch('data/trip/roadbook.json', 'navigate'), { markerFor: jsonUrl })
+  assert.equal(await dispatch('assets/some-unlisted-chunk.js', 'no-cors'), null, 'an unlisted same-origin asset falls through to the network unmodified')
 })
 
 test('HTML installation metadata uses the Vite base placeholder', () => {

@@ -46,7 +46,7 @@ test('Parcours is built only from documented points — no technical route-start
   const route = {
     waypoints: [],
     pauses: [],
-    settings: { averageSpeedKph: 18, departureTime: '08:00', totalBreakMinutes: 0 },
+    settings: { referenceSpeedKph: 18, departureTime: '08:00', totalBreakMinutes: 0 },
     summary: { departureTimeMinutes: 480, waypointCount: 2, totalDurationMinutes: 360, pauseDurationMinutes: 0, firstSourceFileNumber: 1, lastSourceFileNumber: 1 },
   }
   const report = {
@@ -73,7 +73,7 @@ test('J1 resolves the precise departure/arrival labels through the roadbook day 
   const route = {
     waypoints,
     pauses: [],
-    settings: { averageSpeedKph: 18, departureTime: '08:00', totalBreakMinutes: 0 },
+    settings: { referenceSpeedKph: 18, departureTime: '08:00', totalBreakMinutes: 0 },
     summary: { departureTimeMinutes: 480, waypointCount: 2, totalDurationMinutes: 360, pauseDurationMinutes: 0, firstSourceFileNumber: 1, lastSourceFileNumber: 1 },
   }
   const startPoint = { id: 'j01-start', dayId: 'J1', name: 'Thonon-les-Bains', type: 'start', resolution: 'matched', matchMethod: 'endpoint', matchedTrackDistanceKm: 0, matchedElevationM: 400, eta: { totalMinutesFromDeparture: 0, clockMinutes: 480, dayOffset: 0 }, linkedWaypointId: 'route-start-1', alternatives: [], overrideApplied: false, standaloneWaypoint: false }

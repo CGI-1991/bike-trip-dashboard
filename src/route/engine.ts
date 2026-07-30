@@ -2,8 +2,8 @@ import { calculateHaversineDistanceKm } from '../gpx/parser.ts'
 import type { GpxAnalysisSuccess, GpxTrackPoint } from '../gpx/types.ts'
 import { routeEngineConfig } from './config.ts'
 import type { RouteEngineConfig } from './config.ts'
-import { buildTerrainProfileSeries, createNormalizedTerrainTiming, interpolateTerrainTiming } from './terrain-profile.ts'
-import type { NormalizedTerrainTiming } from './terrain-profile.ts'
+import { buildTerrainProfileSeries, createTerrainTiming, interpolateTerrainTiming } from './terrain-profile.ts'
+import type { TerrainTiming } from './terrain-profile.ts'
 import type {
   RouteEngineSettings,
   RoutePause,
@@ -872,7 +872,7 @@ function parseDepartureTime(value: string): number {
 }
 
 function validateSettings(settings: RouteEngineSettings): void {
-  if (!Number.isFinite(settings.averageSpeedKph) || settings.averageSpeedKph <= 0) {
+  if (!Number.isFinite(settings.referenceSpeedKph) || settings.referenceSpeedKph <= 0) {
     throw new Error('La vitesse moyenne doit être strictement positive.')
   }
 
@@ -967,7 +967,7 @@ function createProgress(
   position: RouteProfilePosition,
   departureTimeMinutes: number,
   scheduledPauses: readonly ScheduledPause[],
-  timing: NormalizedTerrainTiming,
+  timing: TerrainTiming,
 ): RouteProgress {
   const terrain = interpolateTerrainTiming(timing, position.distanceKm)
   const movingElapsedMinutes = terrain.movingElapsedMinutes
@@ -1105,7 +1105,7 @@ export function scheduleRouteTimeline(
 
   const departureTimeMinutes = parseDepartureTime(settings.departureTime)
   const fallbackSeries = profile.waypointSeeds.map(({ position }) => ({ distanceKm: position.distanceKm, elevationM: position.altitudeM ?? 0, smoothedGradePercent: position.localSlopePercent, latitude: position.latitude, longitude: position.longitude })).sort((a, b) => a.distanceKm - b.distanceKm)
-  const timing = createNormalizedTerrainTiming(profile.terrainSeries?.length ? profile.terrainSeries : fallbackSeries, profile.summary.distanceKm, settings.averageSpeedKph)
+  const timing = createTerrainTiming(profile.terrainSeries?.length ? profile.terrainSeries : fallbackSeries, profile.summary.distanceKm, settings.referenceSpeedKph)
   const scheduledPauses = createScheduledPauses(profile, settings.totalBreakMinutes)
   const standardWaypoints: RouteWaypoint[] = profile.waypointSeeds.map((seed) => ({
     id: seed.id,
@@ -1215,6 +1215,7 @@ export function scheduleRouteTimeline(
       minAltitudeM: profile.summary.minAltitudeM,
       maxAltitudeM: profile.summary.maxAltitudeM,
       movingDurationMinutes,
+      estimatedAverageSpeedKph: profile.summary.distanceKm / (movingDurationMinutes / 60),
       pauseDurationMinutes: settings.totalBreakMinutes,
       totalDurationMinutes,
       departureTimeMinutes,

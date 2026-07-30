@@ -17,9 +17,9 @@ function routeTimeline(dayId = 'J1') {
       type: 'ride', status: 'ready', day, startTime: '08:00',
       arrivalTime: { totalMinutesFromDeparture: 215.5, clockMinutes: 695, dayOffset: 0 },
       route: {
-        settings: { averageSpeedKph: 18, departureTime: '08:00', totalBreakMinutes: 50 },
+        settings: { referenceSpeedKph: 18, departureTime: '08:00', totalBreakMinutes: 50 },
         pauses: [], waypoints: [], segments: [],
-        summary: { distanceKm: 49.6, elevationGainM: 1_557, movingDurationMinutes: 165.5, pauseDurationMinutes: 50, totalDurationMinutes: 215.5, departureTimeMinutes: 480, arrivalTimeMinutes: 695.5 },
+        summary: { distanceKm: 49.6, elevationGainM: 1_557, movingDurationMinutes: 165.5, estimatedAverageSpeedKph: 17.98, pauseDurationMinutes: 50, totalDurationMinutes: 215.5, departureTimeMinutes: 480, arrivalTimeMinutes: 695.5 },
       },
     }],
     summary: {},
@@ -85,36 +85,38 @@ test('Today selection is timezone-driven and never follows the last selected Voy
   assert.equal(build(new Date('2026-08-24T12:00:00Z'), { timeline: routeTimeline('J12') }).statusLabel, 'Voyage terminé')
 })
 
-test('a complete ride model exposes route, six stats, compact map, three weather points, alert, lodging and two primary actions', () => {
+test('the model still computes the full weather/accommodation data even though the Aperçu card only shows a compact summary', () => {
   const model = build(new Date('2026-08-12T08:00:00Z'), { weatherSnapshot: { selectedDayId: 'J10', states: new Map([['J1', rideWeatherState()]]) } })
   assert.equal(model.type, 'ride')
-  assert.equal(model.stats.averageSpeedKph, 18)
+  assert.equal(model.stats.resultingAverageSpeedKph, 17.98)
   assert.equal(model.stats.totalBreakMinutes, 50)
   assert.ok(model.mapModel.coordinates.length >= 2)
   assert.deepEqual(model.weather.points.map(({ role }) => role), ['start', 'main-col', 'end'])
   assert.equal(model.weather.primaryAlert.level, 'red')
   assert.equal(model.accommodation.name, 'Hôtel Le Soly')
+  assert.equal(model.accommodation.address, '234 Route de la Manche, 74110 Morzine')
   assert.match(model.gpxHref, /01_route-des-grandes-alpes/)
+})
+
+test('the compact Aperçu stage card renders only identity, four stats, the map, one weather line, a short alert and two actions', () => {
+  const model = build(new Date('2026-08-12T08:00:00Z'), { weatherSnapshot: { selectedDayId: 'J10', states: new Map([['J1', rideWeatherState()]]) } })
   const container = { innerHTML: '', dataset: {} }
   renderTodayView(container, model)
-  assert.equal((container.innerHTML.match(/<dt>/g) ?? []).length, 6)
+  assert.match(container.innerHTML, /J1 · Thonon-les-Bains → Morzine/)
+  assert.equal((container.innerHTML.match(/<dt>/g) ?? []).length, 4, 'only distance, D+, départ and ETA — no average speed or break time row')
   assert.match(container.innerHTML, /data-today-route-map/)
-  assert.match(container.innerHTML, />Voir la journée<\/a>/)
-  assert.match(container.innerHTML, />Télécharger le GPX<\/a>/)
-  assert.match(container.innerHTML, />Voir le site<\/a>/)
-  assert.match(container.innerHTML, /target="_blank" rel="noopener noreferrer"/)
-  assert.match(container.innerHTML, /class="today-weather__summary"/)
-  assert.match(container.innerHTML, /class="today-weather__status">Météo disponible/)
-  assert.doesNotMatch(container.innerHTML, /MétéoMétéo disponible/)
-  assert.match(container.innerHTML, /class="today-weather-point__role">Départ/)
-  assert.match(container.innerHTML, /class="today-weather-point__role">Col principal/)
-  assert.match(container.innerHTML, /class="today-weather-point__role">Arrivée/)
-  assert.match(container.innerHTML, /<small>Heure<\/small>/)
-  assert.match(container.innerHTML, /<small>Altitude<\/small>/)
-  assert.match(container.innerHTML, /<small>Temp\.<\/small>/)
-  assert.match(container.innerHTML, /<small>Pluie<\/small>/)
-  assert.match(container.innerHTML, /<small>Rafales<\/small>/)
-  assert.match(container.innerHTML, /Alerte rouge/)
+  assert.match(container.innerHTML, />Voir l’étape<\/a>/)
+  assert.match(container.innerHTML, /data-overview-gpx-trigger[^>]*data-gpx-url="[^"]*01_route-des-grandes-alpes[^"]*"[^>]*>GPX</)
+  assert.equal((container.innerHTML.match(/class="today-weather-compact"/g) ?? []).length, 1, 'exactly one synthetic weather line')
+  assert.equal((container.innerHTML.match(/class="today-alert today-alert--/g) ?? []).length, 1, 'exactly one short alert')
+  assert.match(container.innerHTML, /today-alert--red/)
+
+  // The three detailed weather cards, per-point breakdowns, accommodation
+  // block/address and its Maps/website buttons are all gone from the Aperçu —
+  // they remain available in the day's own detail screen instead.
+  assert.doesNotMatch(container.innerHTML, /today-weather-point|today-weather__status|today-weather__summary|today-weather-points/)
+  assert.doesNotMatch(container.innerHTML, /Hôtel Le Soly|234 Route de la Manche/)
+  assert.doesNotMatch(container.innerHTML, />Ouvrir dans Maps<|>Voir le site<|today-accommodation/)
   assert.doesNotMatch(container.innerHTML, /NaN|undefined/)
 })
 
@@ -128,12 +130,18 @@ test('outside-horizon weather is explicitly current and non-forecast, with no fa
   assert.equal(model.weather.primaryAlert, null)
 })
 
-test('missing accommodation produces only the local confirmation fallback', () => {
-  const model = build(new Date('2026-08-01T12:00:00Z'), { accommodations: [] })
-  assert.equal(model.accommodation, null)
+test('the Aperçu card never renders accommodation content, whether it is missing or confirmed', () => {
+  const withoutAccommodation = build(new Date('2026-08-01T12:00:00Z'), { accommodations: [] })
+  assert.equal(withoutAccommodation.accommodation, null)
   const container = { innerHTML: '', dataset: {} }
-  renderTodayView(container, model)
-  assert.match(container.innerHTML, /Hébergement à confirmer/)
+  renderTodayView(container, withoutAccommodation)
+  assert.doesNotMatch(container.innerHTML, /Hébergement/)
+
+  const withAccommodation = build(new Date('2026-08-12T08:00:00Z'))
+  assert.equal(withAccommodation.accommodation.name, 'Hôtel Le Soly')
+  const container2 = { innerHTML: '', dataset: {} }
+  renderTodayView(container2, withAccommodation)
+  assert.doesNotMatch(container2.innerHTML, /Hébergement|Hôtel Le Soly/)
 })
 
 test('an OFF day has recovery, lodging and one action, but no cycling map, stats or GPX', () => {
@@ -141,37 +149,43 @@ test('an OFF day has recovery, lodging and one action, but no cycling map, stats
   const model = build(new Date('2026-08-16T12:00:00Z'), { timeline: routeTimeline('J5'), roadbookReport, gpx: null })
   assert.equal(model.type, 'off')
   assert.equal(model.locationName, 'Bourg-Saint-Maurice')
-  assert.ok(model.recoveryText.includes('Repos.'))
+  assert.ok(model.recoveryText.includes('Repos.'), 'the model keeps the full recovery text even though the compact card no longer shows it')
   const container = { innerHTML: '', dataset: {} }
   renderTodayView(container, model)
   assert.match(container.innerHTML, />OFF</)
-  assert.doesNotMatch(container.innerHTML, /today-metrics|data-today-route-map|Télécharger le GPX|Vitesse moyenne/)
-  assert.equal((container.innerHTML.match(/>Voir la journée<\/a>/g) ?? []).length, 1)
+  assert.match(container.innerHTML, /Bourg-Saint-Maurice/)
+  assert.doesNotMatch(container.innerHTML, /today-metrics|data-today-route-map|data-overview-gpx-trigger|Moyenne estimée résultante|Repos\./, 'no cycling stats/map/GPX, and the detailed recovery text is left to the day’s own Infos tab')
+  assert.equal((container.innerHTML.match(/>Voir l’étape<\/a>/g) ?? []).length, 1)
 })
 
-test('local failures preserve title, date, lodging and day action without false zeros or exceptions', () => {
+test('local failures (no timeline, no weather, no GPX) preserve title and the day action without false zeros or exceptions, and still never render accommodation', () => {
   const model = build(new Date('2026-08-01T12:00:00Z'), { timeline: null, weatherSnapshot: { selectedDayId: 'J1', states: new Map() }, gpx: null })
   assert.equal(model.type, 'ride')
   assert.equal(model.stats, null)
   assert.equal(model.mapModel, null)
+  assert.equal(model.accommodation.name, 'Hôtel Le Soly', 'the model still resolves accommodation even when the timeline/weather/GPX are unavailable')
   const container = { innerHTML: '', dataset: {} }
   assert.doesNotThrow(() => renderTodayView(container, model))
   assert.match(container.innerHTML, /Calcul de l’étape temporairement indisponible/)
   assert.match(container.innerHTML, /Météo temporairement indisponible/)
   assert.match(container.innerHTML, /Carte temporairement indisponible/)
-  assert.match(container.innerHTML, /Hôtel Le Soly/)
-  assert.match(container.innerHTML, />Voir la journée<\/a>/)
+  assert.doesNotMatch(container.innerHTML, /Hôtel Le Soly/, 'accommodation is never rendered in the compact Aperçu card, even when it is the only thing available')
+  assert.match(container.innerHTML, />Voir l’étape<\/a>/)
   assert.doesNotMatch(container.innerHTML, /NaN|0 km|0 °C/)
 })
 
-test('Today implementation is independent from Voyage and Météo DOM', () => {
+test('Aperçu (renderToday) is independent from Voyage and Météo DOM, and still renders the embedded stage card via buildTodayViewModel', () => {
   const source = readFileSync(new URL('../../src/main.ts', import.meta.url), 'utf8')
   const start = source.indexOf('function renderToday(): void')
   const end = source.indexOf('\nfunction refreshRoadbookIntegration', start)
   const renderTodaySource = source.slice(start, end)
-  assert.doesNotMatch(renderTodaySource, /tripPlanContainer|weatherPanel|textContent|innerHTML|trip-day__weather-line|weather-waypoint--next/)
-  assert.match(renderTodaySource, /buildTodayViewModel/)
+  assert.doesNotMatch(renderTodaySource, /tripPlanContainer|weatherPanel|trip-day__weather-line|weather-waypoint--next/)
+  assert.match(renderTodaySource, /buildOverviewViewModel/)
+  assert.match(renderTodaySource, /renderOverviewView/)
   assert.match(renderTodaySource, /renderTodayView/)
   const modelSource = readFileSync(new URL('../../src/ui/today-view-model.ts', import.meta.url), 'utf8')
   assert.doesNotMatch(modelSource, /fetch\(|OpenMeteo|WeatherCoordinator|querySelector|textContent|innerHTML/)
+  const overviewModelSource = readFileSync(new URL('../../src/ui/overview-view-model.ts', import.meta.url), 'utf8')
+  assert.match(overviewModelSource, /buildTodayViewModel/)
+  assert.doesNotMatch(overviewModelSource, /fetch\(|OpenMeteo|WeatherCoordinator|querySelector|textContent|innerHTML/)
 })

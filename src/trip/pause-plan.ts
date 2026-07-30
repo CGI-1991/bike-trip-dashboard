@@ -83,10 +83,10 @@ function pickNearestUnusedPlace(
 
 export function createContextualPauseAnchors(
   profile: RouteProfile,
-  averageSpeedKph: number,
+  referenceSpeedKph: number,
   places: readonly PausePlace[],
 ): readonly RouteProfilePauseAnchor[] {
-  const count = getPauseCount((profile.summary.weightedDistanceKm / averageSpeedKph) * 60)
+  const count = getPauseCount((profile.summary.weightedDistanceKm / referenceSpeedKph) * 60)
   const usedPlaceIds = new Set<string>()
   const anchors: RouteProfilePauseAnchor[] = []
 

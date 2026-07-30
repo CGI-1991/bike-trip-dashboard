@@ -80,12 +80,12 @@ function buildProfile(readyDayIds) {
 }
 
 const settingsByDay = {
-  J1: { averageSpeedKph: 18, departureTime: '08:00', totalBreakMinutes: 30 },
-  J2: { averageSpeedKph: 16, departureTime: '07:30', totalBreakMinutes: 75 },
+  J1: { referenceSpeedKph: 18, departureTime: '08:00', totalBreakMinutes: 30 },
+  J2: { referenceSpeedKph: 16, departureTime: '07:30', totalBreakMinutes: 75 },
 }
 
 function getDaySettings(dayId) {
-  return settingsByDay[dayId] ?? { averageSpeedKph: 18, departureTime: '08:00', totalBreakMinutes: 60 }
+  return settingsByDay[dayId] ?? { referenceSpeedKph: 18, departureTime: '08:00', totalBreakMinutes: 60 }
 }
 
 const pausePlacesByDay = {
@@ -100,11 +100,11 @@ test('each ride day uses its own settings — J1 and J2 get independent speed, d
   const j1 = timeline.days.find((day) => day.day.id === 'J1')
   const j2 = timeline.days.find((day) => day.day.id === 'J2')
 
-  assert.equal(j1.route.settings.averageSpeedKph, 18)
+  assert.equal(j1.route.settings.referenceSpeedKph, 18)
   assert.equal(j1.route.settings.departureTime, '08:00')
   assert.equal(j1.startTime, '08:00')
 
-  assert.equal(j2.route.settings.averageSpeedKph, 16)
+  assert.equal(j2.route.settings.referenceSpeedKph, 16)
   assert.equal(j2.route.settings.departureTime, '07:30')
   assert.equal(j2.startTime, '07:30')
 
@@ -121,7 +121,7 @@ test('changing J2 alone never changes J1’s computed route', () => {
 
   const changed = scheduleTripTimeline(
     profile,
-    (dayId) => (dayId === 'J2' ? { averageSpeedKph: 10, departureTime: '05:00', totalBreakMinutes: 5 } : getDaySettings(dayId)),
+    (dayId) => (dayId === 'J2' ? { referenceSpeedKph: 10, departureTime: '05:00', totalBreakMinutes: 5 } : getDaySettings(dayId)),
     undefined,
     pausePlacesByDay,
   )

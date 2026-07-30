@@ -37,3 +37,31 @@ test('expanded Leaflet invalidates its final layout before the single GPX fit', 
   assert.match(source, /requestAnimationFrame\([\s\S]*dialog\.open[\s\S]*invalidateBeforeInitialFit: true/)
   assert.equal((source.match(/fitBounds\(/g) ?? []).length, 1)
 })
+
+test('every compact map wrapper (.route-map) gets its own local stacking context so Leaflet panes can never escape above the fixed bottom nav', () => {
+  const css = readFileSync(new URL('../../src/style.css', import.meta.url), 'utf8')
+  // .route-map is the one shared wrapper class for the day-detail compact
+  // card, the Aperçu global map and the Aperçu stage's small map
+  // (.route-map--today) — fixing it once covers all of them.
+  assert.match(css, /\.route-map \{[^}]*position: relative;[^}]*isolation: isolate;[^}]*z-index: 0;[^}]*overflow: hidden/s)
+  // The fix must not touch Leaflet's own internal panes/controls globally.
+  assert.doesNotMatch(css, /^\.leaflet-pane\s*\{/m)
+  assert.doesNotMatch(css, /^\.leaflet-marker-pane\s*\{/m)
+  assert.doesNotMatch(css, /^\.leaflet-popup-pane\s*\{/m)
+  assert.doesNotMatch(css, /^\.leaflet-control\s*\{/m)
+})
+
+test('the bottom navigation and the fullscreen map dialog both stay above the isolated compact map stacking context', () => {
+  const css = readFileSync(new URL('../../src/style.css', import.meta.url), 'utf8')
+  assert.match(css, /\.app-nav \{[^}]*position: fixed;[^}]*z-index: 20/s)
+  // The fullscreen map is a native <dialog> shown with showModal(): the
+  // browser's top-layer already renders it above every regular positioned
+  // element (including .app-nav) regardless of z-index, and its own header
+  // additionally carries a z-index well above the nav for defense in depth.
+  assert.match(css, /\.route-map-dialog > header \{[^}]*z-index: 1200/s)
+})
+
+test('the practical layers panel still stacks above the expanded map inside the fullscreen dialog', () => {
+  const css = readFileSync(new URL('../../src/style.css', import.meta.url), 'utf8')
+  assert.match(css, /\.practical-layers-backdrop \{[^}]*z-index: 1090/s)
+})

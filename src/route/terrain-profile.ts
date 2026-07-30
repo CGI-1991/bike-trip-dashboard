@@ -2,6 +2,10 @@ import type { RouteProfilePosition, TerrainProfilePoint, TerrainTimingPoint } fr
 
 const EPSILON = 1e-9
 
+/** Business guardrails for terrain-derived local cycling speeds. */
+export const MIN_LOCAL_SPEED_KPH = 3
+export const MAX_DESCENT_SPEED_KPH = 55
+
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value))
 }
@@ -82,37 +86,35 @@ export function getTerrainSpeedFactor(gradePercent: number): number {
   return span <= EPSILON ? upper[1] : interpolateNumber(lower[1], upper[1], clamp((grade - lower[0]) / span, 0, 1))
 }
 
-export interface NormalizedTerrainTiming {
+export interface TerrainTiming {
   readonly points: readonly TerrainTimingPoint[]
   readonly totalMovingMinutes: number
 }
 
-export function createNormalizedTerrainTiming(series: readonly TerrainProfilePoint[], totalDistanceKm: number, averageSpeedKph: number): NormalizedTerrainTiming {
-  if (!(averageSpeedKph > 0) || !(totalDistanceKm > 0) || series.length < 2) throw new Error('Profil temporel invalide.')
-  const rawMinutes: number[] = [0]
-  let rawTotal = 0
+export function createTerrainTiming(series: readonly TerrainProfilePoint[], totalDistanceKm: number, referenceSpeedKph: number): TerrainTiming {
+  if (!(referenceSpeedKph > 0) || !(totalDistanceKm > 0) || series.length < 2) throw new Error('Profil temporel invalide.')
+  const elapsedMinutes: number[] = [0]
+  let totalMovingMinutes = 0
   for (let index = 1; index < series.length; index++) {
     const previous = series[index - 1] as TerrainProfilePoint
     const point = series[index] as TerrainProfilePoint
     const distance = Math.max(0, point.distanceKm - previous.distanceKm)
     const factor = Math.max(0.1, (getTerrainSpeedFactor(previous.smoothedGradePercent) + getTerrainSpeedFactor(point.smoothedGradePercent)) / 2)
-    rawTotal += distance / factor
-    rawMinutes.push(rawTotal)
+    const localSpeedKph = clamp(referenceSpeedKph * factor, MIN_LOCAL_SPEED_KPH, MAX_DESCENT_SPEED_KPH)
+    const intervalMinutes = (distance / localSpeedKph) * 60
+    if (!Number.isFinite(intervalMinutes) || intervalMinutes < 0) throw new Error('Temps local de terrain invalide.')
+    totalMovingMinutes += intervalMinutes
+    elapsedMinutes.push(totalMovingMinutes)
   }
-  const targetMinutes = (totalDistanceKm / averageSpeedKph) * 60
-  if (!(rawTotal > EPSILON) || !Number.isFinite(rawTotal)) throw new Error('Pondération temporelle invalide.')
-  const scale = targetMinutes / rawTotal
+  if (!(totalMovingMinutes > EPSILON) || !Number.isFinite(totalMovingMinutes)) throw new Error('Pondération temporelle invalide.')
   const points = series.map((point, index): TerrainTimingPoint => {
-    const previous = series[Math.max(0, index - 1)] as TerrainProfilePoint
-    const distance = Math.max(EPSILON, point.distanceKm - previous.distanceKm)
-    const elapsedDelta = index === 0 ? 0 : ((rawMinutes[index] as number) - (rawMinutes[index - 1] as number)) * scale
-    const localSpeedKph = index === 0 ? averageSpeedKph : distance / Math.max(elapsedDelta / 60, EPSILON)
-    return { ...point, movingElapsedMinutes: (rawMinutes[index] as number) * scale, localSpeedKph: Number.isFinite(localSpeedKph) ? localSpeedKph : averageSpeedKph }
+    const localSpeedKph = clamp(referenceSpeedKph * getTerrainSpeedFactor(point.smoothedGradePercent), MIN_LOCAL_SPEED_KPH, MAX_DESCENT_SPEED_KPH)
+    return { ...point, movingElapsedMinutes: elapsedMinutes[index] as number, localSpeedKph }
   })
-  return { points, totalMovingMinutes: targetMinutes }
+  return { points, totalMovingMinutes }
 }
 
-export function interpolateTerrainTiming(timing: NormalizedTerrainTiming, distanceKm: number): TerrainTimingPoint {
+export function interpolateTerrainTiming(timing: TerrainTiming, distanceKm: number): TerrainTimingPoint {
   const points = timing.points
   const afterIndex = points.findIndex((point) => point.distanceKm >= distanceKm)
   const after = points[afterIndex < 0 ? points.length - 1 : afterIndex] as TerrainTimingPoint

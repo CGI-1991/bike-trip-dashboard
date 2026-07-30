@@ -31,7 +31,9 @@ const expandedOpeners = new WeakMap<HTMLDialogElement, HTMLButtonElement>()
 const expandedHistory = new WeakMap<HTMLDialogElement, MapOverlayHistoryController>()
 const scrollUnlocks = new WeakMap<HTMLDialogElement, () => void>()
 const pendingFrames = new WeakMap<HTMLDialogElement, number>()
-function destroy(container: HTMLElement): void { const map = mapInstances.get(container); if (map !== undefined) { map.remove(); mapInstances.delete(container) } }
+/** Exported so other map screens (e.g. the trip-wide overview map) can destroy their own Leaflet instances the same way. */
+export function destroyRouteMap(container: HTMLElement): void { const map = mapInstances.get(container); if (map !== undefined) { map.remove(); mapInstances.delete(container) } }
+function destroy(container: HTMLElement): void { destroyRouteMap(container) }
 
 function shapeStyle(shape: RouteMarkerShape): string {
   if (shape === 'circle') return 'border-radius: 50%;'
@@ -65,14 +67,19 @@ function markerTooltip(marker: RouteMapMarkerModel): string {
 
 function toLatLng(tuple: readonly [number, number]): L.LatLngTuple { return [tuple[0], tuple[1]] }
 
-interface CreateMapOptions {
+export interface CreateRouteMapOptions {
   readonly interactive: boolean
   readonly fitPadding: L.PointExpression
   readonly maxInitialZoom?: number
   readonly invalidateBeforeInitialFit?: boolean
 }
 
-function createMap(container: HTMLElement, model: RouteMapModel, options: CreateMapOptions, onTileError: () => void): L.Map {
+/**
+ * Shared Leaflet instantiation (tiles, polyline, markers, fit-bounds) so every
+ * map screen renders identically and stays a single place to fix map bugs —
+ * used directly by the trip-wide overview map, not just this day's map.
+ */
+export function createRouteMap(container: HTMLElement, model: RouteMapModel, options: CreateRouteMapOptions, onTileError: () => void): L.Map {
   destroy(container)
   const interactive = options.interactive
   const map = L.map(container, { attributionControl: true, dragging: interactive, touchZoom: interactive, doubleClickZoom: interactive, boxZoom: interactive, keyboard: interactive, scrollWheelZoom: false, zoomControl: interactive, tapHold: interactive })
@@ -114,7 +121,7 @@ export function renderCompactRouteMapModel(container: HTMLElement, model: RouteM
   container.innerHTML = '<div class="route-map__canvas" data-today-route-map-canvas></div><p class="route-map__fallback" hidden data-today-route-map-fallback>Fond de carte indisponible. Le tracé reste accessible dans le détail.</p>'
   const canvas = container.querySelector<HTMLElement>('[data-today-route-map-canvas]') as HTMLElement
   const fallback = container.querySelector<HTMLElement>('[data-today-route-map-fallback]') as HTMLElement
-  createMap(canvas, model, { interactive: false, fitPadding: [12, 12] }, () => { fallback.hidden = false })
+  createRouteMap(canvas, model, { interactive: false, fitPadding: [12, 12] }, () => { fallback.hidden = false })
 }
 
 export function renderRouteMap(container: HTMLElement, dialog: HTMLDialogElement, gpx: GpxAnalysisSuccess | null, timeline: RideDayTimeline | null, report: RoadbookMatchReport | null, accommodation: Accommodation | null, practicalData: PracticalData | null = null): void {
@@ -132,7 +139,7 @@ export function renderRouteMap(container: HTMLElement, dialog: HTMLDialogElement
   const model = buildRouteMapModel(gpx, timeline, report, accommodation)
   container.innerHTML = '<div class="route-map__canvas" data-route-map-canvas></div><p class="route-map__fallback" hidden data-route-map-fallback>Fond de carte indisponible. Le tracé reste accessible dans le profil.</p>'
   const canvas = container.querySelector<HTMLElement>('[data-route-map-canvas]') as HTMLElement; const fallback = container.querySelector<HTMLElement>('[data-route-map-fallback]') as HTMLElement
-  createMap(canvas, model, { interactive: false, fitPadding: [12, 12] }, () => { fallback.hidden = false })
+  createRouteMap(canvas, model, { interactive: false, fitPadding: [12, 12] }, () => { fallback.hidden = false })
   renderLegend(container)
   const expanded = dialog.querySelector<HTMLElement>('[data-route-map-expanded]') as HTMLElement
   const open = dialog.previousElementSibling?.querySelector<HTMLButtonElement>('[data-explore-map]')
@@ -178,7 +185,7 @@ export function renderRouteMap(container: HTMLElement, dialog: HTMLDialogElement
         pendingFrames.delete(dialog)
         if (!dialog.open) return
         try {
-          map = createMap(
+          map = createRouteMap(
             expanded,
             model,
             {

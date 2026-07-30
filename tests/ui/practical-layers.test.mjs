@@ -27,7 +27,7 @@ test('practical markers are installed only after the expanded GPX map is created
   assert.doesNotMatch(source.slice(compactStart, expandedStart), /Practical|practical/)
   assert.match(
     source.slice(expandedStart),
-    /map = createMap\([\s\S]*invalidateBeforeInitialFit: true[\s\S]*installPracticalLayerPanel\(dialog, map, practicalData, timeline\.day\.id/,
+    /map = createRouteMap\([\s\S]*invalidateBeforeInitialFit: true[\s\S]*installPracticalLayerPanel\(dialog, map, practicalData, timeline\.day\.id/,
   )
   assert.equal((source.match(/fitBounds\(/g) ?? []).length, 1)
 })

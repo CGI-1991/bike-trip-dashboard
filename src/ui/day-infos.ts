@@ -1,3 +1,4 @@
+import { findColImage } from '../trip/col-images.ts'
 import type { RoadbookDayMatchReport } from '../trip/roadbook-match.ts'
 import type { RoadbookClimb } from '../trip/roadbook-types.ts'
 
@@ -23,7 +24,10 @@ function descriptions(values: readonly { readonly description: string }[]): read
 }
 
 function renderClimb(climb: RoadbookClimb): string {
-  return `<li class="day-infos__col"><header><strong>${escapeHtml(climb.name)}</strong><span>${integerFormatter.format(climb.elevationM)} m</span></header><dl><div><dt>Montée</dt><dd>${decimalFormatter.format(climb.distanceKm)} km</dd></div><div><dt>D+</dt><dd>${integerFormatter.format(climb.elevationGainM)} m</dd></div><div><dt>Pente moyenne</dt><dd>${decimalFormatter.format(climb.averageGradientPercent)} %</dd></div></dl></li>`
+  const image = findColImage(climb.name)
+  const body = `<header><strong>${escapeHtml(climb.name)}</strong><span>${integerFormatter.format(climb.elevationM)} m</span></header><dl><div><dt>Montée</dt><dd>${decimalFormatter.format(climb.distanceKm)} km</dd></div><div><dt>D+</dt><dd>${integerFormatter.format(climb.elevationGainM)} m</dd></div><div><dt>Pente moyenne</dt><dd>${decimalFormatter.format(climb.averageGradientPercent)} %</dd></div></dl>`
+  if (image === null) return `<li class="day-infos__col">${body}</li>`
+  return `<li class="day-infos__col day-infos__col--clickable"><button type="button" class="day-infos__col-trigger" data-col-image-trigger data-col-name="${escapeHtml(climb.name)}" data-col-image-url="${escapeHtml(image.imageUrl)}" data-col-image-source="${escapeHtml(image.sourceLabel)}" aria-label="Voir le profil du ${escapeHtml(climb.name)}">${body}</button></li>`
 }
 
 function renderClimbs(climbs: readonly RoadbookClimb[]): string {
