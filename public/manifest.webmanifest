@@ -1,8 +1,8 @@
 {
   "id": "./",
-  "name": "RGA 2026 – Route des Grandes Alpes",
-  "short_name": "RGA 2026",
-  "description": "Tableau de bord mobile du voyage RGA 2026, disponible hors ligne.",
+  "name": "Bike Trip Dashboard",
+  "short_name": "Bike Trip",
+  "description": "Préparation et consultation de voyages à vélo, disponible hors ligne.",
   "lang": "fr",
   "start_url": "./",
   "scope": "./",

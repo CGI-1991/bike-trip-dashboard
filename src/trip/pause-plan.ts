@@ -1,7 +1,7 @@
 import type { RouteProfile, RouteProfilePauseAnchor, RouteProfilePosition } from '../route/types.ts'
 import type { RideDayId } from './types.ts'
 
-export const pausePlanStorageKey = 'rga-2026-dashboard.pause-plan.v1'
+export const pausePlanStorageKey = 'bike-trip-dashboard.pause-plan.v1'
 export type PausePlanMode = 'automatic' | 'custom'
 
 export interface PausePlanItem {

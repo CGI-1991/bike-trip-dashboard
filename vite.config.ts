@@ -9,7 +9,7 @@ function offlineServiceWorkerPlugin() {
   let projectRoot = ''
 
   return {
-    name: 'rga-offline-service-worker',
+    name: 'bike-trip-offline-service-worker',
     configResolved(config) {
       projectRoot = config.root
     },
@@ -44,7 +44,7 @@ function offlineServiceWorkerPlugin() {
 }
 
 export default defineConfig({
-  base: '/rga-2026-dashboard/',
+  base: '/bike-trip-dashboard/',
   plugins: [offlineServiceWorkerPlugin()],
   server: {
     watch: {

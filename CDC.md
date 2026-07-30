@@ -1,909 +1,1836 @@
-# CDC — Dashboard RGA 2026
-## Version consolidée après mise en place de l’environnement, de l’interface, des GPX et du moteur d’itinéraire
+# Cahier des charges — Moteur générique de voyages à vélo
+
+**Projet cible :** nouveau dépôt dérivé de `CGI-1991/rga-2026-dashboard`
+**Nom de travail recommandé :** `CGI-1991/bike-trip-dashboard`
+**Version du CDC :** 1.0
+**Date :** 30 juillet 2026
 
 ---
 
-## 0. Statut du document
+## 1. Objet du projet
 
-Ce document remplace les versions antérieures du cahier des charges.
+Créer une application web progressive générique capable de générer, préparer et consulter un voyage à vélo à partir d’un ou plusieurs fichiers GPX, tout en conservant le niveau fonctionnel déjà atteint par l’application RGA 2026.
 
-Il constitue la référence fonctionnelle et technique du projet `rga-2026-dashboard` pour Codex, Claude Code et toute intervention manuelle ultérieure.
+Le nouveau projet doit :
 
-Les décisions prises pendant le développement priment sur les hypothèses initiales devenues obsolètes.
-
-### Décisions désormais figées
-
-- Le voyage comporte **12 jours calendaires**.
-- Il comporte **10 journées roulées** et **2 journées OFF**.
-- Les journées OFF sont intégrées dans la chronologie du voyage :
-  - **J5 — OFF à Bourg-Saint-Maurice** ;
-  - **J8 — OFF à Briançon**.
-- Les 10 journées roulées correspondent aux 10 fichiers GPX réels déjà fournis.
-- Il ne faut plus parler de 8 étapes.
-- La destination finale de la version RGA 2026 est **Nice**, pas Menton.
-- Les fichiers GPX constituent la source géométrique de référence.
-- Le roadbook constitue la source métier de référence pour les journées, les noms, les cols, les passages, les ravitaillements, les notes et les jours OFF.
-- Les statistiques GPX calculées peuvent différer des statistiques éditoriales du roadbook, notamment pour le D+ et le D−. Les deux valeurs doivent rester distinguables et leur origine documentée.
+- partir de la base technique et visuelle stable de l’application RGA 2026 ;
+- être développé dans un nouveau dépôt ;
+- conserver la RGA 2026 comme voyage de référence et cas de non-régression ;
+- devenir multi-voyages ;
+- accepter un apport externe minimal ;
+- fonctionner en priorité avec un ou plusieurs GPX ;
+- enrichir automatiquement les données à partir de sources ouvertes ;
+- permettre l’ajout de compléments après import ;
+- rester utilisable hors ligne ;
+- ne dépendre d’aucune image externe pour les profils de cols ou de montées ;
+- ne pas imposer de serveur applicatif ni de compte utilisateur pour la V1.
 
 ---
 
-# 1. Objet
+## 2. Stratégie de dépôt
 
-Développer une application web mobile-first, rapide, gratuite et autonome servant de tableau de bord de voyage pour la Route des Grandes Alpes 2026.
+### 2.1. Dépôt actuel
 
-La météo reste la fonction principale. L’application doit transformer les prévisions disponibles le long de chaque journée roulée en informations immédiatement exploitables pendant une itinérance à vélo.
+Le dépôt actuel reste dédié à l’application opérationnelle RGA 2026 :
 
-L’application doit également structurer le voyage complet : journées roulées, journées OFF, progression, heures estimées de passage, cols, villages, ravitaillements, alertes et accès aux informations pratiques.
+`CGI-1991/rga-2026-dashboard`
 
-Elle est destinée à deux personnes et utilisée principalement sur iPhone via un lien web, avec possibilité d’ajout à l’écran d’accueil.
+Il conserve :
 
-La priorité absolue est la RGA 2026. L’architecture doit rester suffisamment claire pour permettre une généralisation future, sans transformer la V1 en moteur universel.
+- la version stable utilisée pour la RGA ;
+- les correctifs ciblés ;
+- le déploiement GitHub Pages actuel ;
+- la référence visuelle et métier ;
+- un historique restaurable.
+
+Aucune refonte générique lourde ne doit être développée dans ce dépôt.
+
+### 2.2. Nouveau dépôt
+
+Créer un nouveau dépôt, par exemple :
+
+`CGI-1991/bike-trip-dashboard`
+
+Ce dépôt doit être initialisé à partir du dernier commit stable de l’application RGA 2026.
+
+Le nouveau dépôt devient :
+
+- le moteur générique ;
+- l’application multi-voyages ;
+- le laboratoire de migration ;
+- la future application principale.
+
+### 2.3. Historique Git
+
+La méthode recommandée est de conserver l’historique Git du dépôt RGA.
+
+Créer des tags de séparation :
+
+Dans le dépôt RGA :
+
+```text
+rga-stable-before-generic-engine
+```
+
+Dans le nouveau dépôt :
+
+```text
+inherited-rga-dashboard-baseline
+```
+
+Premier commit spécifique au nouveau projet :
+
+```text
+chore: initialize generic cycling trip engine
+```
 
 ---
 
-# 2. Chronologie de référence du voyage
+## 3. Vision produit
 
-Le voyage comprend **12 jours calendaires**, dans l’ordre suivant.
+L’utilisateur doit pouvoir :
 
-| Jour | Type | Parcours / lieu | Source GPX |
-|---:|---|---|---|
-| J1 | Roulé | Thonon-les-Bains → Morzine | GPX 01 |
-| J2 | Roulé | Morzine → Le Grand-Bornand | GPX 02 |
-| J3 | Roulé | Le Grand-Bornand → Beaufort-sur-Doron | GPX 03 |
-| J4 | Roulé | Beaufort-sur-Doron → Bourg-Saint-Maurice | GPX 04 |
-| J5 | OFF | Bourg-Saint-Maurice | aucun GPX |
-| J6 | Roulé | Bourg-Saint-Maurice → Val-Cenis | GPX 05 |
-| J7 | Roulé | Val-Cenis → Briançon | GPX 06 |
-| J8 | OFF | Briançon | aucun GPX |
-| J9 | Roulé | Briançon → Barcelonnette | GPX 07 |
-| J10 | Roulé | Barcelonnette → Saint-Étienne-de-Tinée, variante Bonette | GPX 08 |
-| J11 | Roulé | Saint-Étienne-de-Tinée → Saint-Martin-Vésubie, variante | GPX 09 |
-| J12 | Roulé | Saint-Martin-Vésubie → Nice | GPX 10 |
-
-## 2.1 Conséquences fonctionnelles
-
-- Une journée OFF est une vraie journée du voyage.
-- Elle doit apparaître dans les vues Aujourd’hui et Voyage.
-- Elle ne possède ni GPX, ni distance roulée, ni ETA cycliste.
-- Elle peut posséder : lieu, hébergement, météo locale, checklist, activités, services et notes logistiques.
-- Le lendemain d’une journée OFF, les horaires repartent du nouvel horaire de départ configuré ; aucun temps de roulage ne traverse une nuit ou une journée OFF.
-- Les numéros GPX et les numéros de jours ne coïncident plus après J4 : GPX 05 correspond à J6, GPX 06 à J7, GPX 07 à J9, etc.
+1. importer un ou plusieurs GPX ;
+2. obtenir immédiatement un voyage exploitable ;
+3. laisser l’application générer :
+   - les étapes ;
+   - les statistiques ;
+   - les profils altimétriques ;
+   - les montées ;
+   - les cols ;
+   - les durées ;
+   - les ETA ;
+   - les points météo ;
+   - les lieux pratiques ;
+   - les cartes ;
+   - les pauses ;
+4. compléter ensuite :
+   - les dates ;
+   - les jours OFF ;
+   - les logements ;
+   - les notes ;
+   - les horaires ;
+   - les points imposés ;
+   - les corrections ;
+5. utiliser le voyage dans la même logique d’interface que la RGA actuelle ;
+6. utiliser l’application hors ligne ;
+7. exporter le voyage ;
+8. réimporter le voyage sur un autre appareil.
 
 ---
 
-# 3. Objectifs utilisateur
+## 4. Principes directeurs
 
-## 3.1 Avant le voyage
+### 4.1. Local-first
 
-Obtenir une vue synthétique de l’ensemble des 12 jours :
+Le fonctionnement principal doit rester local :
 
-- distinction claire entre journée roulée et journée OFF ;
-- température minimale et maximale par jour ;
-- précipitations ;
-- vent moyen et rafales ;
-- risques météo significatifs ;
-- niveau de confiance ou disponibilité de la prévision ;
-- cols, secteurs exposés et journées longues ;
-- principales informations logistiques des jours OFF.
+- import local des GPX ;
+- calculs géométriques locaux ;
+- stockage local ;
+- profils générés localement ;
+- enrichissements externes facultatifs ;
+- consultation hors ligne ;
+- export de sauvegarde.
 
-L’application informe. Elle ne décide pas des bagages ni des vêtements.
+### 4.2. Enrichissements non bloquants
 
-## 3.2 Chaque matin d’une journée roulée
+Une indisponibilité d’OSM, Open-Meteo ou d’un autre fournisseur ne doit jamais empêcher :
 
-Permettre de comprendre rapidement :
+- l’import ;
+- le calcul du parcours ;
+- le calcul de la durée ;
+- l’affichage du profil ;
+- l’enregistrement du voyage ;
+- la consultation hors ligne.
 
-- si l’horaire de départ reste adapté ;
-- si un départ avancé ou différé réduit un risque ;
-- quels cols ou secteurs sont exposés ;
-- les heures estimées aux points clés ;
-- la météo attendue à ces heures ;
-- les principaux points de ravitaillement ;
-- la durée estimée de roulage et de pauses ;
-- l’heure d’arrivée estimée.
+### 4.3. Sources, enrichissements et dérivés séparés
 
-## 3.3 Chaque matin d’une journée OFF
+Les données doivent être organisées en trois niveaux.
+
+#### Sources utilisateur
+
+- GPX originaux ;
+- dates ;
+- logements ;
+- notes ;
+- overrides ;
+- réglages.
+
+#### Données enrichies
+
+- noms de localités ;
+- points OSM ;
+- cols OSM ;
+- prévisions météo ;
+- altitude corrigée ;
+- hébergements suggérés.
+
+#### Données dérivées
+
+- distance ;
+- D+ ;
+- D− ;
+- profils ;
+- montées ;
+- durée ;
+- ETA ;
+- progression ;
+- pauses automatiques.
+
+Les données dérivées doivent pouvoir être recalculées sans altérer les sources.
+
+### 4.4. Provenance
+
+Chaque donnée enrichie doit conserver :
+
+- sa source ;
+- sa date de récupération ;
+- la version du moteur ;
+- son niveau de confiance ;
+- son éventuelle modification manuelle.
+
+Toute correction manuelle doit toujours primer sur une régénération automatique.
+
+---
+
+## 5. Format de l’application
+
+### 5.1. Technologie
+
+Conserver :
+
+- TypeScript strict ;
+- Vite ;
+- PWA installable ;
+- service worker unique ;
+- interface responsive ;
+- fonctionnement sur GitHub Pages ;
+- navigation compatible mobile ;
+- fonctionnement sans compte ;
+- aucune dépendance obligatoire à un serveur.
+
+### 5.2. Navigation principale
+
+Conserver exactement trois entrées principales :
+
+1. Aperçu
+2. Voyage
+3. Réglages
+
+Le gestionnaire de voyages et l’assistant d’import sont accessibles depuis Réglages.
+
+### 5.3. Deux modes
+
+#### Mode consultation
+
+- Aperçu ;
+- liste des jours ;
+- détail étape ;
+- Parcours ;
+- Météo ;
+- Infos ;
+- cartes ;
+- profils de montées ;
+- lieux pratiques ;
+- GPX ;
+- réglages.
+
+#### Mode préparation
+
+- nouveau voyage ;
+- import GPX ;
+- réordonnancement ;
+- calendrier ;
+- enrichissement ;
+- contrôle ;
+- logements ;
+- corrections ;
+- export.
+
+---
+
+## 6. Apport externe minimal
+
+### 6.1. Mode express
+
+Entrée obligatoire :
+
+- un ou plusieurs fichiers GPX.
+
+Le moteur doit générer immédiatement :
+
+- le voyage ;
+- une étape par GPX ;
+- la carte générale ;
+- les statistiques ;
+- les profils ;
+- les montées ;
+- les durées ;
+- les réglages par défaut ;
+- les pauses automatiques ;
+- les ETA relatives.
+
+La date peut rester indéfinie.
+
+Dans ce cas :
+
+- aucune météo réelle ;
+- aucun faux état temporel ;
+- affichage `Date du voyage à définir` ;
+- le reste de l’application reste utilisable.
+
+### 6.2. Compléments facultatifs
+
+- nom du voyage ;
+- date de départ ;
+- fuseau horaire ;
+- jours OFF ;
+- heure de départ ;
+- vitesse de référence ;
+- logement ;
+- lien Maps ;
+- site web ;
+- notes ;
+- point de passage ;
+- point à masquer ;
+- profil visuel personnalisé.
+
+### 6.3. Plan B enrichi
+
+Apport conseillé :
+
+- GPX ;
+- date de départ ;
+- éventuels jours OFF ;
+- lien Maps de chaque logement.
+
+Tout le reste reste généré ou complété dans l’application.
+
+---
+
+## 7. Import GPX
+
+### 7.1. Fonctions attendues
+
+Prévoir :
+
+- sélection multiple ;
+- glisser-déposer sur ordinateur ;
+- import depuis Fichiers sur mobile ;
+- affichage du nom et de la taille ;
+- contrôle du format ;
+- ordre manuel ;
+- suppression avant validation ;
+- détection des doublons ;
+- prévisualisation ;
+- rapport d’erreurs.
+
+### 7.2. Cas standards
+
+#### Plusieurs GPX
+
+Par défaut :
+
+- un GPX = une étape ;
+- l’ordre affiché = l’ordre du voyage ;
+- aucune fusion silencieuse ;
+- aucune subdivision silencieuse.
+
+#### Un GPX unique
+
+Créer une étape unique.
+
+#### Un GPX long
+
+Proposer un découpage automatique facultatif.
+
+Le GPX original reste intact.
+
+#### Plusieurs tracks ou segments
+
+Afficher les éléments détectés et proposer :
+
+- conserver comme une étape ;
+- créer une étape par track ;
+- créer une étape par segment ;
+- ignorer certains segments.
+
+#### Waypoints
+
+Importer comme candidats :
+
+- cols ;
+- sommets ;
+- pauses ;
+- ravitaillements ;
+- hébergements ;
+- notes ;
+- points de passage.
+
+---
+
+## 8. Modèle de données générique
+
+Créer un format versionné `TripBundle`.
+
+Structure conceptuelle :
+
+```text
+TripBundle
+├── schemaVersion
+├── metadata
+├── calendar
+├── days
+├── stages
+├── sourceFiles
+├── routes
+├── climbs
+├── routePoints
+├── practicalPlaces
+├── accommodations
+├── weather
+├── settings
+├── overrides
+├── enrichmentMetadata
+└── generatedMetadata
+```
+
+### 8.1. TripMetadata
+
+- id ;
+- slug ;
+- nom ;
+- description ;
+- date de création ;
+- date de modification ;
+- date de début ;
+- date de fin ;
+- fuseau horaire ;
+- langue ;
+- unités ;
+- statut ;
+- version du schéma ;
+- version du moteur.
+
+### 8.2. TripDay
+
+- id ;
+- index ;
+- numéro affiché ;
+- date ;
+- type :
+  - ride ;
+  - off ;
+  - transfer ;
+- stageId ;
+- lieu de départ ;
+- lieu d’arrivée ;
+- logement ;
+- notes ;
+- réglages ;
+- état d’enrichissement.
+
+### 8.3. RideStage
+
+- id ;
+- dayId ;
+- sourceRouteId ;
+- nom ;
+- départ ;
+- arrivée ;
+- distance ;
+- D+ ;
+- D− ;
+- altitude minimale ;
+- altitude maximale ;
+- durée roulée ;
+- pauses ;
+- durée totale ;
+- moyenne estimée ;
+- chronologie ;
+- météo ;
+- montées ;
+- lieux ;
+- état de validation.
+
+### 8.4. SourceFile
+
+- id ;
+- nom d’origine ;
+- type MIME ;
+- taille ;
+- date de modification ;
+- hash SHA-256 ;
+- Blob ;
+- date d’import ;
+- statut de parsing ;
+- erreurs.
+
+### 8.5. Provenance
+
+```ts
+type DataProvenance = {
+  sourceType:
+    | "user"
+    | "gpx"
+    | "osm"
+    | "open-meteo"
+    | "generated"
+    | "migrated";
+  sourceId?: string;
+  fetchedAt?: string;
+  engineVersion: string;
+  confidence?: "high" | "medium" | "low";
+  manuallyOverridden: boolean;
+};
+```
+
+---
+
+## 9. Stockage
+
+### 9.1. IndexedDB
+
+Utiliser IndexedDB comme source de vérité pour :
+
+- voyages ;
+- GPX ;
+- géométries ;
+- montées ;
+- lieux ;
+- logements ;
+- météo ;
+- réglages ;
+- overrides ;
+- caches ;
+- imports.
+
+### 9.2. Object stores recommandés
+
+```text
+trips
+sourceFiles
+stages
+routeGeometries
+climbs
+routePoints
+practicalPlaces
+accommodations
+weatherCache
+tripSettings
+overrides
+importJobs
+providerCache
+schemaMigrations
+```
+
+### 9.3. localStorage
+
+Limiter localStorage à :
+
+- activeTripId ;
+- préférences légères ;
+- état de navigation ;
+- état de migration.
+
+Ne pas y stocker les GPX ou les gros objets.
+
+### 9.4. Import atomique
+
+Pipeline :
+
+1. créer un importJob ;
+2. analyser les fichiers ;
+3. construire un TripBundle provisoire ;
+4. valider ;
+5. écrire dans une transaction ;
+6. marquer prêt ;
+7. proposer comme voyage actif.
+
+En cas d’erreur :
+
+- rollback ;
+- voyage précédent conservé ;
+- rapport affiché.
+
+### 9.5. Persistance
+
+Demander `navigator.storage.persist()` lorsque disponible.
 
 Afficher :
 
-- lieu de la journée OFF ;
-- météo locale ;
-- récupération et logistique prévues ;
-- check vélo ;
-- courses, lessive ou activités éventuelles ;
-- aperçu de la journée roulée suivante.
-
-## 3.4 Pendant une journée roulée
-
-Permettre de modifier discrètement :
-
-- l’heure réelle de départ ;
-- la vitesse moyenne de base ;
-- les durées de pauses ;
-- éventuellement le profil prudent / normal ;
-- éventuellement la journée active.
-
-Après modification, les ETA et la météo associée doivent être recalculées.
+- stockage persistant ;
+- stockage non garanti ;
+- dernière sauvegarde ;
+- recommandation d’export.
 
 ---
 
-# 4. Périmètre V1
+## 10. Export et sauvegarde
 
-## 4.1 Inclus
+### 10.1. Export complet
 
-- application web statique ;
-- interface française ;
-- mobile-first, iPhone prioritaire ;
-- fonctionnement desktop ;
-- déploiement GitHub Pages ;
-- 12 jours de voyage préconfigurés ;
-- 10 GPX réels ;
-- 2 journées OFF intercalées ;
-- parsing GPX côté navigateur ;
-- données statiques du roadbook ;
-- moteur d’itinéraire ;
-- ETA par journée roulée ;
-- points clés ;
-- météo réelle via Open-Meteo ;
-- vue Aujourd’hui ;
-- vue Voyage ;
-- détail d’une journée ;
-- alertes contextualisées ;
-- réglages persistants ;
-- carte légère ou lien cartographique ;
-- actualisation à l’ouverture et manuelle ;
-- cache local du dernier résultat valide ;
-- aucun compte ;
-- aucun backend ;
-- aucune notification push.
+Ajouter :
 
-## 4.2 Hors périmètre V1
+`Exporter le voyage`
 
-- import GPX universel depuis l’interface ;
-- éditeur complet d’itinéraire ;
-- synchronisation multi-appareils ;
-- comptes utilisateurs ;
-- notifications ;
-- backend ;
-- base de données distante ;
-- application native ;
-- recommandations automatiques de bagages ;
-- moteur physiologique avancé ;
-- navigation turn-by-turn ;
-- remplacement d’un GPS vélo.
-
----
-
-# 5. État technique déjà réalisé
-
-Le projet dispose déjà des éléments suivants :
-
-- dépôt GitHub public `CGI-1991/rga-2026-dashboard` ;
-- projet Vite Vanilla TypeScript ;
-- TypeScript strict ;
-- Node portable fonctionnel ;
-- compatibilité lecteur réseau Windows avec watcher Vite en polling ;
-- compatibilité certificats d’entreprise via `NODE_USE_SYSTEM_CA=1` ;
-- workflow GitHub Pages ;
-- base Vite configurée sur `/rga-2026-dashboard/` ;
-- interface mobile-first initiale ;
-- réglages avec `localStorage` ;
-- 10 GPX placés sous `public/data/gpx/` ;
-- manifeste GPX statique ;
-- parser GPX sans dépendance externe ;
-- analyse des 10 traces ;
-- moteur d’itinéraire initial avec correction de vitesse selon la pente ;
-- waypoints automatiques ;
-- build et serveur local fonctionnels.
-
-Toute nouvelle intervention doit préserver ces acquis sauf demande explicite.
-
----
-
-# 6. Sources et hiérarchie des données
-
-## 6.1 Sources
-
-1. **GPX découpés 01 à 10** : géométrie et profil altimétrique.
-2. **Roadbook RGA** : ordre des journées, jours OFF, noms, cols, villages, ravitaillements, notes et logique du voyage.
-3. **GPX global** : contrôle de continuité éventuel.
-4. **Google My Maps / POI** : enrichissement secondaire.
-
-## 6.2 Hiérarchie de confiance
-
-- Coordonnées et tracé : GPX.
-- Ordre des 12 jours : roadbook.
-- Correspondance journée ↔ GPX : table explicite du présent CDC.
-- Noms des lieux et points clés : roadbook, puis validation géographique.
-- Distance : valeur GPX calculée comme valeur technique principale, valeur roadbook conservée comme référence éditoriale si utile.
-- D+ / D− : valeur GPX calculée avec méthode documentée ; ne pas remplacer silencieusement par une autre valeur.
-- Jours OFF : roadbook, jamais déduits des GPX.
-
-## 6.3 Aucune invention silencieuse
-
-- Ne jamais inventer de coordonnées.
-- Ne jamais faire correspondre un POI à un tracé sans contrôle de distance.
-- Ne jamais transformer une journée OFF en étape roulée.
-- Ne jamais fusionner ou supprimer des journées sans décision explicite.
-
----
-
-# 7. Modèle de données du voyage
-
-## 7.1 Entité principale
-
-Le modèle principal est un `TripPlan` contenant exactement 12 `TripDay` ordonnés.
-
-```ts
-type TripDayType = 'ride' | 'off';
-
-interface TripPlan {
-  id: string;
-  name: string;
-  timezone: 'Europe/Paris';
-  totalDays: 12;
-  rideDays: 10;
-  offDays: 2;
-  days: TripDay[];
-}
-```
-
-## 7.2 Journée roulée
-
-```ts
-interface RideDay {
-  id: 'J1' | 'J2' | 'J3' | 'J4' | 'J6' | 'J7' | 'J9' | 'J10' | 'J11' | 'J12';
-  dayNumber: number;
-  type: 'ride';
-  gpxNumber: number;
-  gpxFile: string;
-  name: string;
-  startName: string;
-  endName: string;
-  variant?: string;
-  roadbookStats?: {
-    distanceKm?: number;
-    elevationGainM?: number;
-    elevationLossM?: number;
-  };
-  cols: RoadbookPoint[];
-  resupplyPoints: RoadbookPoint[];
-  notes: string[];
-}
-```
-
-## 7.3 Journée OFF
-
-```ts
-interface OffDay {
-  id: 'J5' | 'J8';
-  dayNumber: 5 | 8;
-  type: 'off';
-  locationName: string;
-  title: string;
-  logistics: string[];
-  activities: string[];
-  notes: string[];
-  nextRideDayId: string;
-}
-```
-
-## 7.4 Point du roadbook
-
-```ts
-interface RoadbookPoint {
-  id: string;
-  type: 'start' | 'end' | 'col' | 'summit' | 'village' | 'resupply' | 'shelter' | 'lodging' | 'poi';
-  name: string;
-  elevationM?: number;
-  latitude?: number;
-  longitude?: number;
-  matchedTrackDistanceKm?: number;
-  matchDistanceM?: number;
-  source: 'roadbook' | 'gpx' | 'manual';
-  status: 'matched' | 'unmatched' | 'needs-review';
-}
-```
-
----
-
-# 8. Données GPX
-
-## 8.1 Fichiers
-
-Les 10 GPX restent des ressources statiques dans :
+Format recommandé :
 
 ```text
-public/data/gpx/
+nom-du-voyage.biketrip
 ```
 
-Le catalogue reste externe au TypeScript :
+Archive ZIP contenant :
 
 ```text
-public/data/gpx/manifest.json
+manifest.json
+sources/*.gpx
+data/trip.json
+data/stages.json
+data/climbs.json
+data/places.json
+data/accommodations.json
+data/overrides.json
+data/settings.json
+metadata/providers.json
 ```
 
-## 8.2 Parsing
+### 10.2. Import de bundle
 
-Le parser doit continuer à gérer :
+Ajouter :
 
-- namespaces GPX ;
-- `trk`, `trkseg`, `trkpt`, `ele` ;
-- plusieurs segments ;
-- altitudes manquantes ponctuelles ;
-- erreurs isolées par fichier ;
-- calcul Haversine ;
-- ordre numérique robuste.
+`Importer un voyage`
 
-## 8.3 Dénivelé
+Vérifier :
 
-Les D+ et D− bruts sont sensibles au bruit altimétrique.
+- version du schéma ;
+- compatibilité ;
+- signatures ;
+- fichiers obligatoires ;
+- espace disponible ;
+- migrations.
 
-La V1 peut conserver les valeurs brutes pour transparence, mais doit prévoir une méthode de lissage documentée pour les valeurs affichées au grand public.
-
-Toute méthode de lissage doit :
-
-- être centralisée ;
-- être testable ;
-- ne jamais remplacer silencieusement les données brutes ;
-- permettre d’afficher ou journaliser les deux valeurs.
+Aucun contenu actif ne doit être exécuté depuis l’archive.
 
 ---
 
-# 9. Moteur d’itinéraire et ETA
+## 11. Analyse GPX
 
-## 9.1 Principe fondamental
+### 11.1. Compatibilité
 
-Le calcul se fait **séparément pour chaque journée roulée**.
+Supporter :
 
-Il est interdit de produire une chronologie continue sur plusieurs jours comme si les cyclistes roulaient sans dormir.
+- GPX 1.0 ;
+- GPX 1.1 ;
+- namespaces variables ;
+- tracks ;
+- routes ;
+- segments ;
+- waypoints ;
+- altitude facultative ;
+- timestamps facultatifs.
 
-Chaque journée roulée :
+### 11.2. Validation
 
-- commence à son horaire de départ ;
-- applique ses pauses ;
-- se termine à son ETA d’arrivée ;
-- ne transmet aucun temps écoulé à la journée suivante.
+Détecter :
 
-Les journées OFF interrompent explicitement la séquence de roulage.
+- XML invalide ;
+- coordonnées absentes ;
+- valeurs non finies ;
+- trace vide ;
+- doublons ;
+- sauts aberrants ;
+- altitude incohérente ;
+- timestamps non monotones ;
+- extensions inconnues.
 
-## 9.2 Paramètres
+### 11.3. Représentations
+
+Conserver :
+
+- GPX original ;
+- données brutes ;
+- série normalisée ;
+- géométrie complète ;
+- géométrie simplifiée ;
+- profil rééchantillonné.
+
+### 11.4. Rééchantillonnage
+
+Pas initial recommandé :
+
+- 50 m.
+
+Créer plusieurs niveaux :
+
+- calcul complet ;
+- profil ;
+- mini-carte ;
+- carte générale.
+
+---
+
+## 12. Altitude
+
+### 12.1. Priorité
+
+Utiliser l’altitude du GPX lorsqu’elle est suffisamment complète.
+
+### 12.2. Qualité
+
+Mesurer :
+
+- points sans altitude ;
+- plateaux artificiels ;
+- pics ;
+- bruit ;
+- valeurs impossibles ;
+- résolution.
+
+### 12.3. Correction facultative
+
+Lorsque nécessaire :
+
+- proposer `Améliorer les altitudes` ;
+- conserver les altitudes originales ;
+- stocker la correction séparément ;
+- permettre le retour à la source.
+
+### 12.4. Lissage
+
+Créer une altitude lissée pour :
+
+- pente ;
+- D+ ;
+- montées ;
+- ETA.
+
+Le lissage doit être déterministe et testé.
+
+---
+
+## 13. Détection des montées et cols
+
+### 13.1. Objectif
+
+Détecter automatiquement :
+
+- les ascensions vers un col ;
+- les montées majeures ;
+- les montées finales vers un point remarquable ;
+- les montées sans nom ;
+- les deux versants d’un même col selon le trajet.
+
+### 13.2. Sources
+
+Utiliser :
+
+1. profil altimétrique GPX ;
+2. waypoints GPX ;
+3. points OSM proches :
+   - `mountain_pass=yes` ;
+   - `natural=saddle` ;
+   - sommets pertinents ;
+4. overrides utilisateur.
+
+Le GPX reste la source géométrique.
+
+### 13.3. Méthode
+
+Pour chaque sommet ou col :
+
+1. projeter sur la trace ;
+2. déterminer le kilomètre ;
+3. parcourir la trace vers l’arrière ;
+4. rechercher la séquence ascendante finale ;
+5. tolérer de courtes descentes ;
+6. tolérer de courts replats ;
+7. détecter le point bas cohérent ;
+8. calculer longueur, D+, pente ;
+9. valider selon les seuils.
+
+### 13.4. Règles initiales
+
+Montée valide :
+
+- longueur ≥ 1,5 km ;
+- D+ ≥ 100 m ;
+- pente moyenne ≥ 2 %.
+
+Valeurs à calibrer :
+
+- fenêtre de tendance : 500 m ;
+- pente de maintien : 1 à 1,5 % ;
+- perte tolérée : 20 à 30 m ;
+- replat maximal : 1 km.
+
+### 13.5. Cas particuliers
+
+Gérer :
+
+- faux sommet ;
+- montée en paliers ;
+- balcon ;
+- courte descente intermédiaire ;
+- arrivée en montée ;
+- boucle ;
+- passage répété ;
+- col légèrement hors trace ;
+- montée sans nom ;
+- variante.
+
+### 13.6. Confiance
+
+Statut :
+
+- confirmé ;
+- probable ;
+- incertain.
+
+Les détections incertaines doivent être proposées à validation.
+
+---
+
+## 14. Profils de montées générés localement
+
+### 14.1. Suppression de la dépendance aux images externes
+
+Les liens Alpes4ever ou Route des Grandes Alpes ne doivent plus être nécessaires.
+
+Le moteur doit générer lui-même le profil de chaque montée depuis le GPX.
+
+### 14.2. Contenu
+
+Afficher :
+
+- nom ;
+- longueur ;
+- D+ ;
+- altitude de départ ;
+- altitude d’arrivée ;
+- pente moyenne ;
+- pente maximale lissée ;
+- position sur l’étape.
+
+### 14.3. Découpage
+
+Découper le profil en tronçons fixes de 500 m.
+
+Classes de pente :
+
+#### Montée
+
+- 0 à 1 % ;
+- 1 à 4 % ;
+- 4 à 8 % ;
+- 8 à 12 % ;
+- 12 % et plus.
+
+#### Descente
+
+- 0 à -7 % ;
+- moins de -7 %.
+
+### 14.4. Rendu
+
+Privilégier SVG :
+
+- responsive ;
+- net ;
+- accessible ;
+- exportable ;
+- sans réseau ;
+- sans bibliothèque lourde.
+
+### 14.5. Interaction
+
+Au clic sur un col ou une montée :
+
+ouvrir un dialogue interne avec :
+
+- nom ;
+- profil ;
+- statistiques ;
+- position sur l’étape ;
+- `Voir sur la carte` ;
+- `Fermer` en haut à droite.
+
+---
+
+## 15. Découpage automatique en étapes
+
+### 15.1. Plusieurs GPX
+
+Une étape par GPX par défaut.
+
+### 15.2. GPX long
+
+Créer des points de coupure candidats à partir de :
+
+- villes ;
+- villages ;
+- hébergements ;
+- campings ;
+- gares ;
+- services ;
+- ravitaillements ;
+- vallées ;
+- fins de descentes ;
+- fins de montées ;
+- waypoints ;
+- distances régulières.
+
+### 15.3. Profil standard
+
+Profil `Itinérance équilibrée` :
+
+- durée cible : 5 h 30 ;
+- plage confortable : 4 h à 7 h ;
+- alerte : 8 h ;
+- D+ cible : 1 200 m ;
+- alerte D+ : 2 500 m ;
+- départ : 08:00 ;
+- vitesse de référence configurable ;
+- pauses automatiques.
+
+### 15.4. Score
+
+Évaluer :
+
+- durée ;
+- D+ ;
+- équilibre ;
+- ravitaillement ;
+- hébergement ;
+- services ;
+- arrivée au sommet ;
+- étape trop courte ;
+- étape trop longue ;
+- nombre de jours ;
+- continuité.
+
+### 15.5. Propositions
+
+Afficher au maximum :
+
+- équilibrée ;
+- journées courtes ;
+- journées longues.
+
+Permettre :
+
+- accepter ;
+- déplacer une coupure ;
+- ajouter ;
+- supprimer ;
+- fusionner ;
+- insérer un OFF ;
+- renommer.
+
+---
+
+## 16. Calendrier
+
+### 16.1. Date facultative
+
+Sans date :
+
+- aucune météo ;
+- aucune fausse progression ;
+- état de préparation ;
+- ETA relatives seulement.
+
+### 16.2. Date issue du GPX
+
+Les timestamps peuvent servir de suggestion, jamais d’application silencieuse.
+
+### 16.3. Fuseau horaire
+
+Initialiser avec le fuseau de l’appareil.
+
+Permettre la modification.
+
+### 16.4. Jours OFF
+
+Un jour OFF :
+
+- garde la position à l’arrivée précédente ;
+- ne crée aucun déplacement ;
+- affiche le logement ;
+- affiche les lieux locaux ;
+- ne produit pas d’ETA roulée.
+
+---
+
+## 17. Durée, vitesse et ETA
+
+### 17.1. Modèle
+
+Conserver le principe :
+
+```text
+vitesse locale = vitesse de référence × facteur de terrain
+temps local = distance locale / vitesse locale
+```
+
+Ne jamais renormaliser vers :
+
+```text
+distance / vitesse moyenne imposée
+```
+
+### 17.2. Réglage
+
+Chaque voyage possède :
+
+- une vitesse de référence globale.
+
+Chaque journée possède :
 
 - heure de départ ;
-- vitesse moyenne de base ;
-- profil altimétrique ;
-- pente locale lissée ;
 - pauses ;
-- mode prudent / normal éventuel ;
-- plafonds de vitesse.
+- plan de pause.
 
-## 9.3 Modèle de vitesse initial existant
+### 17.3. Résultats
 
-Le moteur utilise actuellement des coefficients de pente centralisés.
+Calculer :
 
-Ils peuvent rester comme base provisoire, mais doivent être calibrables et documentés.
+- durée roulée ;
+- pauses ;
+- durée totale ;
+- ETA ;
+- moyenne résultante ;
+- position théorique ;
+- progression ;
+- D+ parcouru ;
+- D− parcouru.
 
-Les coefficients ne doivent pas être dispersés dans l’interface.
+### 17.4. Profils initiaux
 
-## 9.4 Pauses
+- balade ;
+- itinérance ;
+- sportif ;
+- personnalisé.
 
-Valeurs actuelles de l’interface :
+Ces profils initialisent uniquement les réglages.
 
-- vitesse moyenne : 18 km/h ;
-- départ : 08:00 ;
-- pauses totales : 60 min.
+---
 
-Cible fonctionnelle détaillée du CDC :
+## 18. Pauses
 
-- pause avant midi : 15 min ;
-- pause midi : 30 min ;
-- pause après midi : 15 min.
+Conserver :
 
-La transition peut être progressive. Les données de stockage existantes doivent être migrées sans casser les réglages utilisateurs.
+- mode automatique ;
+- mode personnalisé.
 
-Les pauses doivent à terme être rattachées à des lieux réels ou points clés, pas uniquement à 25 %, 50 % et 75 % du parcours.
+Le plan automatique utilise :
 
-## 9.5 Waypoints
+- durée ;
+- cols ;
+- sommets ;
+- lieux ;
+- ravitaillements ;
+- heure ;
+- espacement minimal.
 
-Les 41 000 points GPX ne doivent pas tous devenir des points météo.
+Actions :
 
-Le moteur produit un ensemble réduit et ordonné :
+- Enregistrer ;
+- Restaurer le plan automatique ;
+- Annuler.
+
+---
+
+## 19. Lieux pratiques
+
+### 19.1. Catégories
+
+Conserver :
+
+- Abris ;
+- Boulangeries ;
+- Cafés et glaces ;
+- Eau / boissons ;
+- Restauration rapide ;
+- Service vélo ;
+- Supermarchés ;
+- Toilettes.
+
+### 19.2. Source
+
+Utiliser une interface de fournisseur OSM.
+
+### 19.3. Corridor
+
+Valeur initiale :
+
+- 6 km autour de la trace.
+
+Découper les requêtes en sous-zones.
+
+### 19.4. Données
+
+Pour chaque lieu :
+
+- coordonnées ;
+- catégorie ;
+- nom ;
+- distance à la trace ;
+- kilomètre projeté ;
+- détour ;
+- horaires ;
+- source ;
+- date.
+
+### 19.5. Déduplication
+
+Par :
+
+- id OSM ;
+- coordonnées ;
+- nom ;
+- proximité ;
+- catégorie.
+
+### 19.6. Modifications utilisateur
+
+Permettre :
+
+- masquer ;
+- épingler ;
+- renommer ;
+- recatégoriser ;
+- ajouter manuellement.
+
+---
+
+## 20. Géocodage
+
+Créer une interface :
+
+```ts
+interface ReverseGeocodingProvider {
+  reverseGeocode(input: {
+    lat: number;
+    lon: number;
+  }): Promise<GeocodedPlace>;
+}
+```
+
+Règles :
+
+- cache ;
+- limitation du débit ;
+- attribution ;
+- fournisseur remplaçable ;
+- aucune dépendance UI directe.
+
+Sans géocodage :
+
+- coordonnées affichées ;
+- nom générique ;
+- renommage manuel.
+
+---
+
+## 21. Météo
+
+### 21.1. Prérequis
+
+La météo exige :
+
+- une date ;
+- une heure de départ ;
+- une chronologie.
+
+### 21.2. Points
+
+Générer :
 
 - départ ;
 - arrivée ;
-- cols et sommets réels ;
-- villages et ravitaillements importants ;
-- points de pause ;
-- repères temporels automatiques ;
-- changements de pente utiles ;
-- points météo.
-
-La cible n’est pas un nombre fixe. La lisibilité et la pertinence priment.
-
----
-
-# 10. Roadbook métier
-
-## 10.1 Données à intégrer
-
-Pour chaque journée roulée :
-
-- texte court d’ambiance ;
 - cols ;
-- altitude des cols ;
-- villages et passages ;
-- ravitaillements ;
-- notes terrain ;
-- hébergements ou liens éventuels ;
-- variante si applicable.
+- montées ;
+- points intermédiaires.
 
-Pour les journées OFF :
-
-- lieu ;
-- récupération ;
-- lessive ;
-- courses ;
-- check vélo ;
-- activités possibles ;
-- aperçu de la prochaine étape.
-
-## 10.2 Appariement au tracé
-
-Les points du roadbook doivent être appariés au GPX avec une méthode explicite :
-
-1. coordonnées connues et validées ;
-2. projection sur le point ou segment GPX le plus proche ;
-3. conservation de la distance d’appariement ;
-4. statut `matched`, `needs-review` ou `unmatched` ;
-5. aucun appariement automatique au-delà d’un seuil raisonnable sans validation.
-
----
-
-# 11. Météo
-
-## 11.1 Fournisseur
-
-Open-Meteo est le fournisseur principal.
-
-Le fournisseur doit être isolé derrière une interface afin de pouvoir évoluer.
-
-## 11.2 Variables utiles
-
-Selon disponibilité :
+### 21.3. Données
 
 - température ;
-- température ressentie ;
-- précipitations ;
-- probabilité de précipitation ;
 - pluie ;
-- neige ;
-- code météo ;
-- couverture nuageuse ;
 - vent ;
 - rafales ;
-- visibilité ;
-- humidité ;
-- isotherme 0 °C ou équivalent ;
-- indicateurs d’orage.
+- condition ;
+- heure ;
+- provenance.
 
-## 11.3 Association ETA / météo
+### 21.4. États
 
-Pour une journée roulée :
+- non configurée ;
+- hors horizon ;
+- disponible ;
+- cache ;
+- obsolète ;
+- indisponible ;
+- hors ligne.
 
-- calculer l’ETA du waypoint ;
-- sélectionner l’heure météo pertinente ;
-- conserver le décalage temporel entre ETA et donnée choisie ;
-- afficher clairement les données indisponibles.
+### 21.5. Cache
 
-Pour une journée OFF :
+Conserver :
 
-- utiliser une ou plusieurs coordonnées locales ;
-- afficher une météo journalière et éventuellement horaire simplifiée ;
-- ne pas produire d’ETA cycliste.
-
-## 11.4 Actualisation et cache
-
-- actualiser à l’ouverture ;
-- bouton manuel ;
-- date et heure de dernière mise à jour ;
-- cache local court ;
-- dernier résultat valide conservé ;
-- erreur réseau non bloquante ;
-- aucune météo inventée au-delà de l’horizon disponible.
+- réponse brute ;
+- réponse normalisée ;
+- date ;
+- durée de validité ;
+- fournisseur.
 
 ---
 
-# 12. Alertes contextualisées
+## 22. Logements
 
-## 12.1 Niveaux
+### 22.1. Données
 
-- vert : conditions normales ;
-- orange : adaptation utile ;
-- rouge : risque important.
+- nom ;
+- adresse ;
+- coordonnées ;
+- Maps ;
+- site ;
+- téléphone ;
+- type ;
+- réservation ;
+- note.
 
-## 12.2 Cas
+### 22.2. Ajout minimal
 
-- orage pendant une montée ou au sommet ;
-- pluie avant ou pendant une descente ;
-- froid au sommet ;
-- pluie + froid + vent ;
-- rafales sur un col ;
-- chaleur en vallée ;
-- brouillard ;
-- neige ou gel ;
-- fenêtre plus favorable avec départ avancé ou différé.
+Autoriser uniquement le collage d’un lien Maps.
 
-Les messages doivent rester concis, informatifs et non alarmistes.
+Ne pas promettre une extraction complète automatique.
+
+### 22.3. Suggestions
+
+Rechercher près des arrivées :
+
+- hôtel ;
+- auberge ;
+- camping ;
+- refuge ;
+- hostel ;
+- guest house.
+
+Distinguer clairement :
+
+- logement prévu ;
+- suggestions.
 
 ---
 
-# 13. Vues et navigation
+## 23. Roadbook automatique
 
-## 13.1 Navigation cible
+Générer localement un contenu factuel :
 
-- Aujourd’hui ;
-- Voyage ;
-- Carte ;
-- Réglages.
-
-## 13.2 Vue Aujourd’hui — journée roulée
-
-- jour calendrier, par exemple J6 ;
-- type `Roulé` ;
-- départ et arrivée ;
+- étape ;
 - distance ;
 - D+ ;
-- heure de départ ;
+- D− ;
+- durée ;
+- départ ;
 - ETA ;
-- résumé météo ;
-- prochain point clé ;
-- principaux cols ;
-- alertes ;
-- actualisation.
-
-## 13.3 Vue Aujourd’hui — journée OFF
-
-- jour calendrier, par exemple J5 ;
-- type `OFF` ;
-- lieu ;
-- météo locale ;
-- checklist logistique ;
-- activités ;
-- aperçu de la journée suivante ;
-- aucun faux kilométrage ni faux ETA.
-
-## 13.4 Vue Voyage
-
-Afficher les 12 jours dans l’ordre.
-
-Chaque ligne doit distinguer clairement :
-
-- journée roulée ;
-- journée OFF ;
-- jour actif ;
-- météo disponible ou non ;
-- principaux risques.
-
-Les journées roulées affichent distance et D+.
-
-Les journées OFF affichent le lieu et le type de journée.
-
-## 13.5 Détail journée roulée
-
-- résumé ;
-- distance, D+, D− ;
-- départ et ETA ;
-- profil ;
-- chronologie ;
 - cols ;
-- villages ;
+- montées ;
 - ravitaillements ;
-- météo par point clé ;
+- logement ;
 - alertes ;
-- carte.
+- notes.
 
-## 13.6 Détail journée OFF
-
-- météo locale ;
-- logistique ;
-- récupération ;
-- check vélo ;
-- activités ;
-- hébergement ;
-- aperçu du lendemain.
-
-## 13.7 Carte
-
-V1 légère :
-
-- tracé de la journée roulée ;
-- points clés ;
-- POI ;
-- aucun tracé pour une journée OFF ;
-- lien My Maps possible.
+Le texte utilisateur ne doit jamais être remplacé automatiquement.
 
 ---
 
-# 14. Réglages et stockage local
+## 24. Aperçu général
 
-## 14.1 Réglages V1
+Conserver :
 
-- journée active ;
-- heure de départ ;
-- vitesse moyenne de base ;
+- nom ;
+- état temporel ;
+- progression ;
+- distance ;
+- D+ ;
+- D− ;
+- étapes ;
+- jours OFF ;
+- carte globale ;
+- prochaine étape ;
+- ETA ;
+- position théorique ;
+- météo synthétique ;
+- alertes ;
+- Voir l’étape ;
+- GPX.
+
+La carte globale reste volontairement sobre.
+
+---
+
+## 25. Écran Voyage
+
+Supporter :
+
+- 1 à 100 étapes ;
+- jours OFF ;
+- étapes sans date ;
+- étapes sans logement ;
+- enrichissement partiel ;
+- erreurs isolées.
+
+Ne jamais dépendre d’un nombre fixe de jours.
+
+---
+
+## 26. Écran Réglages
+
+Sections :
+
+### Voyage
+
+- nom ;
+- date ;
+- fuseau ;
+- unités.
+
+### Performance
+
+- vitesse de référence ;
+- plafond de descente ;
+- profil.
+
+### Étapes
+
+- heure ;
 - pauses ;
-- éventuellement mode prudent / normal ;
-- réinitialisation.
+- plan automatique.
 
-## 14.2 Persistance
+### Données
 
-Utiliser `localStorage` pour :
+- enrichir ;
+- recalculer ;
+- cache ;
+- fournisseurs.
 
-- réglages ;
-- journée active ;
-- dernier résultat météo valide ;
-- dernière mise à jour ;
-- préférences d’affichage.
+### Logements
 
-Prévoir une version du schéma de stockage et une migration minimale pour éviter de casser les données existantes.
+- compléments.
 
----
+### Gestion
 
-# 15. UX
+- Mes voyages ;
+- Nouveau ;
+- Dupliquer ;
+- Exporter ;
+- Importer ;
+- Supprimer.
 
-## 15.1 Principes
+### Stockage
 
-- mobile-first ;
-- lisible en quelques secondes ;
-- peu d’actions ;
-- pas de grands espaces inutiles ;
-- pas d’emoji obligatoires ;
-- contraste suffisant ;
-- cibles tactiles adaptées ;
-- réglages discrets ;
-- états de chargement et d’erreur clairs.
-
-## 15.2 Données de démonstration
-
-Les données fictives doivent disparaître progressivement.
-
-Toute donnée encore fictive doit être explicitement marquée comme telle.
-
-La cible est zéro donnée fictive dans la V1 publiée.
+- espace ;
+- persistance ;
+- dernière sauvegarde.
 
 ---
 
-# 16. Architecture technique
+## 27. Gestion multi-voyages
 
-## 16.1 Stack
+Pour chaque voyage :
 
-- Vite ;
-- TypeScript strict ;
-- HTML ;
-- CSS local ;
-- modules natifs ;
-- pas de React ;
-- pas de backend ;
-- pas de dépendance inutile.
+- nom ;
+- dates ;
+- nombre de jours ;
+- distance ;
+- statut ;
+- modification ;
+- disponibilité hors ligne ;
+- sauvegarde.
 
-Leaflet peut être ajouté plus tard pour la carte si justifié.
+Actions :
 
-## 16.2 Organisation cible indicative
+- ouvrir ;
+- dupliquer ;
+- renommer ;
+- exporter ;
+- archiver ;
+- supprimer.
+
+La RGA 2026 doit apparaître comme un voyage normal.
+
+---
+
+## 28. Fournisseurs externes
+
+Créer des interfaces :
 
 ```text
-public/
-  data/
-    gpx/
-      manifest.json
-      *.gpx
-    trip/
-      trip.json
-      roadbook.json
-src/
-  data/
-  gpx/
-  route/
-  trip/
-  weather/
-  alerts/
-  storage/
-  ui/
-  main.ts
+ElevationProvider
+WeatherProvider
+ReverseGeocodingProvider
+PlacesProvider
+PassesProvider
+MapTileProvider
 ```
 
-L’organisation réelle peut différer si elle reste cohérente.
+Chaque fournisseur expose :
 
-## 16.3 GitHub Pages
+- id ;
+- version ;
+- attribution ;
+- limites ;
+- disponibilité ;
+- méthode ;
+- normalisation ;
+- erreurs.
 
-- dépôt : `rga-2026-dashboard` ;
-- base Vite : `/rga-2026-dashboard/` ;
-- déploiement automatique à chaque push sur `main` ;
-- URL attendue : `https://cgi-1991.github.io/rga-2026-dashboard/`.
+Aucun composant visuel ne doit appeler directement un fournisseur.
 
 ---
 
-# 17. PWA
+## 29. PWA et hors ligne
 
-Option légère, non bloquante :
+Conserver un service worker unique.
+
+Mettre en cache :
+
+- shell ;
+- JS ;
+- CSS ;
+- icônes ;
+- données de démarrage.
+
+Ne pas mettre dans le précache de build :
+
+- voyages dynamiques ;
+- GPX importés ;
+- tuiles OSM ;
+- météo externe ;
+- images externes.
+
+Les voyages résident dans IndexedDB.
+
+Le service worker ne doit jamais renvoyer `index.html` pour :
+
+- GPX ;
+- JSON ;
+- images ;
+- bundles ;
+- exports.
+
+---
+
+## 30. Confidentialité
+
+Les GPX peuvent révéler :
+
+- domicile ;
+- habitudes ;
+- dates ;
+- logements.
+
+Prévoir un mode :
+
+`Analyse locale uniquement`
+
+Dans ce mode :
+
+- aucune coordonnée envoyée ;
+- aucun géocodage ;
+- aucun lieu OSM ;
+- aucune météo ;
+- calculs locaux disponibles.
+
+Avant enrichissement externe, informer l’utilisateur.
+
+---
+
+## 31. Performance
+
+Utiliser un Web Worker pour :
+
+- parsing ;
+- validation ;
+- rééchantillonnage ;
+- lissage ;
+- pentes ;
+- montées ;
+- simplification ;
+- statistiques.
+
+Afficher les phases :
+
+- Lecture ;
+- Validation ;
+- Analyse ;
+- Étapes ;
+- Montées ;
+- Enrichissement ;
+- Enregistrement.
+
+Permettre l’annulation avant publication.
+
+---
+
+## 32. Mobile et accessibilité
+
+Conserver :
+
+- largeur minimale 320 px ;
+- portrait ;
+- paysage ;
+- safe areas ;
+- dialogues fermables ;
+- retour système ;
+- focus restauré ;
+- aucun scroll arrière ;
+- navigation au-dessus des cartes compactes ;
+- carte plein écran au-dessus de la navigation ;
+- clavier ;
+- labels ;
+- contraste.
+
+---
+
+## 33. Migration de la RGA dans le nouveau dépôt
+
+### Phase 0 — Geler la référence
+
+Dans le repo RGA :
+
+- finir la version stable ;
+- merger ;
+- tester ;
+- taguer ;
+- conserver le build.
+
+### Phase 1 — Créer le nouveau repo
+
+- copier l’historique ;
+- changer le nom ;
+- changer le base path Vite ;
+- changer le manifest PWA ;
+- changer les caches ;
+- créer une nouvelle URL Pages ;
+- vérifier que le rendu RGA est identique.
+
+### Phase 2 — Définir TripBundle
+
+Créer :
+
+- schéma ;
+- types ;
+- validateurs ;
+- migrations ;
+- sélecteurs.
+
+### Phase 3 — Adapter la RGA
+
+Créer :
+
+```text
+public/trips/rga-2026/
+```
+
+Y placer :
 
 - manifest ;
-- icône ;
-- mode standalone ;
-- cache du shell ;
-- dernier aperçu disponible hors connexion.
+- GPX ;
+- roadbook ;
+- logements ;
+- lieux ;
+- overrides ;
+- réglages.
 
-Ne pas introduire de service worker instable avant que les fonctions métier principales soient validées.
+Créer un adaptateur temporaire :
+
+```ts
+loadRgaLegacyTrip(): TripBundle
+```
+
+### Phase 4 — Golden master
+
+Tester :
+
+- 12 jours ;
+- 10 rides ;
+- 2 OFF ;
+- statistiques ;
+- ETA ;
+- logements ;
+- 71 points ;
+- 1 705 lieux ;
+- 8 catégories ;
+- météo ;
+- cartes ;
+- GPX ;
+- offline.
+
+### Phase 5 — IndexedDB
+
+Ajouter :
+
+- base ;
+- migrations ;
+- voyage actif ;
+- gestionnaire ;
+- import/export ;
+- RGA préinstallée.
+
+### Phase 6 — Import GPX
+
+Ajouter :
+
+- un GPX ;
+- plusieurs GPX ;
+- ordre ;
+- calcul ;
+- profils ;
+- montées ;
+- durée ;
+- voyage sans date.
+
+### Phase 7 — Enrichissements
+
+Ajouter progressivement :
+
+- localités ;
+- cols OSM ;
+- lieux ;
+- météo ;
+- altitude ;
+- logements ;
+- segmentation.
+
+### Phase 8 — Parité
+
+Comparer la RGA générique à la RGA historique.
+
+### Phase 9 — Décision
+
+Choisir ensuite :
+
+- conserver les deux apps ;
+- archiver l’ancienne ;
+- remplacer l’ancienne URL ;
+- garder la RGA préinstallée dans le moteur générique.
 
 ---
 
-# 18. Qualité et tests
+## 34. Architecture cible
 
-## 18.1 Tests minimaux
+```text
+src/
+├── app/
+│   ├── bootstrap.ts
+│   ├── router.ts
+│   └── active-trip.ts
+├── trip-core/
+│   ├── model/
+│   ├── schema/
+│   ├── migrations/
+│   ├── validation/
+│   └── selectors/
+├── gpx/
+│   ├── parser.ts
+│   ├── validator.ts
+│   ├── normalize.ts
+│   ├── resample.ts
+│   └── simplify.ts
+├── analysis/
+│   ├── route-summary.ts
+│   ├── elevation-quality.ts
+│   ├── terrain-profile.ts
+│   ├── climb-detection.ts
+│   ├── stage-segmentation.ts
+│   ├── timing.ts
+│   └── progress.ts
+├── enrichment/
+│   ├── providers/
+│   ├── elevation/
+│   ├── geocoding/
+│   ├── places/
+│   ├── passes/
+│   └── weather/
+├── storage/
+│   ├── database.ts
+│   ├── repositories/
+│   ├── migrations/
+│   └── backup.ts
+├── import/
+│   ├── import-job.ts
+│   ├── gpx-import.ts
+│   ├── bundle-import.ts
+│   └── trip-builder.ts
+├── export/
+│   ├── bundle-export.ts
+│   └── gpx-export.ts
+├── ui/
+│   ├── overview/
+│   ├── journey/
+│   ├── settings/
+│   ├── trip-manager/
+│   ├── trip-builder/
+│   ├── maps/
+│   ├── profiles/
+│   └── dialogs/
+└── workers/
+    └── route-analysis.worker.ts
+```
 
-- chargement des 10 GPX ;
-- correspondance exacte 10 GPX ↔ 10 journées roulées ;
-- présence exacte de J5 et J8 en OFF ;
-- ordre exact des 12 jours ;
-- aucune ETA sur une journée OFF ;
-- remise à zéro des horaires à chaque journée roulée ;
-- calcul ETA ;
-- insertion des pauses ;
-- waypoints ordonnés ;
-- appariement roadbook / GPX ;
-- météo absente ;
-- API indisponible ;
+---
+
+## 35. Tests
+
+### 35.1. Fixtures
+
+Conserver la RGA comme fixture principale.
+
+Ajouter :
+
+- GPX plat ;
+- GPX montagne ;
+- GPX sans altitude ;
+- GPX bruité ;
+- GPX multi-segments ;
+- GPX avec temps ;
+- GPX sans temps ;
+- GPX invalide ;
+- GPX volumineux ;
+- boucle ;
+- multi-jours.
+
+### 35.2. Tests unitaires
+
+- parsing ;
+- validation ;
+- distance ;
+- D+ ;
+- D− ;
+- lissage ;
+- montées ;
+- profils ;
+- segmentation ;
+- timing ;
+- ETA ;
+- pauses ;
+- stockage ;
 - cache ;
-- alertes ;
-- sous-chemin GitHub Pages ;
-- `localStorage` et migration ;
-- affichage mobile.
+- migration ;
+- export/import.
 
-## 18.2 Contrôles manuels
+### 35.3. Tests de parité RGA
 
-- iPhone portrait ;
-- largeur 390 px ;
-- Chrome desktop ;
-- Safari mobile si disponible ;
-- réseau lent ;
-- hors connexion partiel ;
-- changement journée active ;
-- journée OFF ;
-- réglages puis rechargement ;
-- absence de 404 sur les ressources utiles.
+Toute différence doit être explicitement validée.
 
----
+### 35.4. Tests E2E
 
-# 19. Contraintes permanentes
+Scénarios :
 
-- gratuit ;
-- pas de clé payante ;
-- pas de serveur ;
-- pas de compte ;
-- français ;
-- unités métriques ;
-- fuseau `Europe/Paris` ;
-- gestion heure d’été ;
-- aucun secret dans le dépôt ;
-- pas de donnée inventée ;
-- pas de dépendance sans justification ;
-- pas de modification directe des GPX source ;
-- build vert à chaque étape ;
-- aucune régression GitHub Pages ;
-- aucune régression de la configuration du lecteur réseau ou des certificats d’entreprise.
+1. premier démarrage avec RGA ;
+2. import un GPX ;
+3. import dix GPX ;
+4. création sans date ;
+5. ajout date ;
+6. enrichissement ;
+7. ajout logement ;
+8. offline ;
+9. export ;
+10. suppression ;
+11. réimport ;
+12. transfert ordinateur vers téléphone.
 
 ---
 
-# 20. Méthode de développement
+## 36. Critères d’acceptation V1
 
-Chaque phase doit respecter le cycle :
+La V1 est acceptée lorsque :
 
-1. lire le CDC ;
-2. inspecter l’existant ;
-3. modifier uniquement le périmètre demandé ;
-4. lancer les validations ;
-5. produire un compte rendu ;
-6. ne pas commit ni push sauf demande explicite ;
-7. contrôle manuel ;
-8. commit logique ;
-9. push ;
-10. vérifier GitHub Actions.
-
-Ne pas travailler en parallèle sur le clone local et Codespaces sans synchronisation.
-
-Avant de changer d’environnement : commit + push.
-
-Dans l’autre environnement : pull ou recréation du Codespace depuis `main`.
-
----
-
-# 21. Phases restantes
-
-## Phase A — Consolidation voyage
-
-- remplacer la notion erronée de 8 étapes ;
-- créer le plan de voyage à 12 jours ;
-- intégrer les 2 journées OFF ;
-- relier chaque journée roulée à son GPX ;
-- réinitialiser les ETA par journée ;
-- afficher les 12 jours.
-
-## Phase B — Enrichissement roadbook
-
-- cols ;
-- villages ;
-- ravitaillements ;
-- notes ;
-- appariement au tracé ;
-- rapport des points à valider.
-
-## Phase C — Météo
-
-- Open-Meteo ;
-- cache ;
-- météo par waypoint ;
-- météo des journées OFF ;
-- mise à jour et erreurs.
-
-## Phase D — Alertes
-
-- seuils ;
-- contexte relief / ETA ;
-- comparaison des horaires de départ.
-
-## Phase E — UI finale
-
-- navigation complète ;
-- vue Aujourd’hui ;
-- Voyage ;
-- détail ;
-- réglages détaillés ;
-- suppression des données fictives.
-
-## Phase F — Carte, POI et PWA
-
-- carte ;
-- POI ;
-- My Maps ;
-- PWA légère ;
-- tests finaux.
+1. la RGA fonctionne via TripBundle ;
+2. aucun écran principal n’utilise de données RGA codées en dur ;
+3. un GPX crée un voyage ;
+4. plusieurs GPX créent plusieurs étapes ;
+5. l’ordre est modifiable ;
+6. les statistiques sont locales ;
+7. les profils sont générés ;
+8. les montées sont détectées ;
+9. les profils de montées sont générés localement ;
+10. aucune image externe n’est nécessaire ;
+11. la vitesse de référence alimente toutes les étapes ;
+12. les ETA sont calculées ;
+13. les lieux peuvent être enrichis ;
+14. la météo fonctionne après ajout d’une date ;
+15. les logements peuvent être ajoutés plus tard ;
+16. le voyage fonctionne hors ligne ;
+17. le voyage est exportable ;
+18. le voyage est réimportable ;
+19. les données précédentes ne sont pas perdues ;
+20. les tests RGA sont verts.
 
 ---
 
-# 22. Définition de terminé pour la V1
+## 37. Hors périmètre V1
 
-La V1 est terminée lorsque :
+Ne pas inclure :
 
-- l’URL GitHub Pages fonctionne ;
-- les 12 jours sont présents dans le bon ordre ;
-- J5 et J8 sont des journées OFF ;
-- les 10 journées roulées chargent leur GPX correct ;
-- aucune chronologie de roulage ne traverse les nuits ou jours OFF ;
-- l’ETA est calculée par journée ;
-- les réglages recalculent les ETA ;
-- la météo se charge ;
-- les points clés sont enrichis par le roadbook ;
-- les alertes sont visibles ;
-- les journées OFF ont une vue adaptée ;
-- l’échec de l’API ne casse pas l’application ;
-- l’application fonctionne sur iPhone ;
-- aucune donnée de démonstration non signalée ne subsiste ;
-- le README permet de relancer et déployer le projet.
+- compte utilisateur ;
+- cloud automatique ;
+- collaboration ;
+- modification du tracé ;
+- recalcul turn-by-turn ;
+- import direct Garmin/Komoot ;
+- suivi GPS en arrière-plan ;
+- navigation vocale ;
+- tuiles hors ligne ;
+- paiement ;
+- publication publique ;
+- IA obligatoire ;
+- fatigue multi-jours automatique ;
+- synchronisation temps réel.
 
 ---
 
-# 23. Consignes permanentes pour l’IA de développement
+## 38. Décision d’architecture finale
 
-- Lire intégralement ce CDC avant chaque intervention.
-- Ne jamais réintroduire la notion de 8 étapes.
-- Toujours raisonner en 12 jours : 10 roulés + 2 OFF.
-- Respecter J5 OFF à Bourg-Saint-Maurice et J8 OFF à Briançon.
-- Respecter l’arrivée finale à Nice.
-- Ne jamais calculer une ETA cycliste pour une journée OFF.
-- Ne jamais maintenir une chronologie continue sur plusieurs jours.
-- Signaler toute hypothèse.
-- Ne pas inventer de coordonnées.
-- Conserver les GPX sources inchangés.
-- Préserver TypeScript strict, GitHub Pages, le polling Vite et `NODE_USE_SYSTEM_CA`.
-- Ne pas ajouter de dépendance sans justification.
-- Ne pas créer de backend.
-- Lancer `npm run build` à la fin.
-- Ne pas commit ni push sans instruction explicite.
+Le socle retenu est :
+
+- nouveau repo ;
+- base issue de la RGA stable ;
+- PWA conservée ;
+- moteur générique local-first ;
+- TripBundle versionné ;
+- IndexedDB ;
+- un service worker ;
+- import GPX standard ;
+- Web Worker ;
+- profils de montées générés depuis le GPX ;
+- fournisseurs interchangeables ;
+- enrichissements facultatifs ;
+- export obligatoire ;
+- RGA comme fixture de référence ;
+- remplacement éventuel de l’ancienne app seulement après parité complète.
+
+---
+
+## 39. Ordre de développement recommandé
+
+Le développement doit commencer par :
+
+1. figer la RGA actuelle ;
+2. créer le nouveau repo ;
+3. faire fonctionner la copie sans changement visible ;
+4. définir TripBundle v1 ;
+5. créer le bundle RGA ;
+6. créer les tests de parité ;
+7. migrer l’application actuelle vers TripBundle ;
+8. ajouter IndexedDB ;
+9. ajouter le gestionnaire de voyages ;
+10. ajouter l’import GPX ;
+11. ajouter les profils de montées générés ;
+12. ajouter les enrichissements ;
+13. ajouter l’export/import ;
+14. atteindre la parité complète ;
+15. décider du remplacement ou de la coexistence des deux applications.

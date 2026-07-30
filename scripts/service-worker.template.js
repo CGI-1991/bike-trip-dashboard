@@ -1,4 +1,4 @@
-const CACHE_PREFIX = 'rga-2026-'
+const CACHE_PREFIX = 'bike-trip-dashboard-'
 const CACHE_VERSION = '__CACHE_VERSION__'
 const CACHE_NAME = `${CACHE_PREFIX}${CACHE_VERSION}`
 const BUILD_ASSETS = __BUILD_ASSETS__
