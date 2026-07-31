@@ -89,3 +89,25 @@ test('a negative estimatedAverageSpeedKph is rejected', () => {
   bundle.stages[0].estimatedAverageSpeedKph = -5
   assert.ok(issueCodes(validateTripBundle(bundle)).includes('invalid-value'))
 })
+
+test('metricsProvenance is required as soon as distanceKm, elevationGainM or elevationLossM is set', () => {
+  const bundle = createGenericTripBundle()
+  assert.notEqual(bundle.stages[0].distanceKm, null)
+  bundle.stages[0].metricsProvenance = null
+  assert.ok(issueCodes(validateTripBundle(bundle)).includes('missing-required'))
+})
+
+test('metricsProvenance may stay null when distanceKm/elevationGainM/elevationLossM are all null', () => {
+  const bundle = createGenericTripBundle()
+  assert.equal(bundle.stages[1].distanceKm, null)
+  assert.equal(bundle.stages[1].elevationGainM, null)
+  assert.equal(bundle.stages[1].elevationLossM, null)
+  assert.equal(bundle.stages[1].metricsProvenance, null)
+  assert.equal(validateTripBundle(bundle).ok, true)
+})
+
+test('an invalid metricsProvenance object is rejected like any other provenance', () => {
+  const bundle = createGenericTripBundle()
+  bundle.stages[0].metricsProvenance = { sourceType: 'not-a-real-source', sourceId: null, fetchedAt: null, engineVersion: 'x', confidence: null, manuallyOverridden: false }
+  assert.ok(issueCodes(validateTripBundle(bundle)).includes('invalid-enum'))
+})

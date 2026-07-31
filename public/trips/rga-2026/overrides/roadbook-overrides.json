@@ -1,0 +1,1234 @@
+{
+  "version": 1,
+  "tripId": "rga-2026",
+  "overrides": [
+    {
+      "pointId": "j01-col-col-du-feu",
+      "dayId": "J1",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 46.293595,
+        "longitude": 6.509009
+      },
+      "gpxProjection": {
+        "latitude": 46.2935968,
+        "longitude": 6.5090165,
+        "trackDistanceKm": 17.831,
+        "segmentIndex": 0,
+        "pointIndex": 555,
+        "nextPointIndex": 556,
+        "segmentFraction": 0.1178,
+        "elevationM": 1117.4
+      },
+      "anchorDistanceM": 0.6,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 0.6 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j01-passage-lullin",
+      "dayId": "J1",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 46.283,
+        "longitude": 6.523
+      },
+      "gpxProjection": {
+        "latitude": 46.283771,
+        "longitude": 6.522872,
+        "trackDistanceKm": 20.71,
+        "segmentIndex": 0,
+        "pointIndex": 655,
+        "nextPointIndex": 656,
+        "segmentFraction": 1.0,
+        "elevationM": 849.5
+      },
+      "anchorDistanceM": 86.3,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 86.3 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j01-passage-bellevaux",
+      "dayId": "J1",
+      "approvedStatus": "unmatched",
+      "sourceAnchor": {
+        "latitude": 46.257,
+        "longitude": 6.531
+      },
+      "gpxProjection": {
+        "latitude": 46.283771,
+        "longitude": 6.522872,
+        "trackDistanceKm": 20.71,
+        "segmentIndex": 0,
+        "pointIndex": 655,
+        "nextPointIndex": 656,
+        "segmentFraction": 1.0,
+        "elevationM": 849.5
+      },
+      "anchorDistanceM": 3041.7,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 3041.7 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j01-passage-saint-jean-d-aulps",
+      "dayId": "J1",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 46.234,
+        "longitude": 6.654
+      },
+      "gpxProjection": {
+        "latitude": 46.2346098,
+        "longitude": 6.655728,
+        "trackDistanceKm": 41.455,
+        "segmentIndex": 0,
+        "pointIndex": 1294,
+        "nextPointIndex": 1295,
+        "segmentFraction": 0.7118,
+        "elevationM": 796.5
+      },
+      "anchorDistanceM": 149.2,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 149.2 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j02-col-col-de-joux-plane",
+      "dayId": "J2",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 46.13254,
+        "longitude": 6.71121
+      },
+      "gpxProjection": {
+        "latitude": 46.129605,
+        "longitude": 6.711541,
+        "trackDistanceKm": 11.052,
+        "segmentIndex": 0,
+        "pointIndex": 357,
+        "nextPointIndex": 358,
+        "segmentFraction": 1.0,
+        "elevationM": 1684.1
+      },
+      "anchorDistanceM": 327.4,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 327.4 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j02-col-col-de-chatillon",
+      "dayId": "J2",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 46.09073,
+        "longitude": 6.57701
+      },
+      "gpxProjection": {
+        "latitude": 46.0907243,
+        "longitude": 6.5770027,
+        "trackDistanceKm": 40.69,
+        "segmentIndex": 0,
+        "pointIndex": 1173,
+        "nextPointIndex": 1174,
+        "segmentFraction": 0.9396,
+        "elevationM": 786.1
+      },
+      "anchorDistanceM": 0.8,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 0.8 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j02-col-col-de-la-colombiere",
+      "dayId": "J2",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 45.991711,
+        "longitude": 6.473883
+      },
+      "gpxProjection": {
+        "latitude": 45.9917024,
+        "longitude": 6.4738881,
+        "trackDistanceKm": 66.476,
+        "segmentIndex": 0,
+        "pointIndex": 1963,
+        "nextPointIndex": 1964,
+        "segmentFraction": 0.7237,
+        "elevationM": 1589.9
+      },
+      "anchorDistanceM": 1.0,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 1.0 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j02-passage-samoens",
+      "dayId": "J2",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 46.0847,
+        "longitude": 6.7281
+      },
+      "gpxProjection": {
+        "latitude": 46.083686,
+        "longitude": 6.728079,
+        "trackDistanceKm": 24.105,
+        "segmentIndex": 0,
+        "pointIndex": 764,
+        "nextPointIndex": 765,
+        "segmentFraction": 1.0,
+        "elevationM": 706.2
+      },
+      "anchorDistanceM": 112.8,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 112.8 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j02-passage-taninges",
+      "dayId": "J2",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 46.1077,
+        "longitude": 6.5912
+      },
+      "gpxProjection": {
+        "latitude": 46.1076932,
+        "longitude": 6.5911019,
+        "trackDistanceKm": 35.881,
+        "segmentIndex": 0,
+        "pointIndex": 1030,
+        "nextPointIndex": 1031,
+        "segmentFraction": 0.8668,
+        "elevationM": 642.3
+      },
+      "anchorDistanceM": 7.6,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 7.6 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j02-passage-cluses",
+      "dayId": "J2",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 46.061,
+        "longitude": 6.579
+      },
+      "gpxProjection": {
+        "latitude": 46.06125,
+        "longitude": 6.580043,
+        "trackDistanceKm": 46.716,
+        "segmentIndex": 0,
+        "pointIndex": 1379,
+        "nextPointIndex": 1380,
+        "segmentFraction": 1.0,
+        "elevationM": 485.4
+      },
+      "anchorDistanceM": 85.1,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 85.1 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j02-passage-le-reposoir",
+      "dayId": "J2",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 46.011,
+        "longitude": 6.537
+      },
+      "gpxProjection": {
+        "latitude": 46.0118819,
+        "longitude": 6.5365311,
+        "trackDistanceKm": 58.94,
+        "segmentIndex": 0,
+        "pointIndex": 1739,
+        "nextPointIndex": 1740,
+        "segmentFraction": 0.3064,
+        "elevationM": 974.3
+      },
+      "anchorDistanceM": 104.5,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 104.5 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j03-col-col-des-aravis",
+      "dayId": "J3",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 45.87228,
+        "longitude": 6.46487
+      },
+      "gpxProjection": {
+        "latitude": 45.872279,
+        "longitude": 6.464869,
+        "trackDistanceKm": 13.72,
+        "segmentIndex": 0,
+        "pointIndex": 371,
+        "nextPointIndex": 372,
+        "segmentFraction": 0.9992,
+        "elevationM": 1485.8
+      },
+      "anchorDistanceM": 0.1,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 0.1 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j03-col-col-des-saisies",
+      "dayId": "J3",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 45.76024,
+        "longitude": 6.53353
+      },
+      "gpxProjection": {
+        "latitude": 45.7602627,
+        "longitude": 6.5336164,
+        "trackDistanceKm": 39.941,
+        "segmentIndex": 0,
+        "pointIndex": 1216,
+        "nextPointIndex": 1217,
+        "segmentFraction": 0.1699,
+        "elevationM": 1656.6
+      },
+      "anchorDistanceM": 7.2,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 7.2 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j03-passage-la-clusaz",
+      "dayId": "J3",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 45.9042,
+        "longitude": 6.423
+      },
+      "gpxProjection": {
+        "latitude": 45.9059657,
+        "longitude": 6.4232152,
+        "trackDistanceKm": 6.185,
+        "segmentIndex": 0,
+        "pointIndex": 162,
+        "nextPointIndex": 163,
+        "segmentFraction": 0.7948,
+        "elevationM": 1033.5
+      },
+      "anchorDistanceM": 197.0,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 197.0 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j03-passage-flumet",
+      "dayId": "J3",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 45.819,
+        "longitude": 6.514
+      },
+      "gpxProjection": {
+        "latitude": 45.819001,
+        "longitude": 6.516113,
+        "trackDistanceKm": 25.138,
+        "segmentIndex": 0,
+        "pointIndex": 822,
+        "nextPointIndex": 823,
+        "segmentFraction": 1.0,
+        "elevationM": 909.5
+      },
+      "anchorDistanceM": 163.7,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 163.7 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j03-passage-crest-voland",
+      "dayId": "J3",
+      "approvedStatus": "needs-review",
+      "sourceAnchor": {
+        "latitude": 45.793,
+        "longitude": 6.505
+      },
+      "gpxProjection": {
+        "latitude": 45.807924,
+        "longitude": 6.516927,
+        "trackDistanceKm": 28.553,
+        "segmentIndex": 0,
+        "pointIndex": 929,
+        "nextPointIndex": 930,
+        "segmentFraction": 1.0,
+        "elevationM": 1118.2
+      },
+      "anchorDistanceM": 1899.7,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 1899.7 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j04-col-cormet-de-roselend",
+      "dayId": "J4",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 45.69133,
+        "longitude": 6.69063
+      },
+      "gpxProjection": {
+        "latitude": 45.6913299,
+        "longitude": 6.69063,
+        "trackDistanceKm": 20.391,
+        "segmentIndex": 0,
+        "pointIndex": 558,
+        "nextPointIndex": 559,
+        "segmentFraction": 0.0065,
+        "elevationM": 1968.1
+      },
+      "anchorDistanceM": 0.0,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 0.0 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j04-passage-areches",
+      "dayId": "J4",
+      "approvedStatus": "needs-review",
+      "sourceAnchor": {
+        "latitude": 45.687,
+        "longitude": 6.568
+      },
+      "gpxProjection": {
+        "latitude": 45.707882,
+        "longitude": 6.591949,
+        "trackDistanceKm": 2.207,
+        "segmentIndex": 0,
+        "pointIndex": 71,
+        "nextPointIndex": 72,
+        "segmentFraction": 1.0,
+        "elevationM": 876.3
+      },
+      "anchorDistanceM": 2975.1,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 2975.1 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j04-passage-les-chapieux",
+      "dayId": "J4",
+      "approvedStatus": "needs-review",
+      "sourceAnchor": {
+        "latitude": 45.6977,
+        "longitude": 6.7344
+      },
+      "gpxProjection": {
+        "latitude": 45.693351,
+        "longitude": 6.731899,
+        "trackDistanceKm": 25.613,
+        "segmentIndex": 0,
+        "pointIndex": 692,
+        "nextPointIndex": 693,
+        "segmentFraction": 1.0,
+        "elevationM": 1622.4
+      },
+      "anchorDistanceM": 521.1,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 521.1 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j06-col-col-de-l-iseran",
+      "dayId": "J6",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 45.417194,
+        "longitude": 7.030717
+      },
+      "gpxProjection": {
+        "latitude": 45.4171965,
+        "longitude": 7.0307236,
+        "trackDistanceKm": 51.947,
+        "segmentIndex": 0,
+        "pointIndex": 1413,
+        "nextPointIndex": 1414,
+        "segmentFraction": 0.9962,
+        "elevationM": 2755.9
+      },
+      "anchorDistanceM": 0.6,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 0.6 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j06-passage-tignes",
+      "dayId": "J6",
+      "approvedStatus": "unmatched",
+      "sourceAnchor": {
+        "latitude": 45.469,
+        "longitude": 6.907
+      },
+      "gpxProjection": {
+        "latitude": 45.495162,
+        "longitude": 6.926224,
+        "trackDistanceKm": 27.816,
+        "segmentIndex": 0,
+        "pointIndex": 830,
+        "nextPointIndex": 831,
+        "segmentFraction": 1.0,
+        "elevationM": 1797.9
+      },
+      "anchorDistanceM": 3272.5,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 3272.5 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j06-passage-val-d-isere",
+      "dayId": "J6",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 45.449,
+        "longitude": 6.979
+      },
+      "gpxProjection": {
+        "latitude": 45.4492877,
+        "longitude": 6.9792578,
+        "trackDistanceKm": 35.752,
+        "segmentIndex": 0,
+        "pointIndex": 1018,
+        "nextPointIndex": 1019,
+        "segmentFraction": 0.1945,
+        "elevationM": 1831.3
+      },
+      "anchorDistanceM": 37.8,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 37.8 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j06-passage-bonneval-sur-arc",
+      "dayId": "J6",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 45.371,
+        "longitude": 7.044
+      },
+      "gpxProjection": {
+        "latitude": 45.3698685,
+        "longitude": 7.0446736,
+        "trackDistanceKm": 65.588,
+        "segmentIndex": 0,
+        "pointIndex": 1755,
+        "nextPointIndex": 1756,
+        "segmentFraction": 0.4673,
+        "elevationM": 1781.6
+      },
+      "anchorDistanceM": 136.4,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 136.4 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j06-passage-bessans",
+      "dayId": "J6",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 45.32,
+        "longitude": 6.994
+      },
+      "gpxProjection": {
+        "latitude": 45.3186049,
+        "longitude": 6.9969171,
+        "trackDistanceKm": 72.737,
+        "segmentIndex": 0,
+        "pointIndex": 1832,
+        "nextPointIndex": 1833,
+        "segmentFraction": 0.1055,
+        "elevationM": 1726.0
+      },
+      "anchorDistanceM": 275.8,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 275.8 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j07-col-col-du-telegraphe",
+      "dayId": "J7",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 45.2027,
+        "longitude": 6.4446
+      },
+      "gpxProjection": {
+        "latitude": 45.2026978,
+        "longitude": 6.4446007,
+        "trackDistanceKm": 46.62,
+        "segmentIndex": 0,
+        "pointIndex": 1111,
+        "nextPointIndex": 1112,
+        "segmentFraction": 0.0936,
+        "elevationM": 1560.4
+      },
+      "anchorDistanceM": 0.2,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 0.2 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j07-col-col-du-galibier",
+      "dayId": "J7",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 45.065833,
+        "longitude": 6.411103
+      },
+      "gpxProjection": {
+        "latitude": 45.06583,
+        "longitude": 6.4111138,
+        "trackDistanceKm": 69.206,
+        "segmentIndex": 0,
+        "pointIndex": 1842,
+        "nextPointIndex": 1843,
+        "segmentFraction": 0.6676,
+        "elevationM": 2613.8
+      },
+      "anchorDistanceM": 0.9,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 0.9 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j07-passage-modane",
+      "dayId": "J7",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 45.201,
+        "longitude": 6.673
+      },
+      "gpxProjection": {
+        "latitude": 45.202357,
+        "longitude": 6.671244,
+        "trackDistanceKm": 17.617,
+        "segmentIndex": 0,
+        "pointIndex": 379,
+        "nextPointIndex": 380,
+        "segmentFraction": 1.0,
+        "elevationM": 1062.8
+      },
+      "anchorDistanceM": 204.2,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 204.2 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j07-passage-saint-michel-de-maurienne",
+      "dayId": "J7",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 45.218,
+        "longitude": 6.472
+      },
+      "gpxProjection": {
+        "latitude": 45.215691,
+        "longitude": 6.474909,
+        "trackDistanceKm": 34.564,
+        "segmentIndex": 0,
+        "pointIndex": 692,
+        "nextPointIndex": 693,
+        "segmentFraction": 1.0,
+        "elevationM": 718.2
+      },
+      "anchorDistanceM": 343.3,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 343.3 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j07-passage-valloire",
+      "dayId": "J7",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 45.165,
+        "longitude": 6.429
+      },
+      "gpxProjection": {
+        "latitude": 45.165529,
+        "longitude": 6.428907,
+        "trackDistanceKm": 51.571,
+        "segmentIndex": 0,
+        "pointIndex": 1245,
+        "nextPointIndex": 1246,
+        "segmentFraction": 1.0,
+        "elevationM": 1406.6
+      },
+      "anchorDistanceM": 59.3,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 59.3 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j07-passage-le-monetier-les-bains",
+      "dayId": "J7",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 44.977,
+        "longitude": 6.509
+      },
+      "gpxProjection": {
+        "latitude": 44.9759485,
+        "longitude": 6.5092362,
+        "trackDistanceKm": 91.31,
+        "segmentIndex": 0,
+        "pointIndex": 2423,
+        "nextPointIndex": 2424,
+        "segmentFraction": 0.5319,
+        "elevationM": 1485.0
+      },
+      "anchorDistanceM": 118.4,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 118.4 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j09-col-col-d-izoard",
+      "dayId": "J9",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 44.819609,
+        "longitude": 6.734962
+      },
+      "gpxProjection": {
+        "latitude": 44.8196087,
+        "longitude": 6.7349659,
+        "trackDistanceKm": 20.916,
+        "segmentIndex": 0,
+        "pointIndex": 689,
+        "nextPointIndex": 690,
+        "segmentFraction": 0.1403,
+        "elevationM": 2352.4
+      },
+      "anchorDistanceM": 0.3,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 0.3 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j09-col-le-sauze-du-lac",
+      "dayId": "J9",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 44.4786,
+        "longitude": 6.31454
+      },
+      "gpxProjection": {
+        "latitude": 44.4787498,
+        "longitude": 6.3151508,
+        "trackDistanceKm": 95.299,
+        "segmentIndex": 0,
+        "pointIndex": 2540,
+        "nextPointIndex": 2541,
+        "segmentFraction": 0.3531,
+        "elevationM": 1035.9
+      },
+      "anchorDistanceM": 51.2,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 51.2 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28",
+      "pointType": "summit",
+      "pointSubtype": "strategic-passage"
+    },
+    {
+      "pointId": "j09-passage-cervieres",
+      "dayId": "J9",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 44.869,
+        "longitude": 6.722
+      },
+      "gpxProjection": {
+        "latitude": 44.8684165,
+        "longitude": 6.722352,
+        "trackDistanceKm": 11.074,
+        "segmentIndex": 0,
+        "pointIndex": 351,
+        "nextPointIndex": 352,
+        "segmentFraction": 0.4617,
+        "elevationM": 1615.3
+      },
+      "anchorDistanceM": 70.6,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 70.6 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j09-passage-arvieux",
+      "dayId": "J9",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 44.767,
+        "longitude": 6.738
+      },
+      "gpxProjection": {
+        "latitude": 44.7671994,
+        "longitude": 6.73854,
+        "trackDistanceKm": 31.23,
+        "segmentIndex": 0,
+        "pointIndex": 1046,
+        "nextPointIndex": 1047,
+        "segmentFraction": 0.7626,
+        "elevationM": 1554.9
+      },
+      "anchorDistanceM": 48.1,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 48.1 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j09-passage-chateau-queyras",
+      "dayId": "J9",
+      "approvedStatus": "needs-review",
+      "sourceAnchor": {
+        "latitude": 44.756,
+        "longitude": 6.789
+      },
+      "gpxProjection": {
+        "latitude": 44.748036,
+        "longitude": 6.772529,
+        "trackDistanceKm": 35.044,
+        "segmentIndex": 0,
+        "pointIndex": 1158,
+        "nextPointIndex": 1159,
+        "segmentFraction": 1.0,
+        "elevationM": 1346.8
+      },
+      "anchorDistanceM": 1573.5,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 1573.5 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j09-passage-guillestre",
+      "dayId": "J9",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 44.659,
+        "longitude": 6.649
+      },
+      "gpxProjection": {
+        "latitude": 44.6583359,
+        "longitude": 6.6491764,
+        "trackDistanceKm": 52.085,
+        "segmentIndex": 0,
+        "pointIndex": 1541,
+        "nextPointIndex": 1542,
+        "segmentFraction": 0.3595,
+        "elevationM": 1005.8
+      },
+      "anchorDistanceM": 75.2,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 75.2 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j09-passage-embrun",
+      "dayId": "J9",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 44.564,
+        "longitude": 6.496
+      },
+      "gpxProjection": {
+        "latitude": 44.5650426,
+        "longitude": 6.4948408,
+        "trackDistanceKm": 74.86,
+        "segmentIndex": 0,
+        "pointIndex": 2058,
+        "nextPointIndex": 2059,
+        "segmentFraction": 0.8855,
+        "elevationM": 868.1
+      },
+      "anchorDistanceM": 147.9,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 147.9 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j10-col-col-de-la-bonette",
+      "dayId": "J10",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 44.3267,
+        "longitude": 6.8074
+      },
+      "gpxProjection": {
+        "latitude": 44.3266889,
+        "longitude": 6.8073861,
+        "trackDistanceKm": 29.662,
+        "segmentIndex": 0,
+        "pointIndex": 862,
+        "nextPointIndex": 863,
+        "segmentFraction": 0.1546,
+        "elevationM": 2685.6
+      },
+      "anchorDistanceM": 1.7,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 1.7 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j10-option-cime-de-la-bonette",
+      "dayId": "J10",
+      "approvedStatus": "unmatched",
+      "sourceAnchor": {
+        "latitude": 44.32162,
+        "longitude": 6.80689
+      },
+      "gpxProjection": {
+        "latitude": 44.326616,
+        "longitude": 6.807524,
+        "trackDistanceKm": 29.676,
+        "segmentIndex": 0,
+        "pointIndex": 863,
+        "nextPointIndex": 864,
+        "segmentFraction": 1.0,
+        "elevationM": 2685.5
+      },
+      "anchorDistanceM": 557.8,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 557.8 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28",
+      "pointSubtype": "scenic-high-point"
+    },
+    {
+      "pointId": "j10-passage-jausiers",
+      "dayId": "J10",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 44.417,
+        "longitude": 6.731
+      },
+      "gpxProjection": {
+        "latitude": 44.4176503,
+        "longitude": 6.7301356,
+        "trackDistanceKm": 6.793,
+        "segmentIndex": 0,
+        "pointIndex": 94,
+        "nextPointIndex": 95,
+        "segmentFraction": 0.6638,
+        "elevationM": 1211.9
+      },
+      "anchorDistanceM": 99.7,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 99.7 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j10-passage-sommet",
+      "dayId": "J10",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 44.3267,
+        "longitude": 6.8074
+      },
+      "gpxProjection": {
+        "latitude": 44.3266889,
+        "longitude": 6.8073861,
+        "trackDistanceKm": 29.662,
+        "segmentIndex": 0,
+        "pointIndex": 862,
+        "nextPointIndex": 863,
+        "segmentFraction": 0.1546,
+        "elevationM": 2685.6
+      },
+      "anchorDistanceM": 1.7,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 1.7 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28",
+      "displayName": "Col de la Bonette"
+    },
+    {
+      "pointId": "j10-passage-saint-etienne-de-tinee",
+      "dayId": "J10",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 44.257,
+        "longitude": 6.924
+      },
+      "gpxProjection": {
+        "latitude": 44.257501,
+        "longitude": 6.924816,
+        "trackDistanceKm": 54.34,
+        "segmentIndex": 0,
+        "pointIndex": 1625,
+        "nextPointIndex": 1626,
+        "segmentFraction": 1.0,
+        "elevationM": 1148.9
+      },
+      "anchorDistanceM": 85.6,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 85.6 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j11-col-col-saint-martin",
+      "dayId": "J11",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 44.071045,
+        "longitude": 7.220998
+      },
+      "gpxProjection": {
+        "latitude": 44.0710517,
+        "longitude": 7.221003,
+        "trackDistanceKm": 49.53,
+        "segmentIndex": 0,
+        "pointIndex": 1221,
+        "nextPointIndex": 1222,
+        "segmentFraction": 0.7554,
+        "elevationM": 1506.8
+      },
+      "anchorDistanceM": 0.9,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 0.9 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j11-passage-saint-sauveur-sur-tinee",
+      "dayId": "J11",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 44.083,
+        "longitude": 7.105
+      },
+      "gpxProjection": {
+        "latitude": 44.0831726,
+        "longitude": 7.1054301,
+        "trackDistanceKm": 29.002,
+        "segmentIndex": 0,
+        "pointIndex": 572,
+        "nextPointIndex": 573,
+        "segmentFraction": 0.0653,
+        "elevationM": 494.9
+      },
+      "anchorDistanceM": 39.4,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 39.4 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j11-passage-la-colmiane",
+      "dayId": "J11",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 44.072,
+        "longitude": 7.218
+      },
+      "gpxProjection": {
+        "latitude": 44.0727681,
+        "longitude": 7.2187873,
+        "trackDistanceKm": 49.251,
+        "segmentIndex": 0,
+        "pointIndex": 1211,
+        "nextPointIndex": 1212,
+        "segmentFraction": 0.5104,
+        "elevationM": 1466.3
+      },
+      "anchorDistanceM": 106.1,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 106.1 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j11-passage-valdeblore",
+      "dayId": "J11",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 44.071,
+        "longitude": 7.171
+      },
+      "gpxProjection": {
+        "latitude": 44.0709902,
+        "longitude": 7.1708633,
+        "trackDistanceKm": 42.506,
+        "segmentIndex": 0,
+        "pointIndex": 1034,
+        "nextPointIndex": 1035,
+        "segmentFraction": 0.6877,
+        "elevationM": 1044.9
+      },
+      "anchorDistanceM": 11.0,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 11.0 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j12-col-col-de-turini",
+      "dayId": "J12",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 43.977481,
+        "longitude": 7.391623
+      },
+      "gpxProjection": {
+        "latitude": 43.9774821,
+        "longitude": 7.3916299,
+        "trackDistanceKm": 27.472,
+        "segmentIndex": 0,
+        "pointIndex": 929,
+        "nextPointIndex": 930,
+        "segmentFraction": 0.816,
+        "elevationM": 1602.2
+      },
+      "anchorDistanceM": 0.6,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 0.6 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j12-col-col-de-castillon",
+      "dayId": "J12",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 43.906725,
+        "longitude": 7.409175
+      },
+      "gpxProjection": {
+        "latitude": 43.906774,
+        "longitude": 7.409259,
+        "trackDistanceKm": 45.917,
+        "segmentIndex": 0,
+        "pointIndex": 1599,
+        "nextPointIndex": 1600,
+        "segmentFraction": 1.0,
+        "elevationM": 645.6
+      },
+      "anchorDistanceM": 8.7,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 8.7 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j12-col-col-d-eze",
+      "dayId": "J12",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 43.734,
+        "longitude": 7.3466
+      },
+      "gpxProjection": {
+        "latitude": 43.7340259,
+        "longitude": 7.3465849,
+        "trackDistanceKm": 91.331,
+        "segmentIndex": 0,
+        "pointIndex": 3133,
+        "nextPointIndex": 3134,
+        "segmentFraction": 0.1876,
+        "elevationM": 504.2
+      },
+      "anchorDistanceM": 3.1,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 3.1 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j12-passage-sospel",
+      "dayId": "J12",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 43.878,
+        "longitude": 7.448
+      },
+      "gpxProjection": {
+        "latitude": 43.8778205,
+        "longitude": 7.4479803,
+        "trackDistanceKm": 51.746,
+        "segmentIndex": 0,
+        "pointIndex": 1781,
+        "nextPointIndex": 1782,
+        "segmentFraction": 0.3434,
+        "elevationM": 351.8
+      },
+      "anchorDistanceM": 20.0,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 20.0 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28"
+    },
+    {
+      "pointId": "j12-passage-option-menton",
+      "dayId": "J12",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 43.775,
+        "longitude": 7.5
+      },
+      "gpxProjection": {
+        "latitude": 43.7734728,
+        "longitude": 7.4977595,
+        "trackDistanceKm": 73.392,
+        "segmentIndex": 0,
+        "pointIndex": 2600,
+        "nextPointIndex": 2601,
+        "segmentFraction": 0.3805,
+        "elevationM": 10.0
+      },
+      "anchorDistanceM": 247.4,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 247.4 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28",
+      "displayName": "Option Menton"
+    },
+    {
+      "pointId": "j12-passage-arrivee-nice",
+      "dayId": "J12",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 43.704,
+        "longitude": 7.266
+      },
+      "gpxProjection": {
+        "latitude": 43.69903,
+        "longitude": 7.26992,
+        "trackDistanceKm": 105.676,
+        "segmentIndex": 0,
+        "pointIndex": 3558,
+        "nextPointIndex": 3559,
+        "segmentFraction": 1.0,
+        "elevationM": 16.6
+      },
+      "anchorDistanceM": 636.2,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 636.2 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28",
+      "displayName": "Nice"
+    },
+    {
+      "pointId": "j12-option-menton",
+      "dayId": "J12",
+      "approvedStatus": "matched",
+      "sourceAnchor": {
+        "latitude": 43.775,
+        "longitude": 7.5
+      },
+      "gpxProjection": {
+        "latitude": 43.7734728,
+        "longitude": 7.4977595,
+        "trackDistanceKm": 73.392,
+        "segmentIndex": 0,
+        "pointIndex": 2600,
+        "nextPointIndex": 2601,
+        "segmentFraction": 0.3805,
+        "elevationM": 10.0
+      },
+      "anchorDistanceM": 247.4,
+      "matchMethod": "manual-anchor-reprojected-current-gpx",
+      "comment": "Ancre géographique validée conservée ; projection technique recalculée sur le GPX définitif ; distance à la trace 247.4 m.",
+      "validationSource": "RGA_DASHBOARD_19 — reconstruction complète 2026-07-28",
+      "displayName": "Option Menton",
+      "pointType": "poi",
+      "pointSubtype": "optional-passage"
+    }
+  ]
+}

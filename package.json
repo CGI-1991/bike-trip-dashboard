@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "generate:practical": "node scripts/generate-practical-data.mjs",
-    "prebuild": "npm run generate:practical",
+    "check:rga-trip-package": "node scripts/generate-rga-trip-package.mjs --check",
+    "prebuild": "npm run generate:practical && npm run check:rga-trip-package",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "node --test \"tests/**/*.test.mjs\""

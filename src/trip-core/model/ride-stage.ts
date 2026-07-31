@@ -7,6 +7,7 @@ import type {
   TripDayId,
   WeatherRecordId,
 } from './ids.ts'
+import type { DataProvenance } from './provenance.ts'
 
 /** Generic validation lifecycle for a stage's computed content. */
 export type RideStageValidationStatus = 'pending' | 'valid' | 'needs-review'
@@ -33,6 +34,14 @@ export interface RideStage {
   readonly totalDurationSeconds: Seconds | null
   readonly estimatedAverageSpeedKph: KilometersPerHour | null
   readonly validationStatus: RideStageValidationStatus
+  /**
+   * Provenance of `distanceKm`/`elevationGainM`/`elevationLossM` together —
+   * the model has no per-field provenance, so these three always share one
+   * origin (e.g. an editorial roadbook figure vs. a future GPX computation).
+   * Required whenever any of the three is set; may stay `null` only when all
+   * three are still `null`.
+   */
+  readonly metricsProvenance: DataProvenance | null
   readonly climbIds: readonly ClimbId[]
   readonly routePointIds: readonly RoutePointId[]
   readonly weatherRecordIds: readonly WeatherRecordId[]

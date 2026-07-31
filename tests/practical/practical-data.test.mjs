@@ -150,9 +150,10 @@ test('runtime validation, independent layer filtering and bicycle guidance use r
   assert.doesNotMatch(buildGoogleMapsBicyclingUrl(point), /origin=|key=/)
 })
 
-test('the build regenerates practical data before TypeScript and Vite', async () => {
+test('the build regenerates practical data and checks the RGA trip package before TypeScript and Vite', async () => {
   const packageJson = JSON.parse(await readText('package.json'))
   assert.equal(packageJson.scripts['generate:practical'], 'node scripts/generate-practical-data.mjs')
-  assert.equal(packageJson.scripts.prebuild, 'npm run generate:practical')
+  assert.equal(packageJson.scripts['check:rga-trip-package'], 'node scripts/generate-rga-trip-package.mjs --check')
+  assert.equal(packageJson.scripts.prebuild, 'npm run generate:practical && npm run check:rga-trip-package')
   assert.equal(packageJson.scripts.build, 'tsc && vite build')
 })

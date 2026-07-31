@@ -2,6 +2,7 @@ import type { TripBundle } from '../schema/version.ts'
 import type { Accommodation } from '../model/accommodation.ts'
 import type { Climb } from '../model/climb.ts'
 import type { AccommodationId, RideStageId, RouteId, TripDayId } from '../model/ids.ts'
+import type { PracticalPlace } from '../model/practical-place.ts'
 import type { RideStage } from '../model/ride-stage.ts'
 import type { Route } from '../model/route.ts'
 import type { RoutePoint } from '../model/route-point.ts'
@@ -66,6 +67,10 @@ export function selectAccommodationForDay(bundle: TripBundle, dayId: TripDayId):
 
 function selectAccommodationById(bundle: TripBundle, accommodationId: AccommodationId): Accommodation | null {
   return bundle.accommodations.find((accommodation) => accommodation.id === accommodationId) ?? null
+}
+
+export function selectPracticalPlacesForDay(bundle: TripBundle, dayId: TripDayId): readonly PracticalPlace[] {
+  return bundle.practicalPlaces.filter((place) => place.dayIds.includes(dayId))
 }
 
 export function selectClimbsForStage(bundle: TripBundle, stageId: RideStageId): readonly Climb[] {
