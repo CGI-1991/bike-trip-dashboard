@@ -45,14 +45,60 @@ moteur multi-voyages, développé en parallèle du pipeline RGA existant :
   `selectTripTotals`, etc.), indépendants de l'interface et du stockage.
 
 Ce module n'est importé ni par `src/main.ts` ni par aucun renderer d'interface
-à ce stade, et aucune donnée RGA n'y est encore assignée : c'est la Route des
-Grandes Alpes 2026 qui reste chargée par l'application, via son pipeline
-historique (`src/trip/*`, `rga2026TripPlan`). Les tests dédiés
-(`tests/trip-core/`) utilisent une fixture entièrement synthétique
-(`tests/trip-core/support/generic-trip-fixture.mjs`), indépendante de la RGA.
+à ce stade. Les tests dédiés (`tests/trip-core/`) utilisent une fixture
+entièrement synthétique (`tests/trip-core/support/generic-trip-fixture.mjs`),
+indépendante de la RGA.
 
-La prochaine phase (phase 3 du CDC) créera le bundle RGA et un adaptateur
-temporaire `loadRgaLegacyTrip()`, sans encore introduire IndexedDB.
+## Adaptateur RGA 2026 → TripBundle (`src/trips/rga-2026/`, phase 3)
+
+Un `TripBundle` v1 complet de la Route des Grandes Alpes 2026 est désormais
+disponible via un adaptateur temporaire, **`loadRgaLegacyTrip()`**
+(`src/trips/rga-2026/load-rga-legacy-trip.ts`) — mais **le runtime de
+l'application ne l'utilise pas encore** : `src/main.ts` et l'interface
+continuent de charger la RGA exclusivement via le pipeline historique
+(`rga2026TripPlan`, `src/trip/*`, `src/route/*`, `src/gpx/*`, `src/weather/*`).
+Aucun écran n'a changé.
+
+- `public/trips/rga-2026/` — paquet canonique et autonome : copies
+  byte-identiques des dix GPX, du roadbook, des overrides, des logements et
+  des lieux pratiques, plus un `manifest.json` déterministe (avec des
+  compteurs calculés : journées, overrides par statut, points migrés, lieux
+  pratiques...) et des réglages par défaut. Généré par
+  `scripts/generate-rga-trip-package.mjs` (à relancer manuellement si l'un de
+  ces actifs historiques change) ; `npm run check:rga-trip-package` (inclus
+  dans `prebuild`) vérifie sans jamais rien réécrire que le paquet ne dérive
+  pas de ses sources.
+- `src/trips/rga-2026/` — `createRgaLegacyTripBundle()` (constructeur pur et
+  synchrone, sans DOM/`localStorage`/heure courante) et `loadRgaLegacyTrip()`
+  (chargement asynchrone du paquet public, avec `fetch` et URL de base
+  injectables — nécessairement asynchrone : les ~3,4 Mo de GPX et de lieux
+  pratiques ne doivent pas être embarqués dans le bundle JavaScript pour
+  préserver une API synchrone artificielle).
+- Le bundle produit couvre les 12 journées, 10 étapes/routes/fichiers source,
+  les statistiques éditoriales de chaque étape (distance, D+, D−, avec leur
+  provenance propre `RideStage.metricsProvenance`), les logements, et
+  l'intégralité des 1 705 lieux pratiques avec leur association aux journées
+  (`PracticalPlace.dayIds`, sélectionnable via `selectPracticalPlacesForDay`).
+  Les points documentés (cols, passages, détours) ne sont repris comme
+  `RoutePoint` que lorsqu'une position géographique validée existe (46 des 53
+  candidats du roadbook) ; les entrées non positionnées restent disponibles
+  telles quelles dans la copie canonique des sources, jamais dotées d'une
+  coordonnée inventée. Les montées, les géométries/profils de route et les
+  autres mesures d'étape (min/max altitude, durées, ETA) restent volontairement
+  `null` à ce stade (aucun nouveau parseur GPX, aucun calcul approximatif) —
+  voir `tests/trips/rga-2026/` pour le détail du mapping et de ses limites
+  documentées.
+- Le paquet canonique est désormais découvert automatiquement (
+  `scripts/offline-resources.mjs`'s `collectOfflineResources`) et inclus dans
+  le précache générique du service worker, aux côtés de la liste historique —
+  aucun futur paquet `public/trips/<autre-voyage>/` ne nécessitera de
+  modification du service worker.
+- IndexedDB, le gestionnaire de voyages et l'import GPX ne sont toujours pas
+  implémentés. La comparaison exhaustive avec le pipeline historique (golden
+  master) reste à faire.
+
+La prochaine phase (phase 4 du CDC) comparera ce `TripBundle` au pipeline
+historique dans un golden master complet, avant toute bascule du runtime.
 
 ## Stack
 

@@ -397,6 +397,22 @@ export function validateTripBundle(value: unknown): ValidationResult<TripBundle>
     if (place.openingHours !== null && !isNonEmptyString(place.openingHours)) issues.push(issue(`${path}.openingHours`, 'invalid-value', 'openingHours invalide.'))
     if (!isBoolean(place.hidden)) issues.push(issue(`${path}.hidden`, 'invalid-type', 'hidden doit être un booléen.'))
     if (!isBoolean(place.pinned)) issues.push(issue(`${path}.pinned`, 'invalid-type', 'pinned doit être un booléen.'))
+    if (!Array.isArray(place.dayIds)) {
+      issues.push(issue(`${path}.dayIds`, 'invalid-type', 'dayIds doit être un tableau.'))
+    } else {
+      const seenPlaceDayIds = new Set<string>()
+      place.dayIds.forEach((dayIdValue: unknown, dayIdIndex: number) => {
+        const itemPath = `${path}.dayIds[${dayIdIndex}]`
+        if (!isNonEmptyString(dayIdValue)) {
+          issues.push(issue(itemPath, 'invalid-value', 'dayIds doit contenir des chaînes non vides.'))
+          return
+        }
+        if (seenPlaceDayIds.has(dayIdValue)) {
+          issues.push(issue(itemPath, 'duplicate-reference', `dayIds contient un identifiant en double : ${dayIdValue}.`))
+        }
+        seenPlaceDayIds.add(dayIdValue)
+      })
+    }
     validateProvenance(place.provenance, `${path}.provenance`, issues)
   })
 
@@ -466,6 +482,17 @@ export function validateTripBundle(value: unknown): ValidationResult<TripBundle>
     if (!isOneOf(day.enrichmentStatus, TRIP_DAY_ENRICHMENT_STATUSES)) issues.push(issue(`${path}.enrichmentStatus`, 'invalid-enum', 'enrichmentStatus invalide.'))
   })
   const daysById = new Map(days.map((day) => [day.id, day]))
+
+  // practicalPlaces.dayIds referential check — deferred until here since it needs `dayIds`.
+  practicalPlaces.forEach((place, index) => {
+    if (!Array.isArray(place.dayIds)) return // already reported above
+    const path = `practicalPlaces[${index}]`
+    place.dayIds.forEach((dayIdValue: unknown, dayIdIndex: number) => {
+      if (typeof dayIdValue === 'string' && dayIdValue.trim() !== '' && !dayIds.has(dayIdValue)) {
+        issues.push(issue(`${path}.dayIds[${dayIdIndex}]`, 'unknown-reference', `dayIds inconnu : ${dayIdValue}.`))
+      }
+    })
+  })
 
   // The calendar's own duration must match the number of days — not just each
   // day individually: calendar.endDate must equal calendar.startDate + (days.length - 1).
@@ -558,6 +585,17 @@ export function validateTripBundle(value: unknown): ValidationResult<TripBundle>
     }
     if (stage.estimatedAverageSpeedKph !== null && !isPositiveNumber(stage.estimatedAverageSpeedKph)) {
       issues.push(issue(`${path}.estimatedAverageSpeedKph`, 'invalid-value', 'estimatedAverageSpeedKph doit être > 0 ou null.'))
+    }
+    if (stage.metricsProvenance !== null) {
+      validateProvenance(stage.metricsProvenance, `${path}.metricsProvenance`, issues)
+    } else if (stage.distanceKm !== null || stage.elevationGainM !== null || stage.elevationLossM !== null) {
+      issues.push(
+        issue(
+          `${path}.metricsProvenance`,
+          'missing-required',
+          'metricsProvenance est requis dès que distanceKm, elevationGainM ou elevationLossM est renseigné.',
+        ),
+      )
     }
     if (
       isNonNegativeNumber(stage.movingDurationSeconds) &&

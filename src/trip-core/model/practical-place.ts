@@ -1,5 +1,5 @@
 import type { Kilometers, LatitudeDegrees, LongitudeDegrees } from './common.ts'
-import type { PracticalPlaceId } from './ids.ts'
+import type { PracticalPlaceId, TripDayId } from './ids.ts'
 import type { DataProvenance } from './provenance.ts'
 
 /** The generic amenity categories from CDC section 19.1. */
@@ -26,5 +26,11 @@ export interface PracticalPlace {
   readonly openingHours: string | null
   readonly hidden: boolean
   readonly pinned: boolean
+  /**
+   * Days this place is near enough to be relevant for — a place can serve
+   * more than one consecutive day. Empty when no day association is known
+   * yet; never a day the source data doesn't actually associate it with.
+   */
+  readonly dayIds: readonly TripDayId[]
   readonly provenance: DataProvenance
 }

@@ -7,6 +7,7 @@ import {
   selectDayById,
   selectOffDays,
   selectOrderedDays,
+  selectPracticalPlacesForDay,
   selectRideDays,
   selectRoutePointsForStage,
   selectRouteById,
@@ -85,6 +86,27 @@ test('selectTripTotals returns null for a measure that is null on every stage', 
   bundle.stages = bundle.stages.map((stage) => ({ ...stage, distanceKm: null }))
   const totals = selectTripTotals(bundle)
   assert.equal(totals.distanceKm, null)
+})
+
+test('selectPracticalPlacesForDay returns the places associated with that day, in source order', () => {
+  const bundle = createGenericTripBundle()
+  const places = selectPracticalPlacesForDay(bundle, bundle.days[0].id)
+  assert.deepEqual(places.map((place) => place.id), [bundle.practicalPlaces[0].id])
+})
+
+test('selectPracticalPlacesForDay returns an empty array, never a throw, for a day with no places', () => {
+  const bundle = createGenericTripBundle()
+  assert.deepEqual(selectPracticalPlacesForDay(bundle, bundle.days[1].id), [])
+  assert.deepEqual(selectPracticalPlacesForDay(bundle, 'day-does-not-exist'), [])
+})
+
+test('selectPracticalPlacesForDay returns a multi-day place for each of its days, without mutating dayIds', () => {
+  const bundle = createGenericTripBundle()
+  bundle.practicalPlaces[0].dayIds = [bundle.days[0].id, bundle.days[3].id]
+  const snapshot = [...bundle.practicalPlaces[0].dayIds]
+  assert.deepEqual(selectPracticalPlacesForDay(bundle, bundle.days[0].id).map((p) => p.id), [bundle.practicalPlaces[0].id])
+  assert.deepEqual(selectPracticalPlacesForDay(bundle, bundle.days[3].id).map((p) => p.id), [bundle.practicalPlaces[0].id])
+  assert.deepEqual(bundle.practicalPlaces[0].dayIds, snapshot)
 })
 
 test('a missing reference is handled cleanly — null or empty collection, never a throw', () => {

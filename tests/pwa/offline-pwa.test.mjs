@@ -84,8 +84,9 @@ test('the service worker is scoped, atomic and never intercepts external weather
   assert.match(viteSource, /base: '\/bike-trip-dashboard\/'/)
   assert.match(viteSource, /fileName: 'sw\.js'/)
   assert.match(viteSource, /configResolved\(config\)[\s\S]*projectRoot = config\.root/)
-  assert.match(viteSource, /hash\.update\(readFileSync\(resolve\(projectRoot, 'public', resource\)\)\)/)
-  assert.match(viteSource, /for \(const resource of offlineResources\)/)
+  assert.match(viteSource, /hash\.update\(readFileSync\(resolve\(publicDir, resource\)\)\)/)
+  assert.match(viteSource, /for \(const resource of allOfflineResources\)/)
+  assert.match(viteSource, /collectOfflineResources\(publicDir\)/)
 })
 
 test('service worker registration respects the GitHub Pages base and bypasses HTTP caches', async () => {
