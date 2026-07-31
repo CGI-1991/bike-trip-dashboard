@@ -7,7 +7,9 @@
     "dev": "vite",
     "generate:practical": "node scripts/generate-practical-data.mjs",
     "check:rga-trip-package": "node scripts/generate-rga-trip-package.mjs --check",
-    "prebuild": "npm run generate:practical && npm run check:rga-trip-package",
+    "generate:rga-golden": "node scripts/generate-rga-golden.mjs",
+    "check:rga-golden": "node scripts/generate-rga-golden.mjs --check",
+    "prebuild": "npm run generate:practical && npm run check:rga-trip-package && npm run check:rga-golden",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "node --test \"tests/**/*.test.mjs\""
