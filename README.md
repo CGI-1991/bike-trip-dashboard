@@ -14,12 +14,45 @@ de chaque journée.
   historique et fonctionnelle de l'application RGA 2026 héritée, conservée comme
   cas de non-régression.
 
-La migration vers le modèle générique `TripBundle` décrit dans `CDC.md` n'a pas
-encore commencé : l'application fonctionne aujourd'hui exactement comme
-l'application RGA 2026 d'origine, avec une identité technique (nom de paquet,
-base GitHub Pages, manifeste PWA, préfixe de cache, clés de stockage) propre à
-ce nouveau dépôt. L'import GPX générique, IndexedDB et le multi-voyages ne sont
-pas implémentés.
+La migration vers le modèle générique `TripBundle` décrit dans `CDC.md` a
+commencé par sa phase 2 : `TripBundle` v1 (schéma, types, validateurs,
+migrations, sélecteurs) est défini dans `src/trip-core/`, mais n'est **pas**
+encore branché sur l'application. L'application fonctionne aujourd'hui
+exactement comme l'application RGA 2026 d'origine, avec une identité technique
+(nom de paquet, base GitHub Pages, manifeste PWA, préfixe de cache, clés de
+stockage) propre à ce nouveau dépôt, et continue de reposer sur ses modèles
+hérités (`src/trip/*`, `src/route/*`, `src/gpx/*`, `src/weather/*`). L'import
+GPX générique, IndexedDB et le multi-voyages ne sont pas implémentés.
+
+## TripBundle v1 (`src/trip-core/`)
+
+`src/trip-core/` porte le cœur de domaine générique et versionné du futur
+moteur multi-voyages, développé en parallèle du pipeline RGA existant :
+
+- `model/` — types TypeScript de `TripBundle` v1 (identifiants, métadonnées,
+  calendrier, journées, étapes, routes, montées, points, lieux pratiques,
+  logements, météo, réglages, overrides, provenance et métadonnées de
+  génération/enrichissement) ;
+- `schema/version.ts` — version courante du schéma
+  (`CURRENT_TRIP_BUNDLE_SCHEMA_VERSION = 1`) ;
+- `validation/` — `validateTripBundle`/`assertTripBundle`, un validateur
+  runtime sans dépendance qui accumule toutes les erreurs structurelles et
+  référentielles plutôt que de s'arrêter à la première ;
+- `migrations/` — `migrateTripBundle`, une infrastructure de migration
+  minimale (v1 accepté tel quel, versions futures ou anciennes sans migration
+  enregistrée explicitement refusées) ;
+- `selectors/` — lecteurs purs (`selectOrderedDays`, `selectStageForDay`,
+  `selectTripTotals`, etc.), indépendants de l'interface et du stockage.
+
+Ce module n'est importé ni par `src/main.ts` ni par aucun renderer d'interface
+à ce stade, et aucune donnée RGA n'y est encore assignée : c'est la Route des
+Grandes Alpes 2026 qui reste chargée par l'application, via son pipeline
+historique (`src/trip/*`, `rga2026TripPlan`). Les tests dédiés
+(`tests/trip-core/`) utilisent une fixture entièrement synthétique
+(`tests/trip-core/support/generic-trip-fixture.mjs`), indépendante de la RGA.
+
+La prochaine phase (phase 3 du CDC) créera le bundle RGA et un adaptateur
+temporaire `loadRgaLegacyTrip()`, sans encore introduire IndexedDB.
 
 ## Stack
 
@@ -103,6 +136,9 @@ src/
                 politique d'affichage par échéance (src/weather/display-policy.ts)
   ui/           Rendu HTML par section du tableau de bord
   storage/      Réglages utilisateur persistés en localStorage
+  trip-core/    TripBundle v1 générique (modèle, validation, migrations,
+                sélecteurs) — voir « TripBundle v1 » ci-dessus ; pas encore
+                branché sur l'application
   main.ts       Point d'entrée : orchestration et écouteurs d'événements
 public/data/
   gpx/          Les 10 traces GPX sources (non modifiées par l'application)
