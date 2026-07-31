@@ -4,8 +4,8 @@ import type { DataProvenance } from './provenance.ts'
 
 /**
  * Generic category for a named/documented point along a route — the
- * generic counterpart of the RGA's `RoadbookPointType`
- * (`src/trip/roadbook-types.ts`), without any RGA-specific subtype.
+ * generic counterpart of the legacy roadbook point type
+ * (`src/trip/roadbook-types.ts`), without any trip-specific subtype.
  */
 export type RoutePointType =
   | 'start'

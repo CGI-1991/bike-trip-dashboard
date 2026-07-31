@@ -56,3 +56,36 @@ test('-Infinity is never accepted anywhere a number is expected', () => {
   bundle.stages[0].minAltitudeM = Number.NEGATIVE_INFINITY
   assert.ok(issueCodes(validateTripBundle(bundle)).includes('invalid-value'))
 })
+
+test('totalDurationSeconds must equal movingDurationSeconds + pauseDurationSeconds when all three are present', () => {
+  const bundle = createGenericTripBundle()
+  assert.equal(
+    bundle.stages[0].totalDurationSeconds,
+    bundle.stages[0].movingDurationSeconds + bundle.stages[0].pauseDurationSeconds,
+  )
+  assert.equal(validateTripBundle(bundle).ok, true)
+
+  bundle.stages[0].totalDurationSeconds += 1
+  assert.ok(issueCodes(validateTripBundle(bundle)).includes('inconsistent-duration'))
+})
+
+test('duration coherence is not checked when one of the three values is still null', () => {
+  const bundle = createGenericTripBundle()
+  bundle.stages[0].pauseDurationSeconds = null
+  // totalDurationSeconds no longer matches movingDurationSeconds alone, but with
+  // pauseDurationSeconds null the coherence check must not fire (nothing to compare).
+  const result = validateTripBundle(bundle)
+  assert.equal(result.ok, true)
+})
+
+test('estimatedAverageSpeedKph must be strictly positive, not merely non-negative', () => {
+  const bundle = createGenericTripBundle()
+  bundle.stages[0].estimatedAverageSpeedKph = 0
+  assert.ok(issueCodes(validateTripBundle(bundle)).includes('invalid-value'))
+})
+
+test('a negative estimatedAverageSpeedKph is rejected', () => {
+  const bundle = createGenericTripBundle()
+  bundle.stages[0].estimatedAverageSpeedKph = -5
+  assert.ok(issueCodes(validateTripBundle(bundle)).includes('invalid-value'))
+})

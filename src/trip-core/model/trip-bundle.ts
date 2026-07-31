@@ -19,7 +19,7 @@ import type { WeatherRecord } from './weather.ts'
  *
  * All collections are normalized (entities reference each other by id, never
  * nested/duplicated) and `readonly`, per CDC section 8. This phase defines
- * the shape only: no RGA data is ever assigned to it here.
+ * the shape only: no real trip data is ever assigned to it here.
  */
 export interface TripBundleV1 {
   readonly schemaVersion: TripBundleSchemaVersion

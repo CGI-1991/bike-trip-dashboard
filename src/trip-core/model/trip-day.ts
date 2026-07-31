@@ -16,15 +16,18 @@ export type TripDayEnrichmentStatus = 'not-started' | 'partial' | 'complete'
  * - days are stored in ascending `index` order;
  * - `index` values are unique and contiguous starting at 0;
  * - `displayNumber` values are positive integers;
- * - a `ride` day references exactly one stage via `stageId`;
- * - an `off` day never references a ride stage (`stageId` is `null`);
- * - a `transfer` day may or may not reference a ride stage;
+ * - a `ride` day references exactly one stage via `stageId` (required);
+ * - an `off` day never references a stage (`stageId` is `null`);
+ * - a `transfer` day never references a stage either (`stageId` is `null`) —
+ *   `RideStage` only ever models a cyclable ride, and v1 has no generic
+ *   transfer-stage model (car, train, ferry, ...) to attach to a transfer
+ *   day. A future phase may introduce a dedicated `TransferStage` type; until
+ *   then, `stageId` on a `transfer` day is always `null`, exactly like `off`;
  * - `accommodationId`, when set, must resolve to a known accommodation.
  *
  * No geographic continuity between consecutive days is imposed here — that
- * was a Route des Grandes Alpes 2026 specific constraint (see
- * `assertTripPlan` in `src/trip/plan.ts`) and does not belong in the generic
- * model.
+ * is a constraint specific to the legacy, hardcoded trip plan this generic
+ * model replaces, and does not belong here.
  */
 export interface TripDay {
   readonly id: TripDayId

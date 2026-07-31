@@ -4,9 +4,9 @@ import type { RideStageId, RoutePointId, TripDayId } from './ids.ts'
 export type PausePlanMode = 'automatic' | 'custom'
 
 /**
- * Trip-wide reference speed and pause strategy — preserves the RGA's
+ * Trip-wide reference speed and pause strategy — preserves the
  * "reference speed × terrain factor" model (CDC section 17.1) as a concept,
- * without hardcoding any RGA value.
+ * without hardcoding any trip-specific value.
  */
 export interface GlobalTripSettings {
   readonly referenceSpeedKph: KilometersPerHour

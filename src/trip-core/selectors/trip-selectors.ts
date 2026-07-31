@@ -11,7 +11,7 @@ import type { TripDay } from '../model/trip-day.ts'
  * Pure, UI-independent read helpers over a validated `TripBundle`. No DOM
  * access, no storage access, no network, no recomputation of GPX/D+/ETA —
  * every value here already exists on the bundle. Nothing in this file
- * references a specific day, stage, or trip (no J1/J5/J8, no RGA identifier).
+ * references a specific day, stage, or trip identifier.
  */
 
 function byIndex(left: TripDay, right: TripDay): number {

@@ -6,7 +6,8 @@ import type { DataProvenance } from './provenance.ts'
  * A single normalized weather sample for one location and one forecast
  * instant, tied to the day and (when applicable) the route point it was
  * generated for. This is a minimal generic placeholder for phase 2 — it does
- * not replace or reimplement `src/weather/*`, which keeps serving the RGA.
+ * not replace or reimplement `src/weather/*`, which keeps serving the legacy
+ * trip pipeline.
  */
 export interface WeatherRecord {
   readonly id: WeatherRecordId

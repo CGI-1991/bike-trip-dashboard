@@ -52,6 +52,20 @@ test('a stage linked to an off day is rejected', () => {
   assert.ok(codes.includes('invalid-reference'))
 })
 
+test('a transfer day referencing a stage is rejected — v1 has no transfer stage model', () => {
+  const bundle = createGenericTripBundle()
+  bundle.days[2].stageId = bundle.stages[0].id // day 2 is a transfer day
+  const codes = issueCodes(validateTripBundle(bundle))
+  assert.ok(codes.includes('unexpected-value'))
+})
+
+test('a stage linked to a transfer day is rejected, exactly like an off day', () => {
+  const bundle = createGenericTripBundle()
+  bundle.stages[1].dayId = bundle.days[2].id // day 2 is a transfer day
+  const codes = issueCodes(validateTripBundle(bundle))
+  assert.ok(codes.includes('invalid-reference'))
+})
+
 test('two ride stages for the same day are rejected', () => {
   const bundle = createGenericTripBundle()
   bundle.stages[1].dayId = bundle.stages[0].dayId

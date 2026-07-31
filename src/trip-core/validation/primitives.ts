@@ -24,6 +24,11 @@ export function isStringArray(value: unknown): value is readonly string[] {
   return Array.isArray(value) && value.every((item) => typeof item === 'string')
 }
 
+/** Like `isStringArray`, but also rejects an empty-string entry (e.g. a blank parsing error). */
+export function isNonEmptyStringArray(value: unknown): value is readonly string[] {
+  return Array.isArray(value) && value.every((item) => isNonEmptyString(item))
+}
+
 export function isOneOf<T extends string>(value: unknown, options: readonly T[]): value is T {
   return typeof value === 'string' && (options as readonly string[]).includes(value)
 }
@@ -83,6 +88,33 @@ const TIME_OF_DAY_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d$/
 
 export function isTimeOfDay(value: unknown): value is string {
   return typeof value === 'string' && TIME_OF_DAY_PATTERN.test(value)
+}
+
+const SHA256_HEX_PATTERN = /^[0-9a-fA-F]{64}$/
+
+/** Exactly 64 hexadecimal characters (either case) — never an arbitrary non-empty string. */
+export function isSha256Hex(value: unknown): value is string {
+  return typeof value === 'string' && SHA256_HEX_PATTERN.test(value)
+}
+
+/**
+ * Adds `dayOffset` civil days to an ISO date (`YYYY-MM-DD`), anchored in UTC
+ * so the arithmetic never depends on the host machine's timezone or on DST
+ * transitions. `isoDate` must already be a validated ISO date (see
+ * `isIsoDate`) — this throws otherwise, since it is only ever called after
+ * that guard in `validateTripBundle`.
+ */
+export function addCivilDays(isoDate: string, dayOffset: number): string {
+  const match = ISO_DATE_PATTERN.exec(isoDate)
+  if (match === null) {
+    throw new Error(`addCivilDays: not a valid ISO date: ${isoDate}`)
+  }
+  const year = Number(match[1])
+  const monthIndex = Number(match[2]) - 1
+  const day = Number(match[3])
+  const date = new Date(Date.UTC(year, monthIndex, day))
+  date.setUTCDate(date.getUTCDate() + dayOffset)
+  return date.toISOString().slice(0, 10)
 }
 
 /** Best-effort IANA timezone check — skipped (never fails) where the runtime lacks the data. */

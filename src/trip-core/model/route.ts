@@ -7,6 +7,9 @@ import type { DataProvenance } from './provenance.ts'
  * — never by duplicating its points here (those live, when kept, in
  * `RouteGeometry`). Mirrors the "one GPX = one segment by default" rule from
  * CDC section 7.2 without hardcoding it.
+ *
+ * `Route.segments` must be stored in ascending order with `index` unique and
+ * contiguous starting at 0 (checked by `validateTripBundle`, not here).
  */
 export interface RouteSegmentDescriptor {
   readonly index: number
@@ -38,6 +41,13 @@ export interface RouteElevationProfilePoint {
   readonly gradePercent: Percent | null
 }
 
+/**
+ * `points` must be ordered by strictly increasing `distanceKm` — no two
+ * points may share the same distance. A resampled profile has no valid v1
+ * use case for two samples at the same point along the route, so a
+ * duplicate distance is treated as a data error rather than a legitimate
+ * edge case (checked by `validateTripBundle`, not here).
+ */
 export interface RouteElevationProfile {
   readonly resampleIntervalMeters: Meters
   readonly points: readonly RouteElevationProfilePoint[]

@@ -2,7 +2,7 @@ import type { LatitudeDegrees, LongitudeDegrees } from './common.ts'
 import type { AccommodationId } from './ids.ts'
 import type { DataProvenance } from './provenance.ts'
 
-/** Generic lodging types, per CDC sections 8 and 22 (no RGA-specific type). */
+/** Generic lodging types, per CDC sections 8 and 22 (no trip-specific type). */
 export type AccommodationType =
   | 'hotel'
   | 'airbnb'

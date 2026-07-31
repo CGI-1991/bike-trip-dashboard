@@ -1,7 +1,7 @@
 // Generic, fully synthetic TripBundle v1 fixture used only by trip-core tests.
-// Deliberately independent of the Route des Grandes Alpes 2026: no J1/J5/J8-style
-// ids, no fixed 12-day/10-ride shape, no Europe/Paris, no Thonon/Nice/Bonette/
-// Briançon/Bourg-Saint-Maurice place names, no `rga-2026` identifier.
+// Entirely made up: no fixed day count or ride/rest split, no hardcoded
+// timezone, and no real-world place names — none of it is tied to any
+// specific existing trip or itinerary.
 //
 // Four logical days: ride, off, transfer, ride — two ride stages, two routes,
 // two source files, one climb, three route points, one accommodation, one

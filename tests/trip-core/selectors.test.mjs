@@ -92,6 +92,14 @@ test('a missing reference is handled cleanly — null or empty collection, never
   assert.equal(selectDayById(bundle, 'day-does-not-exist'), null)
   assert.equal(selectStageById(bundle, 'stage-does-not-exist'), null)
   assert.equal(selectRouteById(bundle, 'route-does-not-exist'), null)
+  assert.equal(selectAccommodationForDay(bundle, 'day-does-not-exist'), null)
   assert.deepEqual(selectClimbsForStage(bundle, 'stage-does-not-exist'), [])
   assert.deepEqual(selectRoutePointsForStage(bundle, 'stage-does-not-exist'), [])
+})
+
+test('selectTripTotals treats a genuine 0 as a contributing value, not as absent', () => {
+  const bundle = createGenericTripBundle()
+  bundle.stages = bundle.stages.map((stage, index) => (index === 1 ? { ...stage, elevationLossM: 0 } : stage))
+  const totals = selectTripTotals(bundle)
+  assert.equal(totals.elevationLossM, bundle.stages[0].elevationLossM + 0)
 })

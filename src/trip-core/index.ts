@@ -2,8 +2,8 @@
  * Public surface of the generic trip-core domain (TripBundle v1).
  *
  * Not yet wired into the application: `src/main.ts` and the UI renderers
- * keep depending on `src/trip/*` and the RGA pipeline. This barrel exists for
- * future phases (RGA adapter, then multi-trip UI) and for tests.
+ * keep depending on the legacy `src/trip/*` pipeline. This barrel exists for
+ * future phases (a legacy-trip adapter, then multi-trip UI) and for tests.
  */
 
 export * from './model/ids.ts'

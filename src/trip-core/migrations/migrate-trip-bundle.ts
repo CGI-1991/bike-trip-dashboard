@@ -16,6 +16,23 @@ function findMigration(fromVersion: number): TripBundleMigration | undefined {
 }
 
 /**
+ * A migration step is only safe to apply if it strictly progresses towards
+ * (and never past) the target version. This is what rules out, for any
+ * migration registered in the future:
+ * - a step to an identical version (`toVersion === fromVersion`), which
+ *   would spin the loop below forever;
+ * - a backward step (`toVersion < fromVersion`), which would do the same;
+ * - an inconsistent jump past the current schema version.
+ *
+ * Exported so this safety property can be unit-tested directly against
+ * fabricated migration steps, without registering anything in the (empty,
+ * v1) `migrations` registry above.
+ */
+export function isValidMigrationStep(migration: TripBundleMigration, targetVersion: number): boolean {
+  return migration.toVersion > migration.fromVersion && migration.toVersion <= targetVersion
+}
+
+/**
  * Migrates an unknown value to the current TripBundle schema version and
  * validates the result.
  *
@@ -69,6 +86,18 @@ export function migrateTripBundle(value: unknown): ValidationResult<TripBundle> 
             path: 'schemaVersion',
             code: 'no-migration-registered',
             message: `Aucune migration enregistrée depuis la version ${currentVersion}.`,
+          },
+        ],
+      }
+    }
+    if (!isValidMigrationStep(migration, CURRENT_TRIP_BUNDLE_SCHEMA_VERSION)) {
+      return {
+        ok: false,
+        issues: [
+          {
+            path: 'schemaVersion',
+            code: 'invalid-migration-step',
+            message: `La migration enregistrée depuis la version ${migration.fromVersion} vers ${migration.toVersion} est incohérente.`,
           },
         ],
       }
