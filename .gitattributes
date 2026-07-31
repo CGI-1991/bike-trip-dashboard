@@ -2,3 +2,4 @@ public/data/practical/practical-points.json text eol=lf
 public/data/gpx/** text eol=lf
 public/data/trip/** text eol=lf
 public/trips/** text eol=lf
+tests/golden/** text eol=lf
