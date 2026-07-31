@@ -1,0 +1,2973 @@
+{
+  "goldenVersion": 1,
+  "legacy": {
+    "tripPlan": {
+      "id": "rga-2026",
+      "name": "Route des Grandes Alpes 2026",
+      "timezone": "Europe/Paris",
+      "totalDays": 12,
+      "rideDays": 10,
+      "offDays": 2,
+      "days": [
+        {
+          "id": "J1",
+          "dayNumber": 1,
+          "type": "ride",
+          "startName": "Thonon-les-Bains",
+          "endName": "Morzine",
+          "locationName": null,
+          "gpxNumber": 1,
+          "gpxFile": "01_route-des-grandes-alpes-a-velo-thonon-les-bains-morzine-avoriaz.gpx",
+          "variant": null
+        },
+        {
+          "id": "J2",
+          "dayNumber": 2,
+          "type": "ride",
+          "startName": "Morzine",
+          "endName": "Le Grand-Bornand",
+          "locationName": null,
+          "gpxNumber": 2,
+          "gpxFile": "02_route-des-grandes-alpes-a-velo-morzine-avoriaz-le-grand-bornand.gpx",
+          "variant": null
+        },
+        {
+          "id": "J3",
+          "dayNumber": 3,
+          "type": "ride",
+          "startName": "Le Grand-Bornand",
+          "endName": "Beaufort-sur-Doron",
+          "locationName": null,
+          "gpxNumber": 3,
+          "gpxFile": "03_route-des-grandes-alpes-a-velo-le-grand-bornand-beaufort-sur-doron.gpx",
+          "variant": null
+        },
+        {
+          "id": "J4",
+          "dayNumber": 4,
+          "type": "ride",
+          "startName": "Beaufort-sur-Doron",
+          "endName": "Bourg-Saint-Maurice",
+          "locationName": null,
+          "gpxNumber": 4,
+          "gpxFile": "04_route-des-grandes-alpes-a-velo-beaufort-sur-doron-bourg-saint-maurice.gpx",
+          "variant": null
+        },
+        {
+          "id": "J5",
+          "dayNumber": 5,
+          "type": "off",
+          "startName": null,
+          "endName": null,
+          "locationName": "Bourg-Saint-Maurice",
+          "gpxNumber": null,
+          "gpxFile": null,
+          "variant": null
+        },
+        {
+          "id": "J6",
+          "dayNumber": 6,
+          "type": "ride",
+          "startName": "Bourg-Saint-Maurice",
+          "endName": "Val-Cenis",
+          "locationName": null,
+          "gpxNumber": 5,
+          "gpxFile": "05_route-des-grandes-alpes-a-velo-bourg-saint-maurice-val-cenis.gpx",
+          "variant": null
+        },
+        {
+          "id": "J7",
+          "dayNumber": 7,
+          "type": "ride",
+          "startName": "Val-Cenis",
+          "endName": "Briançon",
+          "locationName": null,
+          "gpxNumber": 6,
+          "gpxFile": "06_route-des-grandes-alpes-a-velo-val-cenis-briancon.gpx",
+          "variant": null
+        },
+        {
+          "id": "J8",
+          "dayNumber": 8,
+          "type": "off",
+          "startName": null,
+          "endName": null,
+          "locationName": "Briançon",
+          "gpxNumber": null,
+          "gpxFile": null,
+          "variant": null
+        },
+        {
+          "id": "J9",
+          "dayNumber": 9,
+          "type": "ride",
+          "startName": "Briançon",
+          "endName": "Barcelonnette",
+          "locationName": null,
+          "gpxNumber": 7,
+          "gpxFile": "07_route-des-grandes-alpes-a-velo-briancon-barcelonnette.gpx",
+          "variant": null
+        },
+        {
+          "id": "J10",
+          "dayNumber": 10,
+          "type": "ride",
+          "startName": "Barcelonnette",
+          "endName": "Saint-Étienne-de-Tinée",
+          "locationName": null,
+          "gpxNumber": 8,
+          "gpxFile": "08_route-des-grandes-alpes-a-velo-variante-barcelonnette-saint-etienne-de-tinee.gpx",
+          "variant": "Bonette"
+        },
+        {
+          "id": "J11",
+          "dayNumber": 11,
+          "type": "ride",
+          "startName": "Saint-Étienne-de-Tinée",
+          "endName": "Saint-Martin-Vésubie",
+          "locationName": null,
+          "gpxNumber": 9,
+          "gpxFile": "09_route-des-grandes-alpes-a-velo-variante-saint-etienne-de-tinee-saint-martin-vesubie.gpx",
+          "variant": "Variante"
+        },
+        {
+          "id": "J12",
+          "dayNumber": 12,
+          "type": "ride",
+          "startName": "Saint-Martin-Vésubie",
+          "endName": "Nice",
+          "locationName": null,
+          "gpxNumber": 10,
+          "gpxFile": "10_route-des-grandes-alpes-a-velo-saint-martin-vesubie-nice.gpx",
+          "variant": null
+        }
+      ]
+    },
+    "calendar": {
+      "startDate": "2026-08-12",
+      "endDate": "2026-08-23",
+      "timezone": "Europe/Paris",
+      "days": [
+        {
+          "dayId": "J1",
+          "dayNumber": 1,
+          "date": "2026-08-12"
+        },
+        {
+          "dayId": "J2",
+          "dayNumber": 2,
+          "date": "2026-08-13"
+        },
+        {
+          "dayId": "J3",
+          "dayNumber": 3,
+          "date": "2026-08-14"
+        },
+        {
+          "dayId": "J4",
+          "dayNumber": 4,
+          "date": "2026-08-15"
+        },
+        {
+          "dayId": "J5",
+          "dayNumber": 5,
+          "date": "2026-08-16"
+        },
+        {
+          "dayId": "J6",
+          "dayNumber": 6,
+          "date": "2026-08-17"
+        },
+        {
+          "dayId": "J7",
+          "dayNumber": 7,
+          "date": "2026-08-18"
+        },
+        {
+          "dayId": "J8",
+          "dayNumber": 8,
+          "date": "2026-08-19"
+        },
+        {
+          "dayId": "J9",
+          "dayNumber": 9,
+          "date": "2026-08-20"
+        },
+        {
+          "dayId": "J10",
+          "dayNumber": 10,
+          "date": "2026-08-21"
+        },
+        {
+          "dayId": "J11",
+          "dayNumber": 11,
+          "date": "2026-08-22"
+        },
+        {
+          "dayId": "J12",
+          "dayNumber": 12,
+          "date": "2026-08-23"
+        }
+      ]
+    },
+    "roadbook": {
+      "version": 1,
+      "tripId": "rga-2026",
+      "days": [
+        {
+          "id": "J1",
+          "dayNumber": 1,
+          "type": "ride",
+          "title": "Thonon-les-Bains → Morzine",
+          "notes": [],
+          "editorialStats": {
+            "distanceKm": 49.96,
+            "elevationGainM": 1250,
+            "elevationLossM": 720
+          },
+          "variant": null,
+          "colIds": [
+            "j01-col-col-du-feu"
+          ],
+          "resupplyPassageIds": [
+            "j01-passage-bellevaux",
+            "j01-passage-lullin",
+            "j01-passage-saint-jean-d-aulps"
+          ],
+          "optionIds": [],
+          "explicitPauseIds": []
+        },
+        {
+          "id": "J2",
+          "dayNumber": 2,
+          "type": "ride",
+          "title": "Morzine → Le Grand-Bornand",
+          "notes": [],
+          "editorialStats": {
+            "distanceKm": 78.13,
+            "elevationGainM": 2072,
+            "elevationLossM": 2099
+          },
+          "variant": null,
+          "colIds": [
+            "j02-col-col-de-chatillon",
+            "j02-col-col-de-joux-plane",
+            "j02-col-col-de-la-colombiere"
+          ],
+          "resupplyPassageIds": [
+            "j02-passage-cluses",
+            "j02-passage-le-reposoir",
+            "j02-passage-samoens",
+            "j02-passage-taninges"
+          ],
+          "optionIds": [],
+          "explicitPauseIds": [
+            "j02-pause-cluses"
+          ]
+        },
+        {
+          "id": "J3",
+          "dayNumber": 3,
+          "type": "ride",
+          "title": "Le Grand-Bornand → Beaufort-sur-Doron",
+          "notes": [],
+          "editorialStats": {
+            "distanceKm": 56.99,
+            "elevationGainM": 1660,
+            "elevationLossM": 1808
+          },
+          "variant": null,
+          "colIds": [
+            "j03-col-col-des-aravis",
+            "j03-col-col-des-saisies"
+          ],
+          "resupplyPassageIds": [
+            "j03-passage-crest-voland",
+            "j03-passage-flumet",
+            "j03-passage-la-clusaz"
+          ],
+          "optionIds": [],
+          "explicitPauseIds": []
+        },
+        {
+          "id": "J4",
+          "dayNumber": 4,
+          "type": "ride",
+          "title": "Beaufort-sur-Doron → Bourg-Saint-Maurice",
+          "notes": [],
+          "editorialStats": {
+            "distanceKm": 39.71,
+            "elevationGainM": 1491,
+            "elevationLossM": 1414
+          },
+          "variant": null,
+          "colIds": [
+            "j04-col-cormet-de-roselend"
+          ],
+          "resupplyPassageIds": [
+            "j04-passage-areches",
+            "j04-passage-les-chapieux"
+          ],
+          "optionIds": [],
+          "explicitPauseIds": []
+        },
+        {
+          "id": "J5",
+          "dayNumber": 5,
+          "type": "off",
+          "title": "Journée OFF — Bourg-Saint-Maurice",
+          "notes": [],
+          "editorialStats": null,
+          "variant": null,
+          "colIds": [],
+          "resupplyPassageIds": [],
+          "optionIds": [],
+          "explicitPauseIds": []
+        },
+        {
+          "id": "J6",
+          "dayNumber": 6,
+          "type": "ride",
+          "title": "Bourg-Saint-Maurice → Val-Cenis",
+          "notes": [
+            "sommet froid possible même en été → coupe-vent + gants accessibles"
+          ],
+          "editorialStats": {
+            "distanceKm": 82.78,
+            "elevationGainM": 2175,
+            "elevationLossM": 1624
+          },
+          "variant": null,
+          "colIds": [
+            "j06-col-col-de-l-iseran"
+          ],
+          "resupplyPassageIds": [
+            "j06-passage-bessans",
+            "j06-passage-bonneval-sur-arc",
+            "j06-passage-tignes",
+            "j06-passage-val-d-isere"
+          ],
+          "optionIds": [],
+          "explicitPauseIds": [
+            "j06-pause-tignes-val-d-isere"
+          ]
+        },
+        {
+          "id": "J7",
+          "dayNumber": 7,
+          "type": "ride",
+          "title": "Val-Cenis → Briançon",
+          "notes": [
+            "grosse journée → départ tôt + plan eau/électrolytes + coupe-vent en descente"
+          ],
+          "editorialStats": {
+            "distanceKm": 111.37,
+            "elevationGainM": 2387,
+            "elevationLossM": 2356
+          },
+          "variant": null,
+          "colIds": [
+            "j07-col-col-du-galibier",
+            "j07-col-col-du-telegraphe"
+          ],
+          "resupplyPassageIds": [
+            "j07-passage-le-monetier-les-bains",
+            "j07-passage-modane",
+            "j07-passage-saint-michel-de-maurienne",
+            "j07-passage-valloire"
+          ],
+          "optionIds": [],
+          "explicitPauseIds": [
+            "j07-pause-modane-valloire"
+          ]
+        },
+        {
+          "id": "J8",
+          "dayNumber": 8,
+          "type": "off",
+          "title": "Journée OFF — Briançon",
+          "notes": [],
+          "editorialStats": null,
+          "variant": null,
+          "colIds": [],
+          "resupplyPassageIds": [],
+          "optionIds": [],
+          "explicitPauseIds": []
+        },
+        {
+          "id": "J9",
+          "dayNumber": 9,
+          "type": "ride",
+          "title": "Briançon → Barcelonnette",
+          "notes": [
+            "très long → manger “au timer” toutes les 25–30 min"
+          ],
+          "editorialStats": {
+            "distanceKm": 127.72,
+            "elevationGainM": 2437,
+            "elevationLossM": 2514
+          },
+          "variant": null,
+          "colIds": [
+            "j09-col-col-d-izoard",
+            "j09-col-le-sauze-du-lac"
+          ],
+          "resupplyPassageIds": [
+            "j09-passage-arvieux",
+            "j09-passage-cervieres",
+            "j09-passage-chateau-queyras",
+            "j09-passage-embrun",
+            "j09-passage-guillestre"
+          ],
+          "optionIds": [],
+          "explicitPauseIds": [
+            "j09-pause-guillestre-embrun"
+          ]
+        },
+        {
+          "id": "J10",
+          "dayNumber": 10,
+          "type": "ride",
+          "title": "Barcelonnette → Saint-Étienne-de-Tinée",
+          "notes": [
+            "météo rapide → couche chaude accessible + gants"
+          ],
+          "editorialStats": {
+            "distanceKm": 55.79,
+            "elevationGainM": 1599,
+            "elevationLossM": 1578
+          },
+          "variant": "Bonette",
+          "colIds": [
+            "j10-col-col-de-la-bonette"
+          ],
+          "resupplyPassageIds": [
+            "j10-passage-jausiers",
+            "j10-passage-saint-etienne-de-tinee",
+            "j10-passage-sommet"
+          ],
+          "optionIds": [
+            "j10-option-cime-de-la-bonette"
+          ],
+          "explicitPauseIds": []
+        },
+        {
+          "id": "J11",
+          "dayNumber": 11,
+          "type": "ride",
+          "title": "Saint-Étienne-de-Tinée → Saint-Martin-Vésubie",
+          "notes": [
+            "secteur sensible (météo/éboulements) → check état route la veille"
+          ],
+          "editorialStats": {
+            "distanceKm": 58.89,
+            "elevationGainM": 1273,
+            "elevationLossM": 1495
+          },
+          "variant": "Variante",
+          "colIds": [
+            "j11-col-col-saint-martin"
+          ],
+          "resupplyPassageIds": [
+            "j11-passage-la-colmiane",
+            "j11-passage-saint-sauveur-sur-tinee",
+            "j11-passage-valdeblore"
+          ],
+          "optionIds": [],
+          "explicitPauseIds": []
+        },
+        {
+          "id": "J12",
+          "dayNumber": 12,
+          "type": "ride",
+          "title": "Saint-Martin-Vésubie → Nice",
+          "notes": [
+            "trafic possible en approche côte → vigilance + roulage groupé serré"
+          ],
+          "editorialStats": {
+            "distanceKm": 103.5,
+            "elevationGainM": 2570,
+            "elevationLossM": 3545
+          },
+          "variant": null,
+          "colIds": [
+            "j12-col-col-d-eze",
+            "j12-col-col-de-castillon",
+            "j12-col-col-de-turini"
+          ],
+          "resupplyPassageIds": [
+            "j12-passage-arrivee-nice",
+            "j12-passage-option-menton",
+            "j12-passage-sospel"
+          ],
+          "optionIds": [
+            "j12-option-menton"
+          ],
+          "explicitPauseIds": [
+            "j12-pause-sospel"
+          ]
+        }
+      ],
+      "pointCounts": {
+        "cols": 17,
+        "passages": 34,
+        "options": 2,
+        "explicitPauses": 5,
+        "starts": 10,
+        "ends": 10,
+        "documentedPointCandidates": 53,
+        "roadbookOverrides": 53,
+        "matchedOverrides": 46,
+        "needsReviewOverrides": 4,
+        "unmatchedOverrides": 3,
+        "suppressed": 7,
+        "documentedObjectCount": 78,
+        "operationalObjectCount": 71
+      },
+      "suppressedPointIds": [
+        "j01-passage-bellevaux",
+        "j03-passage-crest-voland",
+        "j04-passage-areches",
+        "j04-passage-les-chapieux",
+        "j06-passage-tignes",
+        "j09-passage-chateau-queyras",
+        "j10-option-cime-de-la-bonette"
+      ],
+      "skippedOverrideCount": 0,
+      "roadbookHash": "543da0f01a85cd693b597ff5e4e6306e087f7949b64681571ce0051f6846fdc7",
+      "overridesHash": "869aa9d6db8c0387167adddc2fcf55318a75b0ca1b6574005b59af0343a238b3"
+    },
+    "roadbookMatchSummary": {
+      "dayCount": 12,
+      "rideDayCount": 10,
+      "offDayCount": 2,
+      "readyRideDayCount": 10,
+      "unavailableRideDayCount": 0,
+      "pointCount": 71,
+      "matchedPointCount": 66,
+      "needsReviewPointCount": 0,
+      "unmatchedPointCount": 5,
+      "activePointCount": 66,
+      "informationalPointCount": 5,
+      "excludedPointCount": 0,
+      "userDecisionRequiredPointCount": 0,
+      "linkedWaypointCount": 35,
+      "standaloneWaypointCount": 26,
+      "theoreticalPauseCount": 18,
+      "matchedRoadbookPauseCount": 0,
+      "suppressedPointCount": 7
+    },
+    "gpxTechnical": [
+      {
+        "fileNumber": 1,
+        "fileName": "01_route-des-grandes-alpes-a-velo-thonon-les-bains-morzine-avoriaz.gpx",
+        "status": "success",
+        "totalPoints": 1514,
+        "segmentCount": 1,
+        "hasMultipleSegments": false,
+        "distanceKm": 49.649,
+        "elevationGainM": 1557,
+        "elevationLossM": 1030,
+        "minElevationM": 434.927368,
+        "maxElevationM": 1122.734768,
+        "hasAltitude": true,
+        "waypointCount": 2,
+        "namedPointCount": 2
+      },
+      {
+        "fileNumber": 2,
+        "fileName": "02_route-des-grandes-alpes-a-velo-morzine-avoriaz-le-grand-bornand.gpx",
+        "status": "success",
+        "totalPoints": 2251,
+        "segmentCount": 1,
+        "hasMultipleSegments": false,
+        "distanceKm": 77.903,
+        "elevationGainM": 2291,
+        "elevationLossM": 2336,
+        "minElevationM": 480.72297,
+        "maxElevationM": 1687.416152,
+        "hasAltitude": true,
+        "waypointCount": 2,
+        "namedPointCount": 2
+      },
+      {
+        "fileNumber": 3,
+        "fileName": "03_route-des-grandes-alpes-a-velo-le-grand-bornand-beaufort-sur-doron.gpx",
+        "status": "success",
+        "totalPoints": 1706,
+        "segmentCount": 1,
+        "hasMultipleSegments": false,
+        "distanceKm": 57.752,
+        "elevationGainM": 1729,
+        "elevationLossM": 1904,
+        "minElevationM": 692.414945,
+        "maxElevationM": 1658.098721,
+        "hasAltitude": true,
+        "waypointCount": 2,
+        "namedPointCount": 2
+      },
+      {
+        "fileNumber": 4,
+        "fileName": "04_route-des-grandes-alpes-a-velo-beaufort-sur-doron-bourg-saint-maurice.gpx",
+        "status": "success",
+        "totalPoints": 1177,
+        "segmentCount": 1,
+        "hasMultipleSegments": false,
+        "distanceKm": 40.749,
+        "elevationGainM": 1501,
+        "elevationLossM": 1422,
+        "minElevationM": 741.184001,
+        "maxElevationM": 1971.605868,
+        "hasAltitude": true,
+        "waypointCount": 1,
+        "namedPointCount": 1
+      },
+      {
+        "fileNumber": 5,
+        "fileName": "05_route-des-grandes-alpes-a-velo-bourg-saint-maurice-val-cenis.gpx",
+        "status": "success",
+        "totalPoints": 2245,
+        "segmentCount": 1,
+        "hasMultipleSegments": false,
+        "distanceKm": 90.593,
+        "elevationGainM": 2841,
+        "elevationLossM": 2376,
+        "minElevationM": 807.030719,
+        "maxElevationM": 2756.003855,
+        "hasAltitude": true,
+        "waypointCount": 1,
+        "namedPointCount": 1
+      },
+      {
+        "fileNumber": 6,
+        "fileName": "06_route-des-grandes-alpes-a-velo-val-cenis-briancon.gpx",
+        "status": "success",
+        "totalPoints": 2771,
+        "segmentCount": 1,
+        "hasMultipleSegments": false,
+        "distanceKm": 104.924,
+        "elevationGainM": 2727,
+        "elevationLossM": 2762,
+        "minElevationM": 714.600982,
+        "maxElevationM": 2629.38689,
+        "hasAltitude": true,
+        "waypointCount": 1,
+        "namedPointCount": 1
+      },
+      {
+        "fileNumber": 7,
+        "fileName": "07_route-des-grandes-alpes-a-velo-briancon-barcelonnette.gpx",
+        "status": "success",
+        "totalPoints": 3305,
+        "segmentCount": 1,
+        "hasMultipleSegments": false,
+        "distanceKm": 131.459,
+        "elevationGainM": 3229,
+        "elevationLossM": 3290,
+        "minElevationM": 773.44921,
+        "maxElevationM": 2355.322564,
+        "hasAltitude": true,
+        "waypointCount": 1,
+        "namedPointCount": 1
+      },
+      {
+        "fileNumber": 8,
+        "fileName": "08_route-des-grandes-alpes-a-velo-variante-barcelonnette-saint-etienne-de-tinee.gpx",
+        "status": "success",
+        "totalPoints": 1637,
+        "segmentCount": 1,
+        "hasMultipleSegments": false,
+        "distanceKm": 54.488,
+        "elevationGainM": 1694,
+        "elevationLossM": 1740,
+        "minElevationM": 1142.554528,
+        "maxElevationM": 2696.498675,
+        "hasAltitude": true,
+        "waypointCount": 2,
+        "namedPointCount": 2
+      },
+      {
+        "fileNumber": 9,
+        "fileName": "09_route-des-grandes-alpes-a-velo-variante-saint-etienne-de-tinee-saint-martin-vesubie.gpx",
+        "status": "success",
+        "totalPoints": 1466,
+        "segmentCount": 1,
+        "hasMultipleSegments": false,
+        "distanceKm": 57.885,
+        "elevationGainM": 1522,
+        "elevationLossM": 1716,
+        "minElevationM": 448.860722,
+        "maxElevationM": 1509.013436,
+        "hasAltitude": true,
+        "waypointCount": 2,
+        "namedPointCount": 2
+      },
+      {
+        "fileNumber": 10,
+        "fileName": "10_route-des-grandes-alpes-a-velo-saint-martin-vesubie-nice.gpx",
+        "status": "success",
+        "totalPoints": 3561,
+        "segmentCount": 1,
+        "hasMultipleSegments": false,
+        "distanceKm": 105.715,
+        "elevationGainM": 3528,
+        "elevationLossM": 4469,
+        "minElevationM": 1.405947,
+        "maxElevationM": 1606.691394,
+        "hasAltitude": true,
+        "waypointCount": 2,
+        "namedPointCount": 2
+      }
+    ],
+    "gpxSourceFiles": {
+      "count": 10,
+      "files": [
+        {
+          "fileName": "01_route-des-grandes-alpes-a-velo-thonon-les-bains-morzine-avoriaz.gpx",
+          "startName": "Thonon-les-Bains",
+          "endName": "Morzine",
+          "sizeBytes": 206859,
+          "sha256": "50b1f76e74f47ec765af315b686d79d54204dbdb7f34b78dcf5c68a28ed4f7ed"
+        },
+        {
+          "fileName": "02_route-des-grandes-alpes-a-velo-morzine-avoriaz-le-grand-bornand.gpx",
+          "startName": "Morzine",
+          "endName": "Le Grand-Bornand",
+          "sizeBytes": 308043,
+          "sha256": "ff6942099b77d732617abee8d64b1261f0a1300396a5d962d10d6b3eac4a062e"
+        },
+        {
+          "fileName": "03_route-des-grandes-alpes-a-velo-le-grand-bornand-beaufort-sur-doron.gpx",
+          "startName": "Le Grand-Bornand",
+          "endName": "Beaufort-sur-Doron",
+          "sizeBytes": 234069,
+          "sha256": "1cc206a5e00d52747bb8cdd1e9b22d08fcaa06958fdb26ffc6ec68c21bab74f8"
+        },
+        {
+          "fileName": "04_route-des-grandes-alpes-a-velo-beaufort-sur-doron-bourg-saint-maurice.gpx",
+          "startName": "Beaufort-sur-Doron",
+          "endName": "Bourg-Saint-Maurice",
+          "sizeBytes": 161735,
+          "sha256": "7c136a21605687efef18aa427ad983fbfc980e6fe397e85e5438a086bc5f4437"
+        },
+        {
+          "fileName": "05_route-des-grandes-alpes-a-velo-bourg-saint-maurice-val-cenis.gpx",
+          "startName": "Bourg-Saint-Maurice",
+          "endName": "Val-Cenis",
+          "sizeBytes": 307930,
+          "sha256": "b12edb944d19d76656ff0edad2a6cdd36294ac3320f3910ea15a29d358fc053a"
+        },
+        {
+          "fileName": "06_route-des-grandes-alpes-a-velo-val-cenis-briancon.gpx",
+          "startName": "Val-Cenis",
+          "endName": "Briançon",
+          "sizeBytes": 380047,
+          "sha256": "e6f4ac84b7ad03648fb60ff5288ce6e6ce476d6b9fa9194c7a5df7cfb43fe9c1"
+        },
+        {
+          "fileName": "07_route-des-grandes-alpes-a-velo-briancon-barcelonnette.gpx",
+          "startName": "Briançon",
+          "endName": "Barcelonnette",
+          "sizeBytes": 452202,
+          "sha256": "126ddafcf34c0bf49d742aeccb3b14906f9984f6dd55f13d420dfe0132e51c9c"
+        },
+        {
+          "fileName": "08_route-des-grandes-alpes-a-velo-variante-barcelonnette-saint-etienne-de-tinee.gpx",
+          "startName": "Barcelonnette",
+          "endName": "Saint-Étienne-de-Tinée",
+          "sizeBytes": 225191,
+          "sha256": "fd8da3f7da6a80e163421193862b64e62dc511fd7804215a5aa51584ed7e6e21"
+        },
+        {
+          "fileName": "09_route-des-grandes-alpes-a-velo-variante-saint-etienne-de-tinee-saint-martin-vesubie.gpx",
+          "startName": "Saint-Étienne-de-Tinée",
+          "endName": "Saint-Martin-Vésubie",
+          "sizeBytes": 200931,
+          "sha256": "295f1960a3baafd8783f10abdf61f894d9bd2abd698e960e69b4773721e804ec"
+        },
+        {
+          "fileName": "10_route-des-grandes-alpes-a-velo-saint-martin-vesubie-nice.gpx",
+          "startName": "Saint-Martin-Vésubie",
+          "endName": "Nice",
+          "sizeBytes": 485261,
+          "sha256": "d504f0e825f4261e98fd0cb3eaee7bdaa02520769cd0ecbc794f24d354760ffe"
+        }
+      ]
+    },
+    "timingsDefault": {
+      "readyRideDayCount": 10,
+      "totalTripMovingMinutes": 2959.06,
+      "days": [
+        {
+          "dayId": "J1",
+          "departureTimeMinutes": 480,
+          "movingDurationMinutes": 201.56,
+          "pauseDurationMinutes": 60,
+          "totalDurationMinutes": 261.56,
+          "arrivalTimeMinutes": 741.5575328432305
+        },
+        {
+          "dayId": "J2",
+          "departureTimeMinutes": 480,
+          "movingDurationMinutes": 311.26,
+          "pauseDurationMinutes": 60,
+          "totalDurationMinutes": 371.26,
+          "arrivalTimeMinutes": 851.2636095671294
+        },
+        {
+          "dayId": "J3",
+          "departureTimeMinutes": 480,
+          "movingDurationMinutes": 220.94,
+          "pauseDurationMinutes": 60,
+          "totalDurationMinutes": 280.94,
+          "arrivalTimeMinutes": 760.9431372814929
+        },
+        {
+          "dayId": "J4",
+          "departureTimeMinutes": 480,
+          "movingDurationMinutes": 169.3,
+          "pauseDurationMinutes": 60,
+          "totalDurationMinutes": 229.3,
+          "arrivalTimeMinutes": 709.3046936705261
+        },
+        {
+          "dayId": "J6",
+          "departureTimeMinutes": 480,
+          "movingDurationMinutes": 359.5,
+          "pauseDurationMinutes": 60,
+          "totalDurationMinutes": 419.5,
+          "arrivalTimeMinutes": 899.5030443261945
+        },
+        {
+          "dayId": "J7",
+          "departureTimeMinutes": 480,
+          "movingDurationMinutes": 399.63,
+          "pauseDurationMinutes": 60,
+          "totalDurationMinutes": 459.63,
+          "arrivalTimeMinutes": 939.6289682338207
+        },
+        {
+          "dayId": "J9",
+          "departureTimeMinutes": 480,
+          "movingDurationMinutes": 481.94,
+          "pauseDurationMinutes": 60,
+          "totalDurationMinutes": 541.94,
+          "arrivalTimeMinutes": 1021.9357280557025
+        },
+        {
+          "dayId": "J10",
+          "departureTimeMinutes": 480,
+          "movingDurationMinutes": 219.97,
+          "pauseDurationMinutes": 60,
+          "totalDurationMinutes": 279.97,
+          "arrivalTimeMinutes": 759.9740961785589
+        },
+        {
+          "dayId": "J11",
+          "departureTimeMinutes": 480,
+          "movingDurationMinutes": 212.99,
+          "pauseDurationMinutes": 60,
+          "totalDurationMinutes": 272.99,
+          "arrivalTimeMinutes": 752.9900280174877
+        },
+        {
+          "dayId": "J12",
+          "departureTimeMinutes": 480,
+          "movingDurationMinutes": 381.97,
+          "pauseDurationMinutes": 60,
+          "totalDurationMinutes": 441.97,
+          "arrivalTimeMinutes": 921.9684965129055
+        }
+      ]
+    },
+    "accommodations": {
+      "version": 1,
+      "tripId": "rga-2026",
+      "count": 10,
+      "accommodations": [
+        {
+          "id": "beaufort-maison-doron",
+          "dayIds": [
+            "J3"
+          ],
+          "name": "Maison Doron",
+          "type": "hotel",
+          "address": "20 Place de l’Église, 73270 Beaufort",
+          "website": "https://www.maisondoron.com/",
+          "latitude": null,
+          "longitude": null,
+          "confirmed": true
+        },
+        {
+          "id": "bourg-airbnb",
+          "dayIds": [
+            "J4",
+            "J5"
+          ],
+          "name": "Airbnb Bourg-Saint-Maurice",
+          "type": "airbnb",
+          "address": "86 Rue des Diables Bleus, 73700 Bourg-Saint-Maurice",
+          "website": null,
+          "latitude": 45.61376,
+          "longitude": 6.76874,
+          "confirmed": true
+        },
+        {
+          "id": "briancon-airbnb",
+          "dayIds": [
+            "J7",
+            "J8"
+          ],
+          "name": "Airbnb Briançon",
+          "type": "airbnb",
+          "address": "24 Rue du Serre Paix, 05100 Briançon",
+          "website": null,
+          "latitude": 44.90172,
+          "longitude": 6.62979,
+          "confirmed": true
+        },
+        {
+          "id": "faucon-eterlou",
+          "dayIds": [
+            "J9"
+          ],
+          "name": "Gîte Auberge L’Éterlou",
+          "type": "gite",
+          "address": "Villevieille, 25 Route de Jausiers, 04400 Faucon-de-Barcelonnette",
+          "website": "https://www.ubaye-gite-hote-barcelonnette.fr/fr/",
+          "latitude": null,
+          "longitude": null,
+          "confirmed": true
+        },
+        {
+          "id": "grand-bornand-vermont",
+          "dayIds": [
+            "J2"
+          ],
+          "name": "Hôtel et Spa Le Vermont",
+          "type": "hotel",
+          "address": "607 Route de la Vallée du Bouchet, 74450 Le Grand-Bornand",
+          "website": "https://hotelspalevermont.com/",
+          "latitude": null,
+          "longitude": null,
+          "confirmed": true
+        },
+        {
+          "id": "morzine-le-soly",
+          "dayIds": [
+            "J1"
+          ],
+          "name": "Hôtel Le Soly",
+          "type": "hotel",
+          "address": "234 Route de la Manche, 74110 Morzine",
+          "website": "https://www.hotel-lesoly-morzine.fr/",
+          "latitude": null,
+          "longitude": null,
+          "confirmed": true
+        },
+        {
+          "id": "nice-villa-saint-exupery",
+          "dayIds": [
+            "J12"
+          ],
+          "name": "Villa Saint Exupéry Beach Hostel",
+          "type": "hostel",
+          "address": "6 Rue Sacha Guitry, 06000 Nice",
+          "website": "https://villahostels.com/",
+          "latitude": null,
+          "longitude": null,
+          "confirmed": true
+        },
+        {
+          "id": "saint-etienne-martine-serge",
+          "dayIds": [
+            "J10"
+          ],
+          "name": "Chez Martine et Serge",
+          "type": "chambre-hotes",
+          "address": "1 Rue du Val Gelé, 06660 Saint-Étienne-de-Tinée",
+          "website": "https://chezmartineetserge.fr/",
+          "latitude": null,
+          "longitude": null,
+          "confirmed": true
+        },
+        {
+          "id": "saint-martin-bonne-auberge",
+          "dayIds": [
+            "J11"
+          ],
+          "name": "Hôtel La Bonne Auberge",
+          "type": "hotel",
+          "address": "98 Allée de Verdun, 06450 Saint-Martin-Vésubie",
+          "website": "https://labonneauberge06.fr/",
+          "latitude": null,
+          "longitude": null,
+          "confirmed": true
+        },
+        {
+          "id": "termignon-outa",
+          "dayIds": [
+            "J6"
+          ],
+          "name": "Hôtel L’Outa",
+          "type": "hotel",
+          "address": "2 Rue de la Savoie, 73500 Termignon",
+          "website": "https://hotel-outa.com/",
+          "latitude": null,
+          "longitude": null,
+          "confirmed": true
+        }
+      ]
+    },
+    "practicalPlaces": {
+      "schemaVersion": 1,
+      "distanceLimitKm": 6,
+      "layerCount": 8,
+      "totalCount": 1705,
+      "byCategory": {
+        "shelter": 251,
+        "bakery": 163,
+        "cafe": 143,
+        "water": 450,
+        "food": 156,
+        "bicycle": 29,
+        "grocery": 203,
+        "toilet": 310
+      },
+      "multiDayCount": 449,
+      "dayIdShapeHash": "088eeca4457b454b82ca2db2758799c7090e4a5f621de648bfb9fca91dac202e"
+    },
+    "offline": {
+      "historicalResourceCount": 20,
+      "historicalResources": [
+        "data/gpx/01_route-des-grandes-alpes-a-velo-thonon-les-bains-morzine-avoriaz.gpx",
+        "data/gpx/02_route-des-grandes-alpes-a-velo-morzine-avoriaz-le-grand-bornand.gpx",
+        "data/gpx/03_route-des-grandes-alpes-a-velo-le-grand-bornand-beaufort-sur-doron.gpx",
+        "data/gpx/04_route-des-grandes-alpes-a-velo-beaufort-sur-doron-bourg-saint-maurice.gpx",
+        "data/gpx/05_route-des-grandes-alpes-a-velo-bourg-saint-maurice-val-cenis.gpx",
+        "data/gpx/06_route-des-grandes-alpes-a-velo-val-cenis-briancon.gpx",
+        "data/gpx/07_route-des-grandes-alpes-a-velo-briancon-barcelonnette.gpx",
+        "data/gpx/08_route-des-grandes-alpes-a-velo-variante-barcelonnette-saint-etienne-de-tinee.gpx",
+        "data/gpx/09_route-des-grandes-alpes-a-velo-variante-saint-etienne-de-tinee-saint-martin-vesubie.gpx",
+        "data/gpx/10_route-des-grandes-alpes-a-velo-saint-martin-vesubie-nice.gpx",
+        "data/gpx/manifest.json",
+        "data/practical/practical-points.json",
+        "data/trip/accommodations.json",
+        "data/trip/roadbook-overrides.json",
+        "data/trip/roadbook.json",
+        "icons/icon-192.png",
+        "icons/icon-512.png",
+        "icons/icon-maskable-512.png",
+        "icons/icon.svg",
+        "manifest.webmanifest"
+      ],
+      "tripPackageResourceCount": 16,
+      "combinedResourceCount": 36,
+      "duplicateCount": 0,
+      "hasAbsoluteUrl": false,
+      "hasWindowsPath": false
+    },
+    "settings": {
+      "referenceSpeedKph": 18,
+      "departureTime": "08:00",
+      "totalBreakMinutes": 60,
+      "rideDayCount": 10,
+      "documentReferenceSpeedKph": 18
+    }
+  },
+  "canonical": {
+    "fileCount": 16,
+    "filePaths": [
+      "accommodations/accommodations.json",
+      "gpx/01_route-des-grandes-alpes-a-velo-thonon-les-bains-morzine-avoriaz.gpx",
+      "gpx/02_route-des-grandes-alpes-a-velo-morzine-avoriaz-le-grand-bornand.gpx",
+      "gpx/03_route-des-grandes-alpes-a-velo-le-grand-bornand-beaufort-sur-doron.gpx",
+      "gpx/04_route-des-grandes-alpes-a-velo-beaufort-sur-doron-bourg-saint-maurice.gpx",
+      "gpx/05_route-des-grandes-alpes-a-velo-bourg-saint-maurice-val-cenis.gpx",
+      "gpx/06_route-des-grandes-alpes-a-velo-val-cenis-briancon.gpx",
+      "gpx/07_route-des-grandes-alpes-a-velo-briancon-barcelonnette.gpx",
+      "gpx/08_route-des-grandes-alpes-a-velo-variante-barcelonnette-saint-etienne-de-tinee.gpx",
+      "gpx/09_route-des-grandes-alpes-a-velo-variante-saint-etienne-de-tinee-saint-martin-vesubie.gpx",
+      "gpx/10_route-des-grandes-alpes-a-velo-saint-martin-vesubie-nice.gpx",
+      "manifest.json",
+      "overrides/roadbook-overrides.json",
+      "practical/practical-points.json",
+      "roadbook/roadbook.json",
+      "settings/default-settings.json"
+    ],
+    "drift": {
+      "ok": true,
+      "missing": [],
+      "different": [],
+      "extra": []
+    },
+    "manifestVersion": 1,
+    "tripId": "rga-2026",
+    "slug": "rga-2026",
+    "name": "Route des Grandes Alpes 2026",
+    "language": "fr",
+    "timezone": "Europe/Paris",
+    "tripBundleSchemaVersion": 1,
+    "counts": {
+      "days": 12,
+      "rideDays": 10,
+      "offDays": 2,
+      "gpxFiles": 10,
+      "documentedPointCandidates": 53,
+      "roadbookOverrides": 53,
+      "matchedOverrides": 46,
+      "needsReviewOverrides": 4,
+      "unmatchedOverrides": 3,
+      "tripBundleRoutePoints": 46,
+      "practicalPlaces": 1705,
+      "accommodations": 10
+    },
+    "gpx": [
+      {
+        "fileName": "01_route-des-grandes-alpes-a-velo-thonon-les-bains-morzine-avoriaz.gpx",
+        "startName": "Thonon-les-Bains",
+        "endName": "Morzine",
+        "sizeBytes": 206859,
+        "sha256": "50b1f76e74f47ec765af315b686d79d54204dbdb7f34b78dcf5c68a28ed4f7ed"
+      },
+      {
+        "fileName": "02_route-des-grandes-alpes-a-velo-morzine-avoriaz-le-grand-bornand.gpx",
+        "startName": "Morzine",
+        "endName": "Le Grand-Bornand",
+        "sizeBytes": 308043,
+        "sha256": "ff6942099b77d732617abee8d64b1261f0a1300396a5d962d10d6b3eac4a062e"
+      },
+      {
+        "fileName": "03_route-des-grandes-alpes-a-velo-le-grand-bornand-beaufort-sur-doron.gpx",
+        "startName": "Le Grand-Bornand",
+        "endName": "Beaufort-sur-Doron",
+        "sizeBytes": 234069,
+        "sha256": "1cc206a5e00d52747bb8cdd1e9b22d08fcaa06958fdb26ffc6ec68c21bab74f8"
+      },
+      {
+        "fileName": "04_route-des-grandes-alpes-a-velo-beaufort-sur-doron-bourg-saint-maurice.gpx",
+        "startName": "Beaufort-sur-Doron",
+        "endName": "Bourg-Saint-Maurice",
+        "sizeBytes": 161735,
+        "sha256": "7c136a21605687efef18aa427ad983fbfc980e6fe397e85e5438a086bc5f4437"
+      },
+      {
+        "fileName": "05_route-des-grandes-alpes-a-velo-bourg-saint-maurice-val-cenis.gpx",
+        "startName": "Bourg-Saint-Maurice",
+        "endName": "Val-Cenis",
+        "sizeBytes": 307930,
+        "sha256": "b12edb944d19d76656ff0edad2a6cdd36294ac3320f3910ea15a29d358fc053a"
+      },
+      {
+        "fileName": "06_route-des-grandes-alpes-a-velo-val-cenis-briancon.gpx",
+        "startName": "Val-Cenis",
+        "endName": "Briançon",
+        "sizeBytes": 380047,
+        "sha256": "e6f4ac84b7ad03648fb60ff5288ce6e6ce476d6b9fa9194c7a5df7cfb43fe9c1"
+      },
+      {
+        "fileName": "07_route-des-grandes-alpes-a-velo-briancon-barcelonnette.gpx",
+        "startName": "Briançon",
+        "endName": "Barcelonnette",
+        "sizeBytes": 452202,
+        "sha256": "126ddafcf34c0bf49d742aeccb3b14906f9984f6dd55f13d420dfe0132e51c9c"
+      },
+      {
+        "fileName": "08_route-des-grandes-alpes-a-velo-variante-barcelonnette-saint-etienne-de-tinee.gpx",
+        "startName": "Barcelonnette",
+        "endName": "Saint-Étienne-de-Tinée",
+        "sizeBytes": 225191,
+        "sha256": "fd8da3f7da6a80e163421193862b64e62dc511fd7804215a5aa51584ed7e6e21"
+      },
+      {
+        "fileName": "09_route-des-grandes-alpes-a-velo-variante-saint-etienne-de-tinee-saint-martin-vesubie.gpx",
+        "startName": "Saint-Étienne-de-Tinée",
+        "endName": "Saint-Martin-Vésubie",
+        "sizeBytes": 200931,
+        "sha256": "295f1960a3baafd8783f10abdf61f894d9bd2abd698e960e69b4773721e804ec"
+      },
+      {
+        "fileName": "10_route-des-grandes-alpes-a-velo-saint-martin-vesubie-nice.gpx",
+        "startName": "Saint-Martin-Vésubie",
+        "endName": "Nice",
+        "sizeBytes": 485261,
+        "sha256": "d504f0e825f4261e98fd0cb3eaee7bdaa02520769cd0ecbc794f24d354760ffe"
+      }
+    ],
+    "settings": {
+      "version": 1,
+      "referenceSpeedKph": 18,
+      "departureTime": "08:00",
+      "totalBreakMinutes": 60
+    }
+  },
+  "tripBundle": {
+    "metadata": {
+      "id": "rga-2026",
+      "slug": "rga-2026",
+      "name": "Route des Grandes Alpes 2026",
+      "language": "fr",
+      "units": "metric",
+      "status": "ready",
+      "schemaVersion": 1,
+      "startDate": "2026-08-12",
+      "endDate": "2026-08-23",
+      "timezone": "Europe/Paris"
+    },
+    "calendar": {
+      "startDate": "2026-08-12",
+      "endDate": "2026-08-23",
+      "timezone": "Europe/Paris"
+    },
+    "counts": {
+      "totalDays": 12,
+      "rideDays": 10,
+      "offDays": 2,
+      "transferDays": 0
+    },
+    "offDayCount": 2,
+    "transferDayCount": 0,
+    "days": [
+      {
+        "id": "rga-2026-day-01",
+        "index": 0,
+        "displayNumber": 1,
+        "date": "2026-08-12",
+        "type": "ride",
+        "startLocationName": "Thonon-les-Bains",
+        "endLocationName": "Morzine",
+        "accommodationId": "morzine-le-soly",
+        "notes": null,
+        "hasStage": true
+      },
+      {
+        "id": "rga-2026-day-02",
+        "index": 1,
+        "displayNumber": 2,
+        "date": "2026-08-13",
+        "type": "ride",
+        "startLocationName": "Morzine",
+        "endLocationName": "Le Grand-Bornand",
+        "accommodationId": "grand-bornand-vermont",
+        "notes": null,
+        "hasStage": true
+      },
+      {
+        "id": "rga-2026-day-03",
+        "index": 2,
+        "displayNumber": 3,
+        "date": "2026-08-14",
+        "type": "ride",
+        "startLocationName": "Le Grand-Bornand",
+        "endLocationName": "Beaufort-sur-Doron",
+        "accommodationId": "beaufort-maison-doron",
+        "notes": null,
+        "hasStage": true
+      },
+      {
+        "id": "rga-2026-day-04",
+        "index": 3,
+        "displayNumber": 4,
+        "date": "2026-08-15",
+        "type": "ride",
+        "startLocationName": "Beaufort-sur-Doron",
+        "endLocationName": "Bourg-Saint-Maurice",
+        "accommodationId": "bourg-airbnb",
+        "notes": null,
+        "hasStage": true
+      },
+      {
+        "id": "rga-2026-day-05",
+        "index": 4,
+        "displayNumber": 5,
+        "date": "2026-08-16",
+        "type": "off",
+        "startLocationName": "Bourg-Saint-Maurice",
+        "endLocationName": "Bourg-Saint-Maurice",
+        "accommodationId": "bourg-airbnb",
+        "notes": null,
+        "hasStage": false
+      },
+      {
+        "id": "rga-2026-day-06",
+        "index": 5,
+        "displayNumber": 6,
+        "date": "2026-08-17",
+        "type": "ride",
+        "startLocationName": "Bourg-Saint-Maurice",
+        "endLocationName": "Val-Cenis",
+        "accommodationId": "termignon-outa",
+        "notes": "sommet froid possible même en été → coupe-vent + gants accessibles",
+        "hasStage": true
+      },
+      {
+        "id": "rga-2026-day-07",
+        "index": 6,
+        "displayNumber": 7,
+        "date": "2026-08-18",
+        "type": "ride",
+        "startLocationName": "Val-Cenis",
+        "endLocationName": "Briançon",
+        "accommodationId": "briancon-airbnb",
+        "notes": "grosse journée → départ tôt + plan eau/électrolytes + coupe-vent en descente",
+        "hasStage": true
+      },
+      {
+        "id": "rga-2026-day-08",
+        "index": 7,
+        "displayNumber": 8,
+        "date": "2026-08-19",
+        "type": "off",
+        "startLocationName": "Briançon",
+        "endLocationName": "Briançon",
+        "accommodationId": "briancon-airbnb",
+        "notes": null,
+        "hasStage": false
+      },
+      {
+        "id": "rga-2026-day-09",
+        "index": 8,
+        "displayNumber": 9,
+        "date": "2026-08-20",
+        "type": "ride",
+        "startLocationName": "Briançon",
+        "endLocationName": "Barcelonnette",
+        "accommodationId": "faucon-eterlou",
+        "notes": "très long → manger “au timer” toutes les 25–30 min",
+        "hasStage": true
+      },
+      {
+        "id": "rga-2026-day-10",
+        "index": 9,
+        "displayNumber": 10,
+        "date": "2026-08-21",
+        "type": "ride",
+        "startLocationName": "Barcelonnette",
+        "endLocationName": "Saint-Étienne-de-Tinée",
+        "accommodationId": "saint-etienne-martine-serge",
+        "notes": "météo rapide → couche chaude accessible + gants",
+        "hasStage": true
+      },
+      {
+        "id": "rga-2026-day-11",
+        "index": 10,
+        "displayNumber": 11,
+        "date": "2026-08-22",
+        "type": "ride",
+        "startLocationName": "Saint-Étienne-de-Tinée",
+        "endLocationName": "Saint-Martin-Vésubie",
+        "accommodationId": "saint-martin-bonne-auberge",
+        "notes": "secteur sensible (météo/éboulements) → check état route la veille",
+        "hasStage": true
+      },
+      {
+        "id": "rga-2026-day-12",
+        "index": 11,
+        "displayNumber": 12,
+        "date": "2026-08-23",
+        "type": "ride",
+        "startLocationName": "Saint-Martin-Vésubie",
+        "endLocationName": "Nice",
+        "accommodationId": "nice-villa-saint-exupery",
+        "notes": "trafic possible en approche côte → vigilance + roulage groupé serré",
+        "hasStage": true
+      }
+    ],
+    "stages": [
+      {
+        "id": "rga-2026-stage-j1",
+        "dayId": "rga-2026-day-01",
+        "name": "Thonon-les-Bains → Morzine",
+        "startLocationName": "Thonon-les-Bains",
+        "endLocationName": "Morzine",
+        "distanceKm": 49.96,
+        "elevationGainM": 1250,
+        "elevationLossM": 720,
+        "metricsProvenance": {
+          "sourceType": "migrated",
+          "confidence": "medium",
+          "manuallyOverridden": false
+        },
+        "minAltitudeM": null,
+        "maxAltitudeM": null,
+        "movingDurationSeconds": null,
+        "pauseDurationSeconds": null,
+        "totalDurationSeconds": null,
+        "estimatedAverageSpeedKph": null,
+        "validationStatus": "pending",
+        "routePointCount": 3,
+        "climbCount": 0,
+        "hasRoute": true,
+        "routeHasGeometry": false,
+        "routeHasProfile": false,
+        "routeParsingStatus": "pending"
+      },
+      {
+        "id": "rga-2026-stage-j10",
+        "dayId": "rga-2026-day-10",
+        "name": "Barcelonnette → Saint-Étienne-de-Tinée (Bonette)",
+        "startLocationName": "Barcelonnette",
+        "endLocationName": "Saint-Étienne-de-Tinée",
+        "distanceKm": 55.79,
+        "elevationGainM": 1599,
+        "elevationLossM": 1578,
+        "metricsProvenance": {
+          "sourceType": "migrated",
+          "confidence": "medium",
+          "manuallyOverridden": false
+        },
+        "minAltitudeM": null,
+        "maxAltitudeM": null,
+        "movingDurationSeconds": null,
+        "pauseDurationSeconds": null,
+        "totalDurationSeconds": null,
+        "estimatedAverageSpeedKph": null,
+        "validationStatus": "pending",
+        "routePointCount": 4,
+        "climbCount": 0,
+        "hasRoute": true,
+        "routeHasGeometry": false,
+        "routeHasProfile": false,
+        "routeParsingStatus": "pending"
+      },
+      {
+        "id": "rga-2026-stage-j11",
+        "dayId": "rga-2026-day-11",
+        "name": "Saint-Étienne-de-Tinée → Saint-Martin-Vésubie (Variante)",
+        "startLocationName": "Saint-Étienne-de-Tinée",
+        "endLocationName": "Saint-Martin-Vésubie",
+        "distanceKm": 58.89,
+        "elevationGainM": 1273,
+        "elevationLossM": 1495,
+        "metricsProvenance": {
+          "sourceType": "migrated",
+          "confidence": "medium",
+          "manuallyOverridden": false
+        },
+        "minAltitudeM": null,
+        "maxAltitudeM": null,
+        "movingDurationSeconds": null,
+        "pauseDurationSeconds": null,
+        "totalDurationSeconds": null,
+        "estimatedAverageSpeedKph": null,
+        "validationStatus": "pending",
+        "routePointCount": 4,
+        "climbCount": 0,
+        "hasRoute": true,
+        "routeHasGeometry": false,
+        "routeHasProfile": false,
+        "routeParsingStatus": "pending"
+      },
+      {
+        "id": "rga-2026-stage-j12",
+        "dayId": "rga-2026-day-12",
+        "name": "Saint-Martin-Vésubie → Nice",
+        "startLocationName": "Saint-Martin-Vésubie",
+        "endLocationName": "Nice",
+        "distanceKm": 103.5,
+        "elevationGainM": 2570,
+        "elevationLossM": 3545,
+        "metricsProvenance": {
+          "sourceType": "migrated",
+          "confidence": "medium",
+          "manuallyOverridden": false
+        },
+        "minAltitudeM": null,
+        "maxAltitudeM": null,
+        "movingDurationSeconds": null,
+        "pauseDurationSeconds": null,
+        "totalDurationSeconds": null,
+        "estimatedAverageSpeedKph": null,
+        "validationStatus": "pending",
+        "routePointCount": 7,
+        "climbCount": 0,
+        "hasRoute": true,
+        "routeHasGeometry": false,
+        "routeHasProfile": false,
+        "routeParsingStatus": "pending"
+      },
+      {
+        "id": "rga-2026-stage-j2",
+        "dayId": "rga-2026-day-02",
+        "name": "Morzine → Le Grand-Bornand",
+        "startLocationName": "Morzine",
+        "endLocationName": "Le Grand-Bornand",
+        "distanceKm": 78.13,
+        "elevationGainM": 2072,
+        "elevationLossM": 2099,
+        "metricsProvenance": {
+          "sourceType": "migrated",
+          "confidence": "medium",
+          "manuallyOverridden": false
+        },
+        "minAltitudeM": null,
+        "maxAltitudeM": null,
+        "movingDurationSeconds": null,
+        "pauseDurationSeconds": null,
+        "totalDurationSeconds": null,
+        "estimatedAverageSpeedKph": null,
+        "validationStatus": "pending",
+        "routePointCount": 7,
+        "climbCount": 0,
+        "hasRoute": true,
+        "routeHasGeometry": false,
+        "routeHasProfile": false,
+        "routeParsingStatus": "pending"
+      },
+      {
+        "id": "rga-2026-stage-j3",
+        "dayId": "rga-2026-day-03",
+        "name": "Le Grand-Bornand → Beaufort-sur-Doron",
+        "startLocationName": "Le Grand-Bornand",
+        "endLocationName": "Beaufort-sur-Doron",
+        "distanceKm": 56.99,
+        "elevationGainM": 1660,
+        "elevationLossM": 1808,
+        "metricsProvenance": {
+          "sourceType": "migrated",
+          "confidence": "medium",
+          "manuallyOverridden": false
+        },
+        "minAltitudeM": null,
+        "maxAltitudeM": null,
+        "movingDurationSeconds": null,
+        "pauseDurationSeconds": null,
+        "totalDurationSeconds": null,
+        "estimatedAverageSpeedKph": null,
+        "validationStatus": "pending",
+        "routePointCount": 4,
+        "climbCount": 0,
+        "hasRoute": true,
+        "routeHasGeometry": false,
+        "routeHasProfile": false,
+        "routeParsingStatus": "pending"
+      },
+      {
+        "id": "rga-2026-stage-j4",
+        "dayId": "rga-2026-day-04",
+        "name": "Beaufort-sur-Doron → Bourg-Saint-Maurice",
+        "startLocationName": "Beaufort-sur-Doron",
+        "endLocationName": "Bourg-Saint-Maurice",
+        "distanceKm": 39.71,
+        "elevationGainM": 1491,
+        "elevationLossM": 1414,
+        "metricsProvenance": {
+          "sourceType": "migrated",
+          "confidence": "medium",
+          "manuallyOverridden": false
+        },
+        "minAltitudeM": null,
+        "maxAltitudeM": null,
+        "movingDurationSeconds": null,
+        "pauseDurationSeconds": null,
+        "totalDurationSeconds": null,
+        "estimatedAverageSpeedKph": null,
+        "validationStatus": "pending",
+        "routePointCount": 1,
+        "climbCount": 0,
+        "hasRoute": true,
+        "routeHasGeometry": false,
+        "routeHasProfile": false,
+        "routeParsingStatus": "pending"
+      },
+      {
+        "id": "rga-2026-stage-j6",
+        "dayId": "rga-2026-day-06",
+        "name": "Bourg-Saint-Maurice → Val-Cenis",
+        "startLocationName": "Bourg-Saint-Maurice",
+        "endLocationName": "Val-Cenis",
+        "distanceKm": 82.78,
+        "elevationGainM": 2175,
+        "elevationLossM": 1624,
+        "metricsProvenance": {
+          "sourceType": "migrated",
+          "confidence": "medium",
+          "manuallyOverridden": false
+        },
+        "minAltitudeM": null,
+        "maxAltitudeM": null,
+        "movingDurationSeconds": null,
+        "pauseDurationSeconds": null,
+        "totalDurationSeconds": null,
+        "estimatedAverageSpeedKph": null,
+        "validationStatus": "pending",
+        "routePointCount": 4,
+        "climbCount": 0,
+        "hasRoute": true,
+        "routeHasGeometry": false,
+        "routeHasProfile": false,
+        "routeParsingStatus": "pending"
+      },
+      {
+        "id": "rga-2026-stage-j7",
+        "dayId": "rga-2026-day-07",
+        "name": "Val-Cenis → Briançon",
+        "startLocationName": "Val-Cenis",
+        "endLocationName": "Briançon",
+        "distanceKm": 111.37,
+        "elevationGainM": 2387,
+        "elevationLossM": 2356,
+        "metricsProvenance": {
+          "sourceType": "migrated",
+          "confidence": "medium",
+          "manuallyOverridden": false
+        },
+        "minAltitudeM": null,
+        "maxAltitudeM": null,
+        "movingDurationSeconds": null,
+        "pauseDurationSeconds": null,
+        "totalDurationSeconds": null,
+        "estimatedAverageSpeedKph": null,
+        "validationStatus": "pending",
+        "routePointCount": 6,
+        "climbCount": 0,
+        "hasRoute": true,
+        "routeHasGeometry": false,
+        "routeHasProfile": false,
+        "routeParsingStatus": "pending"
+      },
+      {
+        "id": "rga-2026-stage-j9",
+        "dayId": "rga-2026-day-09",
+        "name": "Briançon → Barcelonnette",
+        "startLocationName": "Briançon",
+        "endLocationName": "Barcelonnette",
+        "distanceKm": 127.72,
+        "elevationGainM": 2437,
+        "elevationLossM": 2514,
+        "metricsProvenance": {
+          "sourceType": "migrated",
+          "confidence": "medium",
+          "manuallyOverridden": false
+        },
+        "minAltitudeM": null,
+        "maxAltitudeM": null,
+        "movingDurationSeconds": null,
+        "pauseDurationSeconds": null,
+        "totalDurationSeconds": null,
+        "estimatedAverageSpeedKph": null,
+        "validationStatus": "pending",
+        "routePointCount": 6,
+        "climbCount": 0,
+        "hasRoute": true,
+        "routeHasGeometry": false,
+        "routeHasProfile": false,
+        "routeParsingStatus": "pending"
+      }
+    ],
+    "totals": {
+      "distanceKm": 764.84,
+      "elevationGainM": 18914,
+      "elevationLossM": 19153,
+      "movingDurationSeconds": null,
+      "totalDurationSeconds": null
+    },
+    "sourceFiles": [
+      {
+        "id": "rga-2026-source-01",
+        "originalName": "01_route-des-grandes-alpes-a-velo-thonon-les-bains-morzine-avoriaz.gpx",
+        "sizeBytes": 206859,
+        "sha256": "50b1f76e74f47ec765af315b686d79d54204dbdb7f34b78dcf5c68a28ed4f7ed",
+        "parsingStatus": "pending"
+      },
+      {
+        "id": "rga-2026-source-02",
+        "originalName": "02_route-des-grandes-alpes-a-velo-morzine-avoriaz-le-grand-bornand.gpx",
+        "sizeBytes": 308043,
+        "sha256": "ff6942099b77d732617abee8d64b1261f0a1300396a5d962d10d6b3eac4a062e",
+        "parsingStatus": "pending"
+      },
+      {
+        "id": "rga-2026-source-03",
+        "originalName": "03_route-des-grandes-alpes-a-velo-le-grand-bornand-beaufort-sur-doron.gpx",
+        "sizeBytes": 234069,
+        "sha256": "1cc206a5e00d52747bb8cdd1e9b22d08fcaa06958fdb26ffc6ec68c21bab74f8",
+        "parsingStatus": "pending"
+      },
+      {
+        "id": "rga-2026-source-04",
+        "originalName": "04_route-des-grandes-alpes-a-velo-beaufort-sur-doron-bourg-saint-maurice.gpx",
+        "sizeBytes": 161735,
+        "sha256": "7c136a21605687efef18aa427ad983fbfc980e6fe397e85e5438a086bc5f4437",
+        "parsingStatus": "pending"
+      },
+      {
+        "id": "rga-2026-source-05",
+        "originalName": "05_route-des-grandes-alpes-a-velo-bourg-saint-maurice-val-cenis.gpx",
+        "sizeBytes": 307930,
+        "sha256": "b12edb944d19d76656ff0edad2a6cdd36294ac3320f3910ea15a29d358fc053a",
+        "parsingStatus": "pending"
+      },
+      {
+        "id": "rga-2026-source-06",
+        "originalName": "06_route-des-grandes-alpes-a-velo-val-cenis-briancon.gpx",
+        "sizeBytes": 380047,
+        "sha256": "e6f4ac84b7ad03648fb60ff5288ce6e6ce476d6b9fa9194c7a5df7cfb43fe9c1",
+        "parsingStatus": "pending"
+      },
+      {
+        "id": "rga-2026-source-07",
+        "originalName": "07_route-des-grandes-alpes-a-velo-briancon-barcelonnette.gpx",
+        "sizeBytes": 452202,
+        "sha256": "126ddafcf34c0bf49d742aeccb3b14906f9984f6dd55f13d420dfe0132e51c9c",
+        "parsingStatus": "pending"
+      },
+      {
+        "id": "rga-2026-source-08",
+        "originalName": "08_route-des-grandes-alpes-a-velo-variante-barcelonnette-saint-etienne-de-tinee.gpx",
+        "sizeBytes": 225191,
+        "sha256": "fd8da3f7da6a80e163421193862b64e62dc511fd7804215a5aa51584ed7e6e21",
+        "parsingStatus": "pending"
+      },
+      {
+        "id": "rga-2026-source-09",
+        "originalName": "09_route-des-grandes-alpes-a-velo-variante-saint-etienne-de-tinee-saint-martin-vesubie.gpx",
+        "sizeBytes": 200931,
+        "sha256": "295f1960a3baafd8783f10abdf61f894d9bd2abd698e960e69b4773721e804ec",
+        "parsingStatus": "pending"
+      },
+      {
+        "id": "rga-2026-source-10",
+        "originalName": "10_route-des-grandes-alpes-a-velo-saint-martin-vesubie-nice.gpx",
+        "sizeBytes": 485261,
+        "sha256": "d504f0e825f4261e98fd0cb3eaee7bdaa02520769cd0ecbc794f24d354760ffe",
+        "parsingStatus": "pending"
+      }
+    ],
+    "routes": {
+      "count": 10,
+      "allGeometryNull": true,
+      "allProfileNull": true
+    },
+    "routePoints": [
+      {
+        "id": "j01-col-col-du-feu",
+        "routeId": "rga-2026-route-01",
+        "type": "summit",
+        "name": "Col du Feu",
+        "latitude": 46.293595,
+        "longitude": 6.509009,
+        "elevationM": 1117.4,
+        "trackDistanceKm": 17.831,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j01-passage-lullin",
+        "routeId": "rga-2026-route-01",
+        "type": "passage",
+        "name": "Lullin",
+        "latitude": 46.283,
+        "longitude": 6.523,
+        "elevationM": 849.5,
+        "trackDistanceKm": 20.71,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j01-passage-saint-jean-d-aulps",
+        "routeId": "rga-2026-route-01",
+        "type": "passage",
+        "name": "Saint-Jean-d’Aulps",
+        "latitude": 46.234,
+        "longitude": 6.654,
+        "elevationM": 796.5,
+        "trackDistanceKm": 41.455,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j02-col-col-de-chatillon",
+        "routeId": "rga-2026-route-02",
+        "type": "summit",
+        "name": "Col de Chatillon",
+        "latitude": 46.09073,
+        "longitude": 6.57701,
+        "elevationM": 786.1,
+        "trackDistanceKm": 40.69,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j02-col-col-de-joux-plane",
+        "routeId": "rga-2026-route-02",
+        "type": "summit",
+        "name": "Col de Joux Plane",
+        "latitude": 46.13254,
+        "longitude": 6.71121,
+        "elevationM": 1684.1,
+        "trackDistanceKm": 11.052,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j02-col-col-de-la-colombiere",
+        "routeId": "rga-2026-route-02",
+        "type": "summit",
+        "name": "Col de la Colombière",
+        "latitude": 45.991711,
+        "longitude": 6.473883,
+        "elevationM": 1589.9,
+        "trackDistanceKm": 66.476,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j02-passage-cluses",
+        "routeId": "rga-2026-route-02",
+        "type": "passage",
+        "name": "Cluses",
+        "latitude": 46.061,
+        "longitude": 6.579,
+        "elevationM": 485.4,
+        "trackDistanceKm": 46.716,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j02-passage-le-reposoir",
+        "routeId": "rga-2026-route-02",
+        "type": "passage",
+        "name": "Le Reposoir",
+        "latitude": 46.011,
+        "longitude": 6.537,
+        "elevationM": 974.3,
+        "trackDistanceKm": 58.94,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j02-passage-samoens",
+        "routeId": "rga-2026-route-02",
+        "type": "passage",
+        "name": "Samoëns",
+        "latitude": 46.0847,
+        "longitude": 6.7281,
+        "elevationM": 706.2,
+        "trackDistanceKm": 24.105,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j02-passage-taninges",
+        "routeId": "rga-2026-route-02",
+        "type": "passage",
+        "name": "Taninges",
+        "latitude": 46.1077,
+        "longitude": 6.5912,
+        "elevationM": 642.3,
+        "trackDistanceKm": 35.881,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j03-col-col-des-aravis",
+        "routeId": "rga-2026-route-03",
+        "type": "summit",
+        "name": "Col des Aravis",
+        "latitude": 45.87228,
+        "longitude": 6.46487,
+        "elevationM": 1485.8,
+        "trackDistanceKm": 13.72,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j03-col-col-des-saisies",
+        "routeId": "rga-2026-route-03",
+        "type": "summit",
+        "name": "Col des Saisies",
+        "latitude": 45.76024,
+        "longitude": 6.53353,
+        "elevationM": 1656.6,
+        "trackDistanceKm": 39.941,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j03-passage-flumet",
+        "routeId": "rga-2026-route-03",
+        "type": "passage",
+        "name": "Flumet",
+        "latitude": 45.819,
+        "longitude": 6.514,
+        "elevationM": 909.5,
+        "trackDistanceKm": 25.138,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j03-passage-la-clusaz",
+        "routeId": "rga-2026-route-03",
+        "type": "passage",
+        "name": "La Clusaz",
+        "latitude": 45.9042,
+        "longitude": 6.423,
+        "elevationM": 1033.5,
+        "trackDistanceKm": 6.185,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j04-col-cormet-de-roselend",
+        "routeId": "rga-2026-route-04",
+        "type": "summit",
+        "name": "Cormet de Roselend",
+        "latitude": 45.69133,
+        "longitude": 6.69063,
+        "elevationM": 1968.1,
+        "trackDistanceKm": 20.391,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j06-col-col-de-l-iseran",
+        "routeId": "rga-2026-route-05",
+        "type": "summit",
+        "name": "Col de l’Iseran",
+        "latitude": 45.417194,
+        "longitude": 7.030717,
+        "elevationM": 2755.9,
+        "trackDistanceKm": 51.947,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j06-passage-bessans",
+        "routeId": "rga-2026-route-05",
+        "type": "passage",
+        "name": "Bessans",
+        "latitude": 45.32,
+        "longitude": 6.994,
+        "elevationM": 1726,
+        "trackDistanceKm": 72.737,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j06-passage-bonneval-sur-arc",
+        "routeId": "rga-2026-route-05",
+        "type": "passage",
+        "name": "Bonneval-sur-Arc",
+        "latitude": 45.371,
+        "longitude": 7.044,
+        "elevationM": 1781.6,
+        "trackDistanceKm": 65.588,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j06-passage-val-d-isere",
+        "routeId": "rga-2026-route-05",
+        "type": "passage",
+        "name": "Val d’Isère",
+        "latitude": 45.449,
+        "longitude": 6.979,
+        "elevationM": 1831.3,
+        "trackDistanceKm": 35.752,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j07-col-col-du-galibier",
+        "routeId": "rga-2026-route-06",
+        "type": "summit",
+        "name": "Col du Galibier",
+        "latitude": 45.065833,
+        "longitude": 6.411103,
+        "elevationM": 2613.8,
+        "trackDistanceKm": 69.206,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j07-col-col-du-telegraphe",
+        "routeId": "rga-2026-route-06",
+        "type": "summit",
+        "name": "Col du Télégraphe",
+        "latitude": 45.2027,
+        "longitude": 6.4446,
+        "elevationM": 1560.4,
+        "trackDistanceKm": 46.62,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j07-passage-le-monetier-les-bains",
+        "routeId": "rga-2026-route-06",
+        "type": "passage",
+        "name": "Le Monêtier-les-Bains",
+        "latitude": 44.977,
+        "longitude": 6.509,
+        "elevationM": 1485,
+        "trackDistanceKm": 91.31,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j07-passage-modane",
+        "routeId": "rga-2026-route-06",
+        "type": "passage",
+        "name": "Modane",
+        "latitude": 45.201,
+        "longitude": 6.673,
+        "elevationM": 1062.8,
+        "trackDistanceKm": 17.617,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j07-passage-saint-michel-de-maurienne",
+        "routeId": "rga-2026-route-06",
+        "type": "passage",
+        "name": "Saint-Michel-de-Maurienne",
+        "latitude": 45.218,
+        "longitude": 6.472,
+        "elevationM": 718.2,
+        "trackDistanceKm": 34.564,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j07-passage-valloire",
+        "routeId": "rga-2026-route-06",
+        "type": "passage",
+        "name": "Valloire",
+        "latitude": 45.165,
+        "longitude": 6.429,
+        "elevationM": 1406.6,
+        "trackDistanceKm": 51.571,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j09-col-col-d-izoard",
+        "routeId": "rga-2026-route-07",
+        "type": "summit",
+        "name": "Col d’Izoard",
+        "latitude": 44.819609,
+        "longitude": 6.734962,
+        "elevationM": 2352.4,
+        "trackDistanceKm": 20.916,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j09-col-le-sauze-du-lac",
+        "routeId": "rga-2026-route-07",
+        "type": "summit",
+        "name": "le Sauze-du-Lac",
+        "latitude": 44.4786,
+        "longitude": 6.31454,
+        "elevationM": 1035.9,
+        "trackDistanceKm": 95.299,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j09-passage-arvieux",
+        "routeId": "rga-2026-route-07",
+        "type": "passage",
+        "name": "Arvieux",
+        "latitude": 44.767,
+        "longitude": 6.738,
+        "elevationM": 1554.9,
+        "trackDistanceKm": 31.23,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j09-passage-cervieres",
+        "routeId": "rga-2026-route-07",
+        "type": "passage",
+        "name": "Cervières",
+        "latitude": 44.869,
+        "longitude": 6.722,
+        "elevationM": 1615.3,
+        "trackDistanceKm": 11.074,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j09-passage-embrun",
+        "routeId": "rga-2026-route-07",
+        "type": "passage",
+        "name": "Embrun",
+        "latitude": 44.564,
+        "longitude": 6.496,
+        "elevationM": 868.1,
+        "trackDistanceKm": 74.86,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j09-passage-guillestre",
+        "routeId": "rga-2026-route-07",
+        "type": "passage",
+        "name": "Guillestre",
+        "latitude": 44.659,
+        "longitude": 6.649,
+        "elevationM": 1005.8,
+        "trackDistanceKm": 52.085,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j10-col-col-de-la-bonette",
+        "routeId": "rga-2026-route-08",
+        "type": "summit",
+        "name": "Col de la Bonette",
+        "latitude": 44.3267,
+        "longitude": 6.8074,
+        "elevationM": 2685.6,
+        "trackDistanceKm": 29.662,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j10-passage-jausiers",
+        "routeId": "rga-2026-route-08",
+        "type": "passage",
+        "name": "Jausiers",
+        "latitude": 44.417,
+        "longitude": 6.731,
+        "elevationM": 1211.9,
+        "trackDistanceKm": 6.793,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j10-passage-saint-etienne-de-tinee",
+        "routeId": "rga-2026-route-08",
+        "type": "passage",
+        "name": "Saint-Étienne-de-Tinée",
+        "latitude": 44.257,
+        "longitude": 6.924,
+        "elevationM": 1148.9,
+        "trackDistanceKm": 54.34,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j10-passage-sommet",
+        "routeId": "rga-2026-route-08",
+        "type": "passage",
+        "name": "(sommet)",
+        "latitude": 44.3267,
+        "longitude": 6.8074,
+        "elevationM": 2685.6,
+        "trackDistanceKm": 29.662,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j11-col-col-saint-martin",
+        "routeId": "rga-2026-route-09",
+        "type": "summit",
+        "name": "Col Saint-Martin",
+        "latitude": 44.071045,
+        "longitude": 7.220998,
+        "elevationM": 1506.8,
+        "trackDistanceKm": 49.53,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j11-passage-la-colmiane",
+        "routeId": "rga-2026-route-09",
+        "type": "passage",
+        "name": "La Colmiane",
+        "latitude": 44.072,
+        "longitude": 7.218,
+        "elevationM": 1466.3,
+        "trackDistanceKm": 49.251,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j11-passage-saint-sauveur-sur-tinee",
+        "routeId": "rga-2026-route-09",
+        "type": "passage",
+        "name": "Saint-Sauveur-sur-Tinée",
+        "latitude": 44.083,
+        "longitude": 7.105,
+        "elevationM": 494.9,
+        "trackDistanceKm": 29.002,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j11-passage-valdeblore",
+        "routeId": "rga-2026-route-09",
+        "type": "passage",
+        "name": "Valdeblore",
+        "latitude": 44.071,
+        "longitude": 7.171,
+        "elevationM": 1044.9,
+        "trackDistanceKm": 42.506,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j12-col-col-d-eze",
+        "routeId": "rga-2026-route-10",
+        "type": "summit",
+        "name": "Col d’Èze",
+        "latitude": 43.734,
+        "longitude": 7.3466,
+        "elevationM": 504.2,
+        "trackDistanceKm": 91.331,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j12-col-col-de-castillon",
+        "routeId": "rga-2026-route-10",
+        "type": "summit",
+        "name": "Col de Castillon",
+        "latitude": 43.906725,
+        "longitude": 7.409175,
+        "elevationM": 645.6,
+        "trackDistanceKm": 45.917,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j12-col-col-de-turini",
+        "routeId": "rga-2026-route-10",
+        "type": "summit",
+        "name": "Col de Turini",
+        "latitude": 43.977481,
+        "longitude": 7.391623,
+        "elevationM": 1602.2,
+        "trackDistanceKm": 27.472,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j12-option-menton",
+        "routeId": "rga-2026-route-10",
+        "type": "poi",
+        "name": "Menton",
+        "latitude": 43.775,
+        "longitude": 7.5,
+        "elevationM": 10,
+        "trackDistanceKm": 73.392,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j12-passage-arrivee-nice",
+        "routeId": "rga-2026-route-10",
+        "type": "passage",
+        "name": "arrivée Nice",
+        "latitude": 43.704,
+        "longitude": 7.266,
+        "elevationM": 16.6,
+        "trackDistanceKm": 105.676,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j12-passage-option-menton",
+        "routeId": "rga-2026-route-10",
+        "type": "passage",
+        "name": "option Menton",
+        "latitude": 43.775,
+        "longitude": 7.5,
+        "elevationM": 10,
+        "trackDistanceKm": 73.392,
+        "confidence": "high",
+        "manuallyOverridden": true
+      },
+      {
+        "id": "j12-passage-sospel",
+        "routeId": "rga-2026-route-10",
+        "type": "passage",
+        "name": "Sospel",
+        "latitude": 43.878,
+        "longitude": 7.448,
+        "elevationM": 351.8,
+        "trackDistanceKm": 51.746,
+        "confidence": "high",
+        "manuallyOverridden": true
+      }
+    ],
+    "climbCount": 0,
+    "accommodations": [
+      {
+        "id": "beaufort-maison-doron",
+        "name": "Maison Doron",
+        "type": "hotel",
+        "address": "20 Place de l’Église, 73270 Beaufort",
+        "latitude": null,
+        "longitude": null,
+        "website": "https://www.maisondoron.com/",
+        "confirmed": true,
+        "dayIds": [
+          "rga-2026-day-03"
+        ]
+      },
+      {
+        "id": "bourg-airbnb",
+        "name": "Airbnb Bourg-Saint-Maurice",
+        "type": "airbnb",
+        "address": "86 Rue des Diables Bleus, 73700 Bourg-Saint-Maurice",
+        "latitude": 45.61376,
+        "longitude": 6.76874,
+        "website": null,
+        "confirmed": true,
+        "dayIds": [
+          "rga-2026-day-04",
+          "rga-2026-day-05"
+        ]
+      },
+      {
+        "id": "briancon-airbnb",
+        "name": "Airbnb Briançon",
+        "type": "airbnb",
+        "address": "24 Rue du Serre Paix, 05100 Briançon",
+        "latitude": 44.90172,
+        "longitude": 6.62979,
+        "website": null,
+        "confirmed": true,
+        "dayIds": [
+          "rga-2026-day-07",
+          "rga-2026-day-08"
+        ]
+      },
+      {
+        "id": "faucon-eterlou",
+        "name": "Gîte Auberge L’Éterlou",
+        "type": "gite",
+        "address": "Villevieille, 25 Route de Jausiers, 04400 Faucon-de-Barcelonnette",
+        "latitude": null,
+        "longitude": null,
+        "website": "https://www.ubaye-gite-hote-barcelonnette.fr/fr/",
+        "confirmed": true,
+        "dayIds": [
+          "rga-2026-day-09"
+        ]
+      },
+      {
+        "id": "grand-bornand-vermont",
+        "name": "Hôtel et Spa Le Vermont",
+        "type": "hotel",
+        "address": "607 Route de la Vallée du Bouchet, 74450 Le Grand-Bornand",
+        "latitude": null,
+        "longitude": null,
+        "website": "https://hotelspalevermont.com/",
+        "confirmed": true,
+        "dayIds": [
+          "rga-2026-day-02"
+        ]
+      },
+      {
+        "id": "morzine-le-soly",
+        "name": "Hôtel Le Soly",
+        "type": "hotel",
+        "address": "234 Route de la Manche, 74110 Morzine",
+        "latitude": null,
+        "longitude": null,
+        "website": "https://www.hotel-lesoly-morzine.fr/",
+        "confirmed": true,
+        "dayIds": [
+          "rga-2026-day-01"
+        ]
+      },
+      {
+        "id": "nice-villa-saint-exupery",
+        "name": "Villa Saint Exupéry Beach Hostel",
+        "type": "hostel",
+        "address": "6 Rue Sacha Guitry, 06000 Nice",
+        "latitude": null,
+        "longitude": null,
+        "website": "https://villahostels.com/",
+        "confirmed": true,
+        "dayIds": [
+          "rga-2026-day-12"
+        ]
+      },
+      {
+        "id": "saint-etienne-martine-serge",
+        "name": "Chez Martine et Serge",
+        "type": "chambre-hotes",
+        "address": "1 Rue du Val Gelé, 06660 Saint-Étienne-de-Tinée",
+        "latitude": null,
+        "longitude": null,
+        "website": "https://chezmartineetserge.fr/",
+        "confirmed": true,
+        "dayIds": [
+          "rga-2026-day-10"
+        ]
+      },
+      {
+        "id": "saint-martin-bonne-auberge",
+        "name": "Hôtel La Bonne Auberge",
+        "type": "hotel",
+        "address": "98 Allée de Verdun, 06450 Saint-Martin-Vésubie",
+        "latitude": null,
+        "longitude": null,
+        "website": "https://labonneauberge06.fr/",
+        "confirmed": true,
+        "dayIds": [
+          "rga-2026-day-11"
+        ]
+      },
+      {
+        "id": "termignon-outa",
+        "name": "Hôtel L’Outa",
+        "type": "hotel",
+        "address": "2 Rue de la Savoie, 73500 Termignon",
+        "latitude": null,
+        "longitude": null,
+        "website": "https://hotel-outa.com/",
+        "confirmed": true,
+        "dayIds": [
+          "rga-2026-day-06"
+        ]
+      }
+    ],
+    "practicalPlaces": {
+      "totalCount": 1705,
+      "byCategory": {
+        "cafe-or-ice-cream": 143,
+        "water": 450,
+        "fast-food": 156,
+        "bakery": 163,
+        "toilet": 310,
+        "shelter": 251,
+        "supermarket": 203,
+        "bike-service": 29
+      },
+      "multiDayCount": 449,
+      "dayIdShapeHash": "088eeca4457b454b82ca2db2758799c7090e4a5f621de648bfb9fca91dac202e",
+      "firstRideDayPlaceCount": 186
+    },
+    "settings": {
+      "referenceSpeedKph": 18,
+      "pausePlanMode": "automatic",
+      "dayEntryCount": 10,
+      "stageEntryCount": 0
+    },
+    "overrideCount": 0,
+    "weatherCount": 0,
+    "enrichmentMetadata": {
+      "providers": [
+        {
+          "provider": "gpx",
+          "lastAttemptedAt": null,
+          "lastSuccessAt": null,
+          "status": "not-configured",
+          "message": "GPX parsing not yet run through the generic engine for this migrated snapshot."
+        },
+        {
+          "provider": "osm",
+          "lastAttemptedAt": null,
+          "lastSuccessAt": null,
+          "status": "not-configured",
+          "message": null
+        },
+        {
+          "provider": "open-meteo",
+          "lastAttemptedAt": null,
+          "lastSuccessAt": null,
+          "status": "not-configured",
+          "message": null
+        }
+      ]
+    },
+    "generatedMetadata": {
+      "engineVersion": "rga-legacy-adapter@1",
+      "generatedAt": null,
+      "derivedDataStatus": "not-generated"
+    }
+  },
+  "parityMatrix": [
+    {
+      "domain": "metadata_and_calendar",
+      "status": "exact",
+      "description": "Trip identity (id, slug, name, language, units, timezone) and calendar (start/end date, 12 daily dates).",
+      "legacy": {
+        "id": "rga-2026",
+        "slug": "rga-2026",
+        "name": "Route des Grandes Alpes 2026",
+        "language": "fr",
+        "units": "metric",
+        "timezone": "Europe/Paris",
+        "startDate": "2026-08-12",
+        "endDate": "2026-08-23",
+        "dayDateCount": 12
+      },
+      "tripBundle": {
+        "id": "rga-2026",
+        "slug": "rga-2026",
+        "name": "Route des Grandes Alpes 2026",
+        "language": "fr",
+        "units": "metric",
+        "timezone": "Europe/Paris",
+        "startDate": "2026-08-12",
+        "endDate": "2026-08-23",
+        "dayDateCount": 12
+      },
+      "justification": "TripBundle.metadata/calendar are built directly from the same historical trip id, roadbook title and calendar constant — see rga-legacy-mapping.ts mapMetadata/mapCalendar.",
+      "nextPhase": null
+    },
+    {
+      "domain": "days",
+      "status": "exact",
+      "description": "12 days (10 ride, 2 off), order, OFF-day locations (J5 Bourg-Saint-Maurice, J8 Briançon), final destination (Nice), structured notes.",
+      "legacy": {
+        "total": 12,
+        "ride": 10,
+        "off": 2,
+        "offLocations": [
+          {
+            "dayNumber": 5,
+            "locationName": "Bourg-Saint-Maurice"
+          },
+          {
+            "dayNumber": 8,
+            "locationName": "Briançon"
+          }
+        ],
+        "finalDestination": "Nice",
+        "notesByDayNumber": {
+          "1": null,
+          "2": null,
+          "3": null,
+          "4": null,
+          "5": null,
+          "6": "sommet froid possible même en été → coupe-vent + gants accessibles",
+          "7": "grosse journée → départ tôt + plan eau/électrolytes + coupe-vent en descente",
+          "8": null,
+          "9": "très long → manger “au timer” toutes les 25–30 min",
+          "10": "météo rapide → couche chaude accessible + gants",
+          "11": "secteur sensible (météo/éboulements) → check état route la veille",
+          "12": "trafic possible en approche côte → vigilance + roulage groupé serré"
+        }
+      },
+      "tripBundle": {
+        "total": 12,
+        "ride": 10,
+        "off": 2,
+        "offLocations": [
+          {
+            "dayNumber": 5,
+            "locationName": "Bourg-Saint-Maurice"
+          },
+          {
+            "dayNumber": 8,
+            "locationName": "Briançon"
+          }
+        ],
+        "finalDestination": "Nice",
+        "notesByDayNumber": {
+          "1": null,
+          "2": null,
+          "3": null,
+          "4": null,
+          "5": null,
+          "6": "sommet froid possible même en été → coupe-vent + gants accessibles",
+          "7": "grosse journée → départ tôt + plan eau/électrolytes + coupe-vent en descente",
+          "8": null,
+          "9": "très long → manger “au timer” toutes les 25–30 min",
+          "10": "météo rapide → couche chaude accessible + gants",
+          "11": "secteur sensible (météo/éboulements) → check état route la veille",
+          "12": "trafic possible en approche côte → vigilance + roulage groupé serré"
+        }
+      },
+      "justification": "Every TripDay is derived 1:1 from a roadbook.json day (mapDaysAndStages); notes are the deterministic newline-join of the historical notes array, never the ambiance text.",
+      "nextPhase": null
+    },
+    {
+      "domain": "stages",
+      "status": "exact",
+      "description": "10 RideStage, day<->stage<->route relations, name/start/end, and the roadbook editorial statistics (distanceKm/elevationGainM/elevationLossM) with their own provenance.",
+      "legacy": {
+        "count": 10,
+        "editorialStatsByDayNumber": {
+          "1": {
+            "distanceKm": 49.96,
+            "elevationGainM": 1250,
+            "elevationLossM": 720
+          },
+          "2": {
+            "distanceKm": 78.13,
+            "elevationGainM": 2072,
+            "elevationLossM": 2099
+          },
+          "3": {
+            "distanceKm": 56.99,
+            "elevationGainM": 1660,
+            "elevationLossM": 1808
+          },
+          "4": {
+            "distanceKm": 39.71,
+            "elevationGainM": 1491,
+            "elevationLossM": 1414
+          },
+          "6": {
+            "distanceKm": 82.78,
+            "elevationGainM": 2175,
+            "elevationLossM": 1624
+          },
+          "7": {
+            "distanceKm": 111.37,
+            "elevationGainM": 2387,
+            "elevationLossM": 2356
+          },
+          "9": {
+            "distanceKm": 127.72,
+            "elevationGainM": 2437,
+            "elevationLossM": 2514
+          },
+          "10": {
+            "distanceKm": 55.79,
+            "elevationGainM": 1599,
+            "elevationLossM": 1578
+          },
+          "11": {
+            "distanceKm": 58.89,
+            "elevationGainM": 1273,
+            "elevationLossM": 1495
+          },
+          "12": {
+            "distanceKm": 103.5,
+            "elevationGainM": 2570,
+            "elevationLossM": 3545
+          }
+        }
+      },
+      "tripBundle": {
+        "count": 10,
+        "editorialStatsByDayNumber": {
+          "1": {
+            "distanceKm": 49.96,
+            "elevationGainM": 1250,
+            "elevationLossM": 720
+          },
+          "2": {
+            "distanceKm": 78.13,
+            "elevationGainM": 2072,
+            "elevationLossM": 2099
+          },
+          "3": {
+            "distanceKm": 56.99,
+            "elevationGainM": 1660,
+            "elevationLossM": 1808
+          },
+          "4": {
+            "distanceKm": 39.71,
+            "elevationGainM": 1491,
+            "elevationLossM": 1414
+          },
+          "6": {
+            "distanceKm": 82.78,
+            "elevationGainM": 2175,
+            "elevationLossM": 1624
+          },
+          "7": {
+            "distanceKm": 111.37,
+            "elevationGainM": 2387,
+            "elevationLossM": 2356
+          },
+          "9": {
+            "distanceKm": 127.72,
+            "elevationGainM": 2437,
+            "elevationLossM": 2514
+          },
+          "10": {
+            "distanceKm": 55.79,
+            "elevationGainM": 1599,
+            "elevationLossM": 1578
+          },
+          "11": {
+            "distanceKm": 58.89,
+            "elevationGainM": 1273,
+            "elevationLossM": 1495
+          },
+          "12": {
+            "distanceKm": 103.5,
+            "elevationGainM": 2570,
+            "elevationLossM": 3545
+          }
+        },
+        "allHaveMetricsProvenance": true,
+        "allProvenanceMigratedMediumConfidence": true,
+        "everyStageHasRoute": true
+      },
+      "justification": "Editorial statistics are migrated verbatim from roadbook.json's editorialStats, tagged with a distinct metricsProvenance (sourceType:'migrated', confidence:'medium') precisely because they are an editorial figure, not a GPX computation.",
+      "nextPhase": null
+    },
+    {
+      "domain": "source_files",
+      "status": "exact",
+      "description": "10 SourceFile: exact names, sizes, SHA-256 hashes, uniqueness, and a route referencing each one.",
+      "legacy": {
+        "count": 10,
+        "names": [
+          "01_route-des-grandes-alpes-a-velo-thonon-les-bains-morzine-avoriaz.gpx",
+          "02_route-des-grandes-alpes-a-velo-morzine-avoriaz-le-grand-bornand.gpx",
+          "03_route-des-grandes-alpes-a-velo-le-grand-bornand-beaufort-sur-doron.gpx",
+          "04_route-des-grandes-alpes-a-velo-beaufort-sur-doron-bourg-saint-maurice.gpx",
+          "05_route-des-grandes-alpes-a-velo-bourg-saint-maurice-val-cenis.gpx",
+          "06_route-des-grandes-alpes-a-velo-val-cenis-briancon.gpx",
+          "07_route-des-grandes-alpes-a-velo-briancon-barcelonnette.gpx",
+          "08_route-des-grandes-alpes-a-velo-variante-barcelonnette-saint-etienne-de-tinee.gpx",
+          "09_route-des-grandes-alpes-a-velo-variante-saint-etienne-de-tinee-saint-martin-vesubie.gpx",
+          "10_route-des-grandes-alpes-a-velo-saint-martin-vesubie-nice.gpx"
+        ],
+        "hashes": [
+          "126ddafcf34c0bf49d742aeccb3b14906f9984f6dd55f13d420dfe0132e51c9c",
+          "1cc206a5e00d52747bb8cdd1e9b22d08fcaa06958fdb26ffc6ec68c21bab74f8",
+          "295f1960a3baafd8783f10abdf61f894d9bd2abd698e960e69b4773721e804ec",
+          "50b1f76e74f47ec765af315b686d79d54204dbdb7f34b78dcf5c68a28ed4f7ed",
+          "7c136a21605687efef18aa427ad983fbfc980e6fe397e85e5438a086bc5f4437",
+          "b12edb944d19d76656ff0edad2a6cdd36294ac3320f3910ea15a29d358fc053a",
+          "d504f0e825f4261e98fd0cb3eaee7bdaa02520769cd0ecbc794f24d354760ffe",
+          "e6f4ac84b7ad03648fb60ff5288ce6e6ce476d6b9fa9194c7a5df7cfb43fe9c1",
+          "fd8da3f7da6a80e163421193862b64e62dc511fd7804215a5aa51584ed7e6e21",
+          "ff6942099b77d732617abee8d64b1261f0a1300396a5d962d10d6b3eac4a062e"
+        ]
+      },
+      "tripBundle": {
+        "count": 10,
+        "names": [
+          "01_route-des-grandes-alpes-a-velo-thonon-les-bains-morzine-avoriaz.gpx",
+          "02_route-des-grandes-alpes-a-velo-morzine-avoriaz-le-grand-bornand.gpx",
+          "03_route-des-grandes-alpes-a-velo-le-grand-bornand-beaufort-sur-doron.gpx",
+          "04_route-des-grandes-alpes-a-velo-beaufort-sur-doron-bourg-saint-maurice.gpx",
+          "05_route-des-grandes-alpes-a-velo-bourg-saint-maurice-val-cenis.gpx",
+          "06_route-des-grandes-alpes-a-velo-val-cenis-briancon.gpx",
+          "07_route-des-grandes-alpes-a-velo-briancon-barcelonnette.gpx",
+          "08_route-des-grandes-alpes-a-velo-variante-barcelonnette-saint-etienne-de-tinee.gpx",
+          "09_route-des-grandes-alpes-a-velo-variante-saint-etienne-de-tinee-saint-martin-vesubie.gpx",
+          "10_route-des-grandes-alpes-a-velo-saint-martin-vesubie-nice.gpx"
+        ],
+        "hashes": [
+          "126ddafcf34c0bf49d742aeccb3b14906f9984f6dd55f13d420dfe0132e51c9c",
+          "1cc206a5e00d52747bb8cdd1e9b22d08fcaa06958fdb26ffc6ec68c21bab74f8",
+          "295f1960a3baafd8783f10abdf61f894d9bd2abd698e960e69b4773721e804ec",
+          "50b1f76e74f47ec765af315b686d79d54204dbdb7f34b78dcf5c68a28ed4f7ed",
+          "7c136a21605687efef18aa427ad983fbfc980e6fe397e85e5438a086bc5f4437",
+          "b12edb944d19d76656ff0edad2a6cdd36294ac3320f3910ea15a29d358fc053a",
+          "d504f0e825f4261e98fd0cb3eaee7bdaa02520769cd0ecbc794f24d354760ffe",
+          "e6f4ac84b7ad03648fb60ff5288ce6e6ce476d6b9fa9194c7a5df7cfb43fe9c1",
+          "fd8da3f7da6a80e163421193862b64e62dc511fd7804215a5aa51584ed7e6e21",
+          "ff6942099b77d732617abee8d64b1261f0a1300396a5d962d10d6b3eac4a062e"
+        ]
+      },
+      "justification": "SourceFile.sha256/sizeBytes are computed from the same public/data/gpx/*.gpx bytes read for the legacy snapshot and copied into the canonical package.",
+      "nextPhase": null
+    },
+    {
+      "domain": "canonical_package",
+      "status": "exact",
+      "description": "16 canonical package files, no missing/extra file, stable SHA-256 hashes, check:rga-trip-package green.",
+      "legacy": {
+        "historicalGpxCount": 10
+      },
+      "tripBundle": {
+        "fileCount": 16,
+        "driftOk": true,
+        "missing": [],
+        "different": [],
+        "extra": [],
+        "gpxHashesMatchHistorical": true
+      },
+      "justification": "scripts/generate-rga-trip-package.mjs --check reconstructs the package plan purely from public/data/** and compares it byte-for-byte with public/trips/rga-2026/**.",
+      "nextPhase": null
+    },
+    {
+      "domain": "documented_points",
+      "status": "exact",
+      "description": "Documented-point accounting: 53 candidates = 46 matched + 4 needs-review + 3 unmatched; 7 suppressed = 4 + 3; 71 operational = 78 documented − 7 suppressed; TripBundle keeps exactly the 46 matched, positioned overrides as RoutePoint, never a needs-review/unmatched one.",
+      "legacy": {
+        "documentedPointCandidates": 53,
+        "roadbookOverrides": 53,
+        "matchedOverrides": 46,
+        "needsReviewOverrides": 4,
+        "unmatchedOverrides": 3,
+        "suppressed": 7,
+        "documentedObjectCount": 78,
+        "operationalObjectCount": 71,
+        "runtimeOperationalPointCount": 71
+      },
+      "tripBundle": {
+        "routePointCount": 46
+      },
+      "justification": "documentedPointCandidates/roadbookOverrides/matchedOverrides/needsReviewOverrides/unmatchedOverrides/suppressed/documentedObjectCount/operationalObjectCount are computed from roadbook.json + roadbook-overrides.json + roadbookSuppressions.ts; runtimeOperationalPointCount cross-checks the same number against the live buildRoadbookMatchReport() pipeline (66 active + 5 informational = 71). TripBundle.routePoints only ever comes from the 46 `matched` overrides — never the 71-point operational concept, which also includes the 20 synthetic start/end points and 5 informational pauses that TripBundle represents differently (day/stage start & end location names).",
+      "nextPhase": null
+    },
+    {
+      "domain": "practical_places",
+      "status": "exact",
+      "description": "1,705 practical places, 8 categories, identifiers, names, coordinates, categories, descriptions, and day associations (449 multi-day places) preserved exactly, selectable via selectPracticalPlacesForDay.",
+      "legacy": {
+        "totalCount": 1705,
+        "byCategory": {
+          "shelter": 251,
+          "bakery": 163,
+          "cafe": 143,
+          "water": 450,
+          "food": 156,
+          "bicycle": 29,
+          "grocery": 203,
+          "toilet": 310
+        },
+        "multiDayCount": 449,
+        "dayIdShapeHash": "088eeca4457b454b82ca2db2758799c7090e4a5f621de648bfb9fca91dac202e"
+      },
+      "tripBundle": {
+        "totalCount": 1705,
+        "byCategory": {
+          "cafe-or-ice-cream": 143,
+          "water": 450,
+          "fast-food": 156,
+          "bakery": 163,
+          "toilet": 310,
+          "shelter": 251,
+          "supermarket": 203,
+          "bike-service": 29
+        },
+        "multiDayCount": 449,
+        "dayIdShapeHash": "088eeca4457b454b82ca2db2758799c7090e4a5f621de648bfb9fca91dac202e",
+        "categoryCount": 8
+      },
+      "justification": "mapPracticalPlaces copies every historical point 1:1 (id, name, coordinates, description) and mapPracticalPlace.dayIds is copied verbatim from the historical dayIds, translated to generic TripDayId via buildLegacyDayIdIndex — never recomputed from geographic proximity.",
+      "nextPhase": null
+    },
+    {
+      "domain": "accommodations",
+      "status": "exact",
+      "description": "10 accommodations: identifiers, day associations, names, types, addresses, coordinates, URLs, confirmed status.",
+      "legacy": {
+        "count": 10,
+        "ids": [
+          "beaufort-maison-doron",
+          "bourg-airbnb",
+          "briancon-airbnb",
+          "faucon-eterlou",
+          "grand-bornand-vermont",
+          "morzine-le-soly",
+          "nice-villa-saint-exupery",
+          "saint-etienne-martine-serge",
+          "saint-martin-bonne-auberge",
+          "termignon-outa"
+        ]
+      },
+      "tripBundle": {
+        "count": 10,
+        "ids": [
+          "beaufort-maison-doron",
+          "bourg-airbnb",
+          "briancon-airbnb",
+          "faucon-eterlou",
+          "grand-bornand-vermont",
+          "morzine-le-soly",
+          "nice-villa-saint-exupery",
+          "saint-etienne-martine-serge",
+          "saint-martin-bonne-auberge",
+          "termignon-outa"
+        ]
+      },
+      "justification": "mapAccommodations/buildAccommodationDayIndex reuse the historical accommodations.json verbatim, including getAccommodationMapsUrl for mapsUrl.",
+      "nextPhase": null
+    },
+    {
+      "domain": "settings",
+      "status": "exact",
+      "description": "Reference speed (18 km/h), automatic pause strategy, 10 daily settings entries, schedules and pause budgets — never read from localStorage.",
+      "legacy": {
+        "referenceSpeedKph": 18,
+        "departureTime": "08:00",
+        "totalBreakMinutes": 60,
+        "rideDayCount": 10
+      },
+      "tripBundle": {
+        "referenceSpeedKph": 18,
+        "dayEntryCount": 10,
+        "pausePlanMode": "automatic"
+      },
+      "justification": "mapSettings takes the historical default settings (src/storage/settings.ts) as an explicit parameter; the constructor never touches localStorage/window/document (verified by tests/trips/rga-2026/settings.test.mjs).",
+      "nextPhase": null
+    },
+    {
+      "domain": "offline_resources",
+      "status": "exact",
+      "description": "Every historical offline resource stays precached; every canonical package file is discovered and precached automatically; no duplicates, no absolute URL, no Windows path.",
+      "legacy": {
+        "historicalResourceCount": 20,
+        "tripPackageResourceCount": 16,
+        "combinedResourceCount": 36,
+        "duplicateCount": 0,
+        "hasAbsoluteUrl": false,
+        "hasWindowsPath": false
+      },
+      "tripBundle": {
+        "canonicalPackageFileCount": 16
+      },
+      "justification": "collectOfflineResources(publicDir) discovers public/trips/** generically (never hardcoding rga-2026 or a file count); vite.config.ts unions it with the static historical list and hashes every resource's content into the cache version.",
+      "nextPhase": null
+    },
+    {
+      "domain": "weather",
+      "status": "dynamic-excluded",
+      "description": "Weather is date/cache/provider-dependent and must never be frozen into a static snapshot.",
+      "legacy": {
+        "note": "The legacy pipeline computes weather sample points and forecasts live, from the current date and Open-Meteo, never from a fixture."
+      },
+      "tripBundle": {
+        "weatherRecordCount": 0
+      },
+      "justification": "TripBundle.weather stays [] in the canonical snapshot on purpose (CDC phase 3 section 7 / phase 4 section 9); the legacy weather system (src/weather/*) is untouched and keeps serving the live app.",
+      "nextPhase": null
+    },
+    {
+      "domain": "roadbook_editorial_source_preserved",
+      "status": "source-preserved",
+      "description": "Full editorial roadbook (ambiance, OFF-day activities/logistics/recovery, options without a validated position, raw geometric overrides, needs-review/unmatched entries) is preserved verbatim in the canonical package but not yet modeled in TripBundle.",
+      "legacy": {
+        "roadbookHash": "543da0f01a85cd693b597ff5e4e6306e087f7949b64681571ce0051f6846fdc7",
+        "overridesHash": "869aa9d6db8c0387167adddc2fcf55318a75b0ca1b6574005b59af0343a238b3",
+        "suppressedPointIds": [
+          "j01-passage-bellevaux",
+          "j03-passage-crest-voland",
+          "j04-passage-areches",
+          "j04-passage-les-chapieux",
+          "j06-passage-tignes",
+          "j09-passage-chateau-queyras",
+          "j10-option-cime-de-la-bonette"
+        ],
+        "skippedOverrideCount": 0
+      },
+      "tripBundle": {
+        "overrideCount": 0,
+        "climbCount": 0
+      },
+      "justification": "public/trips/rga-2026/roadbook/roadbook.json and overrides/roadbook-overrides.json are byte-identical copies of the historical sources (see canonical_package); TripBundle.overrides stays [] (no deterministic targetType/targetId/field mapping exists yet) and TripBundle.climbs stays [] (start/end distances would mix editorial and GPX-technical provenance).",
+      "nextPhase": "Phase 5+: model overrides/climbs generically enough to represent this data without inventing a false provenance."
+    },
+    {
+      "domain": "route_geometry_and_stage_timings",
+      "status": "deferred",
+      "description": "Route.geometry/profile, RideStage min/max altitude, moving/pause/total duration, estimated average speed, generic climbs, TripOverride, ETA and the TripBundle-native timeline all remain out of scope, tracked here as the target for future phases.",
+      "legacy": {
+        "readyRideDayCount": 10,
+        "totalTripMovingMinutes": 2959.06,
+        "gpxTechnicalSampleCount": 10
+      },
+      "tripBundle": {
+        "routesWithGeometry": 0,
+        "routesWithProfile": 0,
+        "stagesWithMinMaxAltitude": 0,
+        "stagesWithDurations": 0,
+        "stagesWithEstimatedSpeed": 0,
+        "totalDurationSecondsSum": null
+      },
+      "justification": "CDC phase 3 section 11 explicitly defers these (no new GPX parser, no approximate recomputation); this domain fails if any of them silently turns non-null without an accompanying test/status update, i.e. is presented as parity before it actually is.",
+      "nextPhase": "Phase 5: parse GPX (or reuse a Node-compatible path) to populate geometry/profile, then derive stage timings/ETA from it — at that point this domain must be re-classified per field, not left as one bucket."
+    }
+  ]
+}

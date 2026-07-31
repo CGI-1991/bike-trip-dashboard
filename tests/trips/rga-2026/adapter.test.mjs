@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import { validateTripBundle } from '../../../src/trip-core/index.ts'
 import { createRgaLegacyTripBundle } from '../../../src/trips/rga-2026/load-rga-legacy-trip.ts'
+import { FAKE_PUBLIC_BASE_URL, createFakePublicFetch } from '../../support/fake-public-fetch.mjs'
 import { loadRgaLegacySnapshotFromDisk } from './support/load-snapshot.mjs'
 
 test('createRgaLegacyTripBundle returns a TripBundle that validateTripBundle accepts', async () => {
@@ -65,26 +66,14 @@ test('a practical place referencing an unknown historical day fails fast with a 
 // (confirmed: it is `undefined` outside a Vite build/dev server — the reason
 // every other fetch-based loader in this codebase, e.g. `src/gpx/load.ts`'s
 // `loadGpxSources`, has historically gone untested directly). Passing an
-// explicit `publicBaseUrl` sidesteps that global entirely, so the function
-// can be exercised for real here, fetch and all.
-
-function fakeFetchFromPublicDir(projectRoot) {
-  return async (url) => {
-    const relativePath = new URL(url).pathname.replace(/^\//, '')
-    const { readFile } = await import('node:fs/promises')
-    try {
-      const body = await readFile(new URL(`public/${relativePath}`, projectRoot), 'utf8')
-      return { ok: true, status: 200, json: async () => JSON.parse(body) }
-    } catch {
-      return { ok: false, status: 404, json: async () => { throw new Error('not found') } }
-    }
-  }
-}
+// explicit `publicBaseUrl` (via `createFakePublicFetch`) sidesteps that
+// global entirely, so the function can be exercised for real here, fetch and
+// all — see `tests/support/fake-public-fetch.mjs`.
 
 test('loadRgaLegacyTrip fetches the canonical package (via an injected fetch and base URL) and matches the pure constructor', async () => {
   const projectRoot = new URL('../../../', import.meta.url)
   const { loadRgaLegacyTrip } = await import('../../../src/trips/rga-2026/load-rga-legacy-trip.ts')
-  const bundle = await loadRgaLegacyTrip(fakeFetchFromPublicDir(projectRoot), 'https://example.test/')
+  const bundle = await loadRgaLegacyTrip(createFakePublicFetch(projectRoot), FAKE_PUBLIC_BASE_URL)
 
   const { snapshot } = await loadRgaLegacySnapshotFromDisk()
   const expected = createRgaLegacyTripBundle(snapshot)
@@ -94,13 +83,13 @@ test('loadRgaLegacyTrip fetches the canonical package (via an injected fetch and
 test('loadRgaLegacyTrip surfaces a precise error when a resource is unreachable', async () => {
   const { loadRgaLegacyTrip } = await import('../../../src/trips/rga-2026/load-rga-legacy-trip.ts')
   const alwaysFails = async () => ({ ok: false, status: 404, json: async () => { throw new Error('unused') } })
-  await assert.rejects(() => loadRgaLegacyTrip(alwaysFails, 'https://example.test/'), /inaccessible \(HTTP 404\)/)
+  await assert.rejects(() => loadRgaLegacyTrip(alwaysFails, FAKE_PUBLIC_BASE_URL), /inaccessible \(HTTP 404\)/)
 })
 
 test('two loadRgaLegacyTrip calls against the same resources produce deeply identical bundles', async () => {
   const projectRoot = new URL('../../../', import.meta.url)
   const { loadRgaLegacyTrip } = await import('../../../src/trips/rga-2026/load-rga-legacy-trip.ts')
-  const first = await loadRgaLegacyTrip(fakeFetchFromPublicDir(projectRoot), 'https://example.test/')
-  const second = await loadRgaLegacyTrip(fakeFetchFromPublicDir(projectRoot), 'https://example.test/')
+  const first = await loadRgaLegacyTrip(createFakePublicFetch(projectRoot), FAKE_PUBLIC_BASE_URL)
+  const second = await loadRgaLegacyTrip(createFakePublicFetch(projectRoot), FAKE_PUBLIC_BASE_URL)
   assert.deepEqual(first, second)
 })

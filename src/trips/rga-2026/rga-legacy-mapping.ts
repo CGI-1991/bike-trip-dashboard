@@ -398,7 +398,8 @@ export function buildAccommodationDayIndex(
   return byLegacyDay
 }
 
-const ICON_KEY_TO_CATEGORY: Readonly<Record<PracticalIconKey, PracticalPlaceCategory | null>> = {
+/** Exported so tooling (e.g. the golden master comparator) can map a legacy icon key to its TripBundle category without duplicating this table. */
+export const ICON_KEY_TO_CATEGORY: Readonly<Record<PracticalIconKey, PracticalPlaceCategory | null>> = {
   shelter: 'shelter',
   bakery: 'bakery',
   cafe: 'cafe-or-ice-cream',
