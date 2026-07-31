@@ -30,71 +30,71 @@
       "fileName": "01_route-des-grandes-alpes-a-velo-thonon-les-bains-morzine-avoriaz.gpx",
       "startName": "Thonon-les-Bains",
       "endName": "Morzine",
-      "sizeBytes": 212940,
-      "sha256": "b724292626d9acdc09317403ba1d3c4fbe891f0176a12b86bcda7f3a68d935cb"
+      "sizeBytes": 206859,
+      "sha256": "50b1f76e74f47ec765af315b686d79d54204dbdb7f34b78dcf5c68a28ed4f7ed"
     },
     {
       "fileName": "02_route-des-grandes-alpes-a-velo-morzine-avoriaz-le-grand-bornand.gpx",
       "startName": "Morzine",
       "endName": "Le Grand-Bornand",
-      "sizeBytes": 317072,
-      "sha256": "5ca7d617fb80b362b93c772bc3c2ab8eb08d5858a128c959775256d8b0c8efe2"
+      "sizeBytes": 308043,
+      "sha256": "ff6942099b77d732617abee8d64b1261f0a1300396a5d962d10d6b3eac4a062e"
     },
     {
       "fileName": "03_route-des-grandes-alpes-a-velo-le-grand-bornand-beaufort-sur-doron.gpx",
       "startName": "Le Grand-Bornand",
       "endName": "Beaufort-sur-Doron",
-      "sizeBytes": 240918,
-      "sha256": "1da3d7ad542342659b549dd4bce4d1d69839335081cd7f5f5a2c2bd3eae328e9"
+      "sizeBytes": 234069,
+      "sha256": "1cc206a5e00d52747bb8cdd1e9b22d08fcaa06958fdb26ffc6ec68c21bab74f8"
     },
     {
       "fileName": "04_route-des-grandes-alpes-a-velo-beaufort-sur-doron-bourg-saint-maurice.gpx",
       "startName": "Beaufort-sur-Doron",
       "endName": "Bourg-Saint-Maurice",
-      "sizeBytes": 166464,
-      "sha256": "ac7c75753bd4de86f54090bbacd198451ed42b36122a6c3b0d48ac85f6626f1a"
+      "sizeBytes": 161735,
+      "sha256": "7c136a21605687efef18aa427ad983fbfc980e6fe397e85e5438a086bc5f4437"
     },
     {
       "fileName": "05_route-des-grandes-alpes-a-velo-bourg-saint-maurice-val-cenis.gpx",
       "startName": "Bourg-Saint-Maurice",
       "endName": "Val-Cenis",
-      "sizeBytes": 316931,
-      "sha256": "8fc4c110ba84e87917a1baafaf264f39ec68f7ae32568c97512ab3f0b930e29f"
+      "sizeBytes": 307930,
+      "sha256": "b12edb944d19d76656ff0edad2a6cdd36294ac3320f3910ea15a29d358fc053a"
     },
     {
       "fileName": "06_route-des-grandes-alpes-a-velo-val-cenis-briancon.gpx",
       "startName": "Val-Cenis",
       "endName": "Briançon",
-      "sizeBytes": 391152,
-      "sha256": "9e20ecb2410ee6bc1241b511bc63ef8cfddf755e6fab98ae1a07242d0826d89d"
+      "sizeBytes": 380047,
+      "sha256": "e6f4ac84b7ad03648fb60ff5288ce6e6ce476d6b9fa9194c7a5df7cfb43fe9c1"
     },
     {
       "fileName": "07_route-des-grandes-alpes-a-velo-briancon-barcelonnette.gpx",
       "startName": "Briançon",
       "endName": "Barcelonnette",
-      "sizeBytes": 465443,
-      "sha256": "e4289b35c397eff46ac059e03ec2b1c48461ef29a2dcdbce3cfe9b0d0001349f"
+      "sizeBytes": 452202,
+      "sha256": "126ddafcf34c0bf49d742aeccb3b14906f9984f6dd55f13d420dfe0132e51c9c"
     },
     {
       "fileName": "08_route-des-grandes-alpes-a-velo-variante-barcelonnette-saint-etienne-de-tinee.gpx",
       "startName": "Barcelonnette",
       "endName": "Saint-Étienne-de-Tinée",
-      "sizeBytes": 231764,
-      "sha256": "baa0cc75eee1b49a08b824be309a37613c910d91b027adbd3c15f63c783f9c4a"
+      "sizeBytes": 225191,
+      "sha256": "fd8da3f7da6a80e163421193862b64e62dc511fd7804215a5aa51584ed7e6e21"
     },
     {
       "fileName": "09_route-des-grandes-alpes-a-velo-variante-saint-etienne-de-tinee-saint-martin-vesubie.gpx",
       "startName": "Saint-Étienne-de-Tinée",
       "endName": "Saint-Martin-Vésubie",
-      "sizeBytes": 206820,
-      "sha256": "f3aa4eb9cd60447696c7964704b75b20c158ea60dacbc9523943e2e0eb03f20b"
+      "sizeBytes": 200931,
+      "sha256": "295f1960a3baafd8783f10abdf61f894d9bd2abd698e960e69b4773721e804ec"
     },
     {
       "fileName": "10_route-des-grandes-alpes-a-velo-saint-martin-vesubie-nice.gpx",
       "startName": "Saint-Martin-Vésubie",
       "endName": "Nice",
-      "sizeBytes": 499530,
-      "sha256": "2e6b8c4352303b0c9a04e185b3d2c961ce24e6694a09604a8e6fc2073284d04a"
+      "sizeBytes": 485261,
+      "sha256": "d504f0e825f4261e98fd0cb3eaee7bdaa02520769cd0ecbc794f24d354760ffe"
     }
   ],
   "roadbookPath": "roadbook/roadbook.json",
