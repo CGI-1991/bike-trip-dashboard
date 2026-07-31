@@ -97,8 +97,49 @@ Aucun écran n'a changé.
   implémentés. La comparaison exhaustive avec le pipeline historique (golden
   master) reste à faire.
 
-La prochaine phase (phase 4 du CDC) comparera ce `TripBundle` au pipeline
-historique dans un golden master complet, avant toute bascule du runtime.
+La phase 4 du CDC a ensuite comparé ce `TripBundle` au pipeline historique dans
+un golden master complet (`tests/golden/rga-2026/`, `npm run check:rga-golden`) :
+564 tests verts, aucune divergence non classée.
+
+## Fondation IndexedDB (`src/storage/indexeddb/`, phase 5)
+
+La phase 5 du CDC ajoute la base IndexedDB versionnée du futur moteur
+multi-voyages — **toujours pas branchée sur l'application** : `src/main.ts` et
+l'interface continuent de charger la RGA exclusivement via le pipeline
+historique, exactement comme en phase 3/4. Aucun écran n'a changé, aucun
+gestionnaire de voyages ni assistant d'import GPX n'est visible.
+
+- Base `bike-trip-dashboard`, version 1 (`openBikeTripDatabase()`, `IDBFactory`
+  injectable — jamais un accès implicite à `window.indexedDB`) : dix-sept object
+  stores (racine `trips` non-collectionnelle ; `tripSettings` ; onze
+  collections normalisées isolées par voyage via une clé composée
+  `[tripId, id]` et un index `byTripId` ; `sourceFilePayloads` pour le contenu
+  binaire des GPX ; `importJobs` ; `providerCache` ; `schemaMigrations`).
+- **`TripRepository`** (`trip-repository.ts`) : `saveTripBundle` valide le
+  bundle (`validateTripBundle`) avant toute transaction, remplace
+  atomiquement toutes les collections d'un voyage en une seule transaction
+  `readwrite`, et abandonne sans écriture partielle en cas d'erreur.
+  `loadTripBundle` reconstruit un `TripBundle` dans l'ordre exact du bundle
+  d'origine, le revalide, et refuse (au lieu de réparer) un stockage
+  incohérent.
+- Le contenu binaire d'un `SourceFile` (Blob/ArrayBuffer) est stocké séparément
+  du modèle métier (`source-file-repository.ts`), jamais encodé en JSON ni posé
+  en `localStorage` ; `saveTripImportAtomically` (`atomic-import.ts`) écrit
+  bundle + payloads + `importJob` dans une seule transaction, pour qu'un
+  `importJob` ne passe jamais `ready` sans que son voyage ait réellement été
+  commité.
+- `activeTripId` reste la seule donnée de voyage tolérée en `localStorage`
+  (`bike-trip-dashboard.active-trip-id.v1`, voir `active-trip.ts`) — pas encore
+  connecté au démarrage ni à l'interface.
+- Testé avec [`fake-indexeddb`](https://github.com/dumbmatter/fake-indexeddb)
+  (devDependency, jamais importé depuis `src/`) : Node n'expose nativement
+  aucune implémentation IndexedDB. Le round-trip du vrai `TripBundle` RGA
+  (12 journées, 10 étapes/routes/fichiers source, 46 `RoutePoint`, 1 705 lieux
+  pratiques, 10 logements) est testé de bout en bout dans
+  `tests/storage/indexeddb/rga-storage-roundtrip.test.mjs`.
+
+La prochaine phase du CDC couvrira l'import GPX et/ou le branchement du futur
+gestionnaire de voyages sur cette fondation.
 
 ## Stack
 
@@ -108,8 +149,10 @@ historique dans un golden master complet, avant toute bascule du runtime.
   appariement roadbook, météo) tourne dans le navigateur.
 - Aucune clé API : le fournisseur météo [Open-Meteo](https://open-meteo.com/)
   est appelé anonymement en HTTPS.
-- Tests unitaires avec le test runner natif de Node (`node:test`), sans
-  dépendance de test supplémentaire.
+- Tests unitaires avec le test runner natif de Node (`node:test`). Une seule
+  dépendance de test, [`fake-indexeddb`](https://github.com/dumbmatter/fake-indexeddb)
+  (devDependency), pour les tests de `src/storage/indexeddb/` — Node n'expose
+  aucune implémentation IndexedDB native ; jamais importée depuis `src/`.
 
 ## Prérequis
 
@@ -185,6 +228,10 @@ src/
   trip-core/    TripBundle v1 générique (modèle, validation, migrations,
                 sélecteurs) — voir « TripBundle v1 » ci-dessus ; pas encore
                 branché sur l'application
+  storage/indexeddb/  Fondation IndexedDB (base, migrations, repositories
+                TripBundle/fichiers sources/imports, activeTripId,
+                persistance navigateur) — voir « Fondation IndexedDB »
+                ci-dessus ; pas encore branchée sur l'application
   main.ts       Point d'entrée : orchestration et écouteurs d'événements
 public/data/
   gpx/          Les 10 traces GPX sources (non modifiées par l'application)
