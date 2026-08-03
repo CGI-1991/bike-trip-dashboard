@@ -78,3 +78,62 @@ test('setActiveTripId writes exactly one key — no other trip data reaches this
   assert.equal(storage.values.size, 1)
   assert.deepEqual([...storage.values.keys()], [ACTIVE_TRIP_ID_STORAGE_KEY])
 })
+
+test('called with no storage argument in Node (no window, no localStorage), the functions never throw', () => {
+  assert.equal(typeof globalThis.window, 'undefined')
+  assert.equal(typeof globalThis.localStorage, 'undefined')
+
+  assert.doesNotThrow(() => getActiveTripId())
+  assert.equal(getActiveTripId(), null)
+
+  assert.doesNotThrow(() => setActiveTripId('trip-alpha'))
+  assert.equal(setActiveTripId('trip-alpha'), false)
+
+  assert.doesNotThrow(() => clearActiveTripId())
+  assert.equal(clearActiveTripId(), false)
+})
+
+test('a global localStorage that itself throws on access is treated as unavailable, no argument needed', () => {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    get() {
+      throw new Error('localStorage access is blocked in this environment.')
+    },
+  })
+
+  try {
+    assert.doesNotThrow(() => getActiveTripId())
+    assert.equal(getActiveTripId(), null)
+    assert.equal(setActiveTripId('trip-alpha'), false)
+    assert.equal(clearActiveTripId(), false)
+  } finally {
+    if (descriptor) {
+      Object.defineProperty(globalThis, 'localStorage', descriptor)
+    } else {
+      delete globalThis.localStorage
+    }
+  }
+})
+
+test('a global localStorage that is present and working is picked up with no argument needed', () => {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    value: memoryStorage(),
+  })
+
+  try {
+    assert.equal(getActiveTripId(), null)
+    assert.equal(setActiveTripId('trip-alpha'), true)
+    assert.equal(getActiveTripId(), 'trip-alpha')
+    assert.equal(clearActiveTripId(), true)
+    assert.equal(getActiveTripId(), null)
+  } finally {
+    if (descriptor) {
+      Object.defineProperty(globalThis, 'localStorage', descriptor)
+    } else {
+      delete globalThis.localStorage
+    }
+  }
+})
