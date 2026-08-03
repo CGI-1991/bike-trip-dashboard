@@ -42,7 +42,7 @@ const ACCOMMODATION_TYPES = [
   'hotel', 'airbnb', 'gite', 'chambre-hotes', 'hostel', 'guest-house', 'refuge', 'camping',
 ] as const
 const DATA_SOURCE_TYPES = ['user', 'gpx', 'osm', 'open-meteo', 'generated', 'migrated'] as const
-const ENRICHMENT_PROVIDERS = ['gpx', 'osm', 'open-meteo'] as const
+const ENRICHMENT_PROVIDERS = ['gpx', 'osm', 'osm-practical-places', 'open-meteo'] as const
 const ENRICHMENT_PROVIDER_STATUSES = ['not-configured', 'pending', 'success', 'partial', 'error'] as const
 const DERIVED_DATA_STATUSES = ['not-generated', 'stale', 'partial', 'fresh'] as const
 const CONFIDENCE_LEVELS = ['high', 'medium', 'low'] as const
@@ -388,7 +388,7 @@ export function validateTripBundle(value: unknown): ValidationResult<TripBundle>
   practicalPlaces.forEach((place, index) => {
     const path = `practicalPlaces[${index}]`
     if (!isOneOf(place.category, PRACTICAL_PLACE_CATEGORIES)) issues.push(issue(`${path}.category`, 'invalid-enum', 'category invalide.'))
-    if (!isNonEmptyString(place.name)) issues.push(issue(`${path}.name`, 'missing-required', 'name est requis.'))
+    if (place.name !== null && !isNonEmptyString(place.name)) issues.push(issue(`${path}.name`, 'invalid-value', 'name doit être une chaîne non vide ou null.'))
     if (!isLatitude(place.latitude)) issues.push(issue(`${path}.latitude`, 'invalid-value', 'latitude invalide.'))
     if (!isLongitude(place.longitude)) issues.push(issue(`${path}.longitude`, 'invalid-value', 'longitude invalide.'))
     if (place.description !== null && !isNonEmptyString(place.description)) issues.push(issue(`${path}.description`, 'invalid-value', 'description invalide.'))
@@ -397,6 +397,18 @@ export function validateTripBundle(value: unknown): ValidationResult<TripBundle>
     if (place.openingHours !== null && !isNonEmptyString(place.openingHours)) issues.push(issue(`${path}.openingHours`, 'invalid-value', 'openingHours invalide.'))
     if (!isBoolean(place.hidden)) issues.push(issue(`${path}.hidden`, 'invalid-type', 'hidden doit être un booléen.'))
     if (!isBoolean(place.pinned)) issues.push(issue(`${path}.pinned`, 'invalid-type', 'pinned doit être un booléen.'))
+    if (place.stageId !== undefined && place.stageId !== null && !isNonEmptyString(place.stageId)) {
+      issues.push(issue(`${path}.stageId`, 'invalid-value', 'stageId doit être une chaîne non vide ou null.'))
+    }
+    if (place.usefulTags !== undefined && place.usefulTags !== null && !isPlainObject(place.usefulTags)) {
+      issues.push(issue(`${path}.usefulTags`, 'invalid-type', 'usefulTags doit être un objet ou null.'))
+    } else if (isPlainObject(place.usefulTags)) {
+      Object.entries(place.usefulTags).forEach(([key, tagValue]) => {
+        if (!isNonEmptyString(key) || !isNonEmptyString(tagValue)) {
+          issues.push(issue(`${path}.usefulTags`, 'invalid-value', 'usefulTags doit contenir uniquement des chaînes non vides.'))
+        }
+      })
+    }
     if (!Array.isArray(place.dayIds)) {
       issues.push(issue(`${path}.dayIds`, 'invalid-type', 'dayIds doit être un tableau.'))
     } else {
@@ -555,6 +567,11 @@ export function validateTripBundle(value: unknown): ValidationResult<TripBundle>
   const stages = asRecordArray(value.stages, 'stages', issues)
   const stageIds = collectIds(stages, 'id', 'stages', issues)
   const stagesById = new Map(stages.map((stage) => [stage.id, stage]))
+  practicalPlaces.forEach((place, index) => {
+    if (isNonEmptyString(place.stageId) && !stageIds.has(place.stageId)) {
+      issues.push(issue(`practicalPlaces[${index}].stageId`, 'unknown-reference', `stageId inconnu : ${place.stageId}.`))
+    }
+  })
   const rideDaysById = new Map(days.filter((day) => day.type === 'ride').map((day) => [day.id as string, day]))
   const stageCountByDayId = new Map<string, number>()
   stages.forEach((stage, index) => {

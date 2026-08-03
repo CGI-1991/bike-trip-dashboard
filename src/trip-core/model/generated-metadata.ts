@@ -17,9 +17,13 @@ export type EnrichmentProviderStatus =
   | 'partial'
   | 'error'
 
+export type EnrichmentProvider =
+  | Exclude<DataSourceType, 'user' | 'generated' | 'migrated'>
+  | 'osm-practical-places'
+
 /** Last known state of one external enrichment provider for this trip. */
 export interface EnrichmentProviderState {
-  readonly provider: Exclude<DataSourceType, 'user' | 'generated' | 'migrated'>
+  readonly provider: EnrichmentProvider
   readonly lastAttemptedAt: IsoDateTime | null
   readonly lastSuccessAt: IsoDateTime | null
   readonly status: EnrichmentProviderStatus

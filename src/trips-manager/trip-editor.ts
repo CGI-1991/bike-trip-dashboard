@@ -276,7 +276,15 @@ export function mergeEditedTripBundle(existing: TripBundle, rebuilt: TripBundle,
   const retainedAccommodationIds = new Set(days.flatMap((day) => (day.accommodationId === null ? [] : [day.accommodationId])))
   const accommodations = existing.accommodations.filter((accommodation) => retainedAccommodationIds.has(accommodation.id))
   const practicalPlaces = existing.practicalPlaces
-    .filter((place) => isManualProvenance(place.provenance) && place.dayIds.some((dayId) => keptDayIds.has(dayId)))
+    .filter((place) => {
+      if (!place.dayIds.some((dayId) => keptDayIds.has(dayId))) return false
+      if (isManualProvenance(place.provenance)) return true
+      return place.provenance.sourceType === 'osm'
+        && place.provenance.engineVersion === 'practical-places-osm@1'
+        && place.stageId !== undefined
+        && place.stageId !== null
+        && remaps.unchangedStageIds.has(place.stageId)
+    })
     .map((place) => ({ ...place, dayIds: place.dayIds.filter((dayId) => keptDayIds.has(dayId)) }))
 
   const existingDaySettings = new Map(existing.settings.days.map((settings) => [settings.dayId, settings]))

@@ -132,6 +132,39 @@ test('two climbs separated by a large descent (beyond both tolerances) are detec
   assert.ok(climbs[0].endDistanceKm < climbs[1].startDistanceKm)
 })
 
+test('two 19/20 km climbs with almost identical gain and 4.8% average remain distinct without overlap', () => {
+  const firstClimb = concatElevations(
+    rampElevations(4.5, 245),
+    rampElevations(0.5, -22),
+    rampElevations(4.5, 245),
+    rampElevations(0.5, -22),
+    rampElevations(4.5, 245),
+    rampElevations(0.5, -23),
+    rampElevations(4, 244),
+  )
+  const secondClimb = concatElevations(
+    rampElevations(9.75, 492),
+    rampElevations(0.5, -24),
+    rampElevations(9.75, 492),
+  )
+  const climbs = detect(concatElevations(firstClimb, rampElevations(3, -600), secondClimb))
+
+  assert.equal(climbs.length, 2)
+  assert.deepEqual(climbs.map((climb) => ({
+    startDistanceKm: Math.round(climb.startDistanceKm * 10) / 10,
+    endDistanceKm: Math.round(climb.endDistanceKm * 10) / 10,
+    lengthKm: Math.round((climb.endDistanceKm - climb.startDistanceKm) * 10) / 10,
+    gainM: Math.round(climb.elevationGainM),
+    averageGradientPercent: Math.round(climb.averageGradientPercent * 10) / 10,
+    startAltitudeM: Math.round(climb.startAltitudeM),
+    endAltitudeM: Math.round(climb.endAltitudeM),
+  })), [
+    { startDistanceKm: 0, endDistanceKm: 19, lengthKm: 19, gainM: 979, averageGradientPercent: 4.8, startAltitudeM: 0, endAltitudeM: 912 },
+    { startDistanceKm: 22, endDistanceKm: 42, lengthKm: 20, gainM: 984, averageGradientPercent: 4.8, startAltitudeM: 312, endAltitudeM: 1272 },
+  ])
+  assert.ok(climbs[0].endDistanceKm < climbs[1].startDistanceKm)
+})
+
 test('two climbs separated by a descent longer than the tolerated flat distance (but a shallow loss) are still detected independently', () => {
   // Loss stays within CLIMB_TOLERATED_LOSS_M but the flat/descent distance exceeds CLIMB_MAX_FLAT_KM.
   const lossM = CLIMB_TOLERATED_LOSS_M - 5
