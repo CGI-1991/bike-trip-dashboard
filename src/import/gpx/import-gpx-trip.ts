@@ -67,6 +67,9 @@ export interface ImportGpxTripInput {
   readonly onProgress?: (label: ImportProgressLabel) => void
 }
 
+/** Same complete 6C1 analysis/build pipeline, without opening a storage transaction. Used by structural editing before its single atomic replacement write. */
+export type BuildGpxTripInput = Omit<ImportGpxTripInput, 'database'>
+
 const DEFAULT_REFERENCE_SPEED_KPH = 18
 const DEFAULT_DEPARTURE_TIME = '08:00'
 const DEFAULT_TOTAL_BREAK_MINUTES = 60
@@ -162,7 +165,7 @@ function detectDuplicates(entries: readonly PerFileParsed[]): readonly ImportIss
   return issues
 }
 
-export async function importGpxTrip(input: ImportGpxTripInput): Promise<GpxTripImportResult> {
+async function processGpxTrip(input: BuildGpxTripInput & { readonly database: IDBDatabase | null }): Promise<GpxTripImportResult> {
   const { idFactory, now: nowFn } = input
   const creationTimestamp = nowFn()
   let job = createInitialImportJob(idFactory(), creationTimestamp, input.options.engineVersion)
@@ -297,12 +300,22 @@ export async function importGpxTrip(input: ImportGpxTripInput): Promise<GpxTripI
 
   const readyJob = transitionImportJob(job, 'ready', nowFn(), { tripId: options.tripId, progress: 1, issues: allIssues })
 
-  try {
-    await saveTripImportAtomically(input.database, { bundle: validation.value, sourcePayloads, importJob: readyJob })
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Échec de l’écriture IndexedDB.'
-    return failed(job, nowFn(), [...allIssues, importIssue('storage-error', 'error', message)], 'storage-error')
+  if (input.database !== null) {
+    try {
+      await saveTripImportAtomically(input.database, { bundle: validation.value, sourcePayloads, importJob: readyJob })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Échec de l’écriture IndexedDB.'
+      return failed(job, nowFn(), [...allIssues, importIssue('storage-error', 'error', message)], 'storage-error')
+    }
   }
 
   return { ok: true, bundle: validation.value, importJob: readyJob, issues: allIssues }
+}
+
+export function buildGpxTrip(input: BuildGpxTripInput): Promise<GpxTripImportResult> {
+  return processGpxTrip({ ...input, database: null })
+}
+
+export function importGpxTrip(input: ImportGpxTripInput): Promise<GpxTripImportResult> {
+  return processGpxTrip(input)
 }
