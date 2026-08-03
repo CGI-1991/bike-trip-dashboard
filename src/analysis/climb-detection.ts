@@ -22,9 +22,35 @@ import { climbId } from '../trip-core/index.ts'
 import type { TerrainProfilePoint } from '../route/types.ts'
 
 /** CDC section 13.4 — "règles initiales". */
-export const CLIMB_MIN_LENGTH_KM = 1.5
-export const CLIMB_MIN_ELEVATION_GAIN_M = 100
-export const CLIMB_MIN_AVERAGE_GRADE_PERCENT = 2
+export interface ClimbSignificanceMetrics {
+  readonly lengthKm: number
+  readonly elevationGainM: number
+  readonly averageGradientPercent: number
+}
+
+interface ClimbSignificanceProfile {
+  readonly terrain: 'long' | 'intermediate' | 'short-steep'
+  readonly minLengthKm: number
+  readonly minElevationGainM: number
+  readonly minAverageGradientPercent: number
+}
+
+/** Initial multi-terrain calibration: satisfying any one complete profile qualifies the candidate. */
+export const CLIMB_SIGNIFICANCE_PROFILES = [
+  { terrain: 'long', minLengthKm: 1.5, minElevationGainM: 100, minAverageGradientPercent: 2 },
+  { terrain: 'intermediate', minLengthKm: 1, minElevationGainM: 60, minAverageGradientPercent: 3 },
+  { terrain: 'short-steep', minLengthKm: 0.5, minElevationGainM: 40, minAverageGradientPercent: 4 },
+] as const satisfies readonly ClimbSignificanceProfile[]
+
+/** Pure final qualification, deliberately independent from pivot extraction and tolerant-dip merging. */
+export function isSignificantClimb(metrics: ClimbSignificanceMetrics): boolean {
+  return CLIMB_SIGNIFICANCE_PROFILES.some(
+    (profile) =>
+      metrics.lengthKm >= profile.minLengthKm &&
+      metrics.elevationGainM >= profile.minElevationGainM &&
+      metrics.averageGradientPercent >= profile.minAverageGradientPercent,
+  )
+}
 
 /** CDC section 13.4 — "valeurs à calibrer" (picked at the middle of each given range). */
 export const CLIMB_TOLERATED_LOSS_M = 25
@@ -236,11 +262,13 @@ export function detectClimbs(
 
     const lengthKm = end.distanceKm - start.distanceKm
     const elevationGainM = cumulativeElevationGainM(profile, range.valleyIndex, range.peakIndex)
+    // Average grade intentionally uses net valley-to-peak elevation change,
+    // not cumulative D+. After tolerated dips are merged, D+/distance would
+    // count re-ascents without accounting for their losses and overstate the
+    // sustained gradient. D+ remains the separate effort/qualification metric.
     const averageGradientPercent = lengthKm > 0 ? ((end.elevationM - start.elevationM) / (lengthKm * 1000)) * 100 : 0
 
-    if (lengthKm < CLIMB_MIN_LENGTH_KM || elevationGainM < CLIMB_MIN_ELEVATION_GAIN_M || averageGradientPercent < CLIMB_MIN_AVERAGE_GRADE_PERCENT) {
-      continue
-    }
+    if (!isSignificantClimb({ lengthKm, elevationGainM, averageGradientPercent })) continue
 
     sequenceNumber++
     const matchedName = findNamedWaypointNear(waypoints, end.latitude, end.longitude, CLIMB_WAYPOINT_MATCH_TOLERANCE_KM)
