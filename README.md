@@ -21,8 +21,9 @@ encore branché sur l'application. L'application fonctionne aujourd'hui
 exactement comme l'application RGA 2026 d'origine, avec une identité technique
 (nom de paquet, base GitHub Pages, manifeste PWA, préfixe de cache, clés de
 stockage) propre à ce nouveau dépôt, et continue de reposer sur ses modèles
-hérités (`src/trip/*`, `src/route/*`, `src/gpx/*`, `src/weather/*`). L'import
-GPX générique, IndexedDB et le multi-voyages ne sont pas implémentés.
+hérités (`src/trip/*`, `src/route/*`, `src/gpx/*`, `src/weather/*`). Un
+pipeline d'import GPX générique existe (`src/import/gpx/`, voir plus bas) mais
+n'est pas branché sur l'interface ; le multi-voyages ne l'est pas non plus.
 
 ## TripBundle v1 (`src/trip-core/`)
 
@@ -138,8 +139,44 @@ gestionnaire de voyages ni assistant d'import GPX n'est visible.
   pratiques, 10 logements) est testé de bout en bout dans
   `tests/storage/indexeddb/rga-storage-roundtrip.test.mjs`.
 
-La prochaine phase du CDC couvrira l'import GPX et/ou le branchement du futur
-gestionnaire de voyages sur cette fondation.
+## Pipeline d'import GPX générique (`src/import/gpx/`, phase 6)
+
+La phase 6 du CDC ajoute un pipeline d'import générique qui transforme un ou
+plusieurs fichiers GPX utilisateur en `TripBundle` v1 valide, sauvegardé
+atomiquement dans la fondation IndexedDB (phase 5) — **toujours pas branché
+sur l'interface** : aucun sélecteur de fichiers, aucun glisser-déposer, aucun
+gestionnaire de voyages visible, `src/main.ts` inchangé.
+
+- **Un GPX = une étape, plusieurs GPX = plusieurs étapes**, dans l'ordre exact
+  du tableau fourni ; aucune fusion ni subdivision automatique.
+- Parsing GPX générique (1.0/1.1, namespaces variables, `trk`/`trkseg`,
+  `rte`/`rtept` en repli si aucun `trk`, `wpt`) : traversée DOM propre à ce
+  module (`gpx-xml.ts`), mais qui réutilise directement les algorithmes
+  historiques de distance et de D+/D− (`calculateHaversineDistanceKm`,
+  `calculateSegmentMetrics` de `src/gpx/parser.ts`) plutôt que de les
+  réimplémenter — voir `tests/import/gpx/rga-compatibility.test.mjs`, qui
+  vérifie que les dix GPX canoniques de la RGA produisent exactement les
+  mêmes distances/D+/D−/altitudes/comptages que le pipeline historique.
+- Calcul local uniquement : géométrie, distance, D+/D−, altitude min/max et
+  profil altimétrique rééchantillonné (50 m) sont dérivés du GPX lui-même,
+  jamais d'un service externe.
+- Voyage daté ou non daté (`GpxTripImportOptions.startDate` facultatif) : sans
+  date, `calendar`/`TripDay.date` restent `null` (aucune date inventée, aucune
+  météo) ; avec une date, une journée civile consécutive par étape, sans
+  dépendance au fuseau ou à l'horloge de la machine.
+- Sauvegarde atomique unique via `saveTripImportAtomically` (phase 5) :
+  `TripBundle`, payloads binaires des GPX et `ImportJob` final commités
+  ensemble, avec des transitions déterministes
+  (`pending → parsing → validating → writing → ready`, ou `→ failed`).
+- Chaque id et chaque horodatage est fourni par l'appelant
+  (`idFactory`/`now`) — aucun `Date.now()`, `new Date()` ou `Math.random()`
+  implicite dans le pipeline.
+- API publique unique : `importGpxTrip({ files, options, database, idFactory,
+  now })` (`import-gpx-trip.ts`), retournant soit `{ ok: true, bundle,
+  importJob, issues }`, soit `{ ok: false, importJob, issues, error }` avec
+  des codes d'erreur structurés (`invalid-file`, `duplicate-file`,
+  `invalid-xml`, `no-route-points`, `invalid-coordinate`,
+  `unsupported-content`, `storage-error`, `validation-error`).
 
 ## Stack
 
@@ -232,6 +269,9 @@ src/
                 TripBundle/fichiers sources/imports, activeTripId,
                 persistance navigateur) — voir « Fondation IndexedDB »
                 ci-dessus ; pas encore branchée sur l'application
+  import/gpx/   Pipeline d'import GPX générique (parsing, analyse, TripBundle,
+                sauvegarde IndexedDB atomique) — voir « Pipeline d'import GPX
+                générique » ci-dessus ; pas encore branché sur l'application
   main.ts       Point d'entrée : orchestration et écouteurs d'événements
 public/data/
   gpx/          Les 10 traces GPX sources (non modifiées par l'application)
