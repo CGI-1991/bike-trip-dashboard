@@ -12,13 +12,14 @@
 import { saveTripImportAtomically } from '../../storage/indexeddb/atomic-import.ts'
 import type { ImportJob } from '../../storage/indexeddb/import-job-repository.ts'
 import type { SourceFilePayloadInput } from '../../storage/indexeddb/source-file-repository.ts'
-import type { RideStage, Route, RoutePoint, SourceFile, TripBundle, TripDay } from '../../trip-core/index.ts'
+import type { Climb, RideStage, Route, RoutePoint, SourceFile, TripBundle, TripDay } from '../../trip-core/index.ts'
 import { sourceFileId as toSourceFileId, validateTripBundle } from '../../trip-core/index.ts'
 import { isIsoDate, isNonEmptyString, isNonNegativeInteger, isPositiveNumber, isSlug, isTimeOfDay } from '../../trip-core/validation/primitives.ts'
 import { analyzeGpxDocument } from './analyze-gpx.ts'
 import { GpxXmlParseError, parseGpxXml } from './gpx-xml.ts'
 import { sha256Hex } from './hash.ts'
 import { createInitialImportJob, transitionImportJob } from './import-job.ts'
+import { analyzeRouteTerrainClimbsAndTiming } from './route-analysis.ts'
 import { buildRouteFromAnalysis } from './route-builder.ts'
 import { buildSourceFile, validateGpxImportFile } from './source-file.ts'
 import { buildStageAndDay } from './stage-builder.ts'
@@ -171,6 +172,7 @@ export async function importGpxTrip(input: ImportGpxTripInput): Promise<GpxTripI
   const routePoints: RoutePoint[] = []
   const stages: RideStage[] = []
   const days: TripDay[] = []
+  const climbs: Climb[] = []
   let blockingCode: ImportErrorCode | null = null
 
   hashedFiles.forEach((entry, index) => {
@@ -190,9 +192,21 @@ export async function importGpxTrip(input: ImportGpxTripInput): Promise<GpxTripI
       )
       sourceFiles.push(sourceFile)
 
-      const { route, routePoints: builtRoutePoints } = buildRouteFromAnalysis(analysis, sourceFile.id, idFactory(), options.engineVersion, idFactory)
+      const routeIdValue = idFactory()
+      const { route, routePoints: builtRoutePoints } = buildRouteFromAnalysis(analysis, sourceFile.id, routeIdValue, options.engineVersion, idFactory)
       routes.push(route)
       routePoints.push(...builtRoutePoints)
+
+      const routeAnalysis = analyzeRouteTerrainClimbsAndTiming(
+        analysis,
+        route.id,
+        idFactory,
+        options.engineVersion,
+        { referenceSpeedKph: options.referenceSpeedKph, departureTime: options.departureTime, totalBreakMinutes: options.totalBreakMinutes },
+        entry.file.name,
+      )
+      allIssues.push(...routeAnalysis.issues)
+      climbs.push(...routeAnalysis.climbs)
 
       const { stage, day } = buildStageAndDay({
         index,
@@ -202,6 +216,8 @@ export async function importGpxTrip(input: ImportGpxTripInput): Promise<GpxTripI
         dayIdValue: idFactory(),
         startDate: options.startDate,
         metricsProvenance: route.provenance,
+        timing: routeAnalysis.timing,
+        climbIds: routeAnalysis.climbs.map((climb) => climb.id),
       })
       stages.push(stage)
       days.push(day)
@@ -222,7 +238,7 @@ export async function importGpxTrip(input: ImportGpxTripInput): Promise<GpxTripI
     return failed(job, nowFn(), allIssues, blockingCode)
   }
 
-  const bundle: TripBundle = assembleTripBundle({ options, sourceFiles, routes, routePoints, stages, days })
+  const bundle: TripBundle = assembleTripBundle({ options, sourceFiles, routes, routePoints, stages, days, climbs })
 
   job = transitionImportJob(job, 'validating', nowFn(), { sourceFileIds: sourceFiles.map((file) => file.id) })
 

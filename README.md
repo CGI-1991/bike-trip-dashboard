@@ -178,6 +178,15 @@ gestionnaire de voyages visible, `src/main.ts` inchangé.
   `invalid-xml`, `no-route-points`, `invalid-coordinate`,
   `unsupported-content`, `storage-error`, `validation-error`).
 
+Le pipeline GPX produit maintenant localement (`src/analysis/`, phase 6B) :
+
+- profils (pente lissée, dérivée de l'altitude GPX) ;
+- montées (détection générique, seuils CDC section 13) ;
+- durées (roulée, pauses, totale) ;
+- ETA relatives (départ + timeline par étape, jamais de continuité entre deux étapes).
+
+Aucun nouvel écran n'est encore exposé.
+
 ## Stack
 
 - [Vite](https://vite.dev/) + TypeScript strict, sans framework UI (rendu en
