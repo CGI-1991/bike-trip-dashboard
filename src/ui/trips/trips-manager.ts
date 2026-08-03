@@ -11,6 +11,7 @@ import { deleteTripCompletely, listTripSummaries, setActiveTrip } from '../../tr
 import type { TripListEntry } from '../../trips-manager/trip-summary.ts'
 import { createImportWizard } from './import-wizard.ts'
 import type { ImportWizardResult } from './import-wizard.ts'
+import { createTripEditor } from './trip-editor.ts'
 import { renderTripDetail } from './trip-detail-view.ts'
 
 export interface TripsManagerDeps {
@@ -19,7 +20,12 @@ export interface TripsManagerDeps {
   readonly idFactory: () => string
 }
 
-type Mode = { readonly kind: 'list' } | { readonly kind: 'wizard' } | { readonly kind: 'detail'; readonly tripId: TripId } | { readonly kind: 'confirmation'; readonly result: ImportWizardResult }
+type Mode =
+  | { readonly kind: 'list' }
+  | { readonly kind: 'wizard' }
+  | { readonly kind: 'editor'; readonly tripId: TripId }
+  | { readonly kind: 'detail'; readonly tripId: TripId }
+  | { readonly kind: 'confirmation'; readonly result: ImportWizardResult }
 
 function escapeHtml(value: string): string {
   return value
@@ -44,7 +50,7 @@ function renderTripCard(trip: TripListEntry): string {
       <p class="tag tag--data">Disponible localement</p>
       <div class="trip-card__actions">
         <button class="button button--primary" type="button" data-action="open-trip" data-trip-id="${escapeHtml(trip.id)}">Ouvrir</button>
-        <button class="button button--quiet" type="button" data-action="edit-trip" disabled title="Disponible dans une prochaine phase">Modifier l’itinéraire</button>
+        <button class="button button--quiet" type="button" data-action="edit-trip" data-trip-id="${escapeHtml(trip.id)}">Modifier</button>
         <button class="button button--quiet" type="button" data-action="delete-trip" data-trip-id="${escapeHtml(trip.id)}">Supprimer</button>
       </div>
     </li>`
@@ -108,7 +114,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     if (mode.kind === 'list') await renderList()
     else if (mode.kind === 'detail') await renderDetail(mode.tripId)
     else if (mode.kind === 'confirmation') renderConfirmation(mode.result)
-    // 'wizard' mode owns its own rendering via createImportWizard.
+    // Wizard/editor modes own their rendering through their dedicated components.
   }
 
   function openWizard(): void {
@@ -128,6 +134,23 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     )
   }
 
+  function openEditor(tripId: TripId): void {
+    mode = { kind: 'editor', tripId }
+    createTripEditor(
+      container,
+      deps,
+      tripId,
+      (bundle) => {
+        mode = { kind: 'detail', tripId: bundle.metadata.id }
+        void renderDetail(bundle.metadata.id)
+      },
+      () => {
+        mode = { kind: 'list' }
+        void renderList()
+      },
+    )
+  }
+
   container.addEventListener('click', (event) => {
     const target = event.target
     if (!(target instanceof Element)) return
@@ -138,6 +161,8 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
 
     if (action === 'create-trip') {
       openWizard()
+    } else if (action === 'edit-trip' && tripId !== undefined) {
+      openEditor(tripId as TripId)
     } else if (action === 'open-trip' && tripId !== undefined) {
       mode = { kind: 'detail', tripId: tripId as TripId }
       void renderDetail(tripId as TripId)
