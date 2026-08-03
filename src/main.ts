@@ -49,6 +49,8 @@ import { initializeGpxAnalysis } from './ui/gpx-analysis.ts'
 import { downloadGpx, shareGpx } from './ui/gpx-share.ts'
 import type { GpxShareTarget } from './ui/gpx-share.ts'
 import { openImageViewer } from './ui/image-viewer.ts'
+import { initializeTripsManager } from './ui/trips/trips-manager.ts'
+import { openBikeTripDatabase } from './storage/indexeddb/open-database.ts'
 import { renderDashboard } from './ui/render.ts'
 import { renderDayHeader } from './ui/day-header.ts'
 import { hashForDay, parseAppHash } from './ui/app-state.ts'
@@ -157,6 +159,7 @@ const roadbookReportContainer = getRequiredElement<HTMLElement>(
   '[data-roadbook-diagnostics]',
 )
 const gpxAnalysisContainer = getRequiredElement<HTMLElement>('[data-gpx-analysis]')
+const tripsManagerContainer = getRequiredElement<HTMLElement>('[data-trips-manager]')
 const weatherPanel = getRequiredElement<HTMLElement>('[data-weather-panel]')
 const weatherRefreshButton = getRequiredElement<HTMLButtonElement>(
   '[data-weather-refresh]',
@@ -948,3 +951,24 @@ void initializeGpxAnalysis(gpxAnalysisContainer, rga2026TripPlan.rideDays).then(
     renderCurrentWeatherSelection()
   }
 })
+
+// "Mes voyages" (phase 6C1) — entirely independent of the historical RGA
+// runtime above: its own IndexedDB connection, never touching
+// `rga2026TripPlan`/`currentTripTimeline`/etc. `new Date()`/
+// `crypto.randomUUID()` here are this feature's one legitimate real-clock/
+// real-id boundary (the UI/bootstrap layer), exactly like `src/main.ts`
+// already does for the historical runtime elsewhere in this file — every
+// deeper module (`src/import/gpx/`, `src/analysis/`, `src/trips-manager/`)
+// still only ever receives injected values.
+void openBikeTripDatabase()
+  .then((database) => {
+    initializeTripsManager(tripsManagerContainer, {
+      database,
+      now: () => new Date().toISOString(),
+      idFactory: () => crypto.randomUUID(),
+    })
+  })
+  .catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : 'Erreur inconnue.'
+    tripsManagerContainer.innerHTML = `<p role="alert">Gestionnaire de voyages indisponible : ${escapeHtml(message)}.</p>`
+  })

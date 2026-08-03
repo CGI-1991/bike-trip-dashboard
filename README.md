@@ -13,6 +13,9 @@ de chaque journée.
 - [`CDC_RGA_2026_REFERENCE.md`](CDC_RGA_2026_REFERENCE.md) — référence
   historique et fonctionnelle de l'application RGA 2026 héritée, conservée comme
   cas de non-régression.
+- [`docs/ANNEXE_CDC_Import_GPX_MultiVoyages_2026-08-03.md`](docs/ANNEXE_CDC_Import_GPX_MultiVoyages_2026-08-03.md)
+  — annexe au `CDC.md` : décisions fonctionnelles consolidées pour
+  l'assistant d'import GPX et la gestion multi-voyages (phase 6C1).
 
 La migration vers le modèle générique `TripBundle` décrit dans `CDC.md` a
 commencé par sa phase 2 : `TripBundle` v1 (schéma, types, validateurs,
@@ -185,7 +188,45 @@ Le pipeline GPX produit maintenant localement (`src/analysis/`, phase 6B) :
 - durées (roulée, pauses, totale) ;
 - ETA relatives (départ + timeline par étape, jamais de continuité entre deux étapes).
 
-Aucun nouvel écran n'est encore exposé.
+## Mes voyages — assistant d'import et gestionnaire multi-voyages (phase 6C1)
+
+La phase 6C1 expose le premier jalon réellement utilisable du moteur
+générique : un onglet **Mes voyages** (nouvelle entrée de navigation,
+`#/trips`), indépendant du runtime RGA historique qui continue de tourner
+sans changement à côté. Référence fonctionnelle complète :
+[`docs/ANNEXE_CDC_Import_GPX_MultiVoyages_2026-08-03.md`](docs/ANNEXE_CDC_Import_GPX_MultiVoyages_2026-08-03.md).
+
+- **Mes voyages** (`src/ui/trips/trips-manager.ts`) liste tous les
+  `TripBundle` stockés (nom, dates, nombre de journées/étapes, distance,
+  statut, `Disponible localement`), avec `Ouvrir`/`Supprimer` (confirmation
+  simple) ; `Modifier l'itinéraire` reste désactivé (« à venir »). Premier
+  démarrage : aucun voyage préinstallé, juste `Créer un voyage`.
+- **Assistant d'import** (`src/ui/trips/import-wizard.ts`) : nom, date de
+  départ, sélection multiple de fichiers `.gpx`, pré-analyse légère par
+  fichier (distance/D+/D−/validité/doublon, réutilisant le parseur et les
+  calculs de la phase 6), ordre proposé automatiquement puis modifiable
+  (Monter/Descendre), insertion de journées **OFF** et **Transfert**,
+  alertes de continuité/similarité non bloquantes, doublon strict (SHA-256
+  identique) bloquant tant qu'il n'est pas retiré. Progression réelle
+  (Lecture/Validation/Analyse/Montées/Étapes/Enregistrement, jamais simulée)
+  puis confirmation (nom, dates, étapes, distance, D+, montées détectées).
+- Toute la logique métier (`src/trips-manager/` + `src/import/gpx/
+  day-structure.ts` + `src/analysis/pause-budget.ts`) est pure et testée
+  indépendamment du DOM : proposition d'ordre (numérique puis
+  géographique, gestion des boucles), détection de doublons stricts et de
+  traces similaires, contrôle de continuité, insertion OFF/transfert avec
+  recalcul des dates, budget de pauses automatique adaptatif
+  (`estimateAutomaticBreakBudget` — remplace le forfait fixe de 60 min de
+  la phase 6B pour les nouveaux imports génériques uniquement, sans
+  toucher au pipeline RGA legacy), sélection du voyage le plus pertinent au
+  démarrage (`selectMostRelevantTrip`), suppression complète d'un voyage
+  (bundle + payloads, `activeTripId` réassigné si besoin).
+- `importGpxTrip` gagne deux options facultatives, rétrocompatibles :
+  `dayStructure` (insertion OFF/transfert dans le même commit atomique) et
+  `onProgress` (callback de progression réel).
+- Design : réutilise les classes existantes (`card`, `button`, `field`,
+  `tag`), mobile-first, sans nouvelle dépendance, sans carte ni aperçu
+  graphique lourd à cette étape.
 
 ## Stack
 
@@ -256,6 +297,40 @@ aucun framework de test ni compilateur intermédiaire n'est nécessaire.
 - `tests/weather/weather-display-policy.test.mjs` — sélection du mode
   d'affichage météo (seuils, couverture réelle, progression théorique du jour
   en cours) et rendu associé par mode.
+
+### Protocole manuel — « Mes voyages » (phase 6C1)
+
+Premier jalon utilisateur réel du moteur générique : à vérifier manuellement
+dans un navigateur après `npm test` vert, avant toute publication.
+
+1. `npm run dev`, ouvrir l'URL locale affichée par Vite.
+2. Ouvrir **Mes voyages** dans la navigation du bas.
+3. Cliquer **Créer un voyage**.
+4. Sélectionner plusieurs fichiers GPX réels (par exemple ceux de
+   `public/data/gpx/`), saisir un nom et une date de départ.
+5. Vérifier l'ordre proposé automatiquement (numérique si les noms de
+   fichiers le permettent, sinon géographique).
+6. Réordonner manuellement au moins une étape (Monter/Descendre).
+7. Ajouter une journée **OFF** (et/ou un **Transfert**) entre deux étapes.
+8. Cliquer **Créer le voyage** et suivre la progression réelle
+   (Lecture/Validation/Analyse/Montées/Étapes/Enregistrement).
+9. Vérifier l'écran de confirmation (nom, dates, étapes, distance, D+,
+   montées détectées), puis **Ouvrir** le voyage (vue technique : journées,
+   statistiques, timings, montées).
+10. Recharger complètement la page (F5).
+11. Rouvrir **Mes voyages** et vérifier que le voyage créé est toujours
+    présent (persistance IndexedDB).
+12. Créer un second voyage (répéter les étapes 3 à 9 avec d'autres GPX).
+13. Vérifier qu'il est possible de circuler entre les deux voyages (`Ouvrir`
+    sur chacun depuis la liste) sans perte de données de l'un ou l'autre.
+14. Supprimer l'un des deux voyages (confirmation), vérifier qu'il disparaît
+    de la liste et que l'autre voyage reste intact.
+
+À vérifier également en cours de route : un fichier GPX invalide dans le lot
+n'empêche pas de créer le voyage avec les fichiers valides restants ; deux
+fichiers strictement identiques bloquent la création tant que l'un n'est pas
+retiré ; `Annuler` avant la fin de l'import ferme proprement l'assistant sans
+laisser de voyage actif.
 - `tests/trip/roadbook-resolution.test.mjs` — classification éditoriale des
   points roadbook résiduels (actif / informatif / exclu / décision requise).
 
@@ -279,14 +354,25 @@ src/
                 persistance navigateur) — voir « Fondation IndexedDB »
                 ci-dessus ; pas encore branchée sur l'application
   import/gpx/   Pipeline d'import GPX générique (parsing, analyse, TripBundle,
-                sauvegarde IndexedDB atomique) — voir « Pipeline d'import GPX
-                générique » ci-dessus ; pas encore branché sur l'application
+                sauvegarde IndexedDB atomique, structure OFF/transfert) —
+                voir « Pipeline d'import GPX générique » ci-dessus
+  analysis/     Profils/pente, montées, timing/ETA, budget de pauses adaptatif
+                — voir « Pipeline d'import GPX générique » (phase 6B/6C1)
+  trips-manager/  Logique pure de l'assistant d'import et du gestionnaire
+                multi-voyages (ordonnancement, doublons, continuité,
+                sélection/suppression de voyage) — voir « Mes voyages »
+                ci-dessus ; DOM-free et testée indépendamment
+  ui/trips/     Écrans « Mes voyages » (liste, assistant, vue technique) —
+                seule partie de cette fonctionnalité qui touche le DOM
   main.ts       Point d'entrée : orchestration et écouteurs d'événements
+                (runtime RGA historique + initialisation indépendante de
+                « Mes voyages »)
 public/data/
   gpx/          Les 10 traces GPX sources (non modifiées par l'application)
   trip/         roadbook.json (source éditoriale) et roadbook-overrides.json
                 (curation manuelle des appariements et résolutions)
 docs/sources/    Roadbook et cahier des charges au format Markdown
+docs/            Annexes fonctionnelles (ex. ANNEXE_CDC_Import_GPX_MultiVoyages)
 tests/           Tests `node:test`, un dossier par domaine
 ```
 

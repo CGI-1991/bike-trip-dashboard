@@ -43,10 +43,15 @@ export function assembleTripBundle(input: TripBuilderInput): TripBundle {
   const startDate = dated ? asIsoDate(options.startDate as string) : null
   const timezone = dated ? options.timezone : null
 
-  const dayTripDaySettings: readonly TripDaySettings[] = days.map((day) => ({
+  // Each day's own stage already carries its actual, resolved pause budget
+  // (`pauseDurationSeconds` — a fixed value or `estimateAutomaticBreakBudget`'s
+  // per-stage result, see `route-analysis.ts`) — read it back rather than
+  // recomputing from `options.totalBreakMinutes`, which is not even a plain
+  // number when adaptive pauses are requested.
+  const dayTripDaySettings: readonly TripDaySettings[] = days.map((day, index) => ({
     dayId: day.id,
     departureTime: options.departureTime,
-    totalBreakSeconds: options.totalBreakMinutes * 60,
+    totalBreakSeconds: stages[index]?.pauseDurationSeconds ?? null,
   }))
 
   return {
