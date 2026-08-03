@@ -16,6 +16,7 @@ import type {
   RideStageId,
   Route,
   RouteId,
+  RoutePoint,
   SourceFile,
   SourceFileId,
   TripBundle,
@@ -181,6 +182,13 @@ function isManualProvenance(provenance: { readonly sourceType: string; readonly 
   return provenance.sourceType === 'user' || provenance.manuallyOverridden
 }
 
+function isRetainedRoutePoint(point: RoutePoint): boolean {
+  return isManualProvenance(point.provenance)
+    || ((point.type === 'start' || point.type === 'end')
+      && point.provenance.sourceType === 'osm'
+      && point.provenance.engineVersion === 'endpoint-geocoding@1')
+}
+
 /** Pure preservation layer applied after all GPX-derived fields were rebuilt. */
 export function mergeEditedTripBundle(existing: TripBundle, rebuilt: TripBundle, slots: readonly TripEditSlot[], updatedAt: string): TripBundle {
   const remaps = buildIdentityRemaps(existing, rebuilt, slots)
@@ -205,32 +213,44 @@ export function mergeEditedTripBundle(existing: TripBundle, rebuilt: TripBundle,
   const climbs = [...baseClimbs, ...manualClimbs.filter((climb) => !climbIds.has(climb.id))]
 
   const baseRoutePoints = rebuilt.routePoints.map((point) => ({ ...point, routeId: remaps.routeIds.get(point.routeId) ?? point.routeId }))
-  const manualRoutePoints = existing.routePoints.filter((point) => unchangedRouteIds.has(point.routeId) && isManualProvenance(point.provenance))
+  const retainedRoutePoints = existing.routePoints.filter((point) => unchangedRouteIds.has(point.routeId) && isRetainedRoutePoint(point))
   const routePointIds = new Set(baseRoutePoints.map((point) => point.id))
-  const routePoints = [...baseRoutePoints, ...manualRoutePoints.filter((point) => !routePointIds.has(point.id))]
+  const routePoints = [...baseRoutePoints, ...retainedRoutePoints.filter((point) => !routePointIds.has(point.id))]
+  const existingStageByRouteId = new Map(existing.stages.map((stage) => [stage.sourceRouteId, stage]))
 
   const stages = rebuilt.stages.map((stage) => {
     const mappedId = remaps.stageIds.get(stage.id) ?? stage.id
     const mappedRouteId = remaps.routeIds.get(stage.sourceRouteId) ?? stage.sourceRouteId
     const retainedManualClimbIds = manualClimbs.filter((climb) => climb.routeId === mappedRouteId).map((climb) => climb.id)
-    const retainedManualPointIds = manualRoutePoints.filter((point) => point.routeId === mappedRouteId).map((point) => point.id)
+    const retainedPointIds = retainedRoutePoints.filter((point) => point.routeId === mappedRouteId).map((point) => point.id)
+    const hasGeocodedEndpoints = retainedRoutePoints.some((point) =>
+      point.routeId === mappedRouteId && point.provenance.sourceType === 'osm' && (point.type === 'start' || point.type === 'end'),
+    )
+    const existingStage = existingStageByRouteId.get(mappedRouteId)
     return {
       ...stage,
       id: mappedId,
       dayId: remaps.dayIds.get(stage.dayId) ?? stage.dayId,
       sourceRouteId: mappedRouteId,
+      startLocationName: hasGeocodedEndpoints ? existingStage?.startLocationName ?? stage.startLocationName : stage.startLocationName,
+      endLocationName: hasGeocodedEndpoints ? existingStage?.endLocationName ?? stage.endLocationName : stage.endLocationName,
       climbIds: [...stage.climbIds, ...retainedManualClimbIds],
-      routePointIds: [...stage.routePointIds, ...retainedManualPointIds],
+      routePointIds: [...stage.routePointIds, ...retainedPointIds],
     }
   })
 
+  const mergedStageById = new Map(stages.map((stage) => [stage.id, stage]))
   const days = rebuilt.days.map((day, index) => {
     const mappedId = remaps.dayIds.get(day.id) ?? day.id
     const original = slots[index]?.existingDayId === null ? undefined : existingDayById.get(mappedId)
+    const mappedStageId = day.stageId === null ? null : (remaps.stageIds.get(day.stageId) ?? day.stageId)
+    const mergedStage = mappedStageId === null ? undefined : mergedStageById.get(mappedStageId)
     return {
       ...day,
       id: mappedId,
-      stageId: day.stageId === null ? null : (remaps.stageIds.get(day.stageId) ?? day.stageId),
+      stageId: mappedStageId,
+      startLocationName: mergedStage?.startLocationName ?? day.startLocationName,
+      endLocationName: mergedStage?.endLocationName ?? day.endLocationName,
       accommodationId: original?.accommodationId ?? null,
       notes: original?.notes ?? day.notes,
       enrichmentStatus: original?.enrichmentStatus ?? day.enrichmentStatus,

@@ -50,6 +50,7 @@ import { downloadGpx, shareGpx } from './ui/gpx-share.ts'
 import type { GpxShareTarget } from './ui/gpx-share.ts'
 import { openImageViewer } from './ui/image-viewer.ts'
 import { initializeTripsManager } from './ui/trips/trips-manager.ts'
+import { createNominatimGeocodingProvider } from './geocoding/nominatim-provider.ts'
 import { openBikeTripDatabase } from './storage/indexeddb/open-database.ts'
 import { renderDashboard } from './ui/render.ts'
 import { renderDayHeader } from './ui/day-header.ts'
@@ -966,6 +967,9 @@ void openBikeTripDatabase()
       database,
       now: () => new Date().toISOString(),
       idFactory: () => crypto.randomUUID(),
+      geocodingProvider: createNominatimGeocodingProvider({
+        baseUrl: import.meta.env.VITE_NOMINATIM_BASE_URL || undefined,
+      }),
     })
   })
   .catch((error: unknown) => {

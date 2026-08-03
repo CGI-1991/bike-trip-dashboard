@@ -6,6 +6,8 @@
  */
 
 import { createTripRepository } from '../../storage/indexeddb/trip-repository.ts'
+import { enrichStoredTripEndpoints, tripNeedsEndpointGeocoding } from '../../geocoding/endpoint-enrichment.ts'
+import type { GeocodingProvider } from '../../geocoding/types.ts'
 import type { TripId } from '../../trip-core/index.ts'
 import { deleteTripCompletely, listTripSummaries, setActiveTrip } from '../../trips-manager/trip-manager-actions.ts'
 import type { TripListEntry } from '../../trips-manager/trip-summary.ts'
@@ -18,6 +20,7 @@ export interface TripsManagerDeps {
   readonly database: IDBDatabase
   readonly now: () => string
   readonly idFactory: () => string
+  readonly geocodingProvider?: GeocodingProvider
 }
 
 type Mode =
@@ -58,6 +61,8 @@ function renderTripCard(trip: TripListEntry): string {
 
 export function initializeTripsManager(container: HTMLElement, deps: TripsManagerDeps): { readonly refresh: () => Promise<void> } {
   let mode: Mode = { kind: 'list' }
+  const geocodingInFlight = new Set<TripId>()
+  const geocodingErrors = new Map<TripId, string>()
 
   async function renderList(): Promise<void> {
     container.innerHTML = '<p role="status">Chargement de vos voyages…</p>'
@@ -90,7 +95,32 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       await renderList()
       return
     }
-    container.innerHTML = renderTripDetail(bundle)
+    container.innerHTML = renderTripDetail(bundle, {
+      canEnrichEndpoints: deps.geocodingProvider !== undefined && tripNeedsEndpointGeocoding(bundle),
+      geocodingPending: geocodingInFlight.has(tripId),
+      geocodingError: geocodingErrors.get(tripId) ?? null,
+    })
+  }
+
+  async function enrichEndpoints(tripId: TripId): Promise<void> {
+    if (deps.geocodingProvider === undefined || geocodingInFlight.has(tripId)) return
+    geocodingInFlight.add(tripId)
+    geocodingErrors.delete(tripId)
+    await renderDetail(tripId)
+    try {
+      await enrichStoredTripEndpoints({
+        database: deps.database,
+        tripId,
+        provider: deps.geocodingProvider,
+        idFactory: deps.idFactory,
+        now: deps.now,
+      })
+    } catch (error) {
+      geocodingErrors.set(tripId, error instanceof Error ? error.message : 'L’enrichissement des lieux a échoué.')
+    } finally {
+      geocodingInFlight.delete(tripId)
+      if (mode.kind === 'detail' && mode.tripId === tripId) await renderDetail(tripId)
+    }
   }
 
   function renderConfirmation(result: ImportWizardResult): void {
@@ -169,6 +199,8 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     } else if (action === 'back-to-list') {
       mode = { kind: 'list' }
       void renderList()
+    } else if (action === 'enrich-trip-endpoints' && mode.kind === 'detail') {
+      void enrichEndpoints(mode.tripId)
     } else if (action === 'delete-trip' && tripId !== undefined) {
       if (!window.confirm('Supprimer définitivement ce voyage et toutes ses données ?')) return
       void (async () => {
