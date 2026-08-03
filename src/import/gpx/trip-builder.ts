@@ -8,6 +8,7 @@
  */
 
 import type {
+  Climb,
   RideStage,
   Route,
   RoutePoint,
@@ -28,6 +29,7 @@ export interface TripBuilderInput {
   readonly routePoints: readonly RoutePoint[]
   readonly stages: readonly RideStage[]
   readonly days: readonly TripDay[]
+  readonly climbs: readonly Climb[]
 }
 
 function asIsoDate(value: string): IsoDate {
@@ -35,7 +37,7 @@ function asIsoDate(value: string): IsoDate {
 }
 
 export function assembleTripBundle(input: TripBuilderInput): TripBundle {
-  const { options, sourceFiles, routes, routePoints, stages, days } = input
+  const { options, sourceFiles, routes, routePoints, stages, days, climbs } = input
   const dated = options.startDate !== null
   const endDate = dated && days.length > 0 ? asIsoDate(addCivilDays(options.startDate as string, days.length - 1)) : null
   const startDate = dated ? asIsoDate(options.startDate as string) : null
@@ -70,7 +72,7 @@ export function assembleTripBundle(input: TripBuilderInput): TripBundle {
     stages,
     sourceFiles,
     routes,
-    climbs: [],
+    climbs,
     routePoints,
     practicalPlaces: [],
     accommodations: [],
@@ -85,7 +87,12 @@ export function assembleTripBundle(input: TripBuilderInput): TripBundle {
     generatedMetadata: {
       engineVersion: options.engineVersion,
       generatedAt: options.importedAt,
-      derivedDataStatus: 'partial',
+      // Every locally-derivable domain this engine currently covers
+      // (distance, D+/D-, profile, climbs, durations/ETA) has just been
+      // computed — 'partial' would describe local computation itself being
+      // incomplete, which it is not; only *enrichment* (OSM/weather, a
+      // separate concept tracked by `enrichmentMetadata`) is still absent.
+      derivedDataStatus: 'fresh',
     },
   }
 }

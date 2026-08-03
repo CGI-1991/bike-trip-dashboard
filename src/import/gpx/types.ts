@@ -66,6 +66,7 @@ export type ImportIssueCode =
   | 'unsupported-content'
   | 'gpx-discontinuity'
   | 'missing-altitude'
+  | 'insufficient-altitude'
   | 'non-monotonic-timestamp'
   | 'storage-error'
   | 'validation-error'

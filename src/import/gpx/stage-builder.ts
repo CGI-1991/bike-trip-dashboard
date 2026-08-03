@@ -6,8 +6,9 @@
  */
 
 import { addCivilDays } from '../../trip-core/validation/primitives.ts'
-import type { DataProvenance, IsoDate, Route, RideStage, RideStageId, RoutePoint, TripDay, TripDayId } from '../../trip-core/index.ts'
+import type { ClimbId, DataProvenance, IsoDate, Route, RideStage, RideStageId, RoutePoint, TripDay, TripDayId } from '../../trip-core/index.ts'
 import { rideStageId as toRideStageId, tripDayId as toTripDayId } from '../../trip-core/index.ts'
+import type { StageTimingResult } from '../../analysis/timing.ts'
 
 export interface StageBuildInput {
   readonly index: number
@@ -17,6 +18,9 @@ export interface StageBuildInput {
   readonly dayIdValue: string
   readonly startDate: string | null
   readonly metricsProvenance: DataProvenance
+  /** CDC phase 6B — durations/ETA computed independently for this stage (`route-analysis.ts`). */
+  readonly timing: StageTimingResult
+  readonly climbIds: readonly ClimbId[]
 }
 
 export interface BuiltStageAndDay {
@@ -49,13 +53,13 @@ export function buildStageAndDay(input: StageBuildInput): BuiltStageAndDay {
     elevationLossM: segment?.elevationLossM ?? null,
     minAltitudeM: minAltitudeFromRoute(input.route),
     maxAltitudeM: maxAltitudeFromRoute(input.route),
-    movingDurationSeconds: null,
-    pauseDurationSeconds: null,
-    totalDurationSeconds: null,
-    estimatedAverageSpeedKph: null,
+    movingDurationSeconds: input.timing.movingDurationSeconds,
+    pauseDurationSeconds: input.timing.pauseDurationSeconds,
+    totalDurationSeconds: input.timing.totalDurationSeconds,
+    estimatedAverageSpeedKph: input.timing.estimatedAverageSpeedKph,
     validationStatus: input.route.parsingStatus === 'success' ? 'valid' : 'needs-review',
     metricsProvenance: input.metricsProvenance,
-    climbIds: [],
+    climbIds: input.climbIds,
     routePointIds: input.routePoints.map((point) => point.id),
     weatherRecordIds: [],
   }
