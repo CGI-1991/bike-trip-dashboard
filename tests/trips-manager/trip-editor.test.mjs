@@ -7,6 +7,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { importGpxTrip } from '../../src/import/gpx/import-gpx-trip.ts'
+import { enrichStoredTripEndpoints } from '../../src/geocoding/endpoint-enrichment.ts'
 import { createSourceFileRepository } from '../../src/storage/indexeddb/source-file-repository.ts'
 import { createTripRepository } from '../../src/storage/indexeddb/trip-repository.ts'
 import { accommodationId, overrideId, practicalPlaceId } from '../../src/trip-core/index.ts'
@@ -228,6 +229,37 @@ test('manual day data is preserved only on retained days and is not copied to a 
     assert.deepEqual(result.bundle.practicalPlaces[0].dayIds, [dayId])
     assert.ok(result.bundle.overrides.some((item) => item.id === dayOverrideId))
     assert.ok(!result.bundle.overrides.some((item) => item.id === stageOverrideId))
+  } finally {
+    database.close()
+  }
+})
+
+test('editing an unchanged GPX stage preserves its geocoded endpoints and readable names', async () => {
+  const database = await openImportTestDatabase()
+  try {
+    const original = await importTrip(database, [gpxFile('one.gpx')])
+    const names = ['Lieu départ', 'Lieu arrivée']
+    await enrichStoredTripEndpoints({
+      database,
+      tripId: original.metadata.id,
+      provider: {
+        id: 'mock-osm',
+        sourceType: 'osm',
+        attribution: 'Mock OSM',
+        async reverse() { return { name: names.shift(), sourceId: 'mock:place' } },
+      },
+      idFactory: createIdFactory('geocoded'),
+      now: fixedNow('2027-01-15T00:00:00.000Z'),
+    })
+
+    const draft = await loadTripEditDraft(database, 'trip-edit')
+    const result = await edit(database, draft.slots, 'geocoded-edit')
+    assert.equal(result.ok, true)
+    assert.equal(result.bundle.stages[0].startLocationName, 'Lieu départ')
+    assert.equal(result.bundle.stages[0].endLocationName, 'Lieu arrivée')
+    assert.equal(result.bundle.days[0].startLocationName, 'Lieu départ')
+    assert.equal(result.bundle.days[0].endLocationName, 'Lieu arrivée')
+    assert.equal(result.bundle.routePoints.filter((point) => point.provenance.engineVersion === 'endpoint-geocoding@1').length, 2)
   } finally {
     database.close()
   }

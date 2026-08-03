@@ -6,6 +6,12 @@
 
 import type { TripBundle } from '../../trip-core/index.ts'
 
+export interface TripDetailRenderOptions {
+  readonly canEnrichEndpoints?: boolean
+  readonly geocodingPending?: boolean
+  readonly geocodingError?: string | null
+}
+
 function escapeHtml(value: string): string {
   return value
     .replaceAll('&', '&amp;')
@@ -32,10 +38,12 @@ function renderDayRow(bundle: TripBundle, day: TripBundle['days'][number]): stri
   }
 
   const climbCount = stage.climbIds.length
-  return `<li class="trip-detail__day"><span class="tag tag--ride">${typeLabel}</span><strong>J${day.displayNumber}</strong><span>${dateLabel}</span><span>${escapeHtml(stage.name ?? `${stage.startLocationName ?? ''} → ${stage.endLocationName ?? ''}`)}</span><dl class="trip-detail__stats"><div><dt>Distance</dt><dd>${stage.distanceKm === null ? '—' : `${stage.distanceKm.toFixed(1)} km`}</dd></div><div><dt>D+</dt><dd>${stage.elevationGainM === null ? '—' : `+${Math.round(stage.elevationGainM)} m`}</dd></div><div><dt>D−</dt><dd>${stage.elevationLossM === null ? '—' : `−${Math.round(stage.elevationLossM)} m`}</dd></div><div><dt>Roulage</dt><dd>${formatDuration(stage.movingDurationSeconds)}</dd></div><div><dt>Pauses</dt><dd>${stage.pauseDurationSeconds === null ? '—' : `${Math.round(stage.pauseDurationSeconds / 60)} min`}</dd></div><div><dt>Montées</dt><dd>${climbCount}</dd></div></dl></li>`
+  const stageName = stage.name === null ? '' : `<span>${escapeHtml(stage.name)}</span>`
+  const locations = `${escapeHtml(stage.startLocationName ?? '—')} → ${escapeHtml(stage.endLocationName ?? '—')}`
+  return `<li class="trip-detail__day"><span class="tag tag--ride">${typeLabel}</span><strong>J${day.displayNumber}</strong><span>${dateLabel}</span>${stageName}<span data-stage-locations>${locations}</span><dl class="trip-detail__stats"><div><dt>Distance</dt><dd>${stage.distanceKm === null ? '—' : `${stage.distanceKm.toFixed(1)} km`}</dd></div><div><dt>D+</dt><dd>${stage.elevationGainM === null ? '—' : `+${Math.round(stage.elevationGainM)} m`}</dd></div><div><dt>D−</dt><dd>${stage.elevationLossM === null ? '—' : `−${Math.round(stage.elevationLossM)} m`}</dd></div><div><dt>Roulage</dt><dd>${formatDuration(stage.movingDurationSeconds)}</dd></div><div><dt>Pauses</dt><dd>${stage.pauseDurationSeconds === null ? '—' : `${Math.round(stage.pauseDurationSeconds / 60)} min`}</dd></div><div><dt>Montées</dt><dd>${climbCount}</dd></div></dl></li>`
 }
 
-export function renderTripDetail(bundle: TripBundle): string {
+export function renderTripDetail(bundle: TripBundle, options: TripDetailRenderOptions = {}): string {
   const totalDistanceKm = bundle.stages.reduce((total, stage) => total + (stage.distanceKm ?? 0), 0)
   const totalElevationGainM = bundle.stages.reduce((total, stage) => total + (stage.elevationGainM ?? 0), 0)
 
@@ -48,6 +56,22 @@ export function renderTripDetail(bundle: TripBundle): string {
               `<li><strong>${escapeHtml(climb.name ?? 'Montée')}</strong> — ${(climb.endDistanceKm - climb.startDistanceKm).toFixed(1)} km, +${Math.round(climb.elevationGainM)} m, ${climb.averageGradientPercent.toFixed(1)} % (${climb.confidence})</li>`,
           )
           .join('')}</ul>`
+
+  const hasOsmEndpoints = bundle.routePoints.some((point) =>
+    (point.type === 'start' || point.type === 'end') && point.provenance.sourceType === 'osm',
+  )
+  const osmState = bundle.enrichmentMetadata.providers.find((state) => state.provider === 'osm')
+  const geocodingStatus = options.geocodingPending
+    ? '<p role="status">Identification des lieux en cours…</p>'
+    : options.geocodingError !== null && options.geocodingError !== undefined
+      ? `<p role="alert">${escapeHtml(options.geocodingError)}</p>`
+      : osmState?.status === 'error'
+        ? `<p role="status">${escapeHtml(osmState.message ?? 'Les lieux n’ont pas pu être identifiés.')}</p>`
+        : ''
+  const geocodingAction = options.canEnrichEndpoints && !options.geocodingPending
+    ? '<button class="button button--quiet" type="button" data-action="enrich-trip-endpoints">Identifier les lieux de départ et d’arrivée</button>'
+    : ''
+  const attribution = hasOsmEndpoints ? '<p class="trip-detail__attribution">Noms de lieux : © OpenStreetMap contributors.</p>' : ''
 
   return `
     <div class="trip-detail" data-trip-detail>
@@ -62,8 +86,11 @@ export function renderTripDetail(bundle: TripBundle): string {
         <div><dt>Statut</dt><dd>${escapeHtml(bundle.metadata.status)}</dd></div>
       </dl>
       <p class="tag tag--data">Disponible localement</p>
+      ${geocodingStatus}
+      ${geocodingAction}
       <h3>Journées</h3>
       <ol class="trip-detail__day-list">${bundle.days.map((day) => renderDayRow(bundle, day)).join('')}</ol>
+      ${attribution}
       <h3>Montées</h3>
       ${climbsList}
       <button class="button button--quiet" type="button" data-action="back-to-list">← Retour à Mes voyages</button>
