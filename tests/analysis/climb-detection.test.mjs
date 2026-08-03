@@ -3,11 +3,10 @@ import test from 'node:test'
 
 import {
   CLIMB_MAX_FLAT_KM,
-  CLIMB_MIN_AVERAGE_GRADE_PERCENT,
-  CLIMB_MIN_ELEVATION_GAIN_M,
-  CLIMB_MIN_LENGTH_KM,
+  CLIMB_SIGNIFICANCE_PROFILES,
   CLIMB_TOLERATED_LOSS_M,
   detectClimbs,
+  isSignificantClimb,
 } from '../../src/analysis/climb-detection.ts'
 import { routeId } from '../../src/trip-core/index.ts'
 import { buildTerrainProfile, concatElevations, flatElevations, rampElevations } from './support/profile-fixtures.mjs'
@@ -38,42 +37,53 @@ test('a clean, continuous valid climb (2 km, 200 m, 10%) is detected', () => {
   assert.equal(climbs[0].provenance.confidence, 'medium')
 })
 
-test('a climb shorter than the minimum length is rejected even with enough D+ and grade', () => {
-  // 1 km, 150 m => 15% grade, well above the D+/grade thresholds, but length < 1.5 km.
-  assert.ok(CLIMB_MIN_LENGTH_KM > 1, 'sanity: the fixture length below must actually be under the threshold')
-  assert.deepEqual(detect(rampElevations(1, 150)), [])
+test('the V1 significance profiles are centralized for long, intermediate, and short-steep climbs', () => {
+  assert.deepEqual(CLIMB_SIGNIFICANCE_PROFILES, [
+    { terrain: 'long', minLengthKm: 1.5, minElevationGainM: 100, minAverageGradientPercent: 2 },
+    { terrain: 'intermediate', minLengthKm: 1, minElevationGainM: 60, minAverageGradientPercent: 3 },
+    { terrain: 'short-steep', minLengthKm: 0.5, minElevationGainM: 40, minAverageGradientPercent: 4 },
+  ])
 })
 
-test('a climb with insufficient D+ is rejected even with enough length and grade', () => {
-  // 2 km at exactly the grade threshold value would give 100 m (2% of 2000 m) — use a shorter climb
-  // with high grade but a D+ that stays under 100 m: 1.6 km at 5% = 80 m.
-  assert.ok(80 < CLIMB_MIN_ELEVATION_GAIN_M)
-  assert.deepEqual(detect(rampElevations(1.6, 80)), [])
+test('significance profiles are alternatives, with all thresholds mandatory inside each profile', () => {
+  for (const metrics of [
+    { lengthKm: 3, elevationGainM: 120, averageGradientPercent: 4 },
+    { lengthKm: 1.2, elevationGainM: 75, averageGradientPercent: 6 },
+    { lengthKm: 0.7, elevationGainM: 55, averageGradientPercent: 8 },
+  ]) assert.equal(isSignificantClimb(metrics), true)
+
+  for (const metrics of [
+    { lengthKm: 0.4, elevationGainM: 30, averageGradientPercent: 7 },
+    { lengthKm: 1, elevationGainM: 25, averageGradientPercent: 2.5 },
+    { lengthKm: 2, elevationGainM: 40, averageGradientPercent: 2 },
+  ]) assert.equal(isSignificantClimb(metrics), false)
 })
 
-test('a climb with insufficient average grade is rejected even with enough length and D+', () => {
-  // 6 km, 100 m => grade ~1.67%, under the 2% threshold, D+ exactly at the minimum.
-  const climbs = detect(rampElevations(6, 100))
-  assert.deepEqual(climbs, [])
-})
+const syntheticMultiTerrainCases = [
+  { name: 'short Belgian climb', lengthKm: 0.7, gainM: 55, expectedCount: 1 },
+  { name: 'boundary Belgian climb', lengthKm: 0.5, gainM: 40, expectedCount: 1 },
+  { name: 'too-short steep climb', lengthKm: 0.4, gainM: 45, expectedCount: 0 },
+  { name: 'intermediate climb', lengthKm: 1.2, gainM: 75, expectedCount: 1 },
+  { name: 'false flat', lengthKm: 2, gainM: 40, expectedCount: 0 },
+  { name: 'long mountain climb', lengthKm: 5, gainM: 350, expectedCount: 1 },
+]
 
-test('boundary: exactly the minimum length/D+/grade all pass', () => {
-  // 1.5 km at exactly 100 m => grade = 100 / 1500 * 100 = 6.667 % (>= 2%).
-  const climbs = detect(rampElevations(CLIMB_MIN_LENGTH_KM, CLIMB_MIN_ELEVATION_GAIN_M))
-  assert.equal(climbs.length, 1)
-  assert.equal(climbs[0].endDistanceKm, CLIMB_MIN_LENGTH_KM)
-  assert.equal(climbs[0].elevationGainM, CLIMB_MIN_ELEVATION_GAIN_M)
-})
+for (const fixture of syntheticMultiTerrainCases) {
+  test(`multi-terrain calibration: ${fixture.name}`, () => {
+    assert.equal(detect(rampElevations(fixture.lengthKm, fixture.gainM)).length, fixture.expectedCount)
+  })
+}
 
-test('boundary: just below the minimum length rejects', () => {
-  const climbs = detect(rampElevations(CLIMB_MIN_LENGTH_KM - 0.05, CLIMB_MIN_ELEVATION_GAIN_M))
-  assert.deepEqual(climbs, [])
-})
-
-test('boundary: just below the minimum average grade rejects (length and D+ both otherwise generous)', () => {
-  // 6 km at 100 m gives ~1.67 % — comfortably under 2 % while length/D+ are both ample.
-  assert.ok(100 / (6 * 1000) * 100 < CLIMB_MIN_AVERAGE_GRADE_PERCENT)
-  assert.deepEqual(detect(rampElevations(6, 100)), [])
+test('rolling terrain made of 200-400 m undulations with 10-30 m D+ detects no climb', () => {
+  const elevations = concatElevations(
+    rampElevations(0.2, 10),
+    rampElevations(0.2, -10),
+    rampElevations(0.3, 20),
+    rampElevations(0.3, -20),
+    rampElevations(0.4, 30),
+    rampElevations(0.4, -30),
+  )
+  assert.deepEqual(detect(elevations), [])
 })
 
 test('a short flat section (< 1 km) inside an otherwise-continuous climb does not split it', () => {
@@ -93,6 +103,10 @@ test('a short intermediate descent (< 25 m loss) inside an otherwise-continuous 
   assert.ok(climbs[0].endDistanceKm > 3)
   // Cumulative D+ counts every positive delta, including the re-ascent after the dip.
   assert.equal(climbs[0].elevationGainM, 300)
+  // Average grade remains the net valley-to-peak rise (280 m), so the tolerated
+  // loss does not inflate it to the cumulative-D+ ratio (300 m / 3.2 km).
+  assert.equal(Math.round(climbs[0].averageGradientPercent * 100) / 100, 8.75)
+  assert.ok(climbs[0].averageGradientPercent < (climbs[0].elevationGainM / 3_200) * 100)
 })
 
 test('a staircase climb (several small tolerated dips) is merged into one climb, peak tracked correctly', () => {

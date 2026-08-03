@@ -98,11 +98,11 @@ test('the resulting bundle passes validateTripBundle', async () => {
   }
 })
 
-test('collections out of scope for this phase stay empty', async () => {
+test('collections other than generated climbs that remain out of scope for this phase stay empty', async () => {
   const { result, database } = await runImport([climbFile('stage-1.gpx')])
   try {
     const { bundle } = result
-    assert.deepEqual(bundle.climbs, [])
+    assert.equal(bundle.climbs.length, 1)
     assert.deepEqual(bundle.practicalPlaces, [])
     assert.deepEqual(bundle.accommodations, [])
     assert.deepEqual(bundle.weather, [])
