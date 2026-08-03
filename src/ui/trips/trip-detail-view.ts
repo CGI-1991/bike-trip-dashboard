@@ -16,6 +16,10 @@ export interface TripDetailRenderOptions {
   readonly canSearchPracticalPlaces?: boolean
   readonly practicalPlacesPending?: boolean
   readonly practicalPlacesError?: string | null
+  readonly practicalPlacesProgress?: string | null
+  readonly automaticEnrichmentPending?: boolean
+  readonly automaticEnrichmentProgress?: string | null
+  readonly automaticEnrichmentError?: string | null
 }
 
 const PRACTICAL_CATEGORY_LABELS: Readonly<Record<PracticalPlaceCategory, string>> = {
@@ -26,6 +30,7 @@ const PRACTICAL_CATEGORY_LABELS: Readonly<Record<PracticalPlaceCategory, string>
   'fast-food': 'Restauration',
   'bike-service': 'Service vélo',
   supermarket: 'Alimentation',
+  sports: 'Sport',
   toilet: 'Toilettes',
 }
 
@@ -57,7 +62,12 @@ function renderDayRow(bundle: TripBundle, day: TripBundle['days'][number]): stri
   const climbCount = stage.climbIds.length
   const stageName = stage.name === null ? '' : `<span>${escapeHtml(stage.name)}</span>`
   const locations = `${escapeHtml(stage.startLocationName ?? '—')} → ${escapeHtml(stage.endLocationName ?? '—')}`
-  return `<li class="trip-detail__day"><span class="tag tag--ride">${typeLabel}</span><strong>J${day.displayNumber}</strong><span>${dateLabel}</span>${stageName}<span data-stage-locations>${locations}</span><dl class="trip-detail__stats"><div><dt>Distance</dt><dd>${stage.distanceKm === null ? '—' : `${stage.distanceKm.toFixed(1)} km`}</dd></div><div><dt>D+</dt><dd>${stage.elevationGainM === null ? '—' : `+${Math.round(stage.elevationGainM)} m`}</dd></div><div><dt>D−</dt><dd>${stage.elevationLossM === null ? '—' : `−${Math.round(stage.elevationLossM)} m`}</dd></div><div><dt>Roulage</dt><dd>${formatDuration(stage.movingDurationSeconds)}</dd></div><div><dt>Pauses</dt><dd>${stage.pauseDurationSeconds === null ? '—' : `${Math.round(stage.pauseDurationSeconds / 60)} min`}</dd></div><div><dt>Montées</dt><dd>${climbCount}</dd></div></dl></li>`
+  const localities = stage.routePointIds
+    .map((id) => bundle.routePoints.find((point) => point.id === id))
+    .filter((point) => point?.osmFeatureType === 'city' || point?.osmFeatureType === 'town' || point?.osmFeatureType === 'village')
+    .sort((left, right) => (left?.trackDistanceKm ?? Number.POSITIVE_INFINITY) - (right?.trackDistanceKm ?? Number.POSITIVE_INFINITY))
+  const localityText = localities.length === 0 ? '' : `<p class="trip-detail__localities"><strong>Passage :</strong> ${localities.map((point) => escapeHtml(point?.name ?? '')).join(' · ')}</p>`
+  return `<li class="trip-detail__day"><span class="tag tag--ride">${typeLabel}</span><strong>J${day.displayNumber}</strong><span>${dateLabel}</span>${stageName}<span data-stage-locations>${locations}</span>${localityText}<dl class="trip-detail__stats"><div><dt>Distance</dt><dd>${stage.distanceKm === null ? '—' : `${stage.distanceKm.toFixed(1)} km`}</dd></div><div><dt>D+</dt><dd>${stage.elevationGainM === null ? '—' : `+${Math.round(stage.elevationGainM)} m`}</dd></div><div><dt>D−</dt><dd>${stage.elevationLossM === null ? '—' : `−${Math.round(stage.elevationLossM)} m`}</dd></div><div><dt>Roulage</dt><dd>${formatDuration(stage.movingDurationSeconds)}</dd></div><div><dt>Pauses</dt><dd>${stage.pauseDurationSeconds === null ? '—' : `${Math.round(stage.pauseDurationSeconds / 60)} min`}</dd></div><div><dt>Montées</dt><dd>${climbCount}</dd></div></dl></li>`
 }
 
 function renderPracticalPlaces(bundle: TripBundle, searchStatus: EnrichmentProviderStatus | null): string {
@@ -102,9 +112,20 @@ export function renderTripDetail(bundle: TripBundle, options: TripDetailRenderOp
     (point.type === 'start' || point.type === 'end') && point.provenance.sourceType === 'osm',
   )
   const hasOsmClimbNames = bundle.climbs.some((climb) => climb.provenance.sourceType === 'osm')
+  const hasOsmRouteData = bundle.routePoints.some((point) => point.provenance.sourceType === 'osm')
   const hasOsmPracticalPlaces = bundle.practicalPlaces.some((place) => place.provenance.sourceType === 'osm')
   const osmState = bundle.enrichmentMetadata.providers.find((state) => state.provider === 'osm')
   const practicalPlacesState = bundle.enrichmentMetadata.providers.find((state) => state.provider === 'osm-practical-places')
+  const routeEnrichmentState = bundle.enrichmentMetadata.providers.find((state) => state.provider === 'osm-route-enrichment')
+  const automaticStatus = options.automaticEnrichmentPending
+    ? `<div class="trip-detail__enrichment" role="status"><strong>Enrichissement en cours…</strong><span>${escapeHtml(options.automaticEnrichmentProgress ?? 'Préparation')}</span></div>`
+    : options.automaticEnrichmentError !== null && options.automaticEnrichmentError !== undefined
+      ? `<div class="trip-detail__enrichment" role="status"><strong>Enrichissement partiel</strong><span>${escapeHtml(options.automaticEnrichmentError)}</span></div>`
+      : routeEnrichmentState?.status === 'success' && (osmState === undefined || osmState.status === 'success')
+        ? '<p class="trip-detail__enrichment"><strong>Voyage enrichi</strong></p>'
+        : routeEnrichmentState?.status === 'partial' || routeEnrichmentState?.status === 'error' || osmState?.status === 'partial' || osmState?.status === 'error'
+          ? '<p class="trip-detail__enrichment"><strong>Enrichissement partiel</strong> — certaines données seront complétées ultérieurement.</p>'
+          : ''
   const geocodingStatus = options.geocodingPending
     ? '<p role="status">Identification des lieux en cours…</p>'
     : options.geocodingError !== null && options.geocodingError !== undefined
@@ -124,16 +145,16 @@ export function renderTripDetail(bundle: TripBundle, options: TripDetailRenderOp
     ? '<button class="button button--quiet" type="button" data-action="enrich-trip-climb-names">Rechercher les noms des montées</button>'
     : ''
   const practicalPlacesStatus = options.practicalPlacesPending
-    ? '<p role="status">Recherche des lieux pratiques en cours…</p>'
+    ? `<p role="status">Recherche des lieux utiles en cours…${options.practicalPlacesProgress ? ` ${escapeHtml(options.practicalPlacesProgress)}` : ''}</p>`
     : options.practicalPlacesError !== null && options.practicalPlacesError !== undefined
       ? `<p role="alert">${escapeHtml(options.practicalPlacesError)}</p>`
       : practicalPlacesState?.status === 'error' || practicalPlacesState?.status === 'partial'
         ? `<p role="alert">${escapeHtml(practicalPlacesState.message ?? 'La recherche des lieux pratiques a échoué.')}</p>`
         : ''
   const practicalPlacesAction = options.canSearchPracticalPlaces && !options.practicalPlacesPending
-    ? '<button class="button button--quiet" type="button" data-action="enrich-trip-practical-places">Rechercher les lieux pratiques</button>'
+    ? '<button class="button button--quiet" type="button" data-action="enrich-trip-practical-places">Rechercher les lieux utiles</button>'
     : ''
-  const attribution = hasOsmEndpoints || hasOsmClimbNames || hasOsmPracticalPlaces ? '<p class="trip-detail__attribution">Données géographiques : © OpenStreetMap contributors.</p>' : ''
+  const attribution = hasOsmEndpoints || hasOsmRouteData || hasOsmClimbNames || hasOsmPracticalPlaces ? '<p class="trip-detail__attribution">Données géographiques : © OpenStreetMap contributors.</p>' : ''
 
   return `
     <div class="trip-detail" data-trip-detail>
@@ -148,6 +169,7 @@ export function renderTripDetail(bundle: TripBundle, options: TripDetailRenderOp
         <div><dt>Statut</dt><dd>${escapeHtml(bundle.metadata.status)}</dd></div>
       </dl>
       <p class="tag tag--data">Disponible localement</p>
+      ${automaticStatus}
       ${geocodingStatus}
       ${geocodingAction}
       ${climbNamingStatus}

@@ -1,9 +1,12 @@
 import { createSerialRateLimiter } from '../geocoding/rate-limiter.ts'
+import { expandedRouteBoundingBox, formatOverpassBoundingBox } from '../route-enrichment/overpass-bbox.ts'
 import type { PracticalPlaceCandidate, PracticalPlacesProvider, PracticalPlacesSearch } from './types.ts'
 
-const DEFAULT_BASE_URL = 'https://overpass-api.de/api/interpreter'
+const DEFAULT_BASE_URLS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
+] as const
 const DEFAULT_MINIMUM_INTERVAL_MS = 1_100
-const MAX_QUERY_POINTS = 80
 
 interface OverpassElement {
   readonly type?: unknown
@@ -20,23 +23,41 @@ interface OverpassPayload {
 
 export interface OverpassPracticalPlacesProviderOptions {
   readonly baseUrl?: string
+  readonly baseUrls?: readonly string[]
   readonly language?: string
   readonly minimumIntervalMs?: number
   readonly fetchFn?: typeof fetch
   readonly nowMs?: () => number
   readonly sleep?: (milliseconds: number) => Promise<void>
+  readonly retryBackoffMs?: number
+  readonly requestTimeoutMs?: number
   readonly onDiagnostic?: (diagnostic: OverpassPracticalPlacesDiagnostic) => void
 }
 
 export interface OverpassPracticalPlacesDiagnostic {
-  readonly stage: 'request' | 'response' | 'parsed' | 'error'
+  readonly stage: 'request' | 'response' | 'retry' | 'parsed' | 'error'
   readonly endpoint: string
   readonly query: string
   readonly queryLength: number
+  readonly attempt: number
   readonly httpStatus: number | null
   readonly rawElementCount: number | null
   readonly parsedCandidateCount: number | null
   readonly message: string | null
+}
+
+class OverpassResponseError extends Error {
+  readonly status: number
+  constructor(status: number) {
+    super(`Overpass a répondu avec le statut HTTP ${status}.`)
+    this.status = status
+  }
+}
+
+function isTransient(error: unknown): boolean {
+  if (error instanceof OverpassResponseError) return [429, 502, 503, 504].includes(error.status)
+  if (error instanceof DOMException && error.name === 'AbortError') return true
+  return error instanceof TypeError
 }
 
 const USEFUL_TAG_KEYS = new Set([
@@ -49,24 +70,12 @@ function nonEmptyString(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
 }
 
-function sampleGeometry(search: PracticalPlacesSearch): readonly PracticalPlacesSearch['geometry'][number][] {
-  if (search.geometry.length <= MAX_QUERY_POINTS) return search.geometry
-  const result = []
-  for (let index = 0; index < MAX_QUERY_POINTS; index++) {
-    const sourceIndex = Math.round(index * (search.geometry.length - 1) / (MAX_QUERY_POINTS - 1))
-    const point = search.geometry[sourceIndex]
-    if (point !== undefined) result.push(point)
-  }
-  return result
-}
-
 export function buildOverpassPracticalPlacesQuery(search: PracticalPlacesSearch): string {
   const radius = Math.max(100, Math.min(500, Math.round(search.radiusMeters)))
-  const polyline = sampleGeometry(search).map((point) => `${point.latitude},${point.longitude}`).join(',')
-  const around = `${radius},${polyline}`
-  return `[out:json][timeout:25];(`
-    + `nwr(around:${around})[amenity~"^(drinking_water|cafe|restaurant|fast_food|toilets|bicycle_repair_station)$"];`
-    + `nwr(around:${around})[shop~"^(bakery|supermarket|convenience|grocery|greengrocer|deli|bicycle)$"];`
+  const bbox = formatOverpassBoundingBox(expandedRouteBoundingBox(search.geometry, radius))
+  return `[out:json][timeout:10];(`
+    + `nwr(${bbox})[amenity~"^(drinking_water|restaurant|fast_food|shelter|toilets|bicycle_repair_station)$"];`
+    + `nwr(${bbox})[shop~"^(bakery|supermarket|convenience|grocery|greengrocer|deli|bicycle|sports)$"];`
     // `tags` omits node coordinates; `body center` keeps node lat/lon and
     // adds a center for ways/relations, which the parser needs for every POI.
     + ');out body center;'
@@ -76,9 +85,10 @@ function category(tags: Record<string, unknown>): PracticalPlaceCandidate['categ
   if (tags.amenity === 'drinking_water') return 'water'
   if (tags.amenity === 'toilets') return 'toilet'
   if (tags.amenity === 'bicycle_repair_station' || tags.shop === 'bicycle') return 'bike-service'
+  if (tags.amenity === 'shelter') return 'shelter'
   if (tags.shop === 'bakery') return 'bakery'
-  if (tags.amenity === 'cafe') return 'cafe-or-ice-cream'
   if (tags.amenity === 'restaurant' || tags.amenity === 'fast_food') return 'fast-food'
+  if (tags.shop === 'sports') return 'sports'
   if (['supermarket', 'convenience', 'grocery', 'greengrocer', 'deli'].includes(String(tags.shop))) return 'supermarket'
   return null
 }
@@ -119,37 +129,55 @@ function parseCandidate(element: OverpassElement, language: string): PracticalPl
 }
 
 export function createOverpassPracticalPlacesProvider(options: OverpassPracticalPlacesProviderOptions = {}): PracticalPlacesProvider {
-  const baseUrl = options.baseUrl ?? DEFAULT_BASE_URL
+  const endpoints = [...new Set([
+    ...(options.baseUrl === undefined ? [] : [options.baseUrl]),
+    ...(options.baseUrls ?? DEFAULT_BASE_URLS),
+  ].filter((endpoint) => endpoint.trim() !== ''))].slice(0, 2)
+  if (endpoints.length === 0) throw new Error('Aucun endpoint Overpass configuré.')
   const language = options.language ?? 'fr'
   const fetchFn = options.fetchFn ?? fetch
   const emitDiagnostic = options.onDiagnostic ?? (() => undefined)
+  const sleep = options.sleep ?? ((milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds)))
+  const retryBackoffMs = options.retryBackoffMs ?? 750
+  const requestTimeoutMs = options.requestTimeoutMs ?? 13_000
   const limiter = createSerialRateLimiter({
     minimumIntervalMs: options.minimumIntervalMs ?? DEFAULT_MINIMUM_INTERVAL_MS,
     nowMs: options.nowMs,
-    sleep: options.sleep,
+    sleep,
   })
 
   return {
     id: 'overpass-osm-practical-places',
     sourceType: 'osm',
     attribution: '© OpenStreetMap contributors',
-    findCandidates(search, signal) {
-      return limiter.run(async () => {
-        const query = buildOverpassPracticalPlacesQuery(search)
-        const diagnosticBase = { endpoint: baseUrl, query, queryLength: query.length }
+    async findCandidates(search, signal) {
+      const query = buildOverpassPracticalPlacesQuery(search)
+      for (let attempt = 0; attempt < endpoints.length; attempt++) {
+        const endpoint = endpoints[attempt] as string
+        const diagnosticBase = { endpoint, query, queryLength: query.length, attempt }
         let httpStatus: number | null = null
-        emitDiagnostic({ stage: 'request', ...diagnosticBase, httpStatus: null, rawElementCount: null, parsedCandidateCount: null, message: null })
         try {
-          const body = new URLSearchParams({ data: query })
-          const response = await fetchFn(baseUrl, {
-            method: 'POST',
-            headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
-            body,
-            signal,
+          const response = await limiter.run(async () => {
+            emitDiagnostic({ stage: 'request', ...diagnosticBase, httpStatus: null, rawElementCount: null, parsedCandidateCount: null, message: null })
+            const controller = new AbortController()
+            const timeout = setTimeout(() => controller.abort(), requestTimeoutMs)
+            const abort = () => controller.abort()
+            signal?.addEventListener('abort', abort, { once: true })
+            try {
+              return await fetchFn(endpoint, {
+                method: 'POST',
+                headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+                body: new URLSearchParams({ data: query }),
+                signal: controller.signal,
+              })
+            } finally {
+              clearTimeout(timeout)
+              signal?.removeEventListener('abort', abort)
+            }
           })
           httpStatus = response.status
           emitDiagnostic({ stage: 'response', ...diagnosticBase, httpStatus: response.status, rawElementCount: null, parsedCandidateCount: null, message: null })
-          if (!response.ok) throw new Error(`Overpass a répondu avec le statut HTTP ${response.status}.`)
+          if (!response.ok) throw new OverpassResponseError(response.status)
           const payload = await response.json() as OverpassPayload
           if (!Array.isArray(payload.elements)) throw new Error('Réponse Overpass invalide.')
           const candidates = payload.elements
@@ -158,10 +186,16 @@ export function createOverpassPracticalPlacesProvider(options: OverpassPractical
           emitDiagnostic({ stage: 'parsed', ...diagnosticBase, httpStatus: response.status, rawElementCount: payload.elements.length, parsedCandidateCount: candidates.length, message: null })
           return candidates
         } catch (error) {
+          if (!signal?.aborted && attempt + 1 < endpoints.length && isTransient(error)) {
+            emitDiagnostic({ stage: 'retry', ...diagnosticBase, httpStatus, rawElementCount: null, parsedCandidateCount: null, message: error instanceof Error ? error.message : String(error) })
+            await sleep(retryBackoffMs * (attempt + 1))
+            continue
+          }
           emitDiagnostic({ stage: 'error', ...diagnosticBase, httpStatus, rawElementCount: null, parsedCandidateCount: null, message: error instanceof Error ? error.message : String(error) })
           throw error
         }
-      })
+      }
+      return []
     },
   }
 }

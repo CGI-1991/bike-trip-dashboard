@@ -9,7 +9,7 @@ export interface LocatedPracticalPlaceCandidate extends PracticalPlaceCandidate 
 }
 
 function segmentProjection(
-  candidate: Pick<PracticalPlaceCandidate, 'latitude' | 'longitude'>,
+  candidate: { readonly latitude: number; readonly longitude: number },
   start: RouteGeometryPoint,
   end: RouteGeometryPoint,
 ): { readonly segmentMeters: number; readonly ratio: number; readonly distanceMeters: number } {
@@ -30,10 +30,15 @@ function segmentProjection(
   }
 }
 
-export function locateCandidateOnRoute(
-  candidate: PracticalPlaceCandidate,
+export interface LocatedRoutePosition {
+  readonly trackDistanceKm: number
+  readonly lateralDistanceMeters: number
+}
+
+export function locatePointOnRoute(
+  candidate: { readonly latitude: number; readonly longitude: number },
   geometry: readonly RouteGeometryPoint[],
-): LocatedPracticalPlaceCandidate | null {
+): LocatedRoutePosition | null {
   if (geometry.length < 2) return null
   let accumulatedMeters = 0
   let best: { readonly alongMeters: number; readonly lateralMeters: number } | null = null
@@ -49,10 +54,17 @@ export function locateCandidateOnRoute(
     accumulatedMeters += projection.segmentMeters
   }
   return best === null ? null : {
-    ...candidate,
     trackDistanceKm: best.alongMeters / 1_000,
     lateralDistanceMeters: best.lateralMeters,
   }
+}
+
+export function locateCandidateOnRoute(
+  candidate: PracticalPlaceCandidate,
+  geometry: readonly RouteGeometryPoint[],
+): LocatedPracticalPlaceCandidate | null {
+  const located = locatePointOnRoute(candidate, geometry)
+  return located === null ? null : { ...candidate, ...located }
 }
 
 function normalizedName(name: string | null): string | null {
@@ -75,7 +87,11 @@ export function locateAndDeduplicatePracticalPlaces(
   for (const candidate of candidates) {
     const located = locateCandidateOnRoute(candidate, geometry)
     if (located === null || located.lateralDistanceMeters > maximumLateralDistanceMeters) continue
-    if (located.name === null && located.category !== 'water' && located.category !== 'toilet' && located.category !== 'bike-service') continue
+    const anonymousAllowed = located.category === 'water'
+      || located.category === 'toilet'
+      || located.category === 'shelter'
+      || (located.category === 'bike-service' && located.usefulTags.amenity === 'bicycle_repair_station')
+    if (located.name === null && !anonymousAllowed) continue
     const key = `${located.osmType}:${located.osmId}`
     const previous = exact.get(key)
     if (previous === undefined || located.lateralDistanceMeters < previous.lateralDistanceMeters) exact.set(key, located)

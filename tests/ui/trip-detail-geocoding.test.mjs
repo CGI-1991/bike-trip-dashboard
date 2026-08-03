@@ -58,7 +58,7 @@ test('trip detail exposes practical-place search and renders a compact stage lis
     },
   })
   const html = renderTripDetail(bundle, { canSearchPracticalPlaces: true })
-  assert.match(html, /Rechercher les lieux pratiques/)
+  assert.match(html, /Rechercher les lieux utiles/)
   assert.match(html, /Eau potable/)
   assert.match(html, /Sans nom/)
   assert.match(html, /≈ 12\.3 km/)
@@ -83,4 +83,25 @@ test('trip detail distinguishes an unstarted, successful-empty and failed practi
   const failedHtml = renderTripDetail(bundle)
   assert.match(failedHtml, /Overpass indisponible/)
   assert.match(failedHtml, /dernière recherche a échoué/)
+})
+
+test('trip detail shows non-blocking automatic progress and ordered route localities', () => {
+  const bundle = createGenericTripBundle()
+  bundle.enrichmentMetadata.providers.push({
+    provider: 'osm-route-enrichment', lastAttemptedAt: '2028-08-03T10:00:00.000Z',
+    lastSuccessAt: '2028-08-03T10:00:00.000Z', status: 'success', message: null,
+  })
+  bundle.routePoints.push({
+    id: 'locality-ui', routeId: bundle.routes[0].id, type: 'village', name: 'Village UI',
+    latitude: 45.2, longitude: 6.3, elevationM: 300, trackDistanceKm: 10,
+    osmFeatureType: 'village', lateralDistanceKm: 0.2,
+    provenance: { sourceType: 'osm', sourceId: 'osm:village:1', fetchedAt: '2028-08-03T10:00:00.000Z', engineVersion: 'route-enrichment@2', confidence: 'high', manuallyOverridden: false },
+  })
+  bundle.stages[0].routePointIds.push('locality-ui')
+  const pending = renderTripDetail(bundle, { automaticEnrichmentPending: true, automaticEnrichmentProgress: 'Localités — étape 1/2, zone 2/4' })
+  assert.match(pending, /Enrichissement en cours/)
+  assert.match(pending, /Localités — étape 1\/2, zone 2\/4/)
+  const completed = renderTripDetail(bundle)
+  assert.match(completed, /Voyage enrichi/)
+  assert.match(completed, /Passage :<\/strong> Village UI/)
 })

@@ -5,7 +5,7 @@ export type OsmElementType = 'node' | 'way' | 'relation'
 export interface PracticalPlaceCandidate {
   readonly osmType: OsmElementType
   readonly osmId: string
-  readonly category: Exclude<PracticalPlaceCategory, 'shelter'>
+  readonly category: PracticalPlaceCategory
   readonly name: string | null
   readonly latitude: number
   readonly longitude: number

@@ -11,6 +11,7 @@ export type PracticalPlaceCategory =
   | 'fast-food'
   | 'bike-service'
   | 'supermarket'
+  | 'sports'
   | 'toilet'
 
 /** A practical amenity near the route (bakery, water point, shelter, ...). */

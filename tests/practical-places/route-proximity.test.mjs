@@ -40,3 +40,14 @@ test('deduplication merges repeated OSM objects and same named establishment but
   assert.ok(places.some((place) => place.category === 'toilet' && place.name === null))
   assert.ok(!places.some((place) => place.osmId === 'unnamed-cafe'))
 })
+
+test('anonymous shelter and repair station are kept, while anonymous shops, food and sport are rejected', () => {
+  const candidates = [
+    candidate('shelter', { category: 'shelter', name: null, usefulTags: { amenity: 'shelter' } }),
+    candidate('repair', { category: 'bike-service', name: null, usefulTags: { amenity: 'bicycle_repair_station' } }),
+    candidate('bike-shop', { category: 'bike-service', name: null, usefulTags: { shop: 'bicycle' } }),
+    candidate('food', { category: 'supermarket', name: null, usefulTags: { shop: 'convenience' } }),
+    candidate('sport', { category: 'sports', name: null, usefulTags: { shop: 'sports' } }),
+  ]
+  assert.deepEqual(locateAndDeduplicatePracticalPlaces(candidates, geometry).map((item) => item.osmId), ['shelter', 'repair'])
+})

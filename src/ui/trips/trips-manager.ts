@@ -12,6 +12,8 @@ import { enrichStoredTripClimbNames, tripNeedsClimbNameEnrichment } from '../../
 import type { ClimbNameProvider } from '../../climb-names/types.ts'
 import { enrichStoredTripPracticalPlaces, tripCanSearchPracticalPlaces } from '../../practical-places/enrichment.ts'
 import type { PracticalPlacesProvider } from '../../practical-places/types.ts'
+import type { RouteEnrichmentProvider } from '../../route-enrichment/types.ts'
+import { runStoredTripAutomaticEnrichment, tripNeedsAutomaticEnrichment } from '../../route-enrichment/automatic-enrichment.ts'
 import type { TripId } from '../../trip-core/index.ts'
 import { deleteTripCompletely, listTripSummaries, setActiveTrip } from '../../trips-manager/trip-manager-actions.ts'
 import type { TripListEntry } from '../../trips-manager/trip-summary.ts'
@@ -27,6 +29,7 @@ export interface TripsManagerDeps {
   readonly geocodingProvider?: GeocodingProvider
   readonly climbNameProvider?: ClimbNameProvider
   readonly practicalPlacesProvider?: PracticalPlacesProvider
+  readonly routeEnrichmentProvider?: RouteEnrichmentProvider
 }
 
 type Mode =
@@ -73,6 +76,10 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   const climbNamingErrors = new Map<TripId, string>()
   const practicalPlacesInFlight = new Set<TripId>()
   const practicalPlacesErrors = new Map<TripId, string>()
+  const practicalPlacesProgress = new Map<TripId, string>()
+  const automaticEnrichmentInFlight = new Set<TripId>()
+  const automaticEnrichmentProgress = new Map<TripId, string>()
+  const automaticEnrichmentErrors = new Map<TripId, string>()
 
   async function renderList(): Promise<void> {
     container.innerHTML = '<p role="status">Chargement de vos voyages…</p>'
@@ -105,7 +112,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       await renderList()
       return
     }
-    const enrichmentBusy = geocodingInFlight.has(tripId) || climbNamingInFlight.has(tripId) || practicalPlacesInFlight.has(tripId)
+    const enrichmentBusy = geocodingInFlight.has(tripId) || climbNamingInFlight.has(tripId) || practicalPlacesInFlight.has(tripId) || automaticEnrichmentInFlight.has(tripId)
     container.innerHTML = renderTripDetail(bundle, {
       canEnrichEndpoints: !enrichmentBusy && deps.geocodingProvider !== undefined && tripNeedsEndpointGeocoding(bundle),
       geocodingPending: geocodingInFlight.has(tripId),
@@ -116,11 +123,59 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       canSearchPracticalPlaces: !enrichmentBusy && deps.practicalPlacesProvider !== undefined && tripCanSearchPracticalPlaces(bundle),
       practicalPlacesPending: practicalPlacesInFlight.has(tripId),
       practicalPlacesError: practicalPlacesErrors.get(tripId) ?? null,
+      practicalPlacesProgress: practicalPlacesProgress.get(tripId) ?? null,
+      automaticEnrichmentPending: automaticEnrichmentInFlight.has(tripId),
+      automaticEnrichmentProgress: automaticEnrichmentProgress.get(tripId) ?? null,
+      automaticEnrichmentError: automaticEnrichmentErrors.get(tripId) ?? null,
     })
   }
 
+  async function startAutomaticEnrichment(tripId: TripId): Promise<void> {
+    if (automaticEnrichmentInFlight.has(tripId)) return
+    const repository = createTripRepository(deps.database)
+    const bundle = await repository.loadTripBundle(tripId)
+    if (bundle === null) return
+    if (!tripNeedsAutomaticEnrichment(bundle, deps)) return
+
+    automaticEnrichmentInFlight.add(tripId)
+    automaticEnrichmentErrors.delete(tripId)
+    try {
+      const report = await runStoredTripAutomaticEnrichment({
+        database: deps.database,
+        tripId,
+        geocodingProvider: deps.geocodingProvider,
+        routeEnrichmentProvider: deps.routeEnrichmentProvider,
+        idFactory: deps.idFactory,
+        now: deps.now,
+        onProgress: (progress) => {
+          if (progress.phase === 'endpoints') automaticEnrichmentProgress.set(tripId, 'Départs / arrivées')
+          else {
+            const detail = progress.detail
+            const label = detail.kind === 'localities' ? 'Localités' : 'Montées'
+            const errors = detail.errorCount === 0 ? '' : ` · ${detail.errorCount} zone(s) en erreur`
+            automaticEnrichmentProgress.set(tripId, `${label} — étape ${detail.stageIndex + 1}/${detail.stageCount}, zone ${detail.chunkIndex + 1}/${detail.chunkCount}${errors}`)
+          }
+          if (mode.kind === 'detail' && mode.tripId === tripId) void renderDetail(tripId)
+        },
+      })
+      if (report.partial) automaticEnrichmentErrors.set(tripId, 'Certaines données seront complétées lors d’une prochaine ouverture.')
+    } catch (error) {
+      automaticEnrichmentErrors.set(tripId, error instanceof Error ? error.message : 'Certaines données seront complétées ultérieurement.')
+    } finally {
+      automaticEnrichmentInFlight.delete(tripId)
+      automaticEnrichmentProgress.delete(tripId)
+      if (mode.kind === 'detail' && mode.tripId === tripId) await renderDetail(tripId)
+    }
+  }
+
+  async function openDetail(tripId: TripId): Promise<void> {
+    mode = { kind: 'detail', tripId }
+    await renderDetail(tripId)
+    void startAutomaticEnrichment(tripId)
+  }
+
   async function enrichEndpoints(tripId: TripId): Promise<void> {
-    if (deps.geocodingProvider === undefined || geocodingInFlight.has(tripId) || climbNamingInFlight.has(tripId) || practicalPlacesInFlight.has(tripId)) return
+    if (deps.geocodingProvider === undefined || automaticEnrichmentInFlight.has(tripId) || geocodingInFlight.has(tripId) || climbNamingInFlight.has(tripId) || practicalPlacesInFlight.has(tripId)) return
     geocodingInFlight.add(tripId)
     geocodingErrors.delete(tripId)
     await renderDetail(tripId)
@@ -141,7 +196,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   }
 
   async function enrichClimbNames(tripId: TripId): Promise<void> {
-    if (deps.climbNameProvider === undefined || geocodingInFlight.has(tripId) || climbNamingInFlight.has(tripId) || practicalPlacesInFlight.has(tripId)) return
+    if (deps.climbNameProvider === undefined || automaticEnrichmentInFlight.has(tripId) || geocodingInFlight.has(tripId) || climbNamingInFlight.has(tripId) || practicalPlacesInFlight.has(tripId)) return
     climbNamingInFlight.add(tripId)
     climbNamingErrors.delete(tripId)
     await renderDetail(tripId)
@@ -161,9 +216,10 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   }
 
   async function enrichPracticalPlaces(tripId: TripId): Promise<void> {
-    if (deps.practicalPlacesProvider === undefined || geocodingInFlight.has(tripId) || climbNamingInFlight.has(tripId) || practicalPlacesInFlight.has(tripId)) return
+    if (deps.practicalPlacesProvider === undefined || automaticEnrichmentInFlight.has(tripId) || geocodingInFlight.has(tripId) || climbNamingInFlight.has(tripId) || practicalPlacesInFlight.has(tripId)) return
     practicalPlacesInFlight.add(tripId)
     practicalPlacesErrors.delete(tripId)
+    practicalPlacesProgress.delete(tripId)
     await renderDetail(tripId)
     try {
       await enrichStoredTripPracticalPlaces({
@@ -171,11 +227,17 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
         tripId,
         provider: deps.practicalPlacesProvider,
         now: deps.now,
+        onProgress: (progress) => {
+          const errors = progress.errorCount === 0 ? '' : ` · ${progress.errorCount} zone(s) en erreur`
+          practicalPlacesProgress.set(tripId, `Étape ${progress.stageIndex + 1}/${progress.stageCount} — zone ${progress.chunkIndex + 1}/${progress.chunkCount}${errors}`)
+          if (mode.kind === 'detail' && mode.tripId === tripId) void renderDetail(tripId)
+        },
       })
     } catch (error) {
       practicalPlacesErrors.set(tripId, error instanceof Error ? error.message : 'La recherche des lieux pratiques a échoué.')
     } finally {
       practicalPlacesInFlight.delete(tripId)
+      practicalPlacesProgress.delete(tripId)
       if (mode.kind === 'detail' && mode.tripId === tripId) await renderDetail(tripId)
     }
   }
@@ -211,8 +273,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       deps,
       (result) => {
         setActiveTrip(result.tripId)
-        mode = { kind: 'confirmation', result }
-        renderConfirmation(result)
+        void openDetail(result.tripId)
       },
       () => {
         mode = { kind: 'list' }
@@ -228,8 +289,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       deps,
       tripId,
       (bundle) => {
-        mode = { kind: 'detail', tripId: bundle.metadata.id }
-        void renderDetail(bundle.metadata.id)
+        void openDetail(bundle.metadata.id)
       },
       () => {
         mode = { kind: 'list' }
@@ -251,8 +311,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     } else if (action === 'edit-trip' && tripId !== undefined) {
       openEditor(tripId as TripId)
     } else if (action === 'open-trip' && tripId !== undefined) {
-      mode = { kind: 'detail', tripId: tripId as TripId }
-      void renderDetail(tripId as TripId)
+      void openDetail(tripId as TripId)
     } else if (action === 'back-to-list') {
       mode = { kind: 'list' }
       void renderList()

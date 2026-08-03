@@ -19,6 +19,14 @@ export type RoutePointType =
   | 'lodging'
   | 'poi'
 
+export type OsmRouteFeatureType =
+  | 'city'
+  | 'town'
+  | 'village'
+  | 'mountain-pass'
+  | 'saddle'
+  | 'peak'
+
 /**
  * A named point of interest along a route (start/end, village, resupply,
  * etc.) — distinct from the raw track coordinates stored in
@@ -34,5 +42,9 @@ export interface RoutePoint {
   readonly longitude: LongitudeDegrees
   readonly elevationM: Meters | null
   readonly trackDistanceKm: Kilometers | null
+  /** OSM subtype for route-enrichment points; absent on historical records. */
+  readonly osmFeatureType?: OsmRouteFeatureType | null
+  /** Straight-line distance to the GPX trace; absent on historical records. */
+  readonly lateralDistanceKm?: Kilometers | null
   readonly provenance: DataProvenance
 }

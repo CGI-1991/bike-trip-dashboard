@@ -36,13 +36,14 @@ const ROUTE_POINT_TYPES = [
   'start', 'end', 'summit', 'village', 'passage', 'resupply', 'pause', 'shelter', 'lodging', 'poi',
 ] as const
 const PRACTICAL_PLACE_CATEGORIES = [
-  'shelter', 'bakery', 'cafe-or-ice-cream', 'water', 'fast-food', 'bike-service', 'supermarket', 'toilet',
+  'shelter', 'bakery', 'cafe-or-ice-cream', 'water', 'fast-food', 'bike-service', 'supermarket', 'sports', 'toilet',
 ] as const
+const OSM_ROUTE_FEATURE_TYPES = ['city', 'town', 'village', 'mountain-pass', 'saddle', 'peak'] as const
 const ACCOMMODATION_TYPES = [
   'hotel', 'airbnb', 'gite', 'chambre-hotes', 'hostel', 'guest-house', 'refuge', 'camping',
 ] as const
 const DATA_SOURCE_TYPES = ['user', 'gpx', 'osm', 'open-meteo', 'generated', 'migrated'] as const
-const ENRICHMENT_PROVIDERS = ['gpx', 'osm', 'osm-practical-places', 'open-meteo'] as const
+const ENRICHMENT_PROVIDERS = ['gpx', 'osm', 'osm-practical-places', 'osm-route-enrichment', 'open-meteo'] as const
 const ENRICHMENT_PROVIDER_STATUSES = ['not-configured', 'pending', 'success', 'partial', 'error'] as const
 const DERIVED_DATA_STATUSES = ['not-generated', 'stale', 'partial', 'fresh'] as const
 const CONFIDENCE_LEVELS = ['high', 'medium', 'low'] as const
@@ -379,6 +380,12 @@ export function validateTripBundle(value: unknown): ValidationResult<TripBundle>
     if (!isLongitude(point.longitude)) issues.push(issue(`${path}.longitude`, 'invalid-value', 'longitude invalide.'))
     if (point.elevationM !== null && !isFiniteNumber(point.elevationM)) issues.push(issue(`${path}.elevationM`, 'invalid-value', 'elevationM invalide.'))
     if (point.trackDistanceKm !== null && !isNonNegativeNumber(point.trackDistanceKm)) issues.push(issue(`${path}.trackDistanceKm`, 'invalid-value', 'trackDistanceKm doit être ≥ 0 ou null.'))
+    if (point.osmFeatureType !== undefined && point.osmFeatureType !== null && !isOneOf(point.osmFeatureType, OSM_ROUTE_FEATURE_TYPES)) {
+      issues.push(issue(`${path}.osmFeatureType`, 'invalid-enum', 'osmFeatureType invalide.'))
+    }
+    if (point.lateralDistanceKm !== undefined && point.lateralDistanceKm !== null && !isNonNegativeNumber(point.lateralDistanceKm)) {
+      issues.push(issue(`${path}.lateralDistanceKm`, 'invalid-value', 'lateralDistanceKm doit être ≥ 0 ou null.'))
+    }
     validateProvenance(point.provenance, `${path}.provenance`, issues)
   })
 

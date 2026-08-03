@@ -134,3 +134,41 @@ test('a realistic Overpass body response reaches persistence and the technical U
     database.close()
   }
 })
+
+test('a failed practical-place chunk preserves successful chunks and resumes only the missing zone', async () => {
+  const bundle = createGenericTripBundle()
+  bundle.routes[0].geometry = { full: Array.from({ length: 7 }, (_unused, index) => ({
+    latitude: 45, longitude: 6 + index * 0.1, altitudeM: 100 + index * 10,
+  })), simplified: null }
+  const values = new Map()
+  const cache = {
+    async get(identity) { return values.get(JSON.stringify(identity)) ?? null },
+    async put(identity, results, storedAt) { values.set(JSON.stringify(identity), { results, storedAt }) },
+  }
+  let calls = 0
+  const progress = []
+  const first = await enrichTripPracticalPlaces({
+    bundle, cache, now: () => '2028-08-03T10:00:00.000Z',
+    provider: provider(async (search) => {
+      calls++
+      if (calls === 1) throw new Error('offline')
+      const point = search.geometry[0]
+      return [candidate({ osmId: 'chunk-one', latitude: point.latitude, longitude: point.longitude })]
+    }),
+    onProgress: (event) => progress.push(event),
+  })
+  assert.equal(first.networkErrorCount, 1)
+  assert.equal(first.bundle.enrichmentMetadata.providers.find((state) => state.provider === 'osm-practical-places').status, 'partial')
+  assert.ok(first.bundle.practicalPlaces.some((place) => place.provenance.sourceId?.endsWith(':chunk-one')))
+  assert.equal(progress[0].status, 'error')
+  assert.equal(progress[0].chunkIndex, 0)
+  assert.ok(progress.slice(1).some((event) => event.status === 'success' && event.chunkIndex > 0))
+  const firstCalls = calls
+  const second = await enrichTripPracticalPlaces({
+    bundle: first.bundle, cache, now: () => '2028-08-04T10:00:00.000Z',
+    provider: provider(async () => { calls++; return [] }),
+  })
+  assert.equal(calls - firstCalls, 1)
+  assert.equal(second.cacheHitCount, first.chunkCount - 1)
+  assert.equal(second.bundle.enrichmentMetadata.providers.find((state) => state.provider === 'osm-practical-places').status, 'success')
+})

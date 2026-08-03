@@ -20,6 +20,7 @@ export type EnrichmentProviderStatus =
 export type EnrichmentProvider =
   | Exclude<DataSourceType, 'user' | 'generated' | 'migrated'>
   | 'osm-practical-places'
+  | 'osm-route-enrichment'
 
 /** Last known state of one external enrichment provider for this trip. */
 export interface EnrichmentProviderState {
