@@ -31,7 +31,8 @@ export interface GpxTripImportOptions {
   readonly startDate?: string | null
   readonly referenceSpeedKph?: number
   readonly departureTime?: string
-  readonly totalBreakMinutes?: number
+  /** A fixed budget in minutes, or `'adaptive'` for a per-stage estimate (CDC phase 6C1 section 22) — see `route-analysis.ts`. */
+  readonly totalBreakMinutes?: number | 'adaptive'
   readonly importedAt: string
   readonly engineVersion: string
 }
@@ -47,7 +48,7 @@ export interface ResolvedGpxTripImportOptions {
   readonly startDate: string | null
   readonly referenceSpeedKph: number
   readonly departureTime: string
-  readonly totalBreakMinutes: number
+  readonly totalBreakMinutes: number | 'adaptive'
   readonly importedAt: string
   readonly engineVersion: string
 }

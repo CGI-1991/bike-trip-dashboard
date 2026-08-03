@@ -2837,7 +2837,7 @@ body.map-scroll-locked { position: fixed; top: var(--map-scroll-lock-y, 0); inse
 @media (min-width: 620px) {
   .overview-stats__grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
-.app-nav { position: fixed; z-index: 20; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: repeat(3, 1fr); min-height: 64px; padding: 5px max(8px, env(safe-area-inset-right)) max(5px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); background: rgba(255,255,255,.97); border-top: 1px solid var(--line); box-shadow: 0 -4px 18px rgb(16 45 40 / 9%); }
+.app-nav { position: fixed; z-index: 20; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: repeat(4, 1fr); min-height: 64px; padding: 5px max(8px, env(safe-area-inset-right)) max(5px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); background: rgba(255,255,255,.97); border-top: 1px solid var(--line); box-shadow: 0 -4px 18px rgb(16 45 40 / 9%); }
 .app-nav a { min-height: 50px; display: grid; place-items: center; padding: 6px; color: var(--ink-soft); border-radius: 9px; font-size: .8rem; font-weight: 800; text-decoration: none; }
 .app-nav a.is-active { color: #fff; background: var(--forest-800); }
 .technical-details > summary, .roadbook-detail__disclosure > summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font-weight: 800; }
@@ -2940,3 +2940,50 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   .route-table td:nth-child(4) { color: var(--ink-soft); font-size: .78rem; }
   .route-table .route-technical-column { display: none; }
 }
+
+/* Phase 6C1: Mes voyages / assistant d'import — réutilise les tokens et classes existants (card, button, field, tag). */
+.trips-list, .trips-empty, .trip-detail, .trip-confirmation, .wizard { display: grid; gap: 14px; padding: 14px max(14px, env(safe-area-inset-right)) 90px max(14px, env(safe-area-inset-left)); }
+.trip-card-list { display: grid; gap: 12px; }
+.trip-card { padding: 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); display: grid; gap: 10px; }
+.trip-card__header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.trip-card__header h3 { font-size: 1.05rem; }
+.trip-card__stats, .trip-detail__summary, .trip-confirmation__summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.trip-card__stats div, .trip-detail__summary div, .trip-confirmation__summary div, .wizard-file__metrics div { padding: 8px; background: var(--surface-muted); border-radius: 8px; }
+.trip-card__stats dt, .trip-detail__summary dt, .trip-confirmation__summary dt, .wizard-file__metrics dt { color: var(--ink-soft); font-size: .72rem; }
+.trip-card__stats dd, .trip-detail__summary dd, .trip-confirmation__summary dd, .wizard-file__metrics dd { margin-top: 2px; font-weight: 800; }
+.trip-card__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.trip-card__actions .button { flex: 1 1 auto; }
+.trip-detail__day-list { display: grid; gap: 8px; }
+.trip-detail__day { padding: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; display: grid; gap: 6px; }
+.trip-detail__stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.trip-detail__stats div { padding: 6px; background: var(--surface-muted); border-radius: 7px; }
+.trip-detail__stats dt { color: var(--ink-soft); font-size: .68rem; }
+.trip-detail__climbs { display: grid; gap: 6px; }
+.trip-detail__climbs li { padding: 8px 10px; background: var(--surface-muted); border-radius: 8px; }
+.wizard-file-list { display: grid; gap: 8px; }
+.wizard-file { padding: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; display: grid; gap: 6px; }
+.wizard-file--invalid { border-color: var(--danger-border); background: var(--danger-bg); }
+.wizard-file__error { color: var(--danger-text); font-size: .82rem; }
+.wizard-file__metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.wizard-summary { font-weight: 800; }
+.wizard-structure__list { display: grid; gap: 6px; }
+.wizard-structure__row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 9px; }
+.wizard-structure__row--off { background: #fff8dd; border-left: 4px solid #bd8b17; }
+.wizard-structure__row--transfer { background: var(--forest-50); border-left: 4px solid var(--forest-700); }
+.wizard-structure__name { flex: 1; font-weight: 700; }
+.wizard-structure__move { display: flex; gap: 4px; }
+.wizard-structure__move .button, .wizard-structure__row .button { min-height: 36px; padding: 0 10px; }
+.wizard-structure__insert { display: flex; gap: 6px; padding-left: 8px; }
+.wizard-structure__insert .button { min-height: 32px; font-size: .72rem; padding: 0 8px; }
+.wizard-loop-choice { padding: 10px; background: var(--warning-bg); border: 1px solid var(--warning-border); border-radius: 9px; color: var(--warning-text); }
+.wizard-alerts { display: grid; gap: 6px; }
+.wizard-alert { padding: 8px 10px; background: var(--warning-bg); border: 1px solid var(--warning-border); border-radius: 8px; color: var(--warning-text); font-size: .85rem; }
+.wizard-alert--blocking { background: var(--danger-bg); border-color: var(--danger-border); color: var(--danger-text); }
+.wizard-advanced summary { cursor: pointer; font-weight: 800; padding: 8px 0; }
+.wizard-error { color: var(--danger-text); }
+.wizard-progress { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; padding: 0; }
+.wizard-progress li { padding: 6px 10px; background: var(--surface-muted); border-radius: 20px; font-size: .78rem; color: var(--ink-soft); }
+.wizard-progress li.is-done { background: var(--forest-800); color: #fff; font-weight: 700; }
+.wizard-actions { display: flex; gap: 8px; }
+.wizard-actions .button { flex: 1; }
+.wizard-validation-reasons { color: var(--ink-soft); font-size: .8rem; display: grid; gap: 3px; }

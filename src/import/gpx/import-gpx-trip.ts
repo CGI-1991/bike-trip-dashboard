@@ -36,6 +36,18 @@ import type {
   ResolvedGpxTripImportOptions,
 } from './types.ts'
 import { GpxImportError, importIssue } from './types.ts'
+import { applyDayStructure } from './day-structure.ts'
+import type { DayStructureSlot } from './day-structure.ts'
+
+/**
+ * Real, non-simulated progress markers (CDC phase 6C1 section 20) — each
+ * one only ever fires once the work it names has actually happened.
+ * `'reading'`/`'validating'` fire once for the whole batch; `'analyzing'`/
+ * `'climbs'`/`'stages'` fire once per file, in that order, as that file's
+ * own processing reaches each point (a caller wanting a single "done"
+ * marker per phase can just track the highest one reached so far).
+ */
+export type ImportProgressLabel = 'reading' | 'validating' | 'analyzing' | 'climbs' | 'stages' | 'saving'
 
 export interface ImportGpxTripInput {
   readonly files: readonly GpxImportFile[]
@@ -43,6 +55,16 @@ export interface ImportGpxTripInput {
   readonly database: IDBDatabase
   readonly idFactory: IdFactory
   readonly now: NowFn
+  /**
+   * Optional OFF/transfer day structure (CDC phase 6C1 section 14/15/19) —
+   * applied to the ride-only bundle `assembleTripBundle` just produced,
+   * before validation and the atomic save, so the whole trip (rides +
+   * inserted days) still lands in a single transaction. Omit for the
+   * default "one GPX = one ride day" structure.
+   */
+  readonly dayStructure?: readonly DayStructureSlot[]
+  /** Optional progress callback — see `ImportProgressLabel`. Never required for correctness, purely observational. */
+  readonly onProgress?: (label: ImportProgressLabel) => void
 }
 
 const DEFAULT_REFERENCE_SPEED_KPH = 18
@@ -66,7 +88,9 @@ function resolveOptions(raw: GpxTripImportOptions): { readonly options: Resolved
   if (!isTimeOfDay(departureTime)) issues.push(importIssue('validation-error', 'error', 'departureTime doit être au format HH:MM.'))
 
   const totalBreakMinutes = raw.totalBreakMinutes ?? DEFAULT_TOTAL_BREAK_MINUTES
-  if (!isNonNegativeInteger(totalBreakMinutes)) issues.push(importIssue('validation-error', 'error', 'totalBreakMinutes doit être un entier ≥ 0.'))
+  if (totalBreakMinutes !== 'adaptive' && !isNonNegativeInteger(totalBreakMinutes)) {
+    issues.push(importIssue('validation-error', 'error', "totalBreakMinutes doit être un entier ≥ 0, ou 'adaptive'."))
+  }
 
   const startDate = raw.startDate ?? null
   const timezone = raw.timezone ?? null
@@ -154,6 +178,7 @@ export async function importGpxTrip(input: ImportGpxTripInput): Promise<GpxTripI
   const options = resolved.options
 
   job = transitionImportJob(job, 'parsing', nowFn())
+  input.onProgress?.('reading')
 
   const fileValidationIssues = input.files.flatMap((file) => validateGpxImportFile(file))
   if (fileValidationIssues.length > 0) {
@@ -165,6 +190,7 @@ export async function importGpxTrip(input: ImportGpxTripInput): Promise<GpxTripI
   if (duplicateIssues.length > 0) {
     return failed(job, nowFn(), duplicateIssues, 'duplicate-file')
   }
+  input.onProgress?.('validating')
 
   const allIssues: ImportIssue[] = []
   const sourceFiles: SourceFile[] = []
@@ -181,6 +207,7 @@ export async function importGpxTrip(input: ImportGpxTripInput): Promise<GpxTripI
       const document = parseGpxXml(new TextDecoder('utf-8').decode(entry.file.bytes))
       const analysis = analyzeGpxDocument(document, entry.file.name)
       allIssues.push(...analysis.issues)
+      input.onProgress?.('analyzing')
 
       const sourceFile = buildSourceFile(
         entry.file,
@@ -207,6 +234,7 @@ export async function importGpxTrip(input: ImportGpxTripInput): Promise<GpxTripI
       )
       allIssues.push(...routeAnalysis.issues)
       climbs.push(...routeAnalysis.climbs)
+      input.onProgress?.('climbs')
 
       const { stage, day } = buildStageAndDay({
         index,
@@ -221,6 +249,7 @@ export async function importGpxTrip(input: ImportGpxTripInput): Promise<GpxTripI
       })
       stages.push(stage)
       days.push(day)
+      input.onProgress?.('stages')
     } catch (error) {
       if (error instanceof GpxXmlParseError) {
         allIssues.push(importIssue('invalid-xml', 'error', `${entry.file.name} : ${error.message}`, { fileName: entry.file.name, sourceFileId: entry.sourceFileIdValue }))
@@ -238,7 +267,15 @@ export async function importGpxTrip(input: ImportGpxTripInput): Promise<GpxTripI
     return failed(job, nowFn(), allIssues, blockingCode)
   }
 
-  const bundle: TripBundle = assembleTripBundle({ options, sourceFiles, routes, routePoints, stages, days, climbs })
+  const assembledBundle: TripBundle = assembleTripBundle({ options, sourceFiles, routes, routePoints, stages, days, climbs })
+
+  let bundle: TripBundle
+  try {
+    bundle = input.dayStructure === undefined ? assembledBundle : applyDayStructure(assembledBundle, input.dayStructure, idFactory)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Structure de journées invalide.'
+    return failed(job, nowFn(), [...allIssues, importIssue('validation-error', 'error', message)], 'validation-error')
+  }
 
   job = transitionImportJob(job, 'validating', nowFn(), { sourceFileIds: sourceFiles.map((file) => file.id) })
 
@@ -251,6 +288,7 @@ export async function importGpxTrip(input: ImportGpxTripInput): Promise<GpxTripI
   }
 
   job = transitionImportJob(job, 'writing', nowFn(), { tripId: options.tripId, progress: 0.9 })
+  input.onProgress?.('saving')
 
   const sourcePayloads: readonly SourceFilePayloadInput[] = input.files.map((file, index) => ({
     sourceFileId: toSourceFileId(hashedFiles[index]?.sourceFileIdValue ?? ''),

@@ -9,6 +9,7 @@
 
 import { assessAltitudeQuality, buildDistanceIndexedSeries, smoothElevation } from '../../analysis/elevation-profile.ts'
 import { detectClimbs } from '../../analysis/climb-detection.ts'
+import { estimateAutomaticBreakBudget } from '../../analysis/pause-budget.ts'
 import { buildTerrainSlopeProfile } from '../../analysis/terrain-profile.ts'
 import { computeStageTiming } from '../../analysis/timing.ts'
 import type { StageTimingResult } from '../../analysis/timing.ts'
@@ -21,7 +22,16 @@ import { importIssue } from './types.ts'
 export interface RouteTimingOptions {
   readonly referenceSpeedKph: number
   readonly departureTime: string
-  readonly totalBreakMinutes: number
+  /**
+   * A fixed budget in minutes, or `'adaptive'` to use
+   * `estimateAutomaticBreakBudget` (annexe fonctionnelle section 12.2, CDC
+   * phase 6C1 section 22) — computed per stage from that stage's own
+   * distance/moving-duration/D+, never one flat value shared by every
+   * stage. Moving duration does not depend on pauses, so this only needs a
+   * first timing pass (with a zero budget) to learn it before estimating
+   * the real one and re-timing.
+   */
+  readonly totalBreakMinutes: number | 'adaptive'
 }
 
 export interface RouteAnalysisResult {
@@ -62,7 +72,16 @@ export function analyzeRouteTerrainClimbsAndTiming(
   }
 
   const climbs = terrainProfile === null ? [] : detectClimbs(terrainProfile, analysis.waypoints, routeIdValue, idFactory, engineVersion)
-  const timing = computeStageTiming(terrainProfile, analysis.distanceKm, timingOptions)
+
+  const resolvedBreakMinutes =
+    timingOptions.totalBreakMinutes === 'adaptive'
+      ? estimateAutomaticBreakBudget(
+          analysis.distanceKm,
+          computeStageTiming(terrainProfile, analysis.distanceKm, { ...timingOptions, totalBreakMinutes: 0 }).movingDurationSeconds / 60,
+          analysis.elevationGainM,
+        )
+      : timingOptions.totalBreakMinutes
+  const timing = computeStageTiming(terrainProfile, analysis.distanceKm, { ...timingOptions, totalBreakMinutes: resolvedBreakMinutes })
 
   return { terrainProfile, climbs, timing, issues }
 }

@@ -2,7 +2,7 @@ import { differenceInIsoDays, getDateInTimezone, getTripDate } from '../trip/cal
 import { isTripDayId, rga2026TripPlan } from '../trip/plan.ts'
 import type { TripDayId } from '../trip/types.ts'
 
-export type AppView = 'today' | 'trip' | 'day-detail' | 'settings'
+export type AppView = 'today' | 'trip' | 'day-detail' | 'settings' | 'trips'
 
 export interface AppUiState {
   readonly currentView: AppView
@@ -33,6 +33,7 @@ export function parseAppHash(hash: string, fallbackDayId: TripDayId = 'J1'): App
   }
   if (hash === '#/trip') return { currentView: 'trip', selectedDayId: fallbackDayId, returnView: 'trip' }
   if (hash === '#/settings') return { currentView: 'settings', selectedDayId: fallbackDayId, returnView: 'today' }
+  if (hash === '#/trips') return { currentView: 'trips', selectedDayId: fallbackDayId, returnView: 'today' }
   return { currentView: 'today', selectedDayId: fallbackDayId, returnView: 'today' }
 }
 
