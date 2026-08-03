@@ -206,8 +206,23 @@ export function mergeEditedTripBundle(existing: TripBundle, rebuilt: TripBundle,
     sourceFileId: route.sourceFileId === null ? null : (remaps.sourceFileIds.get(route.sourceFileId) ?? route.sourceFileId),
   }))
 
-  const baseClimbs = rebuilt.climbs.map((climb) => ({ ...climb, routeId: remaps.routeIds.get(climb.routeId) ?? climb.routeId }))
   const unchangedRouteIds = new Set(remaps.routeIds.values())
+  const retainedAutomaticClimbs = existing.climbs.filter((climb) =>
+    unchangedRouteIds.has(climb.routeId)
+    && climb.provenance.sourceType === 'osm'
+    && climb.provenance.engineVersion === 'climb-name-enrichment@1',
+  )
+  const baseClimbs = rebuilt.climbs.map((climb) => {
+    const mappedRouteId = remaps.routeIds.get(climb.routeId) ?? climb.routeId
+    const retained = retainedAutomaticClimbs.find((candidate) =>
+      candidate.routeId === mappedRouteId
+      && Math.abs(candidate.startDistanceKm - climb.startDistanceKm) <= 0.05
+      && Math.abs(candidate.endDistanceKm - climb.endDistanceKm) <= 0.05,
+    )
+    return retained === undefined
+      ? { ...climb, routeId: mappedRouteId }
+      : { ...climb, routeId: mappedRouteId, name: retained.name, confidence: retained.confidence, provenance: retained.provenance }
+  })
   const manualClimbs = existing.climbs.filter((climb) => unchangedRouteIds.has(climb.routeId) && isManualProvenance(climb.provenance))
   const climbIds = new Set(baseClimbs.map((climb) => climb.id))
   const climbs = [...baseClimbs, ...manualClimbs.filter((climb) => !climbIds.has(climb.id))]

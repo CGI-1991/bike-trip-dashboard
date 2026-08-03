@@ -10,6 +10,9 @@ export interface TripDetailRenderOptions {
   readonly canEnrichEndpoints?: boolean
   readonly geocodingPending?: boolean
   readonly geocodingError?: string | null
+  readonly canEnrichClimbNames?: boolean
+  readonly climbNamingPending?: boolean
+  readonly climbNamingError?: string | null
 }
 
 function escapeHtml(value: string): string {
@@ -60,6 +63,7 @@ export function renderTripDetail(bundle: TripBundle, options: TripDetailRenderOp
   const hasOsmEndpoints = bundle.routePoints.some((point) =>
     (point.type === 'start' || point.type === 'end') && point.provenance.sourceType === 'osm',
   )
+  const hasOsmClimbNames = bundle.climbs.some((climb) => climb.provenance.sourceType === 'osm')
   const osmState = bundle.enrichmentMetadata.providers.find((state) => state.provider === 'osm')
   const geocodingStatus = options.geocodingPending
     ? '<p role="status">Identification des lieux en cours…</p>'
@@ -71,7 +75,15 @@ export function renderTripDetail(bundle: TripBundle, options: TripDetailRenderOp
   const geocodingAction = options.canEnrichEndpoints && !options.geocodingPending
     ? '<button class="button button--quiet" type="button" data-action="enrich-trip-endpoints">Identifier les lieux de départ et d’arrivée</button>'
     : ''
-  const attribution = hasOsmEndpoints ? '<p class="trip-detail__attribution">Noms de lieux : © OpenStreetMap contributors.</p>' : ''
+  const climbNamingStatus = options.climbNamingPending
+    ? '<p role="status">Recherche de noms de montées en cours…</p>'
+    : options.climbNamingError !== null && options.climbNamingError !== undefined
+      ? `<p role="alert">${escapeHtml(options.climbNamingError)}</p>`
+      : ''
+  const climbNamingAction = options.canEnrichClimbNames && !options.climbNamingPending
+    ? '<button class="button button--quiet" type="button" data-action="enrich-trip-climb-names">Rechercher les noms des montées</button>'
+    : ''
+  const attribution = hasOsmEndpoints || hasOsmClimbNames ? '<p class="trip-detail__attribution">Noms géographiques : © OpenStreetMap contributors.</p>' : ''
 
   return `
     <div class="trip-detail" data-trip-detail>
@@ -88,6 +100,8 @@ export function renderTripDetail(bundle: TripBundle, options: TripDetailRenderOp
       <p class="tag tag--data">Disponible localement</p>
       ${geocodingStatus}
       ${geocodingAction}
+      ${climbNamingStatus}
+      ${climbNamingAction}
       <h3>Journées</h3>
       <ol class="trip-detail__day-list">${bundle.days.map((day) => renderDayRow(bundle, day)).join('')}</ol>
       ${attribution}

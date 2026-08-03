@@ -17,3 +17,20 @@ test('trip detail attributes OSM endpoint names when present', () => {
   const html = renderTripDetail(bundle)
   assert.match(html, /© OpenStreetMap contributors/)
 })
+
+test('trip detail offers optional climb naming and displays an enriched climb name', () => {
+  const bundle = createGenericTripBundle()
+  bundle.climbs[0].name = 'Col enrichi'
+  bundle.climbs[0].provenance = {
+    sourceType: 'osm',
+    sourceId: 'overpass-osm:mountain-pass:node:42',
+    fetchedAt: '2028-04-01T10:00:00.000Z',
+    engineVersion: 'climb-name-enrichment@1',
+    confidence: 'high',
+    manuallyOverridden: false,
+  }
+  const html = renderTripDetail(bundle, { canEnrichClimbNames: true })
+  assert.match(html, /Col enrichi/)
+  assert.match(html, /Rechercher les noms des montées/)
+  assert.match(html, /© OpenStreetMap contributors/)
+})

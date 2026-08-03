@@ -8,6 +8,7 @@ import test from 'node:test'
 
 import { importGpxTrip } from '../../src/import/gpx/import-gpx-trip.ts'
 import { enrichStoredTripEndpoints } from '../../src/geocoding/endpoint-enrichment.ts'
+import { enrichStoredTripClimbNames } from '../../src/climb-names/enrichment.ts'
 import { createSourceFileRepository } from '../../src/storage/indexeddb/source-file-repository.ts'
 import { createTripRepository } from '../../src/storage/indexeddb/trip-repository.ts'
 import { accommodationId, overrideId, practicalPlaceId } from '../../src/trip-core/index.ts'
@@ -260,6 +261,64 @@ test('editing an unchanged GPX stage preserves its geocoded endpoints and readab
     assert.equal(result.bundle.days[0].startLocationName, 'Lieu départ')
     assert.equal(result.bundle.days[0].endLocationName, 'Lieu arrivée')
     assert.equal(result.bundle.routePoints.filter((point) => point.provenance.engineVersion === 'endpoint-geocoding@1').length, 2)
+  } finally {
+    database.close()
+  }
+})
+
+test('editing an unchanged route preserves its OSM-enriched climb names', async () => {
+  const database = await openImportTestDatabase()
+  try {
+    const original = await importTrip(database, [gpxFile('climb.gpx', 45, 250, 0.01)])
+    assert.ok(original.climbs.length > 0)
+    await enrichStoredTripClimbNames({
+      database,
+      tripId: original.metadata.id,
+      provider: {
+        id: 'mock-climb-provider',
+        sourceType: 'osm',
+        attribution: 'Mock OSM',
+        async findCandidates(search) {
+          return [{ name: 'Col conservé', featureType: 'mountain-pass', sourceId: 'overpass-osm:mountain-pass:node:1', coordinates: search.coordinates, elevationM: search.elevationM }]
+        },
+      },
+      now: fixedNow('2027-01-20T00:00:00.000Z'),
+    })
+
+    const draft = await loadTripEditDraft(database, 'trip-edit')
+    const result = await edit(database, draft.slots, 'climb-name-edit')
+    assert.equal(result.ok, true)
+    assert.ok(result.bundle.climbs.some((climb) => climb.name === 'Col conservé' && climb.provenance.sourceType === 'osm'))
+  } finally {
+    database.close()
+  }
+})
+
+test('replacing a route invalidates its previous OSM climb names', async () => {
+  const database = await openImportTestDatabase()
+  try {
+    const original = await importTrip(database, [gpxFile('climb.gpx', 45, 250, 0.01)])
+    assert.ok(original.climbs.length > 0)
+    await enrichStoredTripClimbNames({
+      database,
+      tripId: original.metadata.id,
+      provider: {
+        id: 'mock-climb-provider',
+        sourceType: 'osm',
+        attribution: 'Mock OSM',
+        async findCandidates(search) {
+          return [{ name: 'Ancien col', featureType: 'mountain-pass', sourceId: 'overpass-osm:mountain-pass:node:2', coordinates: search.coordinates, elevationM: search.elevationM }]
+        },
+      },
+      now: fixedNow('2027-01-20T00:00:00.000Z'),
+    })
+
+    const draft = await loadTripEditDraft(database, 'trip-edit')
+    const replacement = { ...draft.slots[0], file: gpxFile('replacement-climb.gpx', 46, 300, 0.012), existingSourceFileId: null }
+    const result = await edit(database, [replacement], 'climb-name-replace')
+    assert.equal(result.ok, true)
+    assert.ok(result.bundle.climbs.length > 0)
+    assert.ok(result.bundle.climbs.every((climb) => climb.name !== 'Ancien col' && climb.provenance.engineVersion !== 'climb-name-enrichment@1'))
   } finally {
     database.close()
   }

@@ -1,4 +1,5 @@
 import type { GeocodingCoordinates, GeocodingProvider, ReverseGeocodingResult } from './types.ts'
+import { createSerialRateLimiter } from './rate-limiter.ts'
 
 const DEFAULT_BASE_URL = 'https://nominatim.openstreetmap.org/reverse'
 const DEFAULT_MINIMUM_INTERVAL_MS = 1_100
@@ -73,25 +74,18 @@ function sourceId(payload: NominatimResponse): string | null {
   return placeId === null ? null : `nominatim:place:${placeId}`
 }
 
-function defaultSleep(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds))
-}
-
 export function createNominatimGeocodingProvider(options: NominatimProviderOptions = {}): GeocodingProvider {
   const baseUrl = options.baseUrl ?? DEFAULT_BASE_URL
   const language = options.language ?? 'fr'
   const minimumIntervalMs = Math.max(0, options.minimumIntervalMs ?? DEFAULT_MINIMUM_INTERVAL_MS)
   const fetchFn = options.fetchFn ?? fetch
-  const nowMs = options.nowMs ?? Date.now
-  const sleep = options.sleep ?? defaultSleep
-  let lastStartedAt = Number.NEGATIVE_INFINITY
-  let queue: Promise<void> = Promise.resolve()
+  const limiter = createSerialRateLimiter({
+    minimumIntervalMs,
+    nowMs: options.nowMs,
+    sleep: options.sleep,
+  })
 
   async function reverseOnce(coordinates: GeocodingCoordinates, signal?: AbortSignal): Promise<ReverseGeocodingResult | null> {
-    const delay = Math.max(0, minimumIntervalMs - (nowMs() - lastStartedAt))
-    if (delay > 0) await sleep(delay)
-    lastStartedAt = nowMs()
-
     const url = new URL(baseUrl)
     url.searchParams.set('format', 'jsonv2')
     url.searchParams.set('addressdetails', '1')
@@ -115,9 +109,7 @@ export function createNominatimGeocodingProvider(options: NominatimProviderOptio
     sourceType: 'osm',
     attribution: '© OpenStreetMap contributors',
     reverse(coordinates, signal) {
-      const operation = queue.then(() => reverseOnce(coordinates, signal))
-      queue = operation.then(() => undefined, () => undefined)
-      return operation
+      return limiter.run(() => reverseOnce(coordinates, signal))
     },
   }
 }

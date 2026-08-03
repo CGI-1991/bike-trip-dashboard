@@ -8,6 +8,8 @@
 import { createTripRepository } from '../../storage/indexeddb/trip-repository.ts'
 import { enrichStoredTripEndpoints, tripNeedsEndpointGeocoding } from '../../geocoding/endpoint-enrichment.ts'
 import type { GeocodingProvider } from '../../geocoding/types.ts'
+import { enrichStoredTripClimbNames, tripNeedsClimbNameEnrichment } from '../../climb-names/enrichment.ts'
+import type { ClimbNameProvider } from '../../climb-names/types.ts'
 import type { TripId } from '../../trip-core/index.ts'
 import { deleteTripCompletely, listTripSummaries, setActiveTrip } from '../../trips-manager/trip-manager-actions.ts'
 import type { TripListEntry } from '../../trips-manager/trip-summary.ts'
@@ -21,6 +23,7 @@ export interface TripsManagerDeps {
   readonly now: () => string
   readonly idFactory: () => string
   readonly geocodingProvider?: GeocodingProvider
+  readonly climbNameProvider?: ClimbNameProvider
 }
 
 type Mode =
@@ -63,6 +66,8 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   let mode: Mode = { kind: 'list' }
   const geocodingInFlight = new Set<TripId>()
   const geocodingErrors = new Map<TripId, string>()
+  const climbNamingInFlight = new Set<TripId>()
+  const climbNamingErrors = new Map<TripId, string>()
 
   async function renderList(): Promise<void> {
     container.innerHTML = '<p role="status">Chargement de vos voyages…</p>'
@@ -95,15 +100,19 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       await renderList()
       return
     }
+    const enrichmentBusy = geocodingInFlight.has(tripId) || climbNamingInFlight.has(tripId)
     container.innerHTML = renderTripDetail(bundle, {
-      canEnrichEndpoints: deps.geocodingProvider !== undefined && tripNeedsEndpointGeocoding(bundle),
+      canEnrichEndpoints: !enrichmentBusy && deps.geocodingProvider !== undefined && tripNeedsEndpointGeocoding(bundle),
       geocodingPending: geocodingInFlight.has(tripId),
       geocodingError: geocodingErrors.get(tripId) ?? null,
+      canEnrichClimbNames: !enrichmentBusy && deps.climbNameProvider !== undefined && tripNeedsClimbNameEnrichment(bundle),
+      climbNamingPending: climbNamingInFlight.has(tripId),
+      climbNamingError: climbNamingErrors.get(tripId) ?? null,
     })
   }
 
   async function enrichEndpoints(tripId: TripId): Promise<void> {
-    if (deps.geocodingProvider === undefined || geocodingInFlight.has(tripId)) return
+    if (deps.geocodingProvider === undefined || geocodingInFlight.has(tripId) || climbNamingInFlight.has(tripId)) return
     geocodingInFlight.add(tripId)
     geocodingErrors.delete(tripId)
     await renderDetail(tripId)
@@ -119,6 +128,26 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       geocodingErrors.set(tripId, error instanceof Error ? error.message : 'L’enrichissement des lieux a échoué.')
     } finally {
       geocodingInFlight.delete(tripId)
+      if (mode.kind === 'detail' && mode.tripId === tripId) await renderDetail(tripId)
+    }
+  }
+
+  async function enrichClimbNames(tripId: TripId): Promise<void> {
+    if (deps.climbNameProvider === undefined || geocodingInFlight.has(tripId) || climbNamingInFlight.has(tripId)) return
+    climbNamingInFlight.add(tripId)
+    climbNamingErrors.delete(tripId)
+    await renderDetail(tripId)
+    try {
+      await enrichStoredTripClimbNames({
+        database: deps.database,
+        tripId,
+        provider: deps.climbNameProvider,
+        now: deps.now,
+      })
+    } catch (error) {
+      climbNamingErrors.set(tripId, error instanceof Error ? error.message : 'L’enrichissement des montées a échoué.')
+    } finally {
+      climbNamingInFlight.delete(tripId)
       if (mode.kind === 'detail' && mode.tripId === tripId) await renderDetail(tripId)
     }
   }
@@ -201,6 +230,8 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       void renderList()
     } else if (action === 'enrich-trip-endpoints' && mode.kind === 'detail') {
       void enrichEndpoints(mode.tripId)
+    } else if (action === 'enrich-trip-climb-names' && mode.kind === 'detail') {
+      void enrichClimbNames(mode.tripId)
     } else if (action === 'delete-trip' && tripId !== undefined) {
       if (!window.confirm('Supprimer définitivement ce voyage et toutes ses données ?')) return
       void (async () => {
