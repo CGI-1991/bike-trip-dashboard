@@ -65,3 +65,33 @@ test('automatic enrichment runs endpoints before route data and a network outage
     database.close()
   }
 })
+
+test('the normal automatic pipeline never invokes practical-place enrichment', async () => {
+  const database = await openTestDatabase()
+  try {
+    const repository = createTripRepository(database)
+    const bundle = createGenericTripBundle()
+    await repository.saveTripBundle(bundle)
+    let practicalCalls = 0
+
+    const report = await runStoredTripAutomaticEnrichment({
+      database,
+      tripId: bundle.metadata.id,
+      practicalPlacesProvider: {
+        id: 'forbidden-practical-provider',
+        sourceType: 'osm',
+        attribution: 'OSM',
+        async findCandidates() { practicalCalls++; return [] },
+      },
+      idFactory: idFactory(),
+      now: () => '2028-08-03T10:00:00.000Z',
+    })
+
+    assert.equal(report.endpointAttempted, false)
+    assert.equal(report.routeAttempted, false)
+    assert.equal(practicalCalls, 0)
+    assert.ok(await repository.loadTripBundle(bundle.metadata.id))
+  } finally {
+    database.close()
+  }
+})

@@ -35,7 +35,7 @@ test('trip detail offers optional climb naming and displays an enriched climb na
   assert.match(html, /© OpenStreetMap contributors/)
 })
 
-test('trip detail exposes practical-place search and renders a compact stage list with OSM attribution', () => {
+test('trip detail keeps stored practical places readable but exposes no practical-place search action', () => {
   const bundle = createGenericTripBundle()
   bundle.practicalPlaces.push({
     id: 'osm-practical:stage-alpha:node:42',
@@ -57,8 +57,8 @@ test('trip detail exposes practical-place search and renders a compact stage lis
       engineVersion: 'practical-places-osm@1', confidence: 'high', manuallyOverridden: false,
     },
   })
-  const html = renderTripDetail(bundle, { canSearchPracticalPlaces: true })
-  assert.match(html, /Rechercher les lieux utiles/)
+  const html = renderTripDetail(bundle)
+  assert.doesNotMatch(html, /Rechercher les lieux utiles/)
   assert.match(html, /Eau potable/)
   assert.match(html, /Sans nom/)
   assert.match(html, /≈ 12\.3 km/)
@@ -81,8 +81,8 @@ test('trip detail distinguishes an unstarted, successful-empty and failed practi
     lastSuccessAt: '2028-08-03T10:00:00.000Z', status: 'error', message: 'Overpass indisponible.',
   }
   const failedHtml = renderTripDetail(bundle)
-  assert.match(failedHtml, /Overpass indisponible/)
   assert.match(failedHtml, /dernière recherche a échoué/)
+  assert.doesNotMatch(failedHtml, /Rechercher les lieux utiles/)
 })
 
 test('trip detail shows non-blocking automatic progress and ordered route localities', () => {
@@ -104,4 +104,14 @@ test('trip detail shows non-blocking automatic progress and ordered route locali
   const completed = renderTripDetail(bundle)
   assert.match(completed, /Voyage enrichi/)
   assert.match(completed, /Passage :<\/strong> Village UI/)
+
+  const routeStateIndex = bundle.enrichmentMetadata.providers.findIndex((state) => state.provider === 'osm-route-enrichment')
+  bundle.enrichmentMetadata.providers[routeStateIndex] = {
+    ...bundle.enrichmentMetadata.providers[routeStateIndex],
+    status: 'partial',
+    message: 'Une zone reste à reprendre.',
+  }
+  const partial = renderTripDetail(bundle)
+  assert.match(partial, /Enrichissement partiel/)
+  assert.doesNotMatch(partial, /Rechercher les lieux utiles/)
 })

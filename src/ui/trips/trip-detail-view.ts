@@ -13,10 +13,6 @@ export interface TripDetailRenderOptions {
   readonly canEnrichClimbNames?: boolean
   readonly climbNamingPending?: boolean
   readonly climbNamingError?: string | null
-  readonly canSearchPracticalPlaces?: boolean
-  readonly practicalPlacesPending?: boolean
-  readonly practicalPlacesError?: string | null
-  readonly practicalPlacesProgress?: string | null
   readonly automaticEnrichmentPending?: boolean
   readonly automaticEnrichmentProgress?: string | null
   readonly automaticEnrichmentError?: string | null
@@ -144,16 +140,6 @@ export function renderTripDetail(bundle: TripBundle, options: TripDetailRenderOp
   const climbNamingAction = options.canEnrichClimbNames && !options.climbNamingPending
     ? '<button class="button button--quiet" type="button" data-action="enrich-trip-climb-names">Rechercher les noms des montées</button>'
     : ''
-  const practicalPlacesStatus = options.practicalPlacesPending
-    ? `<p role="status">Recherche des lieux utiles en cours…${options.practicalPlacesProgress ? ` ${escapeHtml(options.practicalPlacesProgress)}` : ''}</p>`
-    : options.practicalPlacesError !== null && options.practicalPlacesError !== undefined
-      ? `<p role="alert">${escapeHtml(options.practicalPlacesError)}</p>`
-      : practicalPlacesState?.status === 'error' || practicalPlacesState?.status === 'partial'
-        ? `<p role="alert">${escapeHtml(practicalPlacesState.message ?? 'La recherche des lieux pratiques a échoué.')}</p>`
-        : ''
-  const practicalPlacesAction = options.canSearchPracticalPlaces && !options.practicalPlacesPending
-    ? '<button class="button button--quiet" type="button" data-action="enrich-trip-practical-places">Rechercher les lieux utiles</button>'
-    : ''
   const attribution = hasOsmEndpoints || hasOsmRouteData || hasOsmClimbNames || hasOsmPracticalPlaces ? '<p class="trip-detail__attribution">Données géographiques : © OpenStreetMap contributors.</p>' : ''
 
   return `
@@ -174,8 +160,6 @@ export function renderTripDetail(bundle: TripBundle, options: TripDetailRenderOp
       ${geocodingAction}
       ${climbNamingStatus}
       ${climbNamingAction}
-      ${practicalPlacesStatus}
-      ${practicalPlacesAction}
       <h3>Journées</h3>
       <ol class="trip-detail__day-list">${bundle.days.map((day) => renderDayRow(bundle, day)).join('')}</ol>
       ${attribution}

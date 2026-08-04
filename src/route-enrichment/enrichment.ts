@@ -1,4 +1,4 @@
-import { locatePointOnRoute } from '../practical-places/route-proximity.ts'
+import { locatePointOnRoute } from '../route/route-proximity.ts'
 import { createRouteEnrichmentCacheRepository } from '../storage/indexeddb/route-enrichment-cache-repository.ts'
 import type { RouteEnrichmentCacheRepository } from '../storage/indexeddb/route-enrichment-cache-repository.ts'
 import { createTripRepository } from '../storage/indexeddb/trip-repository.ts'

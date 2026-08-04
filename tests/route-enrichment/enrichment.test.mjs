@@ -63,6 +63,12 @@ test('localities are filtered at 1.5 km, deduplicated and ordered along the full
   const report = await enrichTripRoute({ bundle, provider, cache: memoryCache(), idFactory: idFactory(), now: () => '2028-08-03T10:00:00.000Z' })
   const localities = report.bundle.routePoints.filter((point) => ['city', 'town', 'village'].includes(point.osmFeatureType))
   assert.deepEqual(localities.map((point) => point.name), ['Premier', 'Milieu', 'Second'])
+  assert.deepEqual(localities.map((point) => point.osmFeatureType), ['city', 'town', 'village'])
+  assert.deepEqual(localities.map((point) => point.provenance.sourceId), [
+    'overpass-osm:city:node:v1',
+    'overpass-osm:town:node:v-town',
+    'overpass-osm:village:node:v2',
+  ])
   assert.ok(localities[0].trackDistanceKm < localities[1].trackDistanceKm && localities[1].trackDistanceKm < localities[2].trackDistanceKm)
   assert.ok(localities.every((point) => point.lateralDistanceKm <= 1.5))
 })

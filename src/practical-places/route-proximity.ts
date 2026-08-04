@@ -1,63 +1,15 @@
 import type { RouteGeometryPoint } from '../trip-core/index.ts'
+import { distanceBetweenCoordinatesMeters, locatePointOnRoute } from '../route/route-proximity.ts'
+import type { LocatedRoutePosition } from '../route/route-proximity.ts'
 import type { PracticalPlaceCandidate } from './types.ts'
-
-const EARTH_RADIUS_METERS = 6_371_000
 
 export interface LocatedPracticalPlaceCandidate extends PracticalPlaceCandidate {
   readonly trackDistanceKm: number
   readonly lateralDistanceMeters: number
 }
 
-function segmentProjection(
-  candidate: { readonly latitude: number; readonly longitude: number },
-  start: RouteGeometryPoint,
-  end: RouteGeometryPoint,
-): { readonly segmentMeters: number; readonly ratio: number; readonly distanceMeters: number } {
-  const radians = Math.PI / 180
-  const referenceLatitude = ((start.latitude + end.latitude + candidate.latitude) / 3) * radians
-  const xScale = EARTH_RADIUS_METERS * Math.cos(referenceLatitude) * radians
-  const yScale = EARTH_RADIUS_METERS * radians
-  const endX = (end.longitude - start.longitude) * xScale
-  const endY = (end.latitude - start.latitude) * yScale
-  const pointX = (candidate.longitude - start.longitude) * xScale
-  const pointY = (candidate.latitude - start.latitude) * yScale
-  const squaredLength = endX ** 2 + endY ** 2
-  const ratio = squaredLength === 0 ? 0 : Math.max(0, Math.min(1, (pointX * endX + pointY * endY) / squaredLength))
-  return {
-    segmentMeters: Math.sqrt(squaredLength),
-    ratio,
-    distanceMeters: Math.sqrt((pointX - ratio * endX) ** 2 + (pointY - ratio * endY) ** 2),
-  }
-}
-
-export interface LocatedRoutePosition {
-  readonly trackDistanceKm: number
-  readonly lateralDistanceMeters: number
-}
-
-export function locatePointOnRoute(
-  candidate: { readonly latitude: number; readonly longitude: number },
-  geometry: readonly RouteGeometryPoint[],
-): LocatedRoutePosition | null {
-  if (geometry.length < 2) return null
-  let accumulatedMeters = 0
-  let best: { readonly alongMeters: number; readonly lateralMeters: number } | null = null
-  for (let index = 1; index < geometry.length; index++) {
-    const start = geometry[index - 1]
-    const end = geometry[index]
-    if (start === undefined || end === undefined) continue
-    const projection = segmentProjection(candidate, start, end)
-    const alongMeters = accumulatedMeters + projection.segmentMeters * projection.ratio
-    if (best === null || projection.distanceMeters < best.lateralMeters) {
-      best = { alongMeters, lateralMeters: projection.distanceMeters }
-    }
-    accumulatedMeters += projection.segmentMeters
-  }
-  return best === null ? null : {
-    trackDistanceKm: best.alongMeters / 1_000,
-    lateralDistanceMeters: best.lateralMeters,
-  }
-}
+export { locatePointOnRoute }
+export type { LocatedRoutePosition }
 
 export function locateCandidateOnRoute(
   candidate: PracticalPlaceCandidate,
@@ -73,9 +25,7 @@ function normalizedName(name: string | null): string | null {
 }
 
 function distanceMeters(left: LocatedPracticalPlaceCandidate, right: LocatedPracticalPlaceCandidate): number {
-  const syntheticStart = { latitude: left.latitude, longitude: left.longitude, altitudeM: null }
-  const syntheticEnd = { latitude: right.latitude, longitude: right.longitude, altitudeM: null }
-  return segmentProjection(left, syntheticStart, syntheticEnd).segmentMeters
+  return distanceBetweenCoordinatesMeters(left, right)
 }
 
 export function locateAndDeduplicatePracticalPlaces(

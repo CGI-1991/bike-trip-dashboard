@@ -52,7 +52,6 @@ import { openImageViewer } from './ui/image-viewer.ts'
 import { initializeTripsManager } from './ui/trips/trips-manager.ts'
 import { createNominatimGeocodingProvider } from './geocoding/nominatim-provider.ts'
 import { createOverpassClimbNameProvider } from './climb-names/overpass-provider.ts'
-import { createOverpassPracticalPlacesProvider } from './practical-places/overpass-provider.ts'
 import { createOverpassRouteEnrichmentProvider } from './route-enrichment/overpass-provider.ts'
 import { openBikeTripDatabase } from './storage/indexeddb/open-database.ts'
 import { renderDashboard } from './ui/render.ts'
@@ -975,10 +974,6 @@ void openBikeTripDatabase()
       }),
       climbNameProvider: createOverpassClimbNameProvider({
         baseUrl: import.meta.env.VITE_OVERPASS_BASE_URL || undefined,
-      }),
-      practicalPlacesProvider: createOverpassPracticalPlacesProvider({
-        baseUrl: import.meta.env.VITE_OVERPASS_BASE_URL || undefined,
-        onDiagnostic: import.meta.env.DEV ? (diagnostic) => console.debug('[practical-places]', diagnostic) : undefined,
       }),
       routeEnrichmentProvider: createOverpassRouteEnrichmentProvider({
         baseUrl: import.meta.env.VITE_OVERPASS_BASE_URL || undefined,
