@@ -2960,6 +2960,13 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .trip-detail__stats dt { color: var(--ink-soft); font-size: .68rem; }
 .trip-detail__climbs { display: grid; gap: 6px; }
 .trip-detail__climbs li { padding: 8px 10px; background: var(--surface-muted); border-radius: 8px; }
+.trip-detail__places { display: grid; gap: 8px; }
+.trip-detail__place-stage { padding: 8px 10px; background: var(--surface-muted); border-radius: 8px; }
+.trip-detail__place-stage ul { display: grid; gap: 5px; margin-top: 6px; }
+.trip-detail__place-stage li { display: grid; grid-template-columns: minmax(90px, .8fr) minmax(120px, 1.5fr) auto; gap: 8px; align-items: baseline; }
+.trip-detail__place-category { color: var(--ink-soft); font-size: .78rem; }
+.trip-detail__enrichment { display: flex; gap: .5rem; align-items: baseline; flex-wrap: wrap; }
+.trip-detail__localities { margin: .35rem 0 0; color: var(--ink-soft); }
 .wizard-file-list { display: grid; gap: 8px; }
 .wizard-file { padding: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; display: grid; gap: 6px; }
 .wizard-file--invalid { border-color: var(--danger-border); background: var(--danger-bg); }

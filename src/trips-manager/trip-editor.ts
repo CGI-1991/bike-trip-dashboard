@@ -187,6 +187,7 @@ function isRetainedRoutePoint(point: RoutePoint): boolean {
     || ((point.type === 'start' || point.type === 'end')
       && point.provenance.sourceType === 'osm'
       && point.provenance.engineVersion === 'endpoint-geocoding@1')
+    || (point.provenance.sourceType === 'osm' && point.provenance.engineVersion === 'route-enrichment@2')
 }
 
 /** Pure preservation layer applied after all GPX-derived fields were rebuilt. */
@@ -210,18 +211,20 @@ export function mergeEditedTripBundle(existing: TripBundle, rebuilt: TripBundle,
   const retainedAutomaticClimbs = existing.climbs.filter((climb) =>
     unchangedRouteIds.has(climb.routeId)
     && climb.provenance.sourceType === 'osm'
-    && climb.provenance.engineVersion === 'climb-name-enrichment@1',
+    && (climb.provenance.engineVersion === 'climb-name-enrichment@1' || climb.provenance.engineVersion === 'route-enrichment@2'),
   )
   const baseClimbs = rebuilt.climbs.map((climb) => {
     const mappedRouteId = remaps.routeIds.get(climb.routeId) ?? climb.routeId
     const retained = retainedAutomaticClimbs.find((candidate) =>
       candidate.routeId === mappedRouteId
       && Math.abs(candidate.startDistanceKm - climb.startDistanceKm) <= 0.05
-      && Math.abs(candidate.endDistanceKm - climb.endDistanceKm) <= 0.05,
+      && Math.abs(candidate.endDistanceKm - climb.endDistanceKm) <= (candidate.provenance.engineVersion === 'route-enrichment@2' ? 1 : 0.05),
     )
     return retained === undefined
       ? { ...climb, routeId: mappedRouteId }
-      : { ...climb, routeId: mappedRouteId, name: retained.name, confidence: retained.confidence, provenance: retained.provenance }
+      : retained.provenance.engineVersion === 'route-enrichment@2'
+        ? { ...retained, id: climb.id, routeId: mappedRouteId }
+        : { ...climb, routeId: mappedRouteId, name: retained.name, confidence: retained.confidence, provenance: retained.provenance }
   })
   const manualClimbs = existing.climbs.filter((climb) => unchangedRouteIds.has(climb.routeId) && isManualProvenance(climb.provenance))
   const climbIds = new Set(baseClimbs.map((climb) => climb.id))
@@ -276,7 +279,15 @@ export function mergeEditedTripBundle(existing: TripBundle, rebuilt: TripBundle,
   const retainedAccommodationIds = new Set(days.flatMap((day) => (day.accommodationId === null ? [] : [day.accommodationId])))
   const accommodations = existing.accommodations.filter((accommodation) => retainedAccommodationIds.has(accommodation.id))
   const practicalPlaces = existing.practicalPlaces
-    .filter((place) => isManualProvenance(place.provenance) && place.dayIds.some((dayId) => keptDayIds.has(dayId)))
+    .filter((place) => {
+      if (!place.dayIds.some((dayId) => keptDayIds.has(dayId))) return false
+      if (isManualProvenance(place.provenance)) return true
+      return place.provenance.sourceType === 'osm'
+        && place.provenance.engineVersion.startsWith('practical-places-osm@')
+        && place.stageId !== undefined
+        && place.stageId !== null
+        && remaps.unchangedStageIds.has(place.stageId)
+    })
     .map((place) => ({ ...place, dayIds: place.dayIds.filter((dayId) => keptDayIds.has(dayId)) }))
 
   const existingDaySettings = new Map(existing.settings.days.map((settings) => [settings.dayId, settings]))
@@ -318,6 +329,9 @@ export function mergeEditedTripBundle(existing: TripBundle, rebuilt: TripBundle,
     accommodations,
     settings: { global: { ...existing.settings.global, pausePlanMode: 'automatic' }, days: settingsDays, stages: [] },
     overrides,
+    enrichmentMetadata: remaps.unchangedStageIds.size === rebuilt.stages.length
+      ? existing.enrichmentMetadata
+      : rebuilt.enrichmentMetadata,
   }
 }
 

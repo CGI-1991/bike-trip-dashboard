@@ -9,6 +9,8 @@ import test from 'node:test'
 import { importGpxTrip } from '../../src/import/gpx/import-gpx-trip.ts'
 import { enrichStoredTripEndpoints } from '../../src/geocoding/endpoint-enrichment.ts'
 import { enrichStoredTripClimbNames } from '../../src/climb-names/enrichment.ts'
+import { enrichStoredTripPracticalPlaces, PRACTICAL_PLACES_ENGINE_VERSION } from '../../src/practical-places/enrichment.ts'
+import { enrichStoredTripRoute, ROUTE_ENRICHMENT_ENGINE_VERSION } from '../../src/route-enrichment/enrichment.ts'
 import { createSourceFileRepository } from '../../src/storage/indexeddb/source-file-repository.ts'
 import { createTripRepository } from '../../src/storage/indexeddb/trip-repository.ts'
 import { accommodationId, overrideId, practicalPlaceId } from '../../src/trip-core/index.ts'
@@ -319,6 +321,117 @@ test('replacing a route invalidates its previous OSM climb names', async () => {
     assert.equal(result.ok, true)
     assert.ok(result.bundle.climbs.length > 0)
     assert.ok(result.bundle.climbs.every((climb) => climb.name !== 'Ancien col' && climb.provenance.engineVersion !== 'climb-name-enrichment@1'))
+  } finally {
+    database.close()
+  }
+})
+
+function practicalProvider(osmId) {
+  return {
+    id: 'mock-practical-provider',
+    sourceType: 'osm',
+    attribution: 'Mock OSM',
+    async findCandidates(search) {
+      const point = search.geometry[Math.min(1, search.geometry.length - 1)]
+      return [{
+        osmType: 'node', osmId, category: 'water', name: null,
+        latitude: point.latitude, longitude: point.longitude,
+        usefulTags: { amenity: 'drinking_water' },
+      }]
+    },
+  }
+}
+
+test('editing an unchanged route preserves its persisted OSM practical places', async () => {
+  const database = await openImportTestDatabase()
+  try {
+    const original = await importTrip(database, [gpxFile('places.gpx')])
+    await enrichStoredTripPracticalPlaces({
+      database,
+      tripId: original.metadata.id,
+      provider: practicalProvider('kept-place'),
+      now: fixedNow('2027-01-20T00:00:00.000Z'),
+    })
+    const enriched = await createTripRepository(database).loadTripBundle('trip-edit')
+    const originalPlace = enriched.practicalPlaces.find((place) => place.provenance.engineVersion === PRACTICAL_PLACES_ENGINE_VERSION)
+    assert.ok(originalPlace)
+
+    const draft = await loadTripEditDraft(database, 'trip-edit')
+    const result = await edit(database, draft.slots, 'practical-place-edit')
+    assert.equal(result.ok, true)
+    assert.ok(result.bundle.practicalPlaces.some((place) => place.id === originalPlace.id && place.stageId === result.bundle.stages[0].id))
+  } finally {
+    database.close()
+  }
+})
+
+test('replacing a GPX invalidates practical places derived from that route', async () => {
+  const database = await openImportTestDatabase()
+  try {
+    const original = await importTrip(database, [gpxFile('places.gpx')])
+    await enrichStoredTripPracticalPlaces({
+      database,
+      tripId: original.metadata.id,
+      provider: practicalProvider('obsolete-place'),
+      now: fixedNow('2027-01-20T00:00:00.000Z'),
+    })
+    const draft = await loadTripEditDraft(database, 'trip-edit')
+    const replacement = { ...draft.slots[0], file: gpxFile('replacement-places.gpx', 46, 180, 0.012), existingSourceFileId: null }
+    const result = await edit(database, [replacement], 'practical-place-replace')
+    assert.equal(result.ok, true)
+    assert.ok(result.bundle.practicalPlaces.every((place) => place.provenance.engineVersion !== PRACTICAL_PLACES_ENGINE_VERSION))
+  } finally {
+    database.close()
+  }
+})
+
+function routeEnrichmentProvider() {
+  return {
+    id: 'mock-route-enrichment', sourceType: 'osm', attribution: 'Mock OSM',
+    async findCandidates(search) {
+      if (search.kind === 'landmarks') return []
+      const point = search.geometry[Math.min(1, search.geometry.length - 1)]
+      return [{
+        osmType: 'node', osmId: 'village-kept', featureType: 'village', name: 'Village test',
+        latitude: point.latitude, longitude: point.longitude, elevationM: point.altitudeM, usefulTags: { place: 'village' },
+      }]
+    },
+  }
+}
+
+test('editing an unchanged route preserves its route localities', async () => {
+  const database = await openImportTestDatabase()
+  try {
+    const original = await importTrip(database, [gpxFile('localities.gpx')])
+    await enrichStoredTripRoute({
+      database, tripId: original.metadata.id, provider: routeEnrichmentProvider(),
+      idFactory: createIdFactory('locality'), now: fixedNow('2027-01-20T00:00:00.000Z'),
+    })
+    const enriched = await createTripRepository(database).loadTripBundle('trip-edit')
+    const locality = enriched.routePoints.find((point) => point.provenance.engineVersion === ROUTE_ENRICHMENT_ENGINE_VERSION)
+    assert.ok(locality)
+    const draft = await loadTripEditDraft(database, 'trip-edit')
+    const result = await edit(database, draft.slots, 'locality-edit')
+    assert.equal(result.ok, true)
+    assert.ok(result.bundle.routePoints.some((point) => point.provenance.sourceId === locality.provenance.sourceId))
+  } finally {
+    database.close()
+  }
+})
+
+test('replacing a GPX invalidates its route localities and landmarks', async () => {
+  const database = await openImportTestDatabase()
+  try {
+    const original = await importTrip(database, [gpxFile('localities.gpx')])
+    await enrichStoredTripRoute({
+      database, tripId: original.metadata.id, provider: routeEnrichmentProvider(),
+      idFactory: createIdFactory('locality'), now: fixedNow('2027-01-20T00:00:00.000Z'),
+    })
+    const draft = await loadTripEditDraft(database, 'trip-edit')
+    const replacement = { ...draft.slots[0], file: gpxFile('replacement-localities.gpx', 46, 180, 0.012), existingSourceFileId: null }
+    const result = await edit(database, [replacement], 'locality-replace')
+    assert.equal(result.ok, true)
+    assert.ok(result.bundle.routePoints.every((point) => point.provenance.engineVersion !== ROUTE_ENRICHMENT_ENGINE_VERSION))
   } finally {
     database.close()
   }
