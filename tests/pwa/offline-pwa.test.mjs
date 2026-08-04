@@ -192,9 +192,105 @@ test('the running service worker never serves the app shell for a GPX, JSON, ima
   assert.equal(await dispatch('assets/some-unlisted-chunk.js', 'no-cors'), null, 'an unlisted same-origin asset falls through to the network unmodified')
 })
 
-test('HTML installation metadata uses the Vite base placeholder', () => {
+test('the manifest is served network-first, self-healing a stale cached copy, and only falls back to cache when actually offline', async () => {
+  // Stability hardening 2026-08-04: real-browser smoke testing observed a
+  // "Manifest: Line 1, column 1, Syntax error" symptom consistent with an
+  // old, not-yet-superseded service worker still serving a stale/bad cached
+  // manifest response. Cache-first (the strategy used for every other
+  // known resource) would keep doing that indefinitely; network-first for
+  // the manifest specifically self-heals on the very next successful
+  // request instead.
+  const template = readFileSync(projectFile('scripts/service-worker.template.js'), 'utf8')
+  const source = template
+    .replace('__CACHE_VERSION__', 'test')
+    .replace('__BUILD_ASSETS__', JSON.stringify(['assets/app.js']))
+    .replace('__OFFLINE_RESOURCES__', JSON.stringify(['manifest.webmanifest']))
+
+  const listeners = new Map()
+  const stored = new Map()
+  const fakeCache = {
+    addAll: async () => {},
+    match: async (urlOrRequest) => {
+      const url = typeof urlOrRequest === 'string' ? urlOrRequest : urlOrRequest.url
+      return stored.get(url) ?? undefined
+    },
+    put: async (urlOrRequest, response) => {
+      const url = typeof urlOrRequest === 'string' ? urlOrRequest : urlOrRequest.url
+      stored.set(url, response)
+    },
+  }
+  function networkResponse(markerFor) {
+    return { ok: true, status: 200, markerFor, clone: () => ({ markerFor }) }
+  }
+  let networkBehavior = () => networkResponse('fresh-network-response')
+  const sandbox = {
+    self: {
+      registration: { scope: 'https://example.test/bike-trip-dashboard/' },
+      addEventListener: (type, listener) => listeners.set(type, listener),
+      clients: { claim: async () => {} },
+    },
+    caches: { open: async () => fakeCache, keys: async () => [], delete: async () => true },
+    fetch: async () => networkBehavior(),
+    Response: { error: () => ({ markerFor: 'network-error-response' }) },
+    URL,
+    Promise,
+  }
+  vm.createContext(sandbox)
+  vm.runInContext(source, sandbox)
+
+  const fetchHandler = listeners.get('fetch')
+  async function dispatchManifest() {
+    let respondWithPromise = null
+    const request = { method: 'GET', mode: 'no-cors', url: 'https://example.test/bike-trip-dashboard/manifest.webmanifest' }
+    fetchHandler({ request, respondWith: (promise) => { respondWithPromise = promise } })
+    return respondWithPromise
+  }
+  const manifestUrl = 'https://example.test/bike-trip-dashboard/manifest.webmanifest'
+
+  // Online: always the fresh network response, and a clone of it gets cached for later.
+  const first = await dispatchManifest()
+  assert.equal(first.markerFor, 'fresh-network-response')
+  assert.deepEqual(stored.get(manifestUrl), { markerFor: 'fresh-network-response' })
+
+  // A later, DIFFERENT network response (e.g. a fixed manifest after a bad
+  // one was previously cached) is served immediately — never masked by
+  // whatever is sitting in the cache.
+  networkBehavior = () => networkResponse('updated-network-response')
+  const second = await dispatchManifest()
+  assert.equal(second.markerFor, 'updated-network-response')
+  assert.deepEqual(stored.get(manifestUrl), { markerFor: 'updated-network-response' })
+
+  // Offline: falls back to whatever was last successfully cached, never a network error surfacing as a broken manifest.
+  networkBehavior = () => { throw new Error('offline') }
+  const third = await dispatchManifest()
+  assert.deepEqual(third, { markerFor: 'updated-network-response' })
+})
+
+test('HTML installation metadata uses the Vite base placeholder and both mobile-web-app-capable metas', () => {
   const html = readFileSync(projectFile('index.html'), 'utf8')
   assert.match(html, /rel="manifest" href="%BASE_URL%manifest\.webmanifest"/)
   assert.match(html, /rel="apple-touch-icon" href="%BASE_URL%icons\/icon-192\.png"/)
-  assert.match(html, /apple-mobile-web-app-capable/)
+  assert.match(html, /<meta name="mobile-web-app-capable" content="yes" \/>/)
+  assert.match(html, /<meta name="apple-mobile-web-app-capable" content="yes" \/>/)
+})
+
+test('the Vite base path is declared exactly once and never contains a duplicated segment', () => {
+  const viteSource = readFileSync(projectFile('vite.config.ts'), 'utf8')
+  const matches = [...viteSource.matchAll(/base:\s*'([^']+)'/g)]
+  assert.equal(matches.length, 1, 'vite.config.ts must declare `base` exactly once')
+  const basePath = matches[0][1]
+  const segments = basePath.split('/').filter((segment) => segment !== '')
+  assert.equal(new Set(segments).size, segments.length, `base path segments must all be distinct, got "${basePath}"`)
+})
+
+test('a fresh production build never doubles the base path in the emitted HTML or manifest link', (t) => {
+  const distIndexUrl = projectFile('dist/index.html')
+  if (!existsSync(distIndexUrl)) {
+    t.skip('dist/index.html is produced by `npm run build`, not guaranteed to exist before this test runs')
+    return
+  }
+  const html = readFileSync(distIndexUrl, 'utf8')
+  assert.doesNotMatch(html, /\/bike-trip-dashboard\/bike-trip-dashboard\//)
+  assert.match(html, /href="\/bike-trip-dashboard\/manifest\.webmanifest"/)
+  assert.match(html, /href="\/bike-trip-dashboard\/icons\/icon-192\.png"/)
 })

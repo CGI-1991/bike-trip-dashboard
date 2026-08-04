@@ -5,6 +5,7 @@ import {
   buildPostpassLineString,
   buildPostpassStructuralQuery,
   createPostpassRouteEnrichmentProvider,
+  DEFAULT_POSTPASS_TIMEOUT_MS,
   parsePostpassFeatureCollection,
   POSTPASS_LANDMARK_BBOX_EXPAND_DEGREES,
   POSTPASS_LOCALITY_BBOX_EXPAND_DEGREES,
@@ -40,7 +41,7 @@ function feature(featureType, overrides = {}) {
   }
 }
 
-test('SQL builds one numeric LINESTRING query for city/town/mountain_pass/saddle only', () => {
+test('SQL builds one numeric LINESTRING query for city/town/village/mountain_pass/saddle only — V1 final scope', () => {
   const hostile = "stage'; DROP TABLE postpass_point; --"
   const sql = buildPostpassStructuralQuery(search({ stageId: hostile, routeFingerprint: hostile }))
   assert.match(buildPostpassLineString(geometry), /^LINESTRING\(6 45,6\.2 45\.1\)$/)
@@ -54,11 +55,20 @@ test('SQL builds one numeric LINESTRING query for city/town/mountain_pass/saddle
   assert.match(sql, /ST_DWithin\(source\.geom::geography, route\.geom::geography, 500\)/)
   assert.match(sql, /'city'/)
   assert.match(sql, /'town'/)
+  assert.match(sql, /'village'/)
   assert.match(sql, /'mountain_pass'/)
   assert.match(sql, /'saddle'/)
-  assert.doesNotMatch(sql, /village|hamlet|peak|drinking_water|shelter|toilets|restaurant|shop|bicycle|sports/)
+  // Stability/UX hardening 2026-08-04: hamlet/peak definitively dropped —
+  // never searched, never stored, never displayed, never used as a pause anchor.
+  assert.doesNotMatch(sql, /'hamlet'|'peak'/)
+  assert.doesNotMatch(sql, /drinking_water|shelter|toilets|restaurant|shop|bicycle|sports/)
   assert.doesNotMatch(sql, /DROP TABLE/)
   assert.doesNotMatch(sql, /;\s*$/)
+})
+
+test('exactly one Postpass query per stage, regardless of route length (no chunking for the V1 final, reduced scope)', () => {
+  const sql = buildPostpassStructuralQuery(search())
+  assert.equal((sql.match(/\bWITH\b/g) ?? []).length, 1, 'a single WITH ... candidates CTE — never split into multiple queries')
 })
 
 test('bbox preselection remains wider than collection radii at 60 degrees latitude', () => {
@@ -72,14 +82,23 @@ test('LINESTRING rejects non-numeric or out-of-range GPX coordinates', () => {
   assert.throws(() => buildPostpassLineString([{ latitude: 45, longitude: 6 }, { latitude: 91, longitude: 7 }]), /invalide/)
 })
 
-test('GeoJSON parsing keeps exactly city, town, mountain-pass and saddle with OSM identity and elevation', () => {
+test('GeoJSON parsing keeps city, town, village, mountain-pass and saddle with OSM identity and elevation — hamlet/peak are never even parsed', () => {
   const parsed = parsePostpassFeatureCollection({
     type: 'FeatureCollection',
-    features: [feature('city'), feature('town', { properties: { osm_type: 'W', osm_id: '43', name: 'Town', elevation: null, feature_type: 'town' } }), feature('mountain-pass'), feature('saddle'), feature('village'), feature('peak')],
+    features: [
+      feature('city'),
+      feature('town', { properties: { osm_type: 'W', osm_id: '43', name: 'Town', elevation: null, feature_type: 'town' } }),
+      feature('mountain-pass'),
+      feature('saddle'),
+      feature('village'),
+      feature('hamlet'),
+      feature('peak'),
+      feature(undefined, { properties: { osm_type: 'N', osm_id: 99, name: 'Unknown', elevation: null, feature_type: 'shelter' } }),
+    ],
   })
-  assert.equal(parsed.rawCandidateCount, 6)
-  assert.deepEqual(parsed.candidates.map((candidate) => candidate.featureType), ['city', 'town', 'mountain-pass', 'saddle'])
-  assert.deepEqual(parsed.candidates.map((candidate) => candidate.osmType), ['node', 'way', 'node', 'node'])
+  assert.equal(parsed.rawCandidateCount, 8)
+  assert.deepEqual(parsed.candidates.map((candidate) => candidate.featureType), ['city', 'town', 'mountain-pass', 'saddle', 'village'])
+  assert.deepEqual(parsed.candidates.map((candidate) => candidate.osmType), ['node', 'way', 'node', 'node', 'node'])
   assert.equal(parsed.candidates[2].elevationM, 1234)
 })
 
@@ -103,7 +122,17 @@ test('provider performs exactly one POST and returns parsed diagnostics', async 
   assert.equal(result.rawCandidateCount, 2)
   assert.deepEqual(result.candidates.map((candidate) => candidate.featureType), ['city', 'saddle'])
   assert.deepEqual(diagnostics.map((diagnostic) => diagnostic.stage), ['request', 'response', 'parsed'])
-  assert.deepEqual(diagnostics.at(-1).counts, { city: 1, town: 0, 'mountain-pass': 0, saddle: 1 })
+  assert.deepEqual(diagnostics.at(-1).counts, { city: 1, town: 0, village: 0, 'mountain-pass': 0, saddle: 1 })
+})
+
+test('the default timeout leaves real-world margin above what browser smoke-testing observed (~15s aborts)', () => {
+  // Stability hardening 2026-08-04: real-browser smoke testing observed
+  // requests aborting right at the previous 15_000 ms ceiling — too tight
+  // a margin for real network/server latency. No hard-coded "must be
+  // exactly 30000" so a future, deliberate, benchmark-justified change to
+  // this constant does not need to touch this test — only the margin
+  // above the previously-too-tight value matters here.
+  assert.ok(DEFAULT_POSTPASS_TIMEOUT_MS >= 25_000, `expected a generous timeout, got ${DEFAULT_POSTPASS_TIMEOUT_MS} ms`)
 })
 
 test('HTTP errors reject and are never converted into an empty successful result', async () => {

@@ -38,7 +38,7 @@ const ROUTE_POINT_TYPES = [
 const PRACTICAL_PLACE_CATEGORIES = [
   'shelter', 'bakery', 'cafe-or-ice-cream', 'water', 'fast-food', 'bike-service', 'supermarket', 'sports', 'toilet',
 ] as const
-const OSM_ROUTE_FEATURE_TYPES = ['city', 'town', 'village', 'mountain-pass', 'saddle', 'peak'] as const
+const OSM_ROUTE_FEATURE_TYPES = ['city', 'town', 'village', 'hamlet', 'mountain-pass', 'saddle', 'peak'] as const
 const ACCOMMODATION_TYPES = [
   'hotel', 'airbnb', 'gite', 'chambre-hotes', 'hostel', 'guest-house', 'refuge', 'camping',
 ] as const

@@ -8,14 +8,20 @@ import { cumulativeGeometryDistances } from './chunking.ts'
 import { routeFingerprint, routeGeometry } from './route-fingerprint.ts'
 import { structuralSearchGeometry } from './search-geometry.ts'
 import {
-  STRUCTURAL_LANDMARK_CLIENT_RADIUS_METERS,
+  KNOWN_ROUTE_FEATURE_TYPES,
   STRUCTURAL_LANDMARK_COLLECTION_RADIUS_METERS,
-  STRUCTURAL_LOCALITY_CLIENT_RADIUS_METERS,
   STRUCTURAL_LOCALITY_COLLECTION_RADIUS_METERS,
+  structuralClientRadiusMeters,
 } from './types.ts'
 import type { OsmRouteFeatureCandidate, RouteEnrichmentProgress, RouteEnrichmentProvider } from './types.ts'
 
-export const ROUTE_ENRICHMENT_ENGINE_VERSION = 'route-enrichment@3'
+// Bumped from @3 to @4 (stability/UX hardening 2026-08-04): hamlet/peak
+// dropped from the Postpass query entirely (V1 final scope: city/town/
+// village/mountain-pass/saddle only) — any cache entry from before this
+// change must never be reused as-is (it may still contain hamlet/peak
+// candidates), so the version bump forces one fresh, smaller query per
+// stage the next time each trip is opened.
+export const ROUTE_ENRICHMENT_ENGINE_VERSION = 'route-enrichment@4'
 export const ROUTE_ENRICHMENT_PROVIDER_STATE = 'postpass-route-enrichment'
 
 interface LocatedFeature extends OsmRouteFeatureCandidate {
@@ -66,16 +72,16 @@ export interface EnrichStoredTripRouteInput extends Omit<EnrichTripRouteInput, '
   readonly tripId: TripId
 }
 
-function normalizeName(value: string | null): string | null {
+export function normalizeName(value: string | null): string | null {
   if (value === null) return null
   return value.normalize('NFKD').replace(/[\u0300-\u036f]/gu, '').toLocaleLowerCase('fr').replace(/[^a-z0-9]+/gu, '') || null
 }
 
-function locateAndDeduplicate(candidates: readonly OsmRouteFeatureCandidate[], geometry: readonly RouteGeometryPoint[], maximumLateralMeters: number): readonly LocatedFeature[] {
+function locateAndDeduplicate(candidates: readonly OsmRouteFeatureCandidate[], geometry: readonly RouteGeometryPoint[], radiusFor: (candidate: OsmRouteFeatureCandidate) => number): readonly LocatedFeature[] {
   const exact = new Map<string, LocatedFeature>()
   for (const candidate of candidates) {
     const located = locatePointOnRoute(candidate, geometry)
-    if (located === null || located.lateralDistanceMeters > maximumLateralMeters) continue
+    if (located === null || located.lateralDistanceMeters > radiusFor(candidate)) continue
     const item = { ...candidate, ...located }
     const key = `${candidate.osmType}:${candidate.osmId}`
     const previous = exact.get(key)
@@ -273,12 +279,22 @@ async function fetchStage(
     rawCandidateCount: number,
     networkRequests: number,
   ): StageResult {
-    const localityCandidates = candidates.filter((candidate) =>
-      (candidate.featureType === 'city' || candidate.featureType === 'town') && candidate.name !== null)
-    const landmarkCandidates = candidates.filter((candidate) =>
+    // Defense-in-depth (V1 final scope hardening): a provider is only
+    // trusted at the TS type level — filter out anything outside the
+    // current allowlist (e.g. a stale `hamlet`/`peak` from before the
+    // engine-version bump) before it can ever become a stored RoutePoint.
+    const knownCandidates = candidates.filter((candidate) => KNOWN_ROUTE_FEATURE_TYPES.has(candidate.featureType))
+    // Only mountain-pass/saddle may rename/adjust a climb
+    // (`enrichClimbs`/`matchingLandmark`) — city/town/village share the
+    // generic "localities" bucket, each retained at its own per-type radius
+    // (`structuralClientRadiusMeters`).
+    const landmarkCandidates = knownCandidates.filter((candidate) =>
       (candidate.featureType === 'mountain-pass' || candidate.featureType === 'saddle') && candidate.name !== null)
-    const localities = locateAndDeduplicate(localityCandidates, geometry, STRUCTURAL_LOCALITY_CLIENT_RADIUS_METERS)
-    const landmarks = locateAndDeduplicate(landmarkCandidates, geometry, STRUCTURAL_LANDMARK_CLIENT_RADIUS_METERS)
+    const localityCandidates = knownCandidates.filter((candidate) =>
+      candidate.featureType !== 'mountain-pass' && candidate.featureType !== 'saddle' && candidate.name !== null)
+    const radiusFor = (candidate: OsmRouteFeatureCandidate) => structuralClientRadiusMeters(candidate.featureType)
+    const localities = locateAndDeduplicate(localityCandidates, geometry, radiusFor)
+    const landmarks = locateAndDeduplicate(landmarkCandidates, geometry, radiusFor)
     const retainedCandidateCount = localities.length + landmarks.length
     return {
       stage,
@@ -346,7 +362,7 @@ function featurePoint(feature: LocatedFeature, route: Route, idFactory: () => st
   return {
     id: routePointId(idFactory()),
     routeId: route.id,
-    type: feature.featureType === 'city' || feature.featureType === 'town' ? 'passage' : 'summit',
+    type: feature.featureType === 'mountain-pass' || feature.featureType === 'saddle' ? 'summit' : 'passage',
     name: feature.name,
     latitude: feature.latitude,
     longitude: feature.longitude,

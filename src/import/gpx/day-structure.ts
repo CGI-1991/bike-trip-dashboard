@@ -72,8 +72,14 @@ export function applyDayStructure(bundle: TripBundle, slots: readonly DayStructu
       return
     }
 
-    const fallbackLocation = previousEndLocationName ?? 'Lieu à préciser'
+    const nextRideStart = findNextRideStart(slots, index + 1, bundle.days, rideCursor)
     if (slot.kind === 'off') {
+      // Deterministic prefill (stability/UX hardening 2026-08-04): the
+      // previous ride's arrival is the default anchor, but an OFF day with
+      // no previous ride at all (e.g. it opens the trip) falls back to the
+      // next ride's departure instead of an immediate placeholder — never
+      // invented, always taken from an adjacent ride day.
+      const offLocation = previousEndLocationName ?? nextRideStart ?? 'Lieu à préciser'
       newDays.push({
         id: tripDayId(idFactory()),
         index,
@@ -81,8 +87,8 @@ export function applyDayStructure(bundle: TripBundle, slots: readonly DayStructu
         date,
         type: 'off',
         stageId: null,
-        startLocationName: fallbackLocation,
-        endLocationName: fallbackLocation,
+        startLocationName: offLocation,
+        endLocationName: offLocation,
         accommodationId: null,
         notes: slot.notes ?? null,
         enrichmentStatus: 'not-started',
@@ -91,7 +97,7 @@ export function applyDayStructure(bundle: TripBundle, slots: readonly DayStructu
     }
 
     // transfer
-    const nextRideStart = findNextRideStart(slots, index + 1, bundle.days, rideCursor)
+    const fallbackLocation = previousEndLocationName ?? 'Lieu à préciser'
     const endLocationName = nextRideStart ?? 'Destination à préciser'
     newDays.push({
       id: tripDayId(idFactory()),

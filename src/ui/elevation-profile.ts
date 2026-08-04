@@ -1,24 +1,20 @@
 import { calculateHaversineDistanceKm } from '../gpx/parser.ts'
 import type { GpxAnalysisSuccess, GpxTrackPoint } from '../gpx/types.ts'
+import type { CanonicalWaypoint } from '../analysis/canonical-waypoints.ts'
+import { cumulativeGeometryDistances } from '../route-enrichment/chunking.ts'
 import type { Accommodation } from '../trip/accommodations.ts'
 import { resolveArrivalDisplay, resolveDepartureDisplay } from '../trip/endpoint-display.ts'
-import type { RoadbookMatchReport, RoadbookPointMatch } from '../trip/roadbook-match.ts'
+import type { RoadbookMatchReport } from '../trip/roadbook-match.ts'
 import type { RideDayTimeline } from '../trip/types.ts'
 import { buildTerrainProfileSeries } from '../route/terrain-profile.ts'
 import type { RouteProfilePosition, TerrainProfilePoint } from '../route/types.ts'
-import { PAUSE_ACCENT_COLOR_HEX, getRouteMarkerCategory, getRouteMarkerStyle } from './route-marker-style.ts'
+import type { RouteGeometryPoint } from '../trip-core/index.ts'
+import { PAUSE_ACCENT_COLOR_HEX, getGenericRouteMarkerCategory, getRouteMarkerCategory, getRouteMarkerStyle } from './route-marker-style.ts'
+import type { RouteMarkerCategory } from './route-marker-style.ts'
 
 export interface ProfileSample extends TerrainProfilePoint { readonly altitudeM: number }
 
-export function sampleElevationProfile(gpx: GpxAnalysisSuccess, maximumPoints = 280): readonly ProfileSample[] {
-  const points = gpx.segments.flatMap(({ points }) => points)
-  const source: RouteProfilePosition[] = []
-  let distanceKm = 0
-  points.forEach((point, index) => {
-    if (index > 0) distanceKm += calculateHaversineDistanceKm(points[index - 1] as GpxTrackPoint, point)
-    source.push({ latitude: point.latitude, longitude: point.longitude, sourceFileNumber: gpx.summary?.fileNumber ?? 1, sourceFileName: gpx.summary?.fileName ?? 'profile.gpx', distanceKm, elevationGainM: 0, elevationLossM: 0, altitudeM: point.elevationM, localSlopePercent: 0, speedMultiplier: 1, weightedDistanceKm: distanceKm })
-  })
-  const values: ProfileSample[] = buildTerrainProfileSeries(source).map((point) => ({ ...point, altitudeM: point.elevationM }))
+function downsampleProfile(values: readonly ProfileSample[], maximumPoints: number): readonly ProfileSample[] {
   if (values.length <= maximumPoints) return values
   const sampled: ProfileSample[] = [values[0] as ProfileSample]
   const bucketSize = (values.length - 2) / (maximumPoints - 2)
@@ -34,6 +30,38 @@ export function sampleElevationProfile(gpx: GpxAnalysisSuccess, maximumPoints = 
   return sampled
 }
 
+export function sampleElevationProfile(gpx: GpxAnalysisSuccess, maximumPoints = 280): readonly ProfileSample[] {
+  const points = gpx.segments.flatMap(({ points }) => points)
+  const source: RouteProfilePosition[] = []
+  let distanceKm = 0
+  points.forEach((point, index) => {
+    if (index > 0) distanceKm += calculateHaversineDistanceKm(points[index - 1] as GpxTrackPoint, point)
+    source.push({ latitude: point.latitude, longitude: point.longitude, sourceFileNumber: gpx.summary?.fileNumber ?? 1, sourceFileName: gpx.summary?.fileName ?? 'profile.gpx', distanceKm, elevationGainM: 0, elevationLossM: 0, altitudeM: point.elevationM, localSlopePercent: 0, speedMultiplier: 1, weightedDistanceKm: distanceKm })
+  })
+  const values: ProfileSample[] = buildTerrainProfileSeries(source).map((point) => ({ ...point, altitudeM: point.elevationM }))
+  return downsampleProfile(values, maximumPoints)
+}
+
+/** Generic counterpart of `sampleElevationProfile`, built from `Route.geometry` instead of a GPX analysis result. */
+export function sampleElevationProfileFromGeometry(geometry: readonly RouteGeometryPoint[], maximumPoints = 280): readonly ProfileSample[] {
+  const distances = cumulativeGeometryDistances(geometry)
+  const source: RouteProfilePosition[] = geometry.map((point, index) => ({
+    latitude: point.latitude,
+    longitude: point.longitude,
+    sourceFileNumber: 1,
+    sourceFileName: 'route.gpx',
+    distanceKm: distances[index] ?? 0,
+    elevationGainM: 0,
+    elevationLossM: 0,
+    altitudeM: point.altitudeM,
+    localSlopePercent: 0,
+    speedMultiplier: 1,
+    weightedDistanceKm: distances[index] ?? 0,
+  }))
+  const values: ProfileSample[] = buildTerrainProfileSeries(source).map((point) => ({ ...point, altitudeM: point.elevationM }))
+  return downsampleProfile(values, maximumPoints)
+}
+
 export function interpolateProfileSample(samples: readonly ProfileSample[], distanceKm: number): ProfileSample {
   const afterIndex = samples.findIndex((sample) => sample.distanceKm >= distanceKm)
   const after = samples[afterIndex < 0 ? samples.length - 1 : afterIndex] as ProfileSample
@@ -45,6 +73,34 @@ export function interpolateProfileSample(samples: readonly ProfileSample[], dist
 }
 
 const profileControllers = new WeakMap<HTMLElement, AbortController>()
+
+// Matches `.profile-tooltip`'s CSS `width: min(190px, calc(100% - 16px))` /
+// implicit rendered height — used only when a real measurement is
+// unavailable (e.g. a minimal test shim with no layout engine). Keep this
+// in sync with `style.css` if that rule ever changes.
+const PROFILE_TOOLTIP_FALLBACK_WIDTH_PX = 190
+const PROFILE_TOOLTIP_FALLBACK_HEIGHT_PX = 64
+const PROFILE_TOOLTIP_EDGE_MARGIN_PX = 6
+
+/**
+ * Clamps a tooltip's centered position so it never overflows its
+ * container along one axis, "flipping" it away from the cursor near an
+ * edge instead of letting half of it render outside — real bug fixed
+ * 2026-08-04: the previous horizontal clamp used a fixed 14%–86% window
+ * regardless of the container's actual pixel width, which still let the
+ * tooltip overflow on narrow containers where 14% of the width is less
+ * than half the tooltip's own width. Exported for direct unit testing —
+ * pure arithmetic, no DOM required.
+ */
+export function clampCenteredOffsetPercent(targetCenterPercent: number, containerSizePx: number, contentSizePx: number, marginPx: number = PROFILE_TOOLTIP_EDGE_MARGIN_PX): number {
+  if (!(containerSizePx > 0)) return Math.min(86, Math.max(14, targetCenterPercent))
+  const halfPercent = (contentSizePx / 2 / containerSizePx) * 100
+  const marginPercent = (marginPx / containerSizePx) * 100
+  const min = halfPercent + marginPercent
+  const max = 100 - halfPercent - marginPercent
+  if (min > max) return 50
+  return Math.min(max, Math.max(min, targetCenterPercent))
+}
 
 function installProfileInteraction(container: HTMLElement, samples: readonly ProfileSample[], min: number, max: number, total: number): void {
   if (typeof container.querySelector !== 'function') return
@@ -70,9 +126,21 @@ function installProfileInteraction(container: HTMLElement, samples: readonly Pro
     const text = `${sample.distanceKm.toFixed(1)} km · ${Math.round(sample.altitudeM)} m · Pente moyenne : ${sample.smoothedGradePercent.toFixed(1)} %`
     live.textContent = text
     tooltip.innerHTML = `<strong>${sample.distanceKm.toFixed(1)} km</strong><span>${Math.round(sample.altitudeM)} m</span><span>Pente moyenne : ${sample.smoothedGradePercent.toFixed(1)} %</span>`
-    const ratio = sample.distanceKm / Math.max(total, 0.1)
-    tooltip.style.left = `${Math.min(86, Math.max(14, ratio * 100))}%`
     tooltip.hidden = false
+    // Clamp inside the profile's own bounding box, in both axes, using the
+    // container's and the tooltip's real rendered size — a fixed percentage
+    // window (the previous approach) does not scale with actual pixel width
+    // and can still let the tooltip overflow on a narrow container.
+    const containerRect = svg.getBoundingClientRect()
+    const tooltipRect = tooltip.getBoundingClientRect()
+    const tooltipWidthPx = tooltipRect.width > 0 ? tooltipRect.width : PROFILE_TOOLTIP_FALLBACK_WIDTH_PX
+    const tooltipHeightPx = tooltipRect.height > 0 ? tooltipRect.height : PROFILE_TOOLTIP_FALLBACK_HEIGHT_PX
+    const cursorPercent = (x / 800) * 100
+    tooltip.style.left = `${clampCenteredOffsetPercent(cursorPercent, containerRect.width, tooltipWidthPx).toFixed(1)}%`
+    const defaultTopPx = 8
+    const desiredCenterPercent = ((defaultTopPx + tooltipHeightPx / 2) / Math.max(containerRect.height, 1)) * 100
+    const clampedTopPercent = clampCenteredOffsetPercent(desiredCenterPercent, containerRect.height, tooltipHeightPx)
+    tooltip.style.top = `${((clampedTopPercent / 100) * Math.max(containerRect.height, 1) - tooltipHeightPx / 2).toFixed(1)}px`
   }
   const fromPointer = (event: PointerEvent) => {
     const rect = svg.getBoundingClientRect()
@@ -92,6 +160,15 @@ function installProfileInteraction(container: HTMLElement, samples: readonly Pro
 
 function escapeHtml(value: string): string { return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;') }
 
+/** Structural shape `renderProfileMarker` actually needs — decoupled from the RGA-specific `RoadbookPointMatch`, so a generic caller can build one directly from a `CanonicalWaypoint`. */
+interface ProfileMarkerSpec {
+  readonly category: RouteMarkerCategory
+  readonly distanceKm: number
+  readonly altitudeM: number
+  readonly offRoute: boolean
+  readonly pauseDurationMinutes?: number
+}
+
 /**
  * Renders one documented point as the same category/shape/color used on the
  * map (`route-marker-style.ts`) — a col is always the same diamond and orange
@@ -99,25 +176,14 @@ function escapeHtml(value: string): string { return value.replaceAll('&', '&amp;
  * the other. A pause is a secondary ring around that same marker — never a
  * second position, never a separate line elsewhere on the profile.
  */
-function renderProfileMarker(
-  point: RoadbookPointMatch,
-  label: string,
-  x: (distance: number) => number,
-  y: (altitude: number) => number,
-  min: number,
-  pauseDurationMinutes: number | undefined,
-): string {
-  const category = getRouteMarkerCategory(point)
-  const style = getRouteMarkerStyle(category)
-  const distance = point.matchedTrackDistanceKm as number
-  const altitude = point.matchedElevationM ?? point.elevationM ?? min
-  const off = point.resolution !== 'matched'
+function renderProfileMarker(spec: ProfileMarkerSpec, label: string, x: (distance: number) => number, y: (altitude: number) => number): string {
+  const style = getRouteMarkerStyle(spec.category)
   const radius = style.sizePx / 2
-  const cx = x(distance).toFixed(1)
-  const cy = y(altitude).toFixed(1)
-  const fill = off ? '#ffffff' : style.colorHex
-  const stroke = off ? style.colorHex : '#ffffff'
-  const strokeWidth = off ? 3 : 2
+  const cx = x(spec.distanceKm).toFixed(1)
+  const cy = y(spec.altitudeM).toFixed(1)
+  const fill = spec.offRoute ? '#ffffff' : style.colorHex
+  const stroke = spec.offRoute ? style.colorHex : '#ffffff'
+  const strokeWidth = spec.offRoute ? 3 : 2
   const shape =
     style.shape === 'circle'
       ? `<circle r="${radius}" />`
@@ -127,10 +193,23 @@ function renderProfileMarker(
   const symbol =
     style.symbol === ''
       ? ''
-      : `<text text-anchor="middle" dominant-baseline="central" font-size="${radius}" font-weight="700" fill="${off ? style.colorHex : '#ffffff'}">${style.symbol}</text>`
-  const pauseRing = pauseDurationMinutes === undefined ? '' : `<circle r="${(radius + 3).toFixed(1)}" fill="none" stroke="${PAUSE_ACCENT_COLOR_HEX}" stroke-width="2" />`
-  const titleSuffix = pauseDurationMinutes === undefined ? '' : ` · Pause ${pauseDurationMinutes} min`
-  return `<g class="profile-marker profile-marker--${category}${off ? ' profile-marker--off-route' : ''}${pauseDurationMinutes === undefined ? '' : ' profile-marker--pause'}" transform="translate(${cx} ${cy})" style="fill:${fill};stroke:${stroke};stroke-width:${strokeWidth};"><title>${escapeHtml(label)} · ${distance.toFixed(1)} km${titleSuffix}</title>${pauseRing}${shape}${symbol}</g>`
+      : `<text text-anchor="middle" dominant-baseline="central" font-size="${radius}" font-weight="700" fill="${spec.offRoute ? style.colorHex : '#ffffff'}">${style.symbol}</text>`
+  const pauseRing = spec.pauseDurationMinutes === undefined ? '' : `<circle r="${(radius + 3).toFixed(1)}" fill="none" stroke="${PAUSE_ACCENT_COLOR_HEX}" stroke-width="2" />`
+  const titleSuffix = spec.pauseDurationMinutes === undefined ? '' : ` · Pause ${spec.pauseDurationMinutes} min`
+  return `<g class="profile-marker profile-marker--${spec.category}${spec.offRoute ? ' profile-marker--off-route' : ''}${spec.pauseDurationMinutes === undefined ? '' : ' profile-marker--pause'}" transform="translate(${cx} ${cy})" style="fill:${fill};stroke:${stroke};stroke-width:${strokeWidth};"><title>${escapeHtml(label)} · ${spec.distanceKm.toFixed(1)} km${titleSuffix}</title>${pauseRing}${shape}${symbol}</g>`
+}
+
+/** Shared SVG shell (path, axis labels, cursor, tooltip) for both the RGA and generic profiles — only the markers markup and title differ. */
+function renderProfileSvgMarkup(
+  samples: readonly ProfileSample[],
+  markersHtml: string,
+  bounds: { readonly min: number; readonly max: number; readonly total: number; readonly x: (distance: number) => number; readonly y: (altitude: number) => number },
+  titleId: string,
+  titleLabel: string,
+): string {
+  const { min, max, total, x, y } = bounds
+  const line = samples.map((point, index) => `${index === 0 ? 'M' : 'L'}${x(point.distanceKm).toFixed(1)},${y(point.altitudeM).toFixed(1)}`).join(' ')
+  return `<figure class="elevation-profile"><div class="elevation-profile__stage"><svg data-profile-interactive tabindex="0" viewBox="0 0 800 240" role="group" aria-labelledby="profile-title-${titleId}" aria-describedby="profile-live-${titleId}" preserveAspectRatio="none"><title id="profile-title-${titleId}">${escapeHtml(titleLabel)}</title><path class="profile-area" d="${line} L780,214 L20,214 Z"/><path class="profile-line" d="${line}"/>${markersHtml}<g class="profile-cursor" data-profile-cursor hidden><line data-profile-cursor-line y1="25" y2="214"/><circle data-profile-cursor-dot r="6"/></g><text x="20" y="20">${Math.round(max)} m</text><text x="20" y="230">${Math.round(min)} m</text><text x="700" y="230">${total.toFixed(1)} km</text></svg><div class="profile-tooltip" data-profile-tooltip hidden></div></div><p class="visually-hidden" id="profile-live-${titleId}" data-profile-live aria-live="polite"></p><figcaption>Survolez, touchez ou utilisez les flèches pour lire distance, altitude et pente moyenne.</figcaption></figure>`
 }
 
 export function renderElevationProfile(
@@ -143,9 +222,11 @@ export function renderElevationProfile(
   if (gpx === null || timeline === null) { container.innerHTML = '<p>Profil indisponible.</p>'; return }
   const samples = sampleElevationProfile(gpx)
   if (samples.length < 2) { container.innerHTML = '<p>Profil altimétrique indisponible.</p>'; return }
-  const min = Math.min(...samples.map(({ altitudeM }) => altitudeM)); const max = Math.max(...samples.map(({ altitudeM }) => altitudeM)); const total = samples.at(-1)?.distanceKm ?? 1
-  const x = (distance: number) => 20 + 760 * distance / Math.max(total, 0.1); const y = (alt: number) => 210 - 180 * (alt - min) / Math.max(max - min, 1)
-  const line = samples.map((point, index) => `${index === 0 ? 'M' : 'L'}${x(point.distanceKm).toFixed(1)},${y(point.altitudeM).toFixed(1)}`).join(' ')
+  const min = Math.min(...samples.map(({ altitudeM }) => altitudeM))
+  const max = Math.max(...samples.map(({ altitudeM }) => altitudeM))
+  const total = samples.at(-1)?.distanceKm ?? 1
+  const x = (distance: number) => 20 + 760 * distance / Math.max(total, 0.1)
+  const y = (alt: number) => 210 - 180 * (alt - min) / Math.max(max - min, 1)
   const dayReport = report?.days.find((day) => day.dayId === timeline.day.id)
   const roadbookDay = dayReport?.type === 'ride' ? dayReport.roadbook : undefined
   const dayPoints = dayReport?.type === 'ride' ? dayReport.points : []
@@ -161,9 +242,48 @@ export function renderElevationProfile(
           : point.type === 'end' && roadbookDay !== undefined
             ? resolveArrivalDisplay(roadbookDay, accommodation).primaryName
             : point.name
-      return renderProfileMarker(point, label, x, y, min, pauseByPointId.get(point.id)?.durationMinutes)
+      const spec: ProfileMarkerSpec = {
+        category: getRouteMarkerCategory(point),
+        distanceKm: point.matchedTrackDistanceKm as number,
+        altitudeM: point.matchedElevationM ?? point.elevationM ?? min,
+        offRoute: point.resolution !== 'matched',
+        pauseDurationMinutes: pauseByPointId.get(point.id)?.durationMinutes,
+      }
+      return renderProfileMarker(spec, label, x, y)
     })
     .join('')
-  container.innerHTML = `<figure class="elevation-profile"><div class="elevation-profile__stage"><svg data-profile-interactive tabindex="0" viewBox="0 0 800 240" role="group" aria-labelledby="profile-title-${timeline.day.id}" aria-describedby="profile-live-${timeline.day.id}" preserveAspectRatio="none"><title id="profile-title-${timeline.day.id}">Profil altimétrique interactif de ${timeline.day.id}</title><path class="profile-area" d="${line} L780,214 L20,214 Z"/><path class="profile-line" d="${line}"/>${markers}<g class="profile-cursor" data-profile-cursor hidden><line data-profile-cursor-line y1="25" y2="214"/><circle data-profile-cursor-dot r="6"/></g><text x="20" y="20">${Math.round(max)} m</text><text x="20" y="230">${Math.round(min)} m</text><text x="700" y="230">${total.toFixed(1)} km</text></svg><div class="profile-tooltip" data-profile-tooltip hidden></div></div><p class="visually-hidden" id="profile-live-${timeline.day.id}" data-profile-live aria-live="polite"></p><figcaption>Survolez, touchez ou utilisez les flèches pour lire distance, altitude et pente moyenne.</figcaption></figure>`
+  container.innerHTML = renderProfileSvgMarkup(samples, markers, { min, max, total, x, y }, timeline.day.id, `Profil altimétrique interactif de ${timeline.day.id}`)
+  installProfileInteraction(container, samples, min, max, total)
+}
+
+/**
+ * Generic counterpart of `renderElevationProfile` for the TripBundle
+ * pipeline: built from `Route.geometry` and `CanonicalWaypoint[]`
+ * (`analysis/canonical-waypoints.ts`) instead of RGA-shaped GPX/timeline/
+ * report/accommodation inputs. Reuses the same SVG shell, marker drawing
+ * and interactive cursor as the RGA profile.
+ */
+export function renderGenericElevationProfile(container: HTMLElement, geometry: readonly RouteGeometryPoint[] | null, waypoints: readonly CanonicalWaypoint[], stageLabel = 'étape'): void {
+  if (geometry === null || geometry.length < 2) { container.innerHTML = '<p>Profil indisponible.</p>'; return }
+  const samples = sampleElevationProfileFromGeometry(geometry)
+  if (samples.length < 2) { container.innerHTML = '<p>Profil altimétrique indisponible.</p>'; return }
+  const min = Math.min(...samples.map(({ altitudeM }) => altitudeM))
+  const max = Math.max(...samples.map(({ altitudeM }) => altitudeM))
+  const total = samples.at(-1)?.distanceKm ?? 1
+  const x = (distance: number) => 20 + 760 * distance / Math.max(total, 0.1)
+  const y = (alt: number) => 210 - 180 * (alt - min) / Math.max(max - min, 1)
+  const markers = waypoints
+    .map((waypoint) => {
+      const spec: ProfileMarkerSpec = {
+        category: getGenericRouteMarkerCategory(waypoint.kind),
+        distanceKm: waypoint.trackDistanceKm,
+        altitudeM: waypoint.elevationM ?? min,
+        offRoute: false,
+        pauseDurationMinutes: waypoint.pauseDurationMinutes ?? undefined,
+      }
+      return renderProfileMarker(spec, waypoint.name, x, y)
+    })
+    .join('')
+  container.innerHTML = renderProfileSvgMarkup(samples, markers, { min, max, total, x, y }, 'generic', `Profil altimétrique interactif de ${stageLabel}`)
   installProfileInteraction(container, samples, min, max, total)
 }

@@ -1,9 +1,10 @@
 import type { GpxAnalysisSuccess } from '../gpx/types.ts'
+import type { CanonicalWaypoint } from '../analysis/canonical-waypoints.ts'
 import type { Accommodation } from '../trip/accommodations.ts'
 import { resolveArrivalDisplay, resolveDepartureDisplay } from '../trip/endpoint-display.ts'
 import type { RoadbookMatchReport, RoadbookPointMatch } from '../trip/roadbook-match.ts'
 import type { RideDayTimeline } from '../trip/types.ts'
-import { getRouteMarkerCategory } from './route-marker-style.ts'
+import { getGenericRouteMarkerCategory, getRouteMarkerCategory } from './route-marker-style.ts'
 import type { RouteMarkerCategory } from './route-marker-style.ts'
 
 /**
@@ -27,6 +28,16 @@ export interface RouteMapMarkerModel {
 export interface RouteMapModel {
   readonly coordinates: readonly LatLngTuple[]
   readonly markers: readonly RouteMapMarkerModel[]
+  /**
+   * Extra, geographically-disjoint line segments (e.g. the Aperçu global map,
+   * one segment per stage — an OFF/transfer day's gap must never be drawn as
+   * a fabricated straight line between two stages). When present, the map
+   * renderer draws one polyline per segment instead of a single continuous
+   * line through `coordinates`; `coordinates` itself still drives the
+   * fit-bounds computation and stays the first drawn segment for single-route
+   * callers (RGA, the Étape screen), so neither needs to change.
+   */
+  readonly extraLines?: readonly (readonly LatLngTuple[])[]
 }
 
 function pointCoordinate(point: RoadbookPointMatch): LatLngTuple | null {
@@ -87,4 +98,44 @@ export function buildRouteMapModel(gpx: GpxAnalysisSuccess, timeline: RideDayTim
   }
 
   return { coordinates, markers }
+}
+
+/**
+ * Generic counterpart of `buildRouteMapModel` for the TripBundle pipeline:
+ * builds the same already-generic `RouteMapModel`/`RouteMapMarkerModel`
+ * shape from `CanonicalWaypoint[]` (`analysis/canonical-waypoints.ts`)
+ * instead of RGA-shaped GPX/timeline/report/accommodation inputs. Callers
+ * decide which waypoints to include (e.g. filtering out hidden-by-default
+ * hamlets) before calling this — it performs no visibility filtering of
+ * its own.
+ */
+export function buildGenericRouteMapModel(waypoints: readonly CanonicalWaypoint[], geometry: readonly LatLngTuple[]): RouteMapModel {
+  const markers: RouteMapMarkerModel[] = waypoints.map((waypoint) => ({
+    id: waypoint.id,
+    category: getGenericRouteMarkerCategory(waypoint.kind),
+    name: waypoint.name,
+    subLabel: waypoint.elevationM === null ? undefined : `${Math.round(waypoint.elevationM)} m`,
+    coordinate: [waypoint.latitude, waypoint.longitude],
+    offRoute: false,
+    pauseActive: waypoint.pauseDurationMinutes !== null,
+    ...(waypoint.pauseDurationMinutes === null ? {} : { pauseDurationMinutes: waypoint.pauseDurationMinutes }),
+  }))
+  return { coordinates: geometry, markers }
+}
+
+/**
+ * The Aperçu screen's global map (CDC Jalon B2 section 9): every stage's own
+ * geometry drawn as its own disjoint line segment — an OFF/transfer day's
+ * gap between two stages is simply not drawn, never a fabricated straight
+ * line connecting them — with every stage's waypoints merged into one marker
+ * list. Callers are expected to have already filtered each stage's
+ * waypoints down to the compact-map default set (start/end/city/town/
+ * mountain-pass/saddle — no villages), exactly like the single-stage Étape
+ * map (CDC hardening section 19/21).
+ */
+export function buildGenericOverviewRouteMapModel(stages: readonly { readonly waypoints: readonly CanonicalWaypoint[]; readonly geometry: readonly LatLngTuple[] }[]): RouteMapModel {
+  const withGeometry = stages.filter((stage) => stage.geometry.length > 1)
+  const [first, ...rest] = withGeometry
+  const markers = stages.flatMap((stage) => buildGenericRouteMapModel(stage.waypoints, stage.geometry).markers)
+  return { coordinates: first?.geometry ?? [], markers, extraLines: rest.map((stage) => stage.geometry) }
 }

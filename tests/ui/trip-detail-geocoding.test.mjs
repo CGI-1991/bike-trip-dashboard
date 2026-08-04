@@ -18,21 +18,20 @@ test('trip detail attributes OSM endpoint names when present', () => {
   assert.match(html, /© OpenStreetMap contributors/)
 })
 
-test('trip detail offers optional climb naming and displays an enriched climb name', () => {
+test('trip detail exposes no manual Overpass climb-naming action — climbs themselves are an Étape-only concern', () => {
   const bundle = createGenericTripBundle()
   bundle.climbs[0].name = 'Col enrichi'
   bundle.climbs[0].provenance = {
     sourceType: 'osm',
-    sourceId: 'overpass-osm:mountain-pass:node:42',
+    sourceId: 'postpass-osm:mountain-pass:node:42',
     fetchedAt: '2028-04-01T10:00:00.000Z',
-    engineVersion: 'climb-name-enrichment@1',
+    engineVersion: 'route-enrichment@4',
     confidence: 'high',
     manuallyOverridden: false,
   }
-  const html = renderTripDetail(bundle, { canEnrichClimbNames: true })
-  assert.match(html, /Col enrichi/)
-  assert.match(html, /Rechercher les noms des montées/)
-  assert.match(html, /© OpenStreetMap contributors/)
+  const html = renderTripDetail(bundle)
+  assert.doesNotMatch(html, /Rechercher les noms des montées/)
+  assert.doesNotMatch(html, /enrich-trip-climb-names/)
 })
 
 test('trip detail keeps stored practical places readable but exposes no practical-place search action', () => {
@@ -85,7 +84,7 @@ test('trip detail distinguishes an unstarted, successful-empty and failed practi
   assert.doesNotMatch(failedHtml, /Rechercher les lieux utiles/)
 })
 
-test('trip detail shows Postpass diagnostics plus ordered city/town and pass/saddle measurements', () => {
+test('trip detail shows Postpass diagnostics without duplicating structural points (those are an Étape-only concern)', () => {
   const bundle = createGenericTripBundle()
   bundle.enrichmentMetadata.providers.push({
     provider: 'postpass-route-enrichment', lastAttemptedAt: '2028-08-03T10:00:00.000Z',
@@ -96,31 +95,17 @@ test('trip detail shows Postpass diagnostics plus ordered city/town and pass/sad
       id: 'locality-ui', routeId: bundle.routes[0].id, type: 'passage', name: 'City UI',
       latitude: 45.2, longitude: 6.3, elevationM: 300, trackDistanceKm: 10,
       osmFeatureType: 'city', lateralDistanceKm: 0.2,
-      provenance: { sourceType: 'osm', sourceId: 'postpass:city:1', fetchedAt: '2028-08-03T10:00:00.000Z', engineVersion: 'route-enrichment@3', confidence: 'high', manuallyOverridden: false },
-    },
-    {
-      id: 'pass-ui', routeId: bundle.routes[0].id, type: 'summit', name: 'Col UI',
-      latitude: 45.25, longitude: 6.35, elevationM: 1234, trackDistanceKm: 20,
-      osmFeatureType: 'mountain-pass', lateralDistanceKm: 0.08,
-      provenance: { sourceType: 'osm', sourceId: 'postpass:pass:1', fetchedAt: '2028-08-03T10:00:00.000Z', engineVersion: 'route-enrichment@3', confidence: 'high', manuallyOverridden: false },
+      provenance: { sourceType: 'osm', sourceId: 'postpass:city:1', fetchedAt: '2028-08-03T10:00:00.000Z', engineVersion: 'route-enrichment@4', confidence: 'high', manuallyOverridden: false },
     },
   )
-  bundle.stages[0].routePointIds.push('locality-ui', 'pass-ui')
+  bundle.stages[0].routePointIds.push('locality-ui')
   const pending = renderTripDetail(bundle, { automaticEnrichmentPending: true, automaticEnrichmentProgress: 'Points structurants — étape 1/2 · 320 ms · 2/4 retenus' })
   assert.match(pending, /Enrichissement en cours/)
   assert.match(pending, /Points structurants — étape 1\/2/)
   const completed = renderTripDetail(bundle)
   assert.match(completed, /Voyage enrichi/)
   assert.match(completed, /Provider = Postpass/)
-  assert.match(completed, /Localités/)
-  assert.match(completed, /km 10\.0/)
-  assert.match(completed, /city/)
-  assert.match(completed, /City UI/)
-  assert.match(completed, /écart 200 m/)
-  assert.match(completed, /Cols/)
-  assert.match(completed, /pass/)
-  assert.match(completed, /Col UI/)
-  assert.match(completed, /écart 80 m · 1234 m/)
+  assert.doesNotMatch(completed, /City UI/)
 
   const routeStateIndex = bundle.enrichmentMetadata.providers.findIndex((state) => state.provider === 'postpass-route-enrichment')
   bundle.enrichmentMetadata.providers[routeStateIndex] = {

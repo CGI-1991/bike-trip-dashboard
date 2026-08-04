@@ -22,7 +22,7 @@ import {
 } from './practical-map.ts'
 import type { PracticalLayerPanelController } from './practical-map.ts'
 
-export { buildRouteMapModel } from './route-map-model.ts'
+export { buildGenericRouteMapModel, buildRouteMapModel } from './route-map-model.ts'
 export type { RouteMapMarkerModel, RouteMapModel } from './route-map-model.ts'
 
 const mapInstances = new WeakMap<HTMLElement, L.Map>()
@@ -86,15 +86,21 @@ export function createRouteMap(container: HTMLElement, model: RouteMapModel, opt
   mapInstances.set(container, map)
   const tiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap contributors', maxZoom: 19 })
   tiles.on('tileerror', onTileError).addTo(map)
-  const line = L.polyline(model.coordinates.map(toLatLng), { color: '#0f766e', weight: 4 }).addTo(map)
+  // `extraLines` (the Aperçu global map) draws one polyline per geographically
+  // disjoint stage — never one continuous line spanning an OFF/transfer gap.
+  const lineSegments = [model.coordinates, ...(model.extraLines ?? [])].filter((segment) => segment.length > 1)
+  const bounds = L.latLngBounds([])
+  for (const segment of lineSegments) {
+    bounds.extend(L.polyline(segment.map(toLatLng), { color: '#0f766e', weight: 4 }).addTo(map).getBounds())
+  }
   for (const marker of model.markers) {
     L.marker(toLatLng(marker.coordinate), { icon: createRouteDivIcon(marker.category, { offRoute: marker.offRoute, pauseActive: marker.pauseActive }) })
       .bindTooltip(markerTooltip(marker))
       .addTo(map)
   }
-  if (model.coordinates.length > 1) {
+  if (bounds.isValid()) {
     if (options.invalidateBeforeInitialFit === true) map.invalidateSize()
-    map.fitBounds(line.getBounds(), {
+    map.fitBounds(bounds, {
       padding: options.fitPadding,
       maxZoom: options.maxInitialZoom,
     })
@@ -215,6 +221,91 @@ export function renderRouteMap(container: HTMLElement, dialog: HTMLDialogElement
     openHandlers.set(open, handler)
     open.addEventListener('click', handler)
   }
+}
+
+/**
+ * Generic counterpart of `renderRouteMap` for the TripBundle pipeline: takes
+ * an already-built `RouteMapModel` directly (see `route-map-model.ts::
+ * buildGenericRouteMapModel`) instead of RGA-shaped GPX/timeline/report/
+ * accommodation inputs, and has no practical-places layer (out of scope for
+ * this phase). Reuses the same `createRouteMap` Leaflet primitive, the same
+ * fullscreen-dialog/back-button history wiring, and the same legend.
+ */
+export function renderGenericRouteMap(container: HTMLElement, dialog: HTMLDialogElement, model: RouteMapModel | null): void {
+  destroy(container)
+  if (dialog.open || scrollUnlocks.has(dialog) || expandedHistory.has(dialog)) {
+    closeExpandedRouteMap(dialog)
+  }
+  const practicalToggle = dialog.querySelector<HTMLButtonElement>('[data-practical-layers-toggle]')
+  if (practicalToggle !== null) practicalToggle.hidden = true
+  if (model === null || model.coordinates.length < 2) {
+    container.innerHTML = '<p class="route-map__fallback">Carte indisponible.</p>'
+    return
+  }
+  container.innerHTML = '<div class="route-map__canvas" data-route-map-canvas></div><p class="route-map__fallback" hidden data-route-map-fallback>Fond de carte indisponible. Le tracé reste accessible dans le profil.</p>'
+  const canvas = container.querySelector<HTMLElement>('[data-route-map-canvas]') as HTMLElement
+  const fallback = container.querySelector<HTMLElement>('[data-route-map-fallback]') as HTMLElement
+  createRouteMap(canvas, model, { interactive: false, fitPadding: [12, 12] }, () => { fallback.hidden = false })
+  renderLegend(container)
+  const expanded = dialog.querySelector<HTMLElement>('[data-route-map-expanded]') as HTMLElement
+  const open = dialog.previousElementSibling?.querySelector<HTMLButtonElement>('[data-explore-map]')
+  if (open === null || open === undefined) return
+  const previousHandler = openHandlers.get(open)
+  if (previousHandler !== undefined) open.removeEventListener('click', previousHandler)
+  const handler: EventListener = () => {
+    if (dialog.open || scrollUnlocks.has(dialog) || expandedHistory.has(dialog)) {
+      closeExpandedRouteMap(dialog)
+    }
+    expanded.innerHTML = ''
+    const expandedFallback = dialog.querySelector<HTMLElement>('[data-expanded-route-map-fallback]')
+    if (expandedFallback !== null) expandedFallback.hidden = true
+    expandedOpeners.set(dialog, open)
+    scrollUnlocks.set(dialog, lockDocumentScroll())
+
+    let map: L.Map | null = null
+    let popupOpen = false
+    const historyController = createMapOverlayHistory({
+      isMapOpen: () => dialog.open,
+      isPanelOpen: () => false,
+      closePopup: () => {
+        if (!popupOpen || map === null) return false
+        map.closePopup()
+        popupOpen = false
+        return true
+      },
+      closePanelFromHistory: () => undefined,
+      closeMapFromHistory: () => closeExpandedRouteMap(dialog, 'history'),
+    })
+    expandedHistory.set(dialog, historyController)
+
+    try {
+      dialog.showModal()
+      historyController.startMap()
+    } catch {
+      closeExpandedRouteMap(dialog, 'history')
+      return
+    }
+
+    const frame = requestAnimationFrame(() => {
+      pendingFrames.delete(dialog)
+      if (!dialog.open) return
+      try {
+        map = createRouteMap(
+          expanded,
+          model,
+          { interactive: true, fitPadding: [36, 36], maxInitialZoom: 13, invalidateBeforeInitialFit: true },
+          () => { if (expandedFallback !== null) expandedFallback.hidden = false },
+        )
+        map.on('popupopen', () => { popupOpen = true })
+        map.on('popupclose', () => { popupOpen = false })
+      } catch {
+        closeExpandedRouteMap(dialog)
+      }
+    })
+    pendingFrames.set(dialog, frame)
+  }
+  openHandlers.set(open, handler)
+  open.addEventListener('click', handler)
 }
 
 type ExpandedMapCloseReason = 'normal' | 'history'

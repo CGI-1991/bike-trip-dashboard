@@ -33,7 +33,7 @@ test('fullscreen height overrides remain scoped away from compact route maps', (
 
 test('expanded Leaflet invalidates its final layout before the single GPX fit', () => {
   const source = readFileSync(new URL('../../src/ui/route-map.ts', import.meta.url), 'utf8')
-  assert.match(source, /if \(options\.invalidateBeforeInitialFit === true\) map\.invalidateSize\(\)\s+map\.fitBounds\(line\.getBounds\(\)/)
+  assert.match(source, /if \(options\.invalidateBeforeInitialFit === true\) map\.invalidateSize\(\)\s+map\.fitBounds\(bounds/)
   assert.match(source, /requestAnimationFrame\([\s\S]*dialog\.open[\s\S]*invalidateBeforeInitialFit: true/)
   assert.equal((source.match(/fitBounds\(/g) ?? []).length, 1)
 })

@@ -1,6 +1,6 @@
 import { createSerialRateLimiter } from '../geocoding/rate-limiter.ts'
 import { expandedRouteBoundingBox, formatOverpassBoundingBox } from './overpass-bbox.ts'
-import type { LegacyRouteEnrichmentProvider, OsmRouteFeatureCandidate, RouteEnrichmentKind, RouteFeatureSearch, RouteFeatureType } from './types.ts'
+import type { LegacyOsmRouteFeatureCandidate, LegacyRouteEnrichmentProvider, LegacyRouteFeatureType, RouteEnrichmentKind, RouteFeatureSearch } from './types.ts'
 
 const DEFAULT_BASE_URLS = [
   'https://overpass-api.de/api/interpreter',
@@ -54,7 +54,7 @@ function nonEmptyString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : null
 }
 
-function featureType(tags: Record<string, unknown>): RouteFeatureType | null {
+function featureType(tags: Record<string, unknown>): LegacyRouteFeatureType | null {
   if (tags.mountain_pass === 'yes') return 'mountain-pass'
   if (tags.natural === 'saddle') return 'saddle'
   if (tags.natural === 'peak') return 'peak'
@@ -78,7 +78,7 @@ function parseElevation(value: unknown): number | null {
   return Number.isFinite(result) ? result : null
 }
 
-function parseCandidate(element: OverpassElement, language: string): OsmRouteFeatureCandidate | null {
+function parseCandidate(element: OverpassElement, language: string): LegacyOsmRouteFeatureCandidate | null {
   if (element.tags === null || typeof element.tags !== 'object') return null
   const tags = element.tags as Record<string, unknown>
   const type = featureType(tags)
@@ -164,7 +164,7 @@ export function createOverpassRouteEnrichmentProvider(options: OverpassRouteProv
               externalSignal?.removeEventListener('abort', abort)
             }
           })
-          const candidates = elements.map((element) => parseCandidate(element, language)).filter((candidate): candidate is OsmRouteFeatureCandidate => candidate !== null)
+          const candidates = elements.map((element) => parseCandidate(element, language)).filter((candidate): candidate is LegacyOsmRouteFeatureCandidate => candidate !== null)
           emit({ stage: 'parsed', endpoint, kind: search.kind, query, attempt, httpStatus: status, rawElementCount: elements.length, parsedCandidateCount: candidates.length, message: null })
           return candidates
         } catch (error) {
