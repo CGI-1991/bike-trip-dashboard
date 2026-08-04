@@ -52,7 +52,7 @@ import { openImageViewer } from './ui/image-viewer.ts'
 import { initializeTripsManager } from './ui/trips/trips-manager.ts'
 import { createNominatimGeocodingProvider } from './geocoding/nominatim-provider.ts'
 import { createOverpassClimbNameProvider } from './climb-names/overpass-provider.ts'
-import { createOverpassRouteEnrichmentProvider } from './route-enrichment/overpass-provider.ts'
+import { createPostpassRouteEnrichmentProvider } from './route-enrichment/postpass-provider.ts'
 import { openBikeTripDatabase } from './storage/indexeddb/open-database.ts'
 import { renderDashboard } from './ui/render.ts'
 import { renderDayHeader } from './ui/day-header.ts'
@@ -975,10 +975,13 @@ void openBikeTripDatabase()
       climbNameProvider: createOverpassClimbNameProvider({
         baseUrl: import.meta.env.VITE_OVERPASS_BASE_URL || undefined,
       }),
-      routeEnrichmentProvider: createOverpassRouteEnrichmentProvider({
-        baseUrl: import.meta.env.VITE_OVERPASS_BASE_URL || undefined,
-        onDiagnostic: import.meta.env.DEV ? (diagnostic) => console.debug('[route-enrichment]', diagnostic) : undefined,
+      routeEnrichmentProvider: createPostpassRouteEnrichmentProvider({
+        baseUrl: import.meta.env.VITE_POSTPASS_BASE_URL || undefined,
+        onDiagnostic: import.meta.env.DEV ? (diagnostic) => console.debug('[postpass-structural]', diagnostic) : undefined,
       }),
+      onRouteEnrichmentDiagnostic: import.meta.env.DEV
+        ? (diagnostic) => console.debug('[postpass-structural-client]', diagnostic)
+        : undefined,
     })
   })
   .catch((error: unknown) => {

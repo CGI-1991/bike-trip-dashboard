@@ -1,15 +1,22 @@
-import { locatePointOnRoute } from '../route/route-proximity.ts'
+import { distanceBetweenCoordinatesMeters, locatePointOnRoute } from '../route/route-proximity.ts'
 import { createRouteEnrichmentCacheRepository } from '../storage/indexeddb/route-enrichment-cache-repository.ts'
 import type { RouteEnrichmentCacheRepository } from '../storage/indexeddb/route-enrichment-cache-repository.ts'
 import { createTripRepository } from '../storage/indexeddb/trip-repository.ts'
 import type { Climb, EnrichmentProviderState, RideStage, Route, RouteGeometryPoint, RoutePoint, RoutePointId, TripBundle, TripId } from '../trip-core/index.ts'
 import { routePointId } from '../trip-core/index.ts'
-import { buildRouteChunks, cumulativeGeometryDistances } from './chunking.ts'
+import { cumulativeGeometryDistances } from './chunking.ts'
 import { routeFingerprint, routeGeometry } from './route-fingerprint.ts'
-import type { OsmRouteFeatureCandidate, RouteEnrichmentKind, RouteEnrichmentProgress, RouteEnrichmentProvider } from './types.ts'
+import { structuralSearchGeometry } from './search-geometry.ts'
+import {
+  STRUCTURAL_LANDMARK_CLIENT_RADIUS_METERS,
+  STRUCTURAL_LANDMARK_COLLECTION_RADIUS_METERS,
+  STRUCTURAL_LOCALITY_CLIENT_RADIUS_METERS,
+  STRUCTURAL_LOCALITY_COLLECTION_RADIUS_METERS,
+} from './types.ts'
+import type { OsmRouteFeatureCandidate, RouteEnrichmentProgress, RouteEnrichmentProvider } from './types.ts'
 
-export const ROUTE_ENRICHMENT_ENGINE_VERSION = 'route-enrichment@2'
-export const ROUTE_ENRICHMENT_PROVIDER_STATE = 'osm-route-enrichment'
+export const ROUTE_ENRICHMENT_ENGINE_VERSION = 'route-enrichment@3'
+export const ROUTE_ENRICHMENT_PROVIDER_STATE = 'postpass-route-enrichment'
 
 interface LocatedFeature extends OsmRouteFeatureCandidate {
   readonly trackDistanceKm: number
@@ -22,14 +29,21 @@ interface StageResult {
   readonly geometry: readonly RouteGeometryPoint[]
   readonly localities: readonly LocatedFeature[]
   readonly landmarks: readonly LocatedFeature[]
-  readonly successChunks: number
-  readonly errorChunks: number
+  readonly successRequests: number
+  readonly errorRequests: number
+  readonly networkRequests: number
+  readonly source: 'cache' | 'network'
+  readonly durationMs: number
+  readonly rawCandidateCount: number
+  readonly retainedCandidateCount: number
+  readonly rejectedCandidateCount: number
+  readonly sentPointCount: number
 }
 
 export interface RouteEnrichmentReport {
   readonly bundle: TripBundle
   readonly saved: boolean
-  readonly chunkCount: number
+  readonly requestCount: number
   readonly cacheHitCount: number
   readonly networkErrorCount: number
   readonly localityCount: number
@@ -71,8 +85,8 @@ function locateAndDeduplicate(candidates: readonly OsmRouteFeatureCandidate[], g
   for (const candidate of [...exact.values()].sort((left, right) => left.lateralDistanceMeters - right.lateralDistanceMeters)) {
     const duplicate = result.some((existing) => {
       const sameName = normalizeName(existing.name) !== null && normalizeName(existing.name) === normalizeName(candidate.name)
-      const closeAlong = Math.abs(existing.trackDistanceKm - candidate.trackDistanceKm) <= 0.05
-      return existing.featureType === candidate.featureType && sameName && closeAlong
+      const samePosition = distanceBetweenCoordinatesMeters(existing, candidate) <= 25
+      return existing.featureType === candidate.featureType && sameName && samePosition
     })
     if (!duplicate) result.push(candidate)
   }
@@ -140,7 +154,7 @@ function isGenericClimbName(name: string | null): boolean {
 }
 
 function featurePriority(feature: LocatedFeature): number {
-  return feature.featureType === 'mountain-pass' ? 0 : feature.featureType === 'saddle' ? 1 : 2
+  return feature.featureType === 'mountain-pass' ? 0 : 1
 }
 
 function matchingLandmark(climb: Climb, landmarks: readonly LocatedFeature[]): LocatedFeature | null {
@@ -188,13 +202,13 @@ function enrichClimbs(climbs: readonly Climb[], route: Route, geometry: readonly
       endAltitudeM,
       elevationGainM: gain,
       averageGradientPercent,
-      confidence: feature.featureType === 'peak' ? 'probable' : 'confirmed',
+      confidence: 'confirmed',
       provenance: {
         sourceType: 'osm',
-        sourceId: `overpass-osm:${feature.featureType}:${feature.osmType}:${feature.osmId}`,
+        sourceId: `postpass-osm:${feature.featureType}:${feature.osmType}:${feature.osmId}`,
         fetchedAt: attemptedAt,
         engineVersion: ROUTE_ENRICHMENT_ENGINE_VERSION,
-        confidence: feature.featureType === 'peak' ? 'medium' : 'high',
+        confidence: 'high',
         manuallyOverridden: false,
       },
     })
@@ -240,62 +254,90 @@ async function fetchStage(
   stageIndex: number,
   stageCount: number,
   onProgress?: (progress: RouteEnrichmentProgress) => void,
-): Promise<{ readonly result: StageResult; readonly chunkCount: number; readonly cacheHits: number }> {
-  const chunks = buildRouteChunks(geometry)
-  const byKind = new Map<RouteEnrichmentKind, OsmRouteFeatureCandidate[]>([['localities', []], ['landmarks', []]])
-  let successChunks = 0
-  let errorChunks = 0
-  let cacheHits = 0
-  for (const kind of ['localities', 'landmarks'] as const) {
-    for (const chunk of chunks) {
-      const identity = {
-        providerId: provider.id,
-        routeFingerprint: routeFingerprint(bundle, route),
-        enrichmentType: kind,
-        chunkKey: chunk.key,
-        engineVersion: ROUTE_ENRICHMENT_ENGINE_VERSION,
-      }
-      const cached = await cache.get<OsmRouteFeatureCandidate>(identity).catch(() => null)
-      if (cached !== null) {
-        byKind.get(kind)?.push(...cached.results)
-        successChunks++
-        cacheHits++
-        onProgress?.({
-          stageIndex, stageCount, kind, chunkIndex: chunk.index, chunkCount: chunks.length,
-          fromCache: true, status: 'cache', errorCount: errorChunks,
-        })
-        continue
-      }
-      try {
-        const candidates = await provider.findCandidates({ kind, geometry: chunk.geometry, radiusMeters: kind === 'localities' ? 1_500 : 500 })
-        await cache.put(identity, candidates, attemptedAt)
-        byKind.get(kind)?.push(...candidates)
-        successChunks++
-        onProgress?.({
-          stageIndex, stageCount, kind, chunkIndex: chunk.index, chunkCount: chunks.length,
-          fromCache: false, status: 'success', errorCount: errorChunks,
-        })
-      } catch {
-        errorChunks++
-        onProgress?.({
-          stageIndex, stageCount, kind, chunkIndex: chunk.index, chunkCount: chunks.length,
-          fromCache: false, status: 'error', errorCount: errorChunks,
-        })
-      }
-    }
+): Promise<{ readonly result: StageResult; readonly cacheHits: number }> {
+  const searchGeometry = structuralSearchGeometry(route)
+  if (searchGeometry === null) throw new Error(`Géométrie indisponible pour l’étape ${stage.id}.`)
+  const sentGeometry = searchGeometry.geometry
+  const fingerprint = routeFingerprint(bundle, route)
+  const identity = {
+    providerId: provider.id,
+    routeFingerprint: fingerprint,
+    enrichmentType: 'structural-points',
+    engineVersion: ROUTE_ENRICHMENT_ENGINE_VERSION,
   }
-  return {
-    result: {
+
+  function resultFromCandidates(
+    candidates: readonly OsmRouteFeatureCandidate[],
+    source: 'cache' | 'network',
+    durationMs: number,
+    rawCandidateCount: number,
+    networkRequests: number,
+  ): StageResult {
+    const localityCandidates = candidates.filter((candidate) =>
+      (candidate.featureType === 'city' || candidate.featureType === 'town') && candidate.name !== null)
+    const landmarkCandidates = candidates.filter((candidate) =>
+      (candidate.featureType === 'mountain-pass' || candidate.featureType === 'saddle') && candidate.name !== null)
+    const localities = locateAndDeduplicate(localityCandidates, geometry, STRUCTURAL_LOCALITY_CLIENT_RADIUS_METERS)
+    const landmarks = locateAndDeduplicate(landmarkCandidates, geometry, STRUCTURAL_LANDMARK_CLIENT_RADIUS_METERS)
+    const retainedCandidateCount = localities.length + landmarks.length
+    return {
       stage,
       route,
       geometry,
-      localities: locateAndDeduplicate(byKind.get('localities') ?? [], geometry, 1_500).filter((feature) => feature.name !== null),
-      landmarks: locateAndDeduplicate(byKind.get('landmarks') ?? [], geometry, 250),
-      successChunks,
-      errorChunks,
-    },
-    chunkCount: chunks.length * 2,
-    cacheHits,
+      localities,
+      landmarks,
+      successRequests: 1,
+      errorRequests: 0,
+      networkRequests,
+      source,
+      durationMs,
+      rawCandidateCount,
+      retainedCandidateCount,
+      rejectedCandidateCount: Math.max(0, rawCandidateCount - retainedCandidateCount),
+      sentPointCount: sentGeometry.length,
+    }
+  }
+
+  const cached = await cache.get<OsmRouteFeatureCandidate>(identity).catch(() => null)
+  if (cached !== null) {
+    const result = resultFromCandidates(cached.results, 'cache', 0, cached.results.length, 0)
+    onProgress?.({
+      stageIndex, stageCount, stageId: stage.id, source: 'cache', status: 'cache', errorCount: 0,
+      durationMs: 0, rawCandidateCount: result.rawCandidateCount, retainedCandidateCount: result.retainedCandidateCount,
+      rejectedCandidateCount: result.rejectedCandidateCount, sentPointCount: result.sentPointCount,
+    })
+    return { result, cacheHits: 1 }
+  }
+
+  try {
+    const response = await provider.findStructuralCandidates({
+      stageId: stage.id,
+      routeFingerprint: fingerprint,
+      geometry: sentGeometry,
+      routeLengthKm: stage.distanceKm ?? route.segments[0]?.distanceKm ?? null,
+      localityCollectionRadiusMeters: STRUCTURAL_LOCALITY_COLLECTION_RADIUS_METERS,
+      landmarkCollectionRadiusMeters: STRUCTURAL_LANDMARK_COLLECTION_RADIUS_METERS,
+    })
+    await cache.put(identity, response.candidates, attemptedAt)
+    const result = resultFromCandidates(response.candidates, 'network', response.durationMs, response.rawCandidateCount, 1)
+    onProgress?.({
+      stageIndex, stageCount, stageId: stage.id, source: 'network', status: 'success', errorCount: 0,
+      durationMs: result.durationMs, rawCandidateCount: result.rawCandidateCount, retainedCandidateCount: result.retainedCandidateCount,
+      rejectedCandidateCount: result.rejectedCandidateCount, sentPointCount: result.sentPointCount,
+    })
+    return { result, cacheHits: 0 }
+  } catch {
+    const result: StageResult = {
+      stage, route, geometry, localities: [], landmarks: [], successRequests: 0, errorRequests: 1,
+      networkRequests: 1, source: 'network', durationMs: 0, rawCandidateCount: 0, retainedCandidateCount: 0,
+      rejectedCandidateCount: 0, sentPointCount: sentGeometry.length,
+    }
+    onProgress?.({
+      stageIndex, stageCount, stageId: stage.id, source: 'network', status: 'error', errorCount: 1,
+      durationMs: 0, rawCandidateCount: 0, retainedCandidateCount: 0, rejectedCandidateCount: 0,
+      sentPointCount: result.sentPointCount,
+    })
+    return { result, cacheHits: 0 }
   }
 }
 
@@ -304,7 +346,7 @@ function featurePoint(feature: LocatedFeature, route: Route, idFactory: () => st
   return {
     id: routePointId(idFactory()),
     routeId: route.id,
-    type: feature.featureType === 'city' || feature.featureType === 'town' || feature.featureType === 'village' ? 'village' : 'summit',
+    type: feature.featureType === 'city' || feature.featureType === 'town' ? 'passage' : 'summit',
     name: feature.name,
     latitude: feature.latitude,
     longitude: feature.longitude,
@@ -314,19 +356,20 @@ function featurePoint(feature: LocatedFeature, route: Route, idFactory: () => st
     lateralDistanceKm: feature.lateralDistanceMeters / 1_000,
     provenance: {
       sourceType: 'osm',
-      sourceId: `overpass-osm:${feature.featureType}:${feature.osmType}:${feature.osmId}`,
+      sourceId: `postpass-osm:${feature.featureType}:${feature.osmType}:${feature.osmId}`,
       fetchedAt: attemptedAt,
       engineVersion: ROUTE_ENRICHMENT_ENGINE_VERSION,
-      confidence: feature.featureType === 'peak' ? 'medium' : 'high',
+      confidence: 'high',
       manuallyOverridden: false,
     },
   }
 }
 
 function applyResults(bundle: TripBundle, results: readonly StageResult[], idFactory: () => string, attemptedAt: string): TripBundle {
-  const completelyRefreshedRouteIds = new Set(results.filter((result) => result.errorChunks === 0).map((result) => result.route.id))
+  const completelyRefreshedRouteIds = new Set(results.filter((result) => result.errorRequests === 0).map((result) => result.route.id))
+  const isAutomaticRoutePoint = (point: RoutePoint | undefined): boolean => point?.provenance.engineVersion.startsWith('route-enrichment@') ?? false
   const retainedPoints = bundle.routePoints.filter((point) =>
-    point.provenance.engineVersion !== ROUTE_ENRICHMENT_ENGINE_VERSION || !completelyRefreshedRouteIds.has(point.routeId))
+    !isAutomaticRoutePoint(point) || !completelyRefreshedRouteIds.has(point.routeId))
   const generatedPoints = results.flatMap((result) => [...result.localities, ...result.landmarks]
     .map((feature) => featurePoint(feature, result.route, idFactory, attemptedAt))
     .filter((point): point is RoutePoint => point !== null))
@@ -353,19 +396,25 @@ function applyResults(bundle: TripBundle, results: readonly StageResult[], idFac
     ...stage,
     climbIds: stage.climbIds.filter((id) => climbIds.has(id)),
     routePointIds: [
-      ...stage.routePointIds.filter((id) => bundle.routePoints.find((point) => point.id === id)?.provenance.engineVersion !== ROUTE_ENRICHMENT_ENGINE_VERSION),
+      ...stage.routePointIds.filter((id) => !completelyRefreshedRouteIds.has(stage.sourceRouteId) || !isAutomaticRoutePoint(bundle.routePoints.find((point) => point.id === id))),
       ...(routePointIdsByRoute.get(stage.sourceRouteId) ?? []),
     ],
   }))
-  const successes = results.reduce((total, result) => total + result.successChunks, 0)
-  const errors = results.reduce((total, result) => total + result.errorChunks, 0)
+  const successes = results.reduce((total, result) => total + result.successRequests, 0)
+  const errors = results.reduce((total, result) => total + result.errorRequests, 0)
+  const networks = results.reduce((total, result) => total + result.networkRequests, 0)
+  const durationMs = Math.round(results.reduce((total, result) => total + result.durationMs, 0))
+  const rawCandidates = results.reduce((total, result) => total + result.rawCandidateCount, 0)
+  const retainedCandidates = results.reduce((total, result) => total + result.retainedCandidateCount, 0)
   const existing = bundle.enrichmentMetadata.providers.find((state) => state.provider === ROUTE_ENRICHMENT_PROVIDER_STATE)
   const providerState: EnrichmentProviderState = {
     provider: ROUTE_ENRICHMENT_PROVIDER_STATE,
     lastAttemptedAt: attemptedAt,
     lastSuccessAt: successes > 0 ? attemptedAt : existing?.lastSuccessAt ?? null,
     status: errors === 0 ? 'success' : successes > 0 ? 'partial' : 'error',
-    message: errors === 0 ? null : `${errors} zone(s) OSM restent à reprendre ; les résultats acquis sont conservés.`,
+    message: errors === 0
+      ? `Postpass · ${networks === 0 ? 'cache' : 'network'} · ${durationMs} ms · ${rawCandidates} candidat(s) / ${retainedCandidates} retenu(s).`
+      : `${errors} étape(s) Postpass restent à reprendre ; les résultats acquis sont conservés.`,
   }
   return {
     ...bundle,
@@ -388,7 +437,7 @@ export async function enrichTripRoute(input: EnrichTripRouteInput): Promise<Rout
   const attemptedAt = input.now()
   const routeById = new Map(input.bundle.routes.map((route) => [route.id, route]))
   const results: StageResult[] = []
-  let chunkCount = 0
+  let requestCount = 0
   let cacheHitCount = 0
   for (let stageIndex = 0; stageIndex < input.bundle.stages.length; stageIndex++) {
     const stage = input.bundle.stages[stageIndex]
@@ -397,16 +446,16 @@ export async function enrichTripRoute(input: EnrichTripRouteInput): Promise<Rout
     if (stage === undefined || route === undefined || geometry === null) continue
     const fetched = await fetchStage(input.bundle, stage, route, geometry, input.provider, input.cache, attemptedAt, stageIndex, input.bundle.stages.length, input.onProgress)
     results.push(fetched.result)
-    chunkCount += fetched.chunkCount
+    requestCount += fetched.result.networkRequests
     cacheHitCount += fetched.cacheHits
   }
   const bundle = applyResults(input.bundle, results, input.idFactory, attemptedAt)
   return {
     bundle,
     saved: false,
-    chunkCount,
+    requestCount,
     cacheHitCount,
-    networkErrorCount: results.reduce((total, result) => total + result.errorChunks, 0),
+    networkErrorCount: results.reduce((total, result) => total + result.errorRequests, 0),
     localityCount: results.reduce((total, result) => total + result.localities.length, 0),
     landmarkCount: results.reduce((total, result) => total + result.landmarks.length, 0),
     renamedClimbCount: bundle.climbs.filter((climb) => climb.provenance.engineVersion === ROUTE_ENRICHMENT_ENGINE_VERSION).length,

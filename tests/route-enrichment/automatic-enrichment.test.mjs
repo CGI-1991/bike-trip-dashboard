@@ -1,6 +1,7 @@
 import '../storage/indexeddb/support/setup-fake-indexeddb.mjs'
 
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
 import { runStoredTripAutomaticEnrichment } from '../../src/route-enrichment/automatic-enrichment.ts'
@@ -13,6 +14,14 @@ function idFactory() {
   return () => `automatic-${index++}`
 }
 
+test('automatic route enrichment is wired to Postpass and has no Overpass dependency', () => {
+  const mainSource = readFileSync(new URL('../../src/main.ts', import.meta.url), 'utf8')
+  const automaticSource = readFileSync(new URL('../../src/route-enrichment/automatic-enrichment.ts', import.meta.url), 'utf8')
+  assert.match(mainSource, /routeEnrichmentProvider:\s*createPostpassRouteEnrichmentProvider\(/)
+  assert.doesNotMatch(mainSource, /routeEnrichmentProvider:\s*createOverpass/)
+  assert.doesNotMatch(automaticSource, /overpass-api\.de|Overpass/)
+})
+
 test('a locally saved trip remains readable while automatic network enrichment is still pending', async () => {
   const database = await openTestDatabase()
   try {
@@ -23,7 +32,10 @@ test('a locally saved trip remains readable while automatic network enrichment i
     const gate = new Promise((resolve) => { release = resolve })
     const routeProvider = {
       id: 'slow-route', sourceType: 'osm', attribution: 'OSM',
-      async findCandidates() { await gate; return [] },
+      async findStructuralCandidates() {
+        await gate
+        return { candidates: [], durationMs: 1, rawCandidateCount: 0, httpStatus: 200, payloadBytes: 10, startedAt: '2028-08-03T10:00:00.000Z', finishedAt: '2028-08-03T10:00:00.001Z' }
+      },
     }
     const running = runStoredTripAutomaticEnrichment({
       database, tripId: bundle.metadata.id, routeEnrichmentProvider: routeProvider,
@@ -52,7 +64,7 @@ test('automatic enrichment runs endpoints before route data and a network outage
       database,
       tripId: bundle.metadata.id,
       geocodingProvider: { id: 'offline-geocoder', sourceType: 'osm', attribution: 'OSM', async reverse() { throw new Error('offline') } },
-      routeEnrichmentProvider: { id: 'offline-route', sourceType: 'osm', attribution: 'OSM', async findCandidates() { throw new Error('offline') } },
+      routeEnrichmentProvider: { id: 'offline-route', sourceType: 'osm', attribution: 'OSM', async findStructuralCandidates() { throw new Error('offline') } },
       idFactory: idFactory(),
       now: () => '2028-08-03T10:00:00.000Z',
       onProgress: (progress) => phases.push(progress.phase),
@@ -60,7 +72,7 @@ test('automatic enrichment runs endpoints before route data and a network outage
     assert.equal(phases[0], 'endpoints')
     assert.equal(report.partial, true)
     assert.ok(await repository.loadTripBundle(bundle.metadata.id))
-    assert.equal(report.bundle.enrichmentMetadata.providers.find((state) => state.provider === 'osm-route-enrichment').status, 'error')
+    assert.equal(report.bundle.enrichmentMetadata.providers.find((state) => state.provider === 'postpass-route-enrichment').status, 'error')
   } finally {
     database.close()
   }

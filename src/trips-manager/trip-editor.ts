@@ -187,7 +187,7 @@ function isRetainedRoutePoint(point: RoutePoint): boolean {
     || ((point.type === 'start' || point.type === 'end')
       && point.provenance.sourceType === 'osm'
       && point.provenance.engineVersion === 'endpoint-geocoding@1')
-    || (point.provenance.sourceType === 'osm' && point.provenance.engineVersion === 'route-enrichment@2')
+    || (point.provenance.sourceType === 'osm' && point.provenance.engineVersion.startsWith('route-enrichment@'))
 }
 
 /** Pure preservation layer applied after all GPX-derived fields were rebuilt. */
@@ -211,18 +211,18 @@ export function mergeEditedTripBundle(existing: TripBundle, rebuilt: TripBundle,
   const retainedAutomaticClimbs = existing.climbs.filter((climb) =>
     unchangedRouteIds.has(climb.routeId)
     && climb.provenance.sourceType === 'osm'
-    && (climb.provenance.engineVersion === 'climb-name-enrichment@1' || climb.provenance.engineVersion === 'route-enrichment@2'),
+    && (climb.provenance.engineVersion === 'climb-name-enrichment@1' || climb.provenance.engineVersion.startsWith('route-enrichment@')),
   )
   const baseClimbs = rebuilt.climbs.map((climb) => {
     const mappedRouteId = remaps.routeIds.get(climb.routeId) ?? climb.routeId
     const retained = retainedAutomaticClimbs.find((candidate) =>
       candidate.routeId === mappedRouteId
       && Math.abs(candidate.startDistanceKm - climb.startDistanceKm) <= 0.05
-      && Math.abs(candidate.endDistanceKm - climb.endDistanceKm) <= (candidate.provenance.engineVersion === 'route-enrichment@2' ? 1 : 0.05),
+      && Math.abs(candidate.endDistanceKm - climb.endDistanceKm) <= (candidate.provenance.engineVersion.startsWith('route-enrichment@') ? 1 : 0.05),
     )
     return retained === undefined
       ? { ...climb, routeId: mappedRouteId }
-      : retained.provenance.engineVersion === 'route-enrichment@2'
+      : retained.provenance.engineVersion.startsWith('route-enrichment@')
         ? { ...retained, id: climb.id, routeId: mappedRouteId }
         : { ...climb, routeId: mappedRouteId, name: retained.name, confidence: retained.confidence, provenance: retained.provenance }
   })
