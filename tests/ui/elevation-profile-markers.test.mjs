@@ -34,13 +34,15 @@ function buildFixture() {
 }
 
 class FakeInteractiveElement {
-  constructor() {
+  constructor(width = 800, height = 240) {
     this.attributes = new Map()
     this.listeners = new Map()
     this.hidden = true
     this.innerHTML = ''
     this.textContent = ''
     this.style = {}
+    this._width = width
+    this._height = height
   }
   addEventListener(type, listener, options = {}) {
     const listeners = this.listeners.get(type) ?? new Set()
@@ -53,20 +55,29 @@ class FakeInteractiveElement {
   setAttribute(name, value) { this.attributes.set(name, String(value)) }
   getAttribute(name) { return this.attributes.get(name) ?? null }
   removeAttribute(name) { this.attributes.delete(name) }
-  getBoundingClientRect() { return { left: 0, width: 800 } }
+  getBoundingClientRect() { return { left: 0, top: 0, width: this._width, height: this._height } }
   setPointerCapture() {}
   releasePointerCapture() {}
 }
 
+// A narrow 320px-wide container (a realistic mobile width) makes the
+// horizontal tooltip clamp bug reproducible: at 320px wide, 14% of the
+// width (≈45px) is less than half a 190px-wide tooltip (95px), so the
+// previous fixed-percentage clamp still let it overflow.
+const NARROW_CONTAINER_WIDTH_PX = 320
+const CONTAINER_HEIGHT_PX = 240
+const TOOLTIP_WIDTH_PX = 190
+const TOOLTIP_HEIGHT_PX = 64
+
 function buildInteractiveFixture() {
-  const elements = Object.fromEntries([
-    '[data-profile-interactive]',
-    '[data-profile-cursor]',
-    '[data-profile-cursor-line]',
-    '[data-profile-cursor-dot]',
-    '[data-profile-tooltip]',
-    '[data-profile-live]',
-  ].map((selector) => [selector, new FakeInteractiveElement()]))
+  const elements = {
+    '[data-profile-interactive]': new FakeInteractiveElement(NARROW_CONTAINER_WIDTH_PX, CONTAINER_HEIGHT_PX),
+    '[data-profile-cursor]': new FakeInteractiveElement(),
+    '[data-profile-cursor-line]': new FakeInteractiveElement(),
+    '[data-profile-cursor-dot]': new FakeInteractiveElement(),
+    '[data-profile-tooltip]': new FakeInteractiveElement(TOOLTIP_WIDTH_PX, TOOLTIP_HEIGHT_PX),
+    '[data-profile-live]': new FakeInteractiveElement(),
+  }
   elements['[data-profile-cursor]'].setAttribute('hidden', '')
   const container = { innerHTML: '', querySelector: (selector) => elements[selector] ?? null }
   const points = Array.from({ length: 200 }, (_, index) => ({ latitude: 46 + index / 10_000, longitude: 6, elevationM: 400 + index }))
@@ -164,16 +175,15 @@ test('mouse, touch and keyboard move one cursor on the curve, keep the tooltip c
   const live = elements['[data-profile-live]']
 
   assert.equal(svg.listenerCount('pointermove'), 1)
-  svg.emit('pointermove', { clientX: 400, pointerId: 1, pointerType: 'mouse' })
+  svg.emit('pointermove', { clientX: 160, pointerId: 1, pointerType: 'mouse' })
   assert.equal(cursor.getAttribute('hidden'), null)
   assert.equal(tooltip.hidden, false)
   assert.equal(line.getAttribute('x1'), line.getAttribute('x2'))
   assert.ok(Number.isFinite(Number(dot.getAttribute('cy'))))
   assert.match(live.textContent, /km .* m .* Pente moyenne/s)
-  assert.ok(Number.parseFloat(tooltip.style.left) >= 14 && Number.parseFloat(tooltip.style.left) <= 86)
 
   const mouseText = live.textContent
-  svg.emit('pointerdown', { clientX: 650, pointerId: 2, pointerType: 'touch' })
+  svg.emit('pointerdown', { clientX: 260, pointerId: 2, pointerType: 'touch' })
   assert.notEqual(live.textContent, mouseText, 'touch uses the same continuous pointer interaction')
   let prevented = false
   svg.emit('keydown', { key: 'ArrowLeft', preventDefault: () => { prevented = true } })
@@ -184,6 +194,46 @@ test('mouse, touch and keyboard move one cursor on the curve, keep the tooltip c
   svg.emit('pointerleave')
   assert.notEqual(cursor.getAttribute('hidden'), null)
   assert.equal(tooltip.hidden, true)
+})
+
+test('the tooltip stays fully inside a narrow container at the first, middle and last point — never overflowing, even where a fixed 14%-86% window would', () => {
+  const { elements } = buildInteractiveFixture()
+  const svg = elements['[data-profile-interactive]']
+  const tooltip = elements['[data-profile-tooltip]']
+
+  function tooltipPixelEdges() {
+    const centerPercent = Number.parseFloat(tooltip.style.left)
+    const centerPx = (centerPercent / 100) * NARROW_CONTAINER_WIDTH_PX
+    return { left: centerPx - TOOLTIP_WIDTH_PX / 2, right: centerPx + TOOLTIP_WIDTH_PX / 2 }
+  }
+  function assertFullyInside(edges) {
+    assert.ok(edges.left >= -0.5, `tooltip left edge ${edges.left}px overflows the container`)
+    assert.ok(edges.right <= NARROW_CONTAINER_WIDTH_PX + 0.5, `tooltip right edge ${edges.right}px overflows the container`)
+  }
+
+  svg.emit('pointermove', { clientX: 0 })
+  assert.equal(tooltip.style.left, '31.6%', 'first point: flipped away from the left edge, not centered under the cursor')
+  assertFullyInside(tooltipPixelEdges())
+
+  svg.emit('pointermove', { clientX: NARROW_CONTAINER_WIDTH_PX / 2 })
+  assert.equal(tooltip.style.left, '50.0%', 'middle point: centered under the cursor, no clamping needed')
+  assertFullyInside(tooltipPixelEdges())
+
+  svg.emit('pointermove', { clientX: NARROW_CONTAINER_WIDTH_PX })
+  assert.equal(tooltip.style.left, '68.4%', 'last point: flipped away from the right edge, not centered under the cursor')
+  assertFullyInside(tooltipPixelEdges())
+})
+
+test('the tooltip is also clamped vertically, staying inside the container even when its own height leaves little room', () => {
+  const { elements } = buildInteractiveFixture()
+  const svg = elements['[data-profile-interactive]']
+  const tooltip = elements['[data-profile-tooltip]']
+
+  svg.emit('pointermove', { clientX: 160 })
+  const topPx = Number.parseFloat(tooltip.style.top)
+  assert.ok(Number.isFinite(topPx), 'top must be a real pixel value, not left unset')
+  assert.ok(topPx >= 0, 'top overflows above the container')
+  assert.ok(topPx + TOOLTIP_HEIGHT_PX <= CONTAINER_HEIGHT_PX + 0.5, 'tooltip bottom edge overflows the container')
 })
 
 test('J2 profile consolidates Le Grand-Bornand into one Vermont finish marker', () => {

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  allRouteMarkerCategories,
   getRouteMarkerCategory,
   getRouteMarkerLegendEntries,
   getRouteMarkerLegendSymbol,
@@ -51,7 +52,24 @@ test('start and finish markers are sized larger than a plain passage', () => {
   assert.ok(getRouteMarkerStyle('col-summit').sizePx > getRouteMarkerStyle('passage').sizePx)
 })
 
-test('the compact legend covers exactly the four categories, matching the inline symbol used elsewhere', () => {
+test('allRouteMarkerCategories covers every category with no duplicate and every one has a distinct-enough style — hamlet/peak are gone (V1 final scope)', () => {
+  const categories = ['start', 'finish', 'col-summit', 'passage', 'locality-major', 'locality-minor']
+  assert.equal(allRouteMarkerCategories.length, categories.length)
+  assert.deepEqual([...allRouteMarkerCategories].sort(), [...categories].sort())
+  assert.equal(new Set(allRouteMarkerCategories).size, allRouteMarkerCategories.length)
+  for (const category of allRouteMarkerCategories) {
+    const style = getRouteMarkerStyle(category)
+    assert.ok(style.label.trim().length > 0, `${category} needs an accessible label`)
+    assert.ok(style.sizePx > 0, `${category} needs a positive size`)
+    assert.ok(getRouteMarkerLegendSymbol(category).length > 0, `${category} needs a legend symbol`)
+  }
+})
+
+test('a village is smaller than a city/town — visual hierarchy matches importance', () => {
+  assert.ok(getRouteMarkerStyle('locality-minor').sizePx < getRouteMarkerStyle('locality-major').sizePx)
+})
+
+test('the compact legend covers exactly the four historical RGA categories, unaffected by the generic map extension', () => {
   const entries = getRouteMarkerLegendEntries()
   assert.equal(entries.length, 4)
   assert.deepEqual(entries.map(({ symbol }) => symbol), ['D', 'A', '◆', '●'])

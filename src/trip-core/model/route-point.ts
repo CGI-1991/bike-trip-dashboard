@@ -23,6 +23,7 @@ export type OsmRouteFeatureType =
   | 'city'
   | 'town'
   | 'village'
+  | 'hamlet'
   | 'mountain-pass'
   | 'saddle'
   | 'peak'

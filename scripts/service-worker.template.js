@@ -40,6 +40,28 @@ async function cachedResourceResponse(url, request) {
   return (await cache.match(url)) ?? fetch(request)
 }
 
+// The manifest is small, changes rarely, but matters a lot when wrong (a
+// stale/bad cached copy under an old, not-yet-superseded service worker
+// version — this app deliberately keeps a new worker WAITING rather than
+// forcing an immediate takeover, so an old worker can stay in control for a
+// long time during active iteration — would otherwise keep serving a
+// broken manifest indefinitely). Network-first, falling back to cache only
+// when actually offline, self-heals on the very next successful request
+// instead of waiting for this whole worker to be superseded.
+async function manifestResponse(url, request) {
+  try {
+    const response = await fetch(request)
+    if (response.ok) {
+      const cache = await caches.open(CACHE_NAME)
+      await cache.put(url, response.clone())
+    }
+    return response
+  } catch {
+    const cache = await caches.open(CACHE_NAME)
+    return (await cache.match(url)) ?? Response.error()
+  }
+}
+
 // GPX traces, JSON data, images, the manifest and its icons must always be
 // served as themselves — never as the app shell — even when a browser (or an
 // iOS "save file" flow) issues that request in navigate mode instead of a
@@ -65,6 +87,10 @@ self.addEventListener('fetch', (event) => {
   }
 
   if (isKnownResource) {
-    event.respondWith(cachedResourceResponse(requestUrl.href, request))
+    event.respondWith(
+      requestUrl.pathname.endsWith('.webmanifest')
+        ? manifestResponse(requestUrl.href, request)
+        : cachedResourceResponse(requestUrl.href, request),
+    )
   }
 })

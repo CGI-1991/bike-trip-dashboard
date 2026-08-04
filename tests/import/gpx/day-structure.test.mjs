@@ -98,6 +98,16 @@ test('an OFF day keeps the location reached the day before (annexe section 8)', 
   assert.equal(offDay.notes, null)
 })
 
+test('an OFF day opening the trip (no previous ride yet) falls back to the next ride’s departure, never a placeholder', () => {
+  const days = [rideDay('d1', 0, 1, '2027-06-01', 'Departure Town', 'C')]
+  const bundle = minimalBundle(days)
+  const structure = [{ kind: 'off' }, { kind: 'ride' }]
+  const result = applyDayStructure(bundle, structure, idFactory())
+  const offDay = result.days[0]
+  assert.equal(offDay.startLocationName, 'Departure Town')
+  assert.equal(offDay.endLocationName, 'Departure Town')
+})
+
 test('an OFF day carries its notes through unchanged', () => {
   const days = [rideDay('d1', 0, 1, '2027-06-01', 'A', 'B')]
   const bundle = minimalBundle(days)

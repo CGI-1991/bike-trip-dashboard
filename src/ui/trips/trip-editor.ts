@@ -47,13 +47,19 @@ async function browserFileToImportFile(file: File): Promise<GpxImportFile> {
   }
 }
 
+export interface TripEditorHandle {
+  /** Removes every listener this editor instance attached to `container` — call before the container is reused for another screen. */
+  readonly destroy: () => void
+}
+
 export function createTripEditor(
   container: HTMLElement,
   deps: TripsManagerDeps,
   tripId: TripId,
   onSaved: (bundle: TripBundle) => void,
   onCancelled: () => void,
-): void {
+): TripEditorHandle {
+  const controller = new AbortController()
   let stage: EditorStage = 'loading'
   let items: EditorItem[] = []
   let tripName = ''
@@ -118,22 +124,28 @@ export function createTripEditor(
   }
 
   function move(position: number, direction: -1 | 1): void {
+    if (!Number.isInteger(position) || position < 0 || position >= items.length) return
     const target = position + direction
     if (target < 0 || target >= items.length) return
+    const current = items[position]
+    const other = items[target]
+    if (current === undefined || other === undefined) return
     const next = [...items]
-    const value = next[position]
-    next[position] = next[target] as EditorItem
-    next[target] = value as EditorItem
+    next[position] = other
+    next[target] = current
     items = next
     render()
   }
 
   function insertAfter(position: number, kind: 'off' | 'transfer'): void {
-    items = [...items.slice(0, position + 1), { key: nextKey(), kind, existingDayId: null, notes: null }, ...items.slice(position + 1)]
+    if (!Number.isInteger(position)) return
+    const insertAt = Math.min(Math.max(position + 1, 0), items.length)
+    items = [...items.slice(0, insertAt), { key: nextKey(), kind, existingDayId: null, notes: null }, ...items.slice(insertAt)]
     render()
   }
 
   function remove(position: number): void {
+    if (!Number.isInteger(position) || position < 0 || position >= items.length) return
     items = [...items.slice(0, position), ...items.slice(position + 1)]
     render()
   }
@@ -250,13 +262,17 @@ export function createTripEditor(
     const target = event.target
     if (!(target instanceof HTMLInputElement) || target.files === null || target.files.length === 0) return
     if (target.dataset.editorField === 'add') {
-      void addFiles(target.files)
+      const files = target.files
+      target.value = ''
+      void addFiles(files)
     } else if (target.dataset.editorField === 'replace') {
       const position = Number(target.dataset.position)
       const file = target.files[0]
+      const input = target
+      input.value = ''
       if (file !== undefined) void replaceFile(position, file)
     }
-  })
+  }, { signal: controller.signal })
 
   container.addEventListener('click', (event) => {
     const target = event.target
@@ -272,7 +288,9 @@ export function createTripEditor(
     else if (action === 'remove') remove(position)
     else if (action === 'save') void save()
     else if (action === 'cancel') onCancelled()
-  })
+  }, { signal: controller.signal })
 
   void initialize()
+
+  return { destroy: () => controller.abort() }
 }

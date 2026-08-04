@@ -5,7 +5,9 @@
  * app's existing tokens (forest green, warning orange, danger red) rather than
  * introducing a new palette.
  */
-export type RouteMarkerCategory = 'start' | 'finish' | 'col-summit' | 'passage'
+import type { CanonicalWaypointKind } from '../analysis/canonical-waypoints.ts'
+
+export type RouteMarkerCategory = 'start' | 'finish' | 'col-summit' | 'passage' | 'locality-major' | 'locality-minor'
 
 export type RouteMarkerShape = 'circle' | 'rounded-square' | 'diamond'
 
@@ -58,16 +60,49 @@ const CATEGORY_STYLES: Record<RouteMarkerCategory, RouteMarkerStyle> = {
     sizePx: 9,
     label: 'Lieu de passage',
   },
+  'locality-major': {
+    category: 'locality-major',
+    shape: 'circle',
+    colorHex: '#1d4e73',
+    symbol: '',
+    sizePx: 14,
+    label: 'Ville ou bourg',
+  },
+  'locality-minor': {
+    category: 'locality-minor',
+    shape: 'circle',
+    colorHex: '#3f5a72',
+    symbol: '',
+    sizePx: 10,
+    label: 'Village',
+  },
 }
 
 export function getRouteMarkerStyle(category: RouteMarkerCategory): RouteMarkerStyle {
   return CATEGORY_STYLES[category]
 }
 
+/**
+ * Legend order for the RGA map (`route-map.ts::renderRouteMap`) only — kept
+ * to exactly its 4 historical categories on purpose. The generic map
+ * (`renderGenericRouteMap`) builds its own dynamic legend from whichever
+ * categories are actually present in its model, rather than sharing this
+ * fixed list, so RGA's legend never grows extra, unused entries.
+ */
 export const routeMarkerCategoryOrder: readonly RouteMarkerCategory[] = [
   'start',
   'finish',
   'col-summit',
+  'passage',
+]
+
+/** Every `RouteMarkerCategory` value, in a stable display order — used by the generic map/profile's own dynamic legend. */
+export const allRouteMarkerCategories: readonly RouteMarkerCategory[] = [
+  'start',
+  'finish',
+  'col-summit',
+  'locality-major',
+  'locality-minor',
   'passage',
 ]
 
@@ -91,11 +126,36 @@ export function getRouteMarkerCategory(point: {
   return 'passage'
 }
 
+const GENERIC_KIND_TO_MARKER_CATEGORY: Readonly<Record<CanonicalWaypointKind, RouteMarkerCategory>> = {
+  start: 'start',
+  end: 'finish',
+  city: 'locality-major',
+  town: 'locality-major',
+  village: 'locality-minor',
+  'mountain-pass': 'col-summit',
+  saddle: 'col-summit',
+  climb: 'col-summit',
+  pause: 'passage',
+}
+
+/**
+ * Classifies a `CanonicalWaypoint` (the generic TripBundle pipeline's
+ * points, `analysis/canonical-waypoints.ts`) into a `RouteMarkerCategory` —
+ * the generic counterpart of `getRouteMarkerCategory`, single source of
+ * truth shared by the generic map model builder and the generic elevation
+ * profile so a kind always looks the same on both surfaces.
+ */
+export function getGenericRouteMarkerCategory(kind: CanonicalWaypointKind): RouteMarkerCategory {
+  return GENERIC_KIND_TO_MARKER_CATEGORY[kind]
+}
+
 const CATEGORY_LEGEND_SYMBOL: Record<RouteMarkerCategory, string> = {
   start: 'D',
   finish: 'A',
   'col-summit': '◆',
   passage: '●',
+  'locality-major': '●',
+  'locality-minor': '●',
 }
 
 /**

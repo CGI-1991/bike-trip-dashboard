@@ -24,7 +24,7 @@ function memoryCache() {
 
 function candidate(featureType, overrides = {}) {
   const tags = featureType === 'mountain-pass' ? { mountain_pass: 'yes' }
-    : featureType === 'city' || featureType === 'town' || featureType === 'village' || featureType === 'hamlet' ? { place: featureType }
+    : featureType === 'city' || featureType === 'town' || featureType === 'village' ? { place: featureType }
       : { natural: featureType }
   return {
     osmType: 'node', osmId: `${featureType}-1`, featureType, name: featureType,
@@ -63,7 +63,7 @@ function climbBundle() {
   return bundle
 }
 
-test('city/town and pass/saddle use exact client thresholds, preserve route order and reject excluded types', async () => {
+test('city/town and pass/saddle use exact client thresholds and preserve route order', async () => {
   const bundle = climbBundle()
   const candidates = [
     candidate('town', { osmId: 'town-middle', name: 'Milieu', longitude: 6.12 }),
@@ -71,16 +71,13 @@ test('city/town and pass/saddle use exact client thresholds, preserve route orde
     candidate('city', { osmId: 'city-far', name: 'Ville 1,6 km', longitude: 6.10, latitude: 45.0145 }),
     candidate('mountain-pass', { osmId: 'pass-near', name: 'Col 200 m', longitude: 6.127, latitude: 45.0018 }),
     candidate('saddle', { osmId: 'saddle-far', name: 'Selle 300 m', longitude: 6.15, latitude: 45.0027 }),
-    candidate('village', { osmId: 'village-forbidden', name: 'Village exclu', longitude: 6.13 }),
-    candidate('hamlet', { osmId: 'hamlet-forbidden', name: 'Hameau exclu', longitude: 6.13 }),
-    candidate('peak', { osmId: 'peak-forbidden', name: 'Pic exclu', longitude: 6.13 }),
   ]
   const progress = []
   const report = await enrichTripRoute({
     bundle, provider: provider(candidates), cache: memoryCache(), idFactory: idFactory(),
     now: () => '2028-08-03T10:00:00.000Z', onProgress: (event) => progress.push(event),
   })
-  const structural = report.bundle.routePoints.filter((point) => point.provenance.engineVersion === 'route-enrichment@3')
+  const structural = report.bundle.routePoints.filter((point) => point.provenance.engineVersion === 'route-enrichment@4')
   assert.deepEqual(structural.map((point) => point.name), ['Ville 1,4 km', 'Milieu', 'Col 200 m'])
   assert.deepEqual(structural.map((point) => point.osmFeatureType), ['city', 'town', 'mountain-pass'])
   assert.ok(structural[0].lateralDistanceKm > 1.3 && structural[0].lateralDistanceKm < 1.5)
@@ -93,9 +90,31 @@ test('city/town and pass/saddle use exact client thresholds, preserve route orde
   ])
   assert.equal(report.requestCount, 1)
   assert.equal(progress.length, 1)
-  assert.equal(progress[0].rawCandidateCount, 8)
+  assert.equal(progress[0].rawCandidateCount, 5)
   assert.equal(progress[0].retainedCandidateCount, 3)
-  assert.equal(progress[0].rejectedCandidateCount, 5)
+  assert.equal(progress[0].rejectedCandidateCount, 2)
+})
+
+test('village shares the locality threshold — hamlet/peak are never searched, stored or exposed', async () => {
+  const bundle = climbBundle()
+  const candidates = [
+    // village: same 1500 m radius as city/town.
+    candidate('village', { osmId: 'village-near', name: 'Village 1,4 km', longitude: 6.06, latitude: 45.0125 }),
+    candidate('village', { osmId: 'village-far', name: 'Village 1,6 km', longitude: 6.10, latitude: 45.0145 }),
+    // hamlet/peak: V1 final scope definitively drops these — even if a
+    // provider somehow still returned one, it must never survive parsing.
+    candidate('hamlet', { osmId: 'hamlet-near', name: 'Hameau 890 m', longitude: 6.06, latitude: 45.008 }),
+    candidate('peak', { osmId: 'peak-near', name: 'Pic 330 m', longitude: 6.127, latitude: 45.003 }),
+  ]
+  const report = await enrichTripRoute({
+    bundle, provider: provider(candidates), cache: memoryCache(), idFactory: idFactory('minor'),
+    now: () => '2028-08-03T10:00:00.000Z',
+  })
+  const structural = report.bundle.routePoints.filter((point) => point.provenance.engineVersion === 'route-enrichment@4')
+  assert.deepEqual(structural.map((point) => point.name), ['Village 1,4 km'])
+  assert.equal(structural[0].osmFeatureType, 'village')
+  assert.equal(structural[0].type, 'passage')
+  assert.equal(report.bundle.climbs[0].name, 'Montée 1')
 })
 
 test('wider server recall recovers candidates displaced by simplification while full GPX thresholds stay strict', async () => {
@@ -142,7 +161,7 @@ test('wider server recall recovers candidates displaced by simplification while 
     now: () => '2028-08-03T10:00:00.000Z', onProgress: (event) => progress.push(event),
   })
   const structuralNames = report.bundle.routePoints
-    .filter((point) => point.provenance.engineVersion === 'route-enrichment@3')
+    .filter((point) => point.provenance.engineVersion === 'route-enrichment@4')
     .map((point) => point.name)
   assert.deepEqual(structuralNames, ['Town accepted', 'Pass accepted'])
   assert.ok(collectedDistances.get('pass-recalled') > 250)
@@ -164,7 +183,7 @@ test('mountain_pass and saddle can conservatively adjust a summit and recalculat
     assert.ok(climb.endDistanceKm > 9.9 && climb.endDistanceKm < 10.1)
     assert.equal(Math.round(climb.endAltitudeM), 500)
     assert.ok(climb.elevationGainM >= 400)
-    assert.equal(climb.provenance.engineVersion, 'route-enrichment@3')
+    assert.equal(climb.provenance.engineVersion, 'route-enrichment@4')
   }
 })
 
@@ -204,6 +223,44 @@ test('an incoherent pass is named but refused for summit adjustment', async () =
   })
   assert.equal(report.bundle.climbs[0].name, 'Wrong altitude')
   assert.equal(report.bundle.climbs[0].endDistanceKm, 9.5)
+})
+
+test('a network failure never writes anything to the cache — a retry can always still try the network again', async () => {
+  const bundle = climbBundle()
+  const cache = memoryCache()
+  let putCalls = 0
+  const instrumentedCache = { get: (...args) => cache.get(...args), put: (...args) => { putCalls++; return cache.put(...args) } }
+  const failingProvider = provider([], { async findStructuralCandidates() { throw new Error('Postpass timeout') } })
+
+  const report = await enrichTripRoute({
+    bundle, provider: failingProvider, cache: instrumentedCache, idFactory: idFactory(), now: () => '2028-08-03T10:00:00.000Z',
+  })
+  assert.equal(report.networkErrorCount, 1)
+  assert.equal(report.bundle.enrichmentMetadata.providers.find((state) => state.provider === 'postpass-route-enrichment').status, 'error')
+  assert.equal(putCalls, 0, 'a failed request must never write to the cache')
+
+  // A subsequent attempt, still failing, must still hit the network every
+  // time — nothing cached means nothing to short-circuit the retry with.
+  let networkCalls = 0
+  const stillFailing = provider([], { async findStructuralCandidates() { networkCalls++; throw new Error('Postpass timeout') } })
+  await enrichTripRoute({ bundle: report.bundle, provider: stillFailing, cache: instrumentedCache, idFactory: idFactory('retry'), now: () => '2028-08-04T10:00:00.000Z' })
+  assert.equal(networkCalls, 1)
+})
+
+test('a successful (even empty) result IS cached — a later attempt for the same route is a pure cache hit', async () => {
+  const bundle = climbBundle()
+  const cache = memoryCache()
+  let networkCalls = 0
+  const emptySuccessProvider = provider([], { async findStructuralCandidates(search) { networkCalls++; return provider([]).findStructuralCandidates(search) } })
+
+  const first = await enrichTripRoute({ bundle, provider: emptySuccessProvider, cache, idFactory: idFactory(), now: () => '2028-08-03T10:00:00.000Z' })
+  assert.equal(first.requestCount, 1)
+  assert.equal(networkCalls, 1)
+
+  const second = await enrichTripRoute({ bundle: first.bundle, provider: emptySuccessProvider, cache, idFactory: idFactory('retry'), now: () => '2028-08-04T10:00:00.000Z' })
+  assert.equal(second.requestCount, 0)
+  assert.equal(second.cacheHitCount, 1)
+  assert.equal(networkCalls, 1, 'a valid empty success must never be re-fetched')
 })
 
 test('real geometric duplicates are collapsed while similar disjoint climbs remain', () => {

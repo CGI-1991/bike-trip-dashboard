@@ -7,7 +7,13 @@ import type {
 } from './types.ts'
 
 export const DEFAULT_POSTPASS_URL = 'https://postpass.geofabrik.de/api/interpreter'
-export const DEFAULT_POSTPASS_TIMEOUT_MS = 15_000
+// Real-browser smoke testing observed requests being aborted around 15.0s
+// (right at the previous 15_000 ms ceiling) even though earlier benchmarks
+// suggested ~10s was typical — real-world latency (server load, network
+// conditions) leaves too little margin at 15s. Widened to 30s; enrichment
+// runs asynchronously and never blocks the UI, so a slower request is not
+// user-visible beyond its own stage's progress indicator.
+export const DEFAULT_POSTPASS_TIMEOUT_MS = 30_000
 export const POSTPASS_LOCALITY_BBOX_EXPAND_DEGREES = 0.04
 export const POSTPASS_LANDMARK_BBOX_EXPAND_DEGREES = 0.01
 
@@ -34,7 +40,7 @@ export interface PostpassRouteDiagnostic {
   readonly durationMs: number | null
   readonly httpStatus: number | null
   readonly rawCandidateCount: number | null
-  readonly counts: Readonly<Record<'city' | 'town' | 'mountain-pass' | 'saddle', number>> | null
+  readonly counts: Readonly<Record<RouteFeatureType, number>> | null
   readonly message: string | null
 }
 
@@ -90,6 +96,7 @@ export function buildPostpassStructuralQuery(search: StructuralRouteFeatureSearc
     CASE
       WHEN source.tags->>'place' = 'city' THEN 'city'
       WHEN source.tags->>'place' = 'town' THEN 'town'
+      WHEN source.tags->>'place' = 'village' THEN 'village'
       WHEN source.tags->>'mountain_pass' = 'yes' THEN 'mountain-pass'
       WHEN source.tags->>'natural' = 'saddle' THEN 'saddle'
     END AS feature_type
@@ -99,7 +106,7 @@ export function buildPostpassStructuralQuery(search: StructuralRouteFeatureSearc
     AND btrim(source.tags->>'name') <> ''
     AND (
       (
-        source.tags->>'place' IN ('city', 'town')
+        source.tags->>'place' IN ('city', 'town', 'village')
         AND source.geom && ST_Expand(route.geom, ${POSTPASS_LOCALITY_BBOX_EXPAND_DEGREES})
         AND ST_DWithin(source.geom::geography, route.geom::geography, ${search.localityCollectionRadiusMeters})
       )
@@ -126,8 +133,10 @@ function osmType(value: unknown): OsmElementType | null {
   return null
 }
 
+const ROUTE_FEATURE_TYPES: readonly RouteFeatureType[] = ['city', 'town', 'village', 'mountain-pass', 'saddle']
+
 function featureType(value: unknown): RouteFeatureType | null {
-  return value === 'city' || value === 'town' || value === 'mountain-pass' || value === 'saddle' ? value : null
+  return typeof value === 'string' && (ROUTE_FEATURE_TYPES as readonly string[]).includes(value) ? (value as RouteFeatureType) : null
 }
 
 function elevation(value: unknown): number | null {
@@ -151,7 +160,7 @@ function parseFeature(value: unknown): OsmRouteFeatureCandidate | null {
   const id = typeof properties.osm_id === 'number' || typeof properties.osm_id === 'string' ? String(properties.osm_id) : null
   const name = nonEmptyString(properties.name)
   if (!validCoordinate(latitude as number, 90) || !validCoordinate(longitude as number, 180) || type === null || elementType === null || id === null || name === null) return null
-  const usefulTags: Record<string, string> = type === 'city' || type === 'town'
+  const usefulTags: Record<string, string> = type === 'city' || type === 'town' || type === 'village'
     ? { place: type }
     : type === 'mountain-pass' ? { mountain_pass: 'yes' } : { natural: 'saddle' }
   const elevationM = elevation(properties.elevation)
@@ -168,13 +177,12 @@ export function parsePostpassFeatureCollection(value: unknown): { readonly candi
   }
 }
 
-function counts(candidates: readonly OsmRouteFeatureCandidate[]): Readonly<Record<'city' | 'town' | 'mountain-pass' | 'saddle', number>> {
-  return {
-    city: candidates.filter((candidate) => candidate.featureType === 'city').length,
-    town: candidates.filter((candidate) => candidate.featureType === 'town').length,
-    'mountain-pass': candidates.filter((candidate) => candidate.featureType === 'mountain-pass').length,
-    saddle: candidates.filter((candidate) => candidate.featureType === 'saddle').length,
+function counts(candidates: readonly OsmRouteFeatureCandidate[]): Readonly<Record<RouteFeatureType, number>> {
+  const result = {} as Record<RouteFeatureType, number>
+  for (const type of ROUTE_FEATURE_TYPES) {
+    result[type] = candidates.filter((candidate) => candidate.featureType === type).length
   }
+  return result
 }
 
 export function createPostpassRouteEnrichmentProvider(options: PostpassRouteProviderOptions = {}): RouteEnrichmentProvider {

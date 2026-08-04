@@ -51,7 +51,6 @@ import type { GpxShareTarget } from './ui/gpx-share.ts'
 import { openImageViewer } from './ui/image-viewer.ts'
 import { initializeTripsManager } from './ui/trips/trips-manager.ts'
 import { createNominatimGeocodingProvider } from './geocoding/nominatim-provider.ts'
-import { createOverpassClimbNameProvider } from './climb-names/overpass-provider.ts'
 import { createPostpassRouteEnrichmentProvider } from './route-enrichment/postpass-provider.ts'
 import { openBikeTripDatabase } from './storage/indexeddb/open-database.ts'
 import { renderDashboard } from './ui/render.ts'
@@ -184,6 +183,7 @@ const automaticBreakField = getRequiredElement<HTMLElement>('[data-automatic-bre
 let pauseDraft: PauseDayPlan | null = null
 let daySettingsDraft: RideDaySettings | null = null
 let returnView: Exclude<AppView, 'day-detail'> = 'today'
+let tripsManagerHandle: { readonly goToList: () => void } | null = null
 
 function showView(view: AppView): void {
   for (const section of document.querySelectorAll<HTMLElement>('[data-app-view]')) {
@@ -963,17 +963,21 @@ void initializeGpxAnalysis(gpxAnalysisContainer, rga2026TripPlan.rideDays).then(
 // already does for the historical runtime elsewhere in this file — every
 // deeper module (`src/import/gpx/`, `src/analysis/`, `src/trips-manager/`)
 // still only ever receives injected values.
+// The global "Mes voyages" nav link always returns to the trip list,
+// whatever screen was open inside Aperçu/Voyage/Étape — those screens
+// carry no redundant "Retour à Mes voyages" button of their own.
+document.querySelector<HTMLAnchorElement>('[data-nav-view="trips"]')?.addEventListener('click', () => {
+  tripsManagerHandle?.goToList()
+})
+
 void openBikeTripDatabase()
   .then((database) => {
-    initializeTripsManager(tripsManagerContainer, {
+    tripsManagerHandle = initializeTripsManager(tripsManagerContainer, {
       database,
       now: () => new Date().toISOString(),
       idFactory: () => crypto.randomUUID(),
       geocodingProvider: createNominatimGeocodingProvider({
         baseUrl: import.meta.env.VITE_NOMINATIM_BASE_URL || undefined,
-      }),
-      climbNameProvider: createOverpassClimbNameProvider({
-        baseUrl: import.meta.env.VITE_OVERPASS_BASE_URL || undefined,
       }),
       routeEnrichmentProvider: createPostpassRouteEnrichmentProvider({
         baseUrl: import.meta.env.VITE_POSTPASS_BASE_URL || undefined,

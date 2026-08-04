@@ -47,7 +47,7 @@ export interface StageTimingResult {
   readonly timeline: readonly TimelinePoint[]
 }
 
-function parseClockToMinutes(value: string): number {
+export function parseClockToMinutes(value: string): number {
   const match = /^(?<hours>[01]\d|2[0-3]):(?<minutes>[0-5]\d)$/.exec(value)
   if (match?.groups === undefined) {
     throw new Error(`Heure de départ invalide : ${value}.`)
@@ -59,7 +59,8 @@ function pauseMinutesBefore(distanceKm: number, pauses: readonly PauseAnchor[]):
   return pauses.reduce((total, pause) => (pause.distanceKm < distanceKm - 1e-9 ? total + pause.durationMinutes : total), 0)
 }
 
-function buildTimeline(
+/** Exported so `waypoint-timeline.ts` can reuse this exact elapsed/clock-time composition for arbitrary waypoint distances, with pauses this module never sees. */
+export function buildTimeline(
   points: readonly { readonly distanceKm: number; readonly elevationM: number | null; readonly movingElapsedMinutes: number }[],
   pauses: readonly PauseAnchor[],
   departureMinutes: number,
