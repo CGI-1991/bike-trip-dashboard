@@ -42,6 +42,14 @@ export function distanceBetweenCoordinatesMeters(
   return projectOnSegment(left, left, right).segmentMeters
 }
 
+export function distanceFromPointToSegmentMeters(
+  point: { readonly latitude: number; readonly longitude: number },
+  start: Pick<RouteGeometryPoint, 'latitude' | 'longitude'>,
+  end: Pick<RouteGeometryPoint, 'latitude' | 'longitude'>,
+): number {
+  return projectOnSegment(point, start, end).distanceMeters
+}
+
 export function locatePointOnRoute(
   candidate: { readonly latitude: number; readonly longitude: number },
   geometry: readonly RouteGeometryPoint[],

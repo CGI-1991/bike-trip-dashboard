@@ -1,6 +1,6 @@
 import { createSerialRateLimiter } from '../geocoding/rate-limiter.ts'
 import { expandedRouteBoundingBox, formatOverpassBoundingBox } from './overpass-bbox.ts'
-import type { OsmRouteFeatureCandidate, RouteEnrichmentKind, RouteEnrichmentProvider, RouteFeatureSearch, RouteFeatureType } from './types.ts'
+import type { LegacyRouteEnrichmentProvider, OsmRouteFeatureCandidate, RouteEnrichmentKind, RouteFeatureSearch, RouteFeatureType } from './types.ts'
 
 const DEFAULT_BASE_URLS = [
   'https://overpass-api.de/api/interpreter',
@@ -116,7 +116,7 @@ function transient(error: unknown): boolean {
   return error instanceof TypeError
 }
 
-export function createOverpassRouteEnrichmentProvider(options: OverpassRouteProviderOptions = {}): RouteEnrichmentProvider {
+export function createOverpassRouteEnrichmentProvider(options: OverpassRouteProviderOptions = {}): LegacyRouteEnrichmentProvider {
   const endpoints = [...new Set([
     ...(options.baseUrl === undefined ? [] : [options.baseUrl]),
     ...(options.baseUrls ?? DEFAULT_BASE_URLS),

@@ -388,13 +388,16 @@ test('replacing a GPX invalidates practical places derived from that route', asy
 function routeEnrichmentProvider() {
   return {
     id: 'mock-route-enrichment', sourceType: 'osm', attribution: 'Mock OSM',
-    async findCandidates(search) {
-      if (search.kind === 'landmarks') return []
+    async findStructuralCandidates(search) {
       const point = search.geometry[Math.min(1, search.geometry.length - 1)]
-      return [{
-        osmType: 'node', osmId: 'village-kept', featureType: 'village', name: 'Village test',
-        latitude: point.latitude, longitude: point.longitude, elevationM: point.altitudeM, usefulTags: { place: 'village' },
+      const candidates = [{
+        osmType: 'node', osmId: 'city-kept', featureType: 'city', name: 'Ville test',
+        latitude: point.latitude, longitude: point.longitude, elevationM: point.altitudeM, usefulTags: { place: 'city' },
       }]
+      return {
+        candidates, durationMs: 1, rawCandidateCount: 1, httpStatus: 200, payloadBytes: 10,
+        startedAt: '2027-01-20T00:00:00.000Z', finishedAt: '2027-01-20T00:00:00.001Z',
+      }
     },
   }
 }

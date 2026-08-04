@@ -60,10 +60,23 @@ function renderDayRow(bundle: TripBundle, day: TripBundle['days'][number]): stri
   const locations = `${escapeHtml(stage.startLocationName ?? '—')} → ${escapeHtml(stage.endLocationName ?? '—')}`
   const localities = stage.routePointIds
     .map((id) => bundle.routePoints.find((point) => point.id === id))
-    .filter((point) => point?.osmFeatureType === 'city' || point?.osmFeatureType === 'town' || point?.osmFeatureType === 'village')
+    .filter((point) => point?.osmFeatureType === 'city' || point?.osmFeatureType === 'town')
     .sort((left, right) => (left?.trackDistanceKm ?? Number.POSITIVE_INFINITY) - (right?.trackDistanceKm ?? Number.POSITIVE_INFINITY))
-  const localityText = localities.length === 0 ? '' : `<p class="trip-detail__localities"><strong>Passage :</strong> ${localities.map((point) => escapeHtml(point?.name ?? '')).join(' · ')}</p>`
-  return `<li class="trip-detail__day"><span class="tag tag--ride">${typeLabel}</span><strong>J${day.displayNumber}</strong><span>${dateLabel}</span>${stageName}<span data-stage-locations>${locations}</span>${localityText}<dl class="trip-detail__stats"><div><dt>Distance</dt><dd>${stage.distanceKm === null ? '—' : `${stage.distanceKm.toFixed(1)} km`}</dd></div><div><dt>D+</dt><dd>${stage.elevationGainM === null ? '—' : `+${Math.round(stage.elevationGainM)} m`}</dd></div><div><dt>D−</dt><dd>${stage.elevationLossM === null ? '—' : `−${Math.round(stage.elevationLossM)} m`}</dd></div><div><dt>Roulage</dt><dd>${formatDuration(stage.movingDurationSeconds)}</dd></div><div><dt>Pauses</dt><dd>${stage.pauseDurationSeconds === null ? '—' : `${Math.round(stage.pauseDurationSeconds / 60)} min`}</dd></div><div><dt>Montées</dt><dd>${climbCount}</dd></div></dl></li>`
+  const landmarks = stage.routePointIds
+    .map((id) => bundle.routePoints.find((point) => point.id === id))
+    .filter((point) => point?.osmFeatureType === 'mountain-pass' || point?.osmFeatureType === 'saddle')
+    .sort((left, right) => (left?.trackDistanceKm ?? Number.POSITIVE_INFINITY) - (right?.trackDistanceKm ?? Number.POSITIVE_INFINITY))
+  const structuralRows = (points: typeof localities, kind: 'localities' | 'landmarks'): string => points.map((point) => {
+    if (point === undefined) return ''
+    const kilometer = point.trackDistanceKm === null ? 'km —' : `km ${point.trackDistanceKm.toFixed(1)}`
+    const lateral = point.lateralDistanceKm === undefined || point.lateralDistanceKm === null ? 'écart —' : `écart ${Math.round(point.lateralDistanceKm * 1_000)} m`
+    const type = point.osmFeatureType === 'mountain-pass' ? 'pass' : point.osmFeatureType
+    const altitude = kind === 'landmarks' && point.elevationM !== null ? ` · ${Math.round(point.elevationM)} m` : ''
+    return `<li><span>${kilometer}</span><span>${escapeHtml(type ?? '')}</span><strong>${escapeHtml(point.name)}</strong><span>${lateral}${altitude}</span></li>`
+  }).join('')
+  const localityText = localities.length === 0 ? '' : `<section class="trip-detail__structural-points"><h4>Localités</h4><ul>${structuralRows(localities, 'localities')}</ul></section>`
+  const landmarkText = landmarks.length === 0 ? '' : `<section class="trip-detail__structural-points"><h4>Cols</h4><ul>${structuralRows(landmarks, 'landmarks')}</ul></section>`
+  return `<li class="trip-detail__day"><span class="tag tag--ride">${typeLabel}</span><strong>J${day.displayNumber}</strong><span>${dateLabel}</span>${stageName}<span data-stage-locations>${locations}</span>${localityText}${landmarkText}<dl class="trip-detail__stats"><div><dt>Distance</dt><dd>${stage.distanceKm === null ? '—' : `${stage.distanceKm.toFixed(1)} km`}</dd></div><div><dt>D+</dt><dd>${stage.elevationGainM === null ? '—' : `+${Math.round(stage.elevationGainM)} m`}</dd></div><div><dt>D−</dt><dd>${stage.elevationLossM === null ? '—' : `−${Math.round(stage.elevationLossM)} m`}</dd></div><div><dt>Roulage</dt><dd>${formatDuration(stage.movingDurationSeconds)}</dd></div><div><dt>Pauses</dt><dd>${stage.pauseDurationSeconds === null ? '—' : `${Math.round(stage.pauseDurationSeconds / 60)} min`}</dd></div><div><dt>Montées</dt><dd>${climbCount}</dd></div></dl></li>`
 }
 
 function renderPracticalPlaces(bundle: TripBundle, searchStatus: EnrichmentProviderStatus | null): string {
@@ -112,7 +125,7 @@ export function renderTripDetail(bundle: TripBundle, options: TripDetailRenderOp
   const hasOsmPracticalPlaces = bundle.practicalPlaces.some((place) => place.provenance.sourceType === 'osm')
   const osmState = bundle.enrichmentMetadata.providers.find((state) => state.provider === 'osm')
   const practicalPlacesState = bundle.enrichmentMetadata.providers.find((state) => state.provider === 'osm-practical-places')
-  const routeEnrichmentState = bundle.enrichmentMetadata.providers.find((state) => state.provider === 'osm-route-enrichment')
+  const routeEnrichmentState = bundle.enrichmentMetadata.providers.find((state) => state.provider === 'postpass-route-enrichment')
   const automaticStatus = options.automaticEnrichmentPending
     ? `<div class="trip-detail__enrichment" role="status"><strong>Enrichissement en cours…</strong><span>${escapeHtml(options.automaticEnrichmentProgress ?? 'Préparation')}</span></div>`
     : options.automaticEnrichmentError !== null && options.automaticEnrichmentError !== undefined
@@ -141,6 +154,9 @@ export function renderTripDetail(bundle: TripBundle, options: TripDetailRenderOp
     ? '<button class="button button--quiet" type="button" data-action="enrich-trip-climb-names">Rechercher les noms des montées</button>'
     : ''
   const attribution = hasOsmEndpoints || hasOsmRouteData || hasOsmClimbNames || hasOsmPracticalPlaces ? '<p class="trip-detail__attribution">Données géographiques : © OpenStreetMap contributors.</p>' : ''
+  const routeDiagnostic = routeEnrichmentState?.message === null || routeEnrichmentState?.message === undefined
+    ? ''
+    : `<p class="trip-detail__enrichment-diagnostic">Provider = Postpass · ${escapeHtml(routeEnrichmentState.message)}</p>`
 
   return `
     <div class="trip-detail" data-trip-detail>
@@ -156,6 +172,7 @@ export function renderTripDetail(bundle: TripBundle, options: TripDetailRenderOp
       </dl>
       <p class="tag tag--data">Disponible localement</p>
       ${automaticStatus}
+      ${routeDiagnostic}
       ${geocodingStatus}
       ${geocodingAction}
       ${climbNamingStatus}

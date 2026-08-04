@@ -43,7 +43,7 @@ const ACCOMMODATION_TYPES = [
   'hotel', 'airbnb', 'gite', 'chambre-hotes', 'hostel', 'guest-house', 'refuge', 'camping',
 ] as const
 const DATA_SOURCE_TYPES = ['user', 'gpx', 'osm', 'open-meteo', 'generated', 'migrated'] as const
-const ENRICHMENT_PROVIDERS = ['gpx', 'osm', 'osm-practical-places', 'osm-route-enrichment', 'open-meteo'] as const
+const ENRICHMENT_PROVIDERS = ['gpx', 'osm', 'osm-practical-places', 'osm-route-enrichment', 'postpass-route-enrichment', 'open-meteo'] as const
 const ENRICHMENT_PROVIDER_STATUSES = ['not-configured', 'pending', 'success', 'partial', 'error'] as const
 const DERIVED_DATA_STATUSES = ['not-generated', 'stale', 'partial', 'fresh'] as const
 const CONFIDENCE_LEVELS = ['high', 'medium', 'low'] as const

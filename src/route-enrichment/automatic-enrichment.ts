@@ -69,6 +69,6 @@ export async function runStoredTripAutomaticEnrichment(input: AutomaticEnrichmen
   }
 
   const partial = bundle?.enrichmentMetadata.providers.some((state) =>
-    (state.provider === 'osm' || state.provider === 'osm-route-enrichment') && (state.status === 'partial' || state.status === 'error')) ?? false
+    (state.provider === 'osm' || state.provider === 'postpass-route-enrichment') && (state.status === 'partial' || state.status === 'error')) ?? false
   return { bundle, endpointAttempted, routeAttempted, partial }
 }

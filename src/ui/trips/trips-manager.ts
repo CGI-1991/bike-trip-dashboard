@@ -10,7 +10,7 @@ import { enrichStoredTripEndpoints, tripNeedsEndpointGeocoding } from '../../geo
 import type { GeocodingProvider } from '../../geocoding/types.ts'
 import { enrichStoredTripClimbNames, tripNeedsClimbNameEnrichment } from '../../climb-names/enrichment.ts'
 import type { ClimbNameProvider } from '../../climb-names/types.ts'
-import type { RouteEnrichmentProvider } from '../../route-enrichment/types.ts'
+import type { RouteEnrichmentProgress, RouteEnrichmentProvider } from '../../route-enrichment/types.ts'
 import { runStoredTripAutomaticEnrichment, tripNeedsAutomaticEnrichment } from '../../route-enrichment/automatic-enrichment.ts'
 import type { TripId } from '../../trip-core/index.ts'
 import { deleteTripCompletely, listTripSummaries, setActiveTrip } from '../../trips-manager/trip-manager-actions.ts'
@@ -27,6 +27,7 @@ export interface TripsManagerDeps {
   readonly geocodingProvider?: GeocodingProvider
   readonly climbNameProvider?: ClimbNameProvider
   readonly routeEnrichmentProvider?: RouteEnrichmentProvider
+  readonly onRouteEnrichmentDiagnostic?: (progress: RouteEnrichmentProgress) => void
 }
 
 type Mode =
@@ -141,9 +142,10 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
           if (progress.phase === 'endpoints') automaticEnrichmentProgress.set(tripId, 'Départs / arrivées')
           else {
             const detail = progress.detail
-            const label = detail.kind === 'localities' ? 'Localités' : 'Montées'
-            const errors = detail.errorCount === 0 ? '' : ` · ${detail.errorCount} zone(s) en erreur`
-            automaticEnrichmentProgress.set(tripId, `${label} — étape ${detail.stageIndex + 1}/${detail.stageCount}, zone ${detail.chunkIndex + 1}/${detail.chunkCount}${errors}`)
+            deps.onRouteEnrichmentDiagnostic?.(detail)
+            const source = detail.source === 'cache' ? 'cache' : `${Math.round(detail.durationMs)} ms`
+            const errors = detail.errorCount === 0 ? '' : ` · ${detail.errorCount} étape(s) en erreur`
+            automaticEnrichmentProgress.set(tripId, `Points structurants — étape ${detail.stageIndex + 1}/${detail.stageCount} · ${source} · ${detail.retainedCandidateCount}/${detail.rawCandidateCount} retenus${errors}`)
           }
           if (mode.kind === 'detail' && mode.tripId === tripId) void renderDetail(tripId)
         },

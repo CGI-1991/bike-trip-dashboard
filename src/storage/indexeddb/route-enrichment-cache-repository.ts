@@ -8,7 +8,8 @@ export interface RouteEnrichmentCacheIdentity {
   readonly providerId: string
   readonly routeFingerprint: string
   readonly enrichmentType: string
-  readonly chunkKey: string
+  /** Omitted for whole-route providers such as Postpass; retained for legacy chunked consumers. */
+  readonly chunkKey?: string
   readonly engineVersion: string
 }
 
@@ -31,7 +32,7 @@ export interface RouteEnrichmentCacheRepository {
 }
 
 function key(identity: RouteEnrichmentCacheIdentity): string {
-  return [CACHE_KIND, identity.providerId, identity.routeFingerprint, identity.enrichmentType, identity.chunkKey, identity.engineVersion]
+  return [CACHE_KIND, identity.providerId, identity.routeFingerprint, identity.enrichmentType, identity.chunkKey ?? 'whole-route', identity.engineVersion]
     .map(encodeURIComponent)
     .join(':')
 }

@@ -85,27 +85,44 @@ test('trip detail distinguishes an unstarted, successful-empty and failed practi
   assert.doesNotMatch(failedHtml, /Rechercher les lieux utiles/)
 })
 
-test('trip detail shows non-blocking automatic progress and ordered route localities', () => {
+test('trip detail shows Postpass diagnostics plus ordered city/town and pass/saddle measurements', () => {
   const bundle = createGenericTripBundle()
   bundle.enrichmentMetadata.providers.push({
-    provider: 'osm-route-enrichment', lastAttemptedAt: '2028-08-03T10:00:00.000Z',
-    lastSuccessAt: '2028-08-03T10:00:00.000Z', status: 'success', message: null,
+    provider: 'postpass-route-enrichment', lastAttemptedAt: '2028-08-03T10:00:00.000Z',
+    lastSuccessAt: '2028-08-03T10:00:00.000Z', status: 'success', message: 'Postpass · network · 320 ms · 4 candidat(s) / 2 retenu(s).',
   })
-  bundle.routePoints.push({
-    id: 'locality-ui', routeId: bundle.routes[0].id, type: 'village', name: 'Village UI',
-    latitude: 45.2, longitude: 6.3, elevationM: 300, trackDistanceKm: 10,
-    osmFeatureType: 'village', lateralDistanceKm: 0.2,
-    provenance: { sourceType: 'osm', sourceId: 'osm:village:1', fetchedAt: '2028-08-03T10:00:00.000Z', engineVersion: 'route-enrichment@2', confidence: 'high', manuallyOverridden: false },
-  })
-  bundle.stages[0].routePointIds.push('locality-ui')
-  const pending = renderTripDetail(bundle, { automaticEnrichmentPending: true, automaticEnrichmentProgress: 'Localités — étape 1/2, zone 2/4' })
+  bundle.routePoints.push(
+    {
+      id: 'locality-ui', routeId: bundle.routes[0].id, type: 'passage', name: 'City UI',
+      latitude: 45.2, longitude: 6.3, elevationM: 300, trackDistanceKm: 10,
+      osmFeatureType: 'city', lateralDistanceKm: 0.2,
+      provenance: { sourceType: 'osm', sourceId: 'postpass:city:1', fetchedAt: '2028-08-03T10:00:00.000Z', engineVersion: 'route-enrichment@3', confidence: 'high', manuallyOverridden: false },
+    },
+    {
+      id: 'pass-ui', routeId: bundle.routes[0].id, type: 'summit', name: 'Col UI',
+      latitude: 45.25, longitude: 6.35, elevationM: 1234, trackDistanceKm: 20,
+      osmFeatureType: 'mountain-pass', lateralDistanceKm: 0.08,
+      provenance: { sourceType: 'osm', sourceId: 'postpass:pass:1', fetchedAt: '2028-08-03T10:00:00.000Z', engineVersion: 'route-enrichment@3', confidence: 'high', manuallyOverridden: false },
+    },
+  )
+  bundle.stages[0].routePointIds.push('locality-ui', 'pass-ui')
+  const pending = renderTripDetail(bundle, { automaticEnrichmentPending: true, automaticEnrichmentProgress: 'Points structurants — étape 1/2 · 320 ms · 2/4 retenus' })
   assert.match(pending, /Enrichissement en cours/)
-  assert.match(pending, /Localités — étape 1\/2, zone 2\/4/)
+  assert.match(pending, /Points structurants — étape 1\/2/)
   const completed = renderTripDetail(bundle)
   assert.match(completed, /Voyage enrichi/)
-  assert.match(completed, /Passage :<\/strong> Village UI/)
+  assert.match(completed, /Provider = Postpass/)
+  assert.match(completed, /Localités/)
+  assert.match(completed, /km 10\.0/)
+  assert.match(completed, /city/)
+  assert.match(completed, /City UI/)
+  assert.match(completed, /écart 200 m/)
+  assert.match(completed, /Cols/)
+  assert.match(completed, /pass/)
+  assert.match(completed, /Col UI/)
+  assert.match(completed, /écart 80 m · 1234 m/)
 
-  const routeStateIndex = bundle.enrichmentMetadata.providers.findIndex((state) => state.provider === 'osm-route-enrichment')
+  const routeStateIndex = bundle.enrichmentMetadata.providers.findIndex((state) => state.provider === 'postpass-route-enrichment')
   bundle.enrichmentMetadata.providers[routeStateIndex] = {
     ...bundle.enrichmentMetadata.providers[routeStateIndex],
     status: 'partial',
