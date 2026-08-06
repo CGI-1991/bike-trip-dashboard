@@ -1,9 +1,9 @@
-import type { TripDayId } from '../../trip/types.ts'
 import type {
   NormalizedHourlyWeather,
   OffDayWeather,
   RideDayWeather,
   WeatherDayData,
+  WeatherDayKey,
   WeatherSamplePoint,
 } from '../types.ts'
 import { evaluateHourlyRisk, evaluateWaypointAlerts } from './evaluate-point.ts'
@@ -145,7 +145,7 @@ export function groupConsecutiveAlerts(alerts: readonly WeatherAlert[]): readonl
 }
 
 function buildCoverageAlert(
-  dayId: TripDayId,
+  dayId: WeatherDayKey,
   essentialCoverageRatio: number | null,
   thresholds: WeatherAlertThresholds,
 ): WeatherAlert | null {
@@ -169,7 +169,7 @@ function buildCoverageAlert(
 }
 
 function buildStaleDataAlert(
-  dayId: TripDayId,
+  dayId: WeatherDayKey,
   fetchedAt: string | null,
   now: Date,
   thresholds: WeatherAlertThresholds,
@@ -213,7 +213,7 @@ function computeLevel(alerts: readonly WeatherAlert[]): DayWeatherRiskSummary['l
 }
 
 function finalizeSummary(
-  dayId: TripDayId,
+  dayId: WeatherDayKey,
   hazardAlerts: readonly WeatherAlert[],
   coveredPointCount: number,
   missingPointCount: number,
@@ -258,7 +258,7 @@ function markUpcoming(
 }
 
 export function evaluateRideDayRisk(
-  dayId: TripDayId,
+  dayId: WeatherDayKey,
   data: RideDayWeather,
   context: DayRiskContext,
   thresholds: WeatherAlertThresholds = WEATHER_ALERT_THRESHOLDS,
@@ -288,7 +288,7 @@ export function evaluateRideDayRisk(
 }
 
 function evaluateOffHourAlerts(
-  dayId: TripDayId,
+  dayId: WeatherDayKey,
   samplePoint: WeatherSamplePoint,
   hour: NormalizedHourlyWeather,
   thresholds: WeatherAlertThresholds,
@@ -326,7 +326,7 @@ function evaluateOffHourAlerts(
 }
 
 export function evaluateOffDayRisk(
-  dayId: TripDayId,
+  dayId: WeatherDayKey,
   data: OffDayWeather,
   context: DayRiskContext,
   thresholds: WeatherAlertThresholds = WEATHER_ALERT_THRESHOLDS,
@@ -352,7 +352,7 @@ export function evaluateOffDayRisk(
 }
 
 export function evaluateDayRisk(
-  dayId: TripDayId,
+  dayId: WeatherDayKey,
   data: WeatherDayData,
   context: DayRiskContext,
   thresholds: WeatherAlertThresholds = WEATHER_ALERT_THRESHOLDS,

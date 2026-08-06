@@ -3036,8 +3036,6 @@ button:disabled { cursor: not-allowed; opacity: .55; }
    `.elevation-profile__stage`/`.profile-tooltip`/`.profile-cursor` above are
    the exact same classes the main elevation profile already uses. */
 .day-detail__climb-profile-shape { display: block; width: 100%; height: clamp(110px, 22vw, 160px); touch-action: pan-y; cursor: crosshair; outline-offset: 4px; }
-.day-detail__climb-profile-bar { display: flex; height: 26px; border-radius: 6px; overflow: hidden; }
-.day-detail__climb-profile-segment { display: block; height: 100%; }
 .day-detail__climb-profile-scale { display: flex; justify-content: space-between; margin-top: 4px; color: var(--ink-soft); font-size: .72rem; }
 .day-detail__climb-profile-caption { margin-top: 4px; color: var(--ink-faint); font-size: .72rem; }
 .day-detail__climb-profile-empty { color: var(--ink-soft); font-size: .82rem; }
@@ -3159,6 +3157,17 @@ button:disabled { cursor: not-allowed; opacity: .55; }
  * scroll).
  */
 .day-detail__pauses-status { color: var(--ink-soft); }
+/*
+ * CDC Jalon C1 closeout section 4: "Manuel" and "Rétablir Auto" sit side by
+ * side, at the same level — `<details>` is one flex item among siblings
+ * here, `align-items: flex-start` so the expanded panel grows downward
+ * underneath "Manuel" without pushing "Rétablir Auto" out of its row (a
+ * child of `<details>` other than its own `<summary>` is native toggle
+ * content, hidden while collapsed — that is exactly why "Rétablir Auto" is
+ * a sibling of `<details>` here, never nested inside it).
+ */
+.day-detail__pauses-actions { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; margin-top: 6px; }
+.day-detail__pauses-actions .day-pause-editor { flex: 1 1 auto; min-width: 0; margin-top: 0; }
 .day-pause-editor { margin-top: 6px; }
 .day-pause-editor > summary { list-style: none; cursor: pointer; }
 .day-pause-editor > summary::-webkit-details-marker { display: none; }
@@ -3181,3 +3190,43 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 
 /* Trip editor auto-fill preview (sections 13-14). */
 .wizard-structure__autofill { margin: 4px 0 0; color: var(--ink-soft); font-size: .78rem; }
+
+/*
+ * CDC Jalon C1 — generic weather (`src/ui/weather-view.ts`): shared risk
+ * colour vocabulary across all three screens (Étape/Aperçu/Voyage), reusing
+ * the same `--warning-*`/`--danger-*` tokens already used for every other
+ * risk/alert surface in this app — never a second, parallel colour system.
+ */
+.weather-risk { font-weight: 700; }
+.weather-risk--green { color: var(--forest-800); }
+.weather-risk--orange { color: var(--warning-text); }
+.weather-risk--red { color: var(--danger-text); }
+.weather-risk--unknown { color: var(--ink-soft); }
+
+.weather-summary-block { display: grid; gap: 6px; margin-top: 10px; }
+.weather-summary-block:first-child { margin-top: 0; }
+.weather-synthesis { display: grid; gap: 4px; }
+.weather-synthesis__line { font-weight: 700; }
+.weather-synthesis__code, .weather-synthesis__meta { color: var(--ink-soft); font-size: .78rem; }
+.weather-message { color: var(--ink-soft); }
+
+.weather-points-block { margin-top: 14px; }
+.weather-points-list { display: grid; gap: 8px; margin-top: 8px; padding: 0; list-style: none; }
+.weather-point { padding: 10px; display: grid; gap: 4px; background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--line-strong); border-radius: 10px; }
+.weather-point--orange { border-left-color: var(--warning-border); }
+.weather-point--red { border-left-color: var(--danger-border); }
+.weather-point__header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+.weather-point__role { color: var(--ink-soft); font-size: .72rem; text-transform: uppercase; letter-spacing: .02em; }
+.weather-point__name { flex: 1 1 auto; overflow-wrap: anywhere; }
+.weather-point__eta { color: var(--ink-soft); font-size: .78rem; font-variant-numeric: tabular-nums; }
+.weather-point__metrics { color: var(--ink-soft); font-size: .82rem; }
+
+/* Aperçu highlighted-day weather (section 20). */
+.trip-overview__weather { display: grid; gap: 4px; }
+.trip-overview__weather-line { font-weight: 700; }
+.trip-overview__weather-risk { font-size: .82rem; }
+
+/* Voyage compact per-card line (section 21) — an inline element: its mount point sits inside the card's own <button>. */
+.trip-day-card__weather { display: block; margin-top: 2px; color: var(--ink-soft); font-size: .82rem; }
+.trip-day-card__weather--orange { color: var(--warning-text); font-weight: 700; }
+.trip-day-card__weather--red { color: var(--danger-text); font-weight: 700; }

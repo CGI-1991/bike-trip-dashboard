@@ -1,6 +1,6 @@
 import { getDateInTimezone } from '../trip/calendar.ts'
 import type { RoadbookMatchReport } from '../trip/roadbook-match.ts'
-import type { TripDayId, TripPlan, TripTimeline } from '../trip/types.ts'
+import type { TripPlan, TripTimeline } from '../trip/types.ts'
 import { computeDepartureScenarios } from './alerts/departure-scenarios.ts'
 import { WeatherCache } from './cache.ts'
 import { weatherConfig } from './config.ts'
@@ -17,6 +17,7 @@ import {
 import type {
   WeatherCacheState,
   WeatherDayDefinition,
+  WeatherDayKey,
   WeatherDayState,
   WeatherForecastResult,
   WeatherLocationResult,
@@ -104,15 +105,15 @@ export class WeatherCoordinator {
   private readonly now: () => Date
   private readonly maxConcurrentRequests: number
   private readonly listeners = new Set<WeatherListener>()
-  private readonly definitions = new Map<TripDayId, WeatherDayDefinition>()
-  private readonly requests = new Map<TripDayId, WeatherRequest>()
-  private readonly states = new Map<TripDayId, WeatherDayState>()
+  private readonly definitions = new Map<WeatherDayKey, WeatherDayDefinition>()
+  private readonly requests = new Map<WeatherDayKey, WeatherRequest>()
+  private readonly states = new Map<WeatherDayKey, WeatherDayState>()
   private readonly memory = new Map<string, MemoryForecast>()
   private readonly pendingPromises = new Map<string, Promise<void>>()
   private readonly controllers = new Map<string, AbortController>()
   private readonly queue: QueuedWeatherTask[] = []
   private activeRequestCount = 0
-  private selectedDayId: TripDayId = 'J1'
+  private selectedDayId: WeatherDayKey = 'J1'
   private disposed = false
   private isPreparingDefinitions = false
 
@@ -146,7 +147,7 @@ export class WeatherCoordinator {
     }
   }
 
-  getState(dayId: TripDayId): WeatherDayState | null {
+  getState(dayId: WeatherDayKey): WeatherDayState | null {
     return this.states.get(dayId) ?? null
   }
 
@@ -154,7 +155,7 @@ export class WeatherCoordinator {
     plan: TripPlan,
     timeline: TripTimeline,
     report: RoadbookMatchReport,
-    selectedDayId: TripDayId,
+    selectedDayId: WeatherDayKey,
     plannedReferenceIds: ReadonlySet<string> = new Set(),
   ): void {
     const today = getDateInTimezone(this.now(), weatherConfig.timezone)
@@ -166,7 +167,7 @@ export class WeatherCoordinator {
 
   setDefinitions(
     definitions: readonly WeatherDayDefinition[],
-    selectedDayId: TripDayId,
+    selectedDayId: WeatherDayKey,
   ): void {
     if (this.disposed) {
       return
@@ -215,7 +216,7 @@ export class WeatherCoordinator {
     this.emit()
   }
 
-  selectDay(dayId: TripDayId): void {
+  selectDay(dayId: WeatherDayKey): void {
     this.selectedDayId = dayId
     this.sortQueue()
     this.pumpQueue()

@@ -110,16 +110,44 @@ function withAnchorPoint(bundle) {
   return bundle
 }
 
+// `renderMap`/`closeMap` are never actually invoked by any test in this
+// file — every fake container leaves the map-related selectors
+// unregistered, so `trips-manager.ts`'s own `mapContainer !== null` guards
+// always skip. They exist purely so this module-under-test never has to
+// statically import the real `route-map.ts` (which pulls in Leaflet's CSS —
+// see `TripsManagerDeps.renderMap`'s own doc comment for why that seam
+// exists) just to be constructed here.
+// CDC Jalon C1: without an explicit override, `trips-manager.ts` defaults
+// `weatherProvider` to the real `createOpenMeteoProvider()` — this stub
+// keeps these tests fully offline/deterministic (no real `fetch`, no
+// network-timing-dependent flakiness), matching `renderMap`/`closeMap`'s own
+// no-op rationale above. `status: 'error'` so `WeatherCache` never persists
+// anything from it either.
+function stubWeatherProvider() {
+  return {
+    id: 'open-meteo',
+    async fetchForecast(request) {
+      return { provider: 'open-meteo', requestKey: request.key, fetchedAt: '2027-01-01T00:00:00.000Z', status: 'error', locations: [], datesCovered: [], issues: ['test stub — no real weather'] }
+    },
+  }
+}
+
 function noopDeps(database, extra = {}) {
-  return { database, now: () => '2027-05-10T08:00:00.000Z', idFactory: (() => { let n = 0; return () => `id-${n++}` })(), ...extra }
+  return {
+    database, now: () => '2027-05-10T08:00:00.000Z', idFactory: (() => { let n = 0; return () => `id-${n++}` })(),
+    renderMap: () => {}, closeMap: () => {}, weatherProvider: stubWeatherProvider(),
+    ...extra,
+  }
 }
 
 async function flush() {
   // Fire-and-forget click handlers chain through several real IndexedDB
-  // round-trips (fake-indexeddb) before settling — a couple of real event
-  // loop turns is the simplest reliable way to let them finish, since
+  // round-trips (fake-indexeddb) — and, since CDC Jalon C1, an additional
+  // `GenericWeatherCoordinator.setTripBundle` fetch/cache round-trip per
+  // render too — before settling. A couple of real event loop turns is the
+  // simplest reliable way to let all of that finish, since
   // `TripsManagerHandle` intentionally exposes no promise for a raw click.
-  await new Promise((resolve) => setTimeout(resolve, 20))
+  await new Promise((resolve) => setTimeout(resolve, 50))
 }
 
 test('"Ouvrir" on a trip card calls onNavigateToView("today") — CDC Jalon B4.2 section 5 (Ouvrir voyage = sélectionner + Aperçu)', async () => {
@@ -266,7 +294,7 @@ test('leaving the wizard (cancel) returns to Mes voyages — never Aperçu, neve
   }
 })
 
-test('"Revenir à l’automatique" reverts a custom stage to the trip-wide default without a full rebuild', async () => {
+test('"Rétablir Auto" reverts a custom stage to the trip-wide default without a full rebuild (CDC Jalon C1 closeout section 4)', async () => {
   const db = await openTestDatabase()
   try {
     const bundle = withAnchorPoint(createGenericTripBundle())

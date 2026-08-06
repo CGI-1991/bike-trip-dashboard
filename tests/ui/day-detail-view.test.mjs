@@ -83,7 +83,7 @@ test('Arrêts shows a compact status line only in normal view — never the paus
   const detail = buildDayDetail(bundle, 'day-alpha')
   assert.match(detail.html, /Gestion automatique/)
   assert.match(detail.html, /<summary class="button button--quiet">Manuel<\/summary>/)
-  assert.doesNotMatch(detail.html, /Revenir à l’automatique/, 'already automatic — no need for a button back to it')
+  assert.doesNotMatch(detail.html, /Rétablir Auto/, 'already automatic — no need for a button back to it')
 })
 
 function pushAnchorPoint(bundle) {
@@ -106,7 +106,16 @@ test('the manual pause editor lists one compact row per candidate, checked/pre-f
   const detail = buildDayDetail(bundle, 'day-alpha')
   assert.match(detail.html, /Mode manuel · 1 pause/)
   assert.match(detail.html, /data-action="save-manual-pauses"/)
-  assert.match(detail.html, /Revenir à l’automatique/)
+  assert.match(detail.html, /data-action="pause-mode-automatic">Rétablir Auto/)
+  // CDC Jalon C1 closeout section 4: "Rétablir Auto" sits next to "Manuel"
+  // — a sibling of the `<details>`, always visible, never nested inside
+  // its native toggle content (which would hide it while collapsed).
+  const actionsIndex = detail.html.indexOf('day-detail__pauses-actions')
+  const detailsIndex = detail.html.indexOf('<details class="day-pause-editor"')
+  const restoreButtonIndex = detail.html.indexOf('data-action="pause-mode-automatic"')
+  const detailsCloseIndex = detail.html.indexOf('</details>')
+  assert.ok(actionsIndex >= 0 && actionsIndex < detailsIndex, '"Manuel" and "Rétablir Auto" share the same wrapper')
+  assert.ok(restoreButtonIndex > detailsCloseIndex, '"Rétablir Auto" is a sibling AFTER </details>, never inside it (never hidden while collapsed)')
   assert.match(detail.html, /data-candidate-id="town-ui"/)
   assert.match(detail.html, /Waypoint Town/)
   assert.match(detail.html, /input type="checkbox" data-field="pause-active" checked/)
@@ -245,12 +254,18 @@ test('the Étape screen is a real ARIA tablist with Parcours/Météo/Infos panel
   assert.match(detail.html, /id="day-panel-infos"[^>]*role="tabpanel"[^>]*hidden/)
 })
 
-// --- Météo placeholder (CDC Jalon B4.2 section 22) --------------------------
+// --- Météo mount point (CDC Jalon B4.2 section 22, CDC Jalon C1 section 19) -
+// `buildDayDetail` only ever produces the empty mount point + a loading
+// placeholder — never a fake temperature/rain/alert value baked into the
+// static markup. The real weather (via `GenericWeatherCoordinator`) is
+// mounted asynchronously by `trips-manager.ts`, exactly like the map/profile
+// already are — see `weather-view.test.mjs` for the actual rendering.
 
-test('the Météo tab shows an honest placeholder — no fake temperature/rain/alert/refresh', () => {
+test('the Météo tab only ever ships an empty mount point + a loading placeholder — no fake temperature/rain/alert/refresh baked into the static markup', () => {
   const bundle = createGenericTripBundle()
   const detail = buildDayDetail(bundle, 'day-alpha')
-  assert.match(detail.html, /Météo non disponible pour le moment\./)
+  assert.match(detail.html, /data-day-detail-weather/)
+  assert.match(detail.html, /Chargement des prévisions…/)
   assert.doesNotMatch(detail.html, /°C/)
   assert.doesNotMatch(detail.html, /data-weather-refresh/)
 })
@@ -314,7 +329,13 @@ test('a climb renders as a tappable mini-card with name/altitude/distance/D+/pen
   assert.match(detail.html, /\+450 m/)
   assert.match(detail.html, /9,0 %/)
   assert.match(detail.html, /data-climb-profile hidden/, 'collapsed by default')
-  assert.match(detail.html, /day-detail__climb-profile-segment/, 'a gradient-coloured segment bar is present')
+  // CDC Jalon C1 closeout: the gradient colouring lives only on the
+  // altimetric silhouette's `<polygon>` bands now — the redundant flat
+  // horizontal colour strip (`day-detail__climb-profile-bar`) was removed
+  // as a pure visual duplicate of the same segmentation.
+  assert.match(detail.html, /day-detail__climb-profile-shape[^>]*data-segments/, 'the interactive, gradient-coloured silhouette is present')
+  assert.match(detail.html, /<polygon[^>]*fill="#/, 'at least one colour-coded gradient band is rendered')
+  assert.doesNotMatch(detail.html, /day-detail__climb-profile-bar/, 'the redundant flat segment strip must not be rendered any more')
 })
 
 test('a climb name is never rendered as "Montée sans nom : : 4.2 km" or any double-colon artefact', () => {
@@ -402,7 +423,7 @@ test('an OFF day now builds a real detail shell — Résumé + Météo/Infos, no
   assert.doesNotMatch(detail.html, /data-day-tab="route"/, 'no Parcours tab at all')
   assert.match(detail.html, /Journée OFF/)
   assert.match(detail.html, /Hilltown/, 'the OFF day\'s known/auto-filled location shows in the Résumé')
-  assert.match(detail.html, /Météo non disponible pour le moment\./)
+  assert.match(detail.html, /data-day-detail-weather/, 'the same Météo mount point as a ride day — real weather is mounted by trips-manager.ts')
   assert.match(detail.html, /data-action="edit-day-infos">Modifier/, 'Infos is the same read/edit component as a ride day')
 })
 

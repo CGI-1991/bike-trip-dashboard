@@ -197,7 +197,7 @@ function renderHighlightedDay(bundle: TripBundle, highlightedDayId: TripDayId | 
       <div><dt>Départ</dt><dd>${departureTime ?? '—'}</dd></div>
       <div><dt>ETA</dt><dd>${eta ?? '—'}</dd></div>
     </dl>
-    <p class="trip-overview__weather-placeholder">Météo non disponible pour le moment.</p>
+    <div class="trip-overview__weather-mount" data-trip-overview-weather-mount data-day-id="${escapeHtml(day.id)}"><p class="trip-overview__weather-placeholder">Météo non disponible pour le moment.</p></div>
   </article>`
 }
 

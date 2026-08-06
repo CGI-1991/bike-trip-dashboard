@@ -21,9 +21,9 @@ import { getActiveTripId } from '../../storage/indexeddb/active-trip.ts'
 import { resolvePreferredActiveTripId } from '../../trips-manager/active-trip-selection.ts'
 import { deleteTripCompletely, listTripSummaries, setActiveTrip } from '../../trips-manager/trip-manager-actions.ts'
 import type { TripListEntry } from '../../trips-manager/trip-summary.ts'
-import { closeExpandedRouteMap, renderGenericRouteMap } from '../route-map.ts'
 import type { MapLayerDefinition } from '../route-map.ts'
 import { buildGenericOverviewRouteMapModel, buildGenericRouteMapModel } from '../route-map-model.ts'
+import type { RouteMapModel } from '../route-map-model.ts'
 import { mountClimbProfileInteraction, renderGenericElevationProfile } from '../elevation-profile.ts'
 import { downloadBlob } from '../gpx-share.ts'
 import { buildZipArchive } from '../zip-writer.ts'
@@ -38,6 +38,10 @@ import type { ImportWizardResult } from './import-wizard.ts'
 import { createTripEditor } from './trip-editor.ts'
 import { renderTripDetail } from './trip-detail-view.ts'
 import { buildTripOverview } from './trip-overview-view.ts'
+import { createOpenMeteoProvider } from '../../weather/open-meteo.ts'
+import type { WeatherProvider } from '../../weather/types.ts'
+import { GenericWeatherCoordinator } from '../../weather/generic/coordinator.ts'
+import { renderGenericDayCardWeatherLine, renderGenericOverviewWeatherBlock, renderGenericStageWeatherPanel } from '../weather-view.ts'
 
 /** One "Villages" layer entry for the fullscreen map (CDC Jalon B4 section 9) — `[]` when the stage has no village at all, so the "Calques" button stays hidden rather than showing an empty layer. */
 function villagesLayer(waypoints: readonly import('../../analysis/canonical-waypoints.ts').CanonicalWaypoint[]): readonly MapLayerDefinition[] {
@@ -68,6 +72,28 @@ export interface TripsManagerDeps {
    * in tests that don't exercise top-level navigation.
    */
   readonly onNavigateToView?: (view: 'today' | 'trip') => void
+  /**
+   * Leaflet-touching map rendering (CDC Jalon C1 closeout) — injected
+   * rather than imported directly by this module, exactly like
+   * `route-map-model.ts` already splits itself off from `route-map.ts` for
+   * the same reason (its own doc comment: "importing `route-map.ts` itself
+   * pulls in Leaflet's CSS, which only works inside a bundler"). Always the
+   * real `renderGenericRouteMap`/`closeExpandedRouteMap` in production
+   * (wired by `main.ts`, which already imports `route-map.ts` for the
+   * historical RGA runtime) — this seam only exists so a plain-Node test
+   * that never renders a real map (its map containers are never registered,
+   * so these are never actually invoked) doesn't have to load Leaflet + its
+   * CSS just to import this file.
+   */
+  readonly renderMap: (container: HTMLElement, dialog: HTMLDialogElement, model: RouteMapModel | null, layers?: readonly MapLayerDefinition[]) => void
+  readonly closeMap: (dialog: HTMLDialogElement) => void
+  /**
+   * Weather provider (CDC Jalon C1 section 14) — defaults to the real,
+   * unmodified `createOpenMeteoProvider()` when omitted. Injectable purely
+   * for tests that want to avoid a real network call; production
+   * (`main.ts`) never supplies this, always taking the default.
+   */
+  readonly weatherProvider?: WeatherProvider
 }
 
 /** Where the Étape screen's "Retour" action leads back to (CDC section 13). */
@@ -170,6 +196,63 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     return dayFilters.get(dayId) ?? { showSecondaryClimbs: false }
   }
 
+  /**
+   * One `GenericWeatherCoordinator` for the whole component's lifetime
+   * (CDC Jalon C1 sections 16/22) — reused across every trip/day the user
+   * navigates to, exactly like `main.ts`'s own single `WeatherCoordinator`
+   * for the historical RGA runtime. `setTripBundle` is cheap to call on
+   * every render (it delegates its own dedup to the underlying
+   * `WeatherCoordinator`/`WeatherCache` — see that module's doc comment).
+   */
+  const weatherCoordinator = new GenericWeatherCoordinator({
+    provider: deps.weatherProvider ?? createOpenMeteoProvider(),
+    now: () => new Date(deps.now()),
+  })
+  /** Whichever bundle is currently on screen — the single source `mountWeatherViews` reads from when the coordinator emits a new snapshot (fetch/refresh completed) asynchronously, well after the render that triggered it returned. */
+  let currentWeatherBundle: TripBundle | null = null
+
+  /**
+   * Fills in every weather mount point currently in the DOM (CDC Jalon C1
+   * section 22: Aperçu/Voyage/Étape all read the same per-day view-model,
+   * they just each show a different amount of it) — silently a no-op for
+   * whichever mount points aren't present on the currently-rendered screen.
+   * Never a full re-render: only these specific subtrees are touched, same
+   * discipline as `mountMapAndProfile`/`patchDayDetail`.
+   */
+  function mountWeatherViews(bundle: TripBundle): void {
+    if (mode.kind === 'day') {
+      const { dayId } = mode
+      const panel = container.querySelector<HTMLElement>('[data-day-detail-weather]')
+      const day = bundle.days.find((candidate) => candidate.id === dayId)
+      if (panel !== null && day !== undefined) renderGenericStageWeatherPanel(panel, weatherCoordinator.getDayWeatherViewModel(day), false)
+    }
+    const overviewMount = container.querySelector<HTMLElement>('[data-trip-overview-weather-mount]')
+    if (overviewMount !== null) {
+      const day = bundle.days.find((candidate) => candidate.id === overviewMount.dataset.dayId)
+      if (day !== undefined) overviewMount.innerHTML = renderGenericOverviewWeatherBlock(weatherCoordinator.getDayWeatherViewModel(day))
+    }
+    for (const mount of container.querySelectorAll<HTMLElement>('[data-trip-day-weather-mount]')) {
+      const day = bundle.days.find((candidate) => candidate.id === mount.dataset.dayId)
+      if (day !== undefined) mount.innerHTML = renderGenericDayCardWeatherLine(weatherCoordinator.getDayWeatherViewModel(day))
+    }
+  }
+
+  /** Rebuilds every weather day-definition for `bundle` and re-renders whatever weather mount points are currently showing — the one place this component ever talks to the weather coordinator. */
+  function refreshWeather(bundle: TripBundle, selectedDayId: TripDayId | TripId): void {
+    currentWeatherBundle = bundle
+    weatherCoordinator.setTripBundle(bundle, selectedDayId)
+    mountWeatherViews(bundle)
+  }
+
+  // Re-renders the currently-visible weather mount points whenever the
+  // coordinator's own state changes (a fetch/refresh completed) — mirrors
+  // `main.ts`'s own `weatherCoordinator.subscribe(...)` for the historical
+  // runtime, but scoped to just the weather subtrees here, never a full
+  // screen rebuild.
+  weatherCoordinator.subscribe(() => {
+    if (currentWeatherBundle !== null) mountWeatherViews(currentWeatherBundle)
+  })
+
   async function renderList(): Promise<void> {
     teardownSubComponent()
     container.innerHTML = '<p role="status">Chargement de vos voyages…</p>'
@@ -212,6 +295,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       automaticEnrichmentProgress: automaticEnrichmentProgress.get(tripId) ?? null,
       automaticEnrichmentError: automaticEnrichmentErrors.get(tripId) ?? null,
     })
+    refreshWeather(bundle, tripId)
   }
 
   async function renderDay(tripId: TripId, dayId: TripDayId): Promise<void> {
@@ -263,6 +347,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     teardownStickyHeaderObserver()
     container.innerHTML = detail.html
     mountMapAndProfile(detail, dayId)
+    refreshWeather(bundle, dayId)
     const stickyHeader = container.querySelector<HTMLElement>('[data-day-detail-sticky-header]')
     if (stickyHeader !== null) stickyHeaderObserver = observeStickyHeaderHeight(stickyHeader, container, '--day-sticky-header-h')
     // Sticky nav (CDC section 13): ‹/› only ever step between openable days —
@@ -286,8 +371,8 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       const model = detail.geometry === null
         ? null
         : buildGenericRouteMapModel(visibleWaypoints, detail.geometry.map((point) => [point.latitude, point.longitude] as const))
-      renderGenericRouteMap(mapContainer, mapDialog, model, villagesLayer(detail.villageWaypoints))
-      mapDialog.querySelector<HTMLButtonElement>('[data-close-map]')?.addEventListener('click', () => closeExpandedRouteMap(mapDialog))
+      deps.renderMap(mapContainer, mapDialog, model, villagesLayer(detail.villageWaypoints))
+      mapDialog.querySelector<HTMLButtonElement>('[data-close-map]')?.addEventListener('click', () => deps.closeMap(mapDialog))
     }
     const profileContainer = container.querySelector<HTMLElement>('[data-day-detail-profile]')
     if (profileContainer !== null) {
@@ -322,6 +407,11 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     const timelineEl = container.querySelector('[data-day-detail-timeline]')
     if (timelineEl !== null) timelineEl.innerHTML = detail.timelineHtml
     mountMapAndProfile(detail, dayId)
+    // A pause edit shifts every downstream eta (CDC Jalon C1 section 26) —
+    // the weather request signature itself is unaffected unless the set of
+    // significant points changed, so this is cheap (see
+    // `GenericWeatherCoordinator.setTripBundle`'s own doc comment).
+    refreshWeather(bundle, dayId)
   }
 
   /**
@@ -361,8 +451,8 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     if (mapContainer !== null && mapDialog !== null) {
       const model = buildGenericOverviewRouteMapModel(overview.mapStages)
       const villageWaypoints = overview.mapVillageStages.flatMap((stage) => stage.waypoints)
-      renderGenericRouteMap(mapContainer, mapDialog, model, villagesLayer(villageWaypoints))
-      mapDialog.querySelector<HTMLButtonElement>('[data-close-map]')?.addEventListener('click', () => closeExpandedRouteMap(mapDialog))
+      deps.renderMap(mapContainer, mapDialog, model, villagesLayer(villageWaypoints))
+      mapDialog.querySelector<HTMLButtonElement>('[data-close-map]')?.addEventListener('click', () => deps.closeMap(mapDialog))
     }
     // The highlighted day's own compact map (CDC Jalon B4.3 section 8) — a
     // second, independent, non-interactive preview; no fullscreen dialog of
@@ -374,8 +464,9 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       // Reuses the same primitive as the main map, but this preview has no
       // expand dialog of its own — a throwaway `<dialog>` keeps the shared
       // function's dialog-wiring a no-op here.
-      renderGenericRouteMap(dayMapContainer, document.createElement('dialog'), model, [])
+      deps.renderMap(dayMapContainer, document.createElement('dialog'), model, [])
     }
+    refreshWeather(bundle, overview.highlightedDayId ?? tripId)
   }
 
   /**
@@ -392,7 +483,13 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   async function startAutomaticEnrichment(tripId: TripId): Promise<void> {
     await automaticEnrichmentGuard.run(tripId, async () => {
       const requestId = deps.idFactory()
-      if (import.meta.env.DEV) console.debug('[automatic-enrichment] start', { tripId, requestId })
+      // `import.meta.env` is injected by Vite at build/dev time and is
+      // `undefined` under plain `node --test` (same caveat already
+      // documented at `src/trips/rga-2026/load-rga-legacy-trip.ts`'s
+      // `resolveRgaTripBaseUrl`) — optional-chained so a dev-only debug log
+      // never crashes a test that legitimately exercises this function,
+      // rather than leaving it untestable.
+      if (import.meta.env?.DEV) console.debug('[automatic-enrichment] start', { tripId, requestId })
 
       try {
         const repository = createTripRepository(deps.database)
@@ -412,7 +509,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
             if (progress.phase === 'endpoints') automaticEnrichmentProgress.set(tripId, 'Départs / arrivées')
             else {
               const detail = progress.detail
-              if (import.meta.env.DEV) {
+              if (import.meta.env?.DEV) {
                 console.debug('[automatic-enrichment] stage', {
                   tripId, requestId, stageId: detail.stageId, source: detail.source,
                   status: detail.status, durationMs: detail.durationMs,
@@ -430,7 +527,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       } catch (error) {
         automaticEnrichmentErrors.set(tripId, error instanceof Error ? error.message : 'Certaines données seront complétées ultérieurement.')
       } finally {
-        if (import.meta.env.DEV) console.debug('[automatic-enrichment] finish', { tripId, requestId })
+        if (import.meta.env?.DEV) console.debug('[automatic-enrichment] finish', { tripId, requestId })
         automaticEnrichmentProgress.delete(tripId)
         await refreshIfShowing(tripId)
       }

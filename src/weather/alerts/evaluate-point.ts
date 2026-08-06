@@ -1,5 +1,4 @@
-import type { TripDayId } from '../../trip/types.ts'
-import type { NormalizedHourlyWeather, WaypointWeather } from '../types.ts'
+import type { NormalizedHourlyWeather, WaypointWeather, WeatherDayKey } from '../types.ts'
 import { getWeatherCodeLabel } from '../weather-code.ts'
 import { getWeatherExposureContext } from './exposure.ts'
 import { WEATHER_ALERT_THRESHOLDS } from './thresholds.ts'
@@ -398,7 +397,7 @@ export function evaluateHourlyRisk(
 }
 
 function bindFindingToWaypoint(
-  dayId: TripDayId,
+  dayId: WeatherDayKey,
   waypoint: WaypointWeather,
   finding: RiskFinding,
 ): WeatherAlert {
@@ -437,7 +436,7 @@ function bindFindingToWaypoint(
  * gaps are handled at the day level (`evaluate-day.ts`), not invented here.
  */
 export function evaluateWaypointAlerts(
-  dayId: TripDayId,
+  dayId: WeatherDayKey,
   waypoint: WaypointWeather,
   thresholds: WeatherAlertThresholds = WEATHER_ALERT_THRESHOLDS,
 ): readonly WeatherAlert[] {

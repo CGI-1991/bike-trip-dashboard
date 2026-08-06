@@ -116,5 +116,26 @@ export function buildZipArchive(entries: readonly ZipEntryInput[], now: Date): B
   endRecord.setUint32(16, localOffset, true)
   endRecord.setUint16(20, 0, true)
 
-  return new Blob([...localParts, ...centralParts, endRecord.buffer], { type: 'application/zip' })
+  // `Blob`'s `BlobPart` type requires an `ArrayBufferView<ArrayBuffer>` —
+  // a plain `Uint8Array`/`Uint8Array<ArrayBufferLike>` (as produced by
+  // `TextEncoder.encode()` and the `entry.data` bytes passed in from the
+  // caller) is not assignable, since its underlying buffer could in theory
+  // be a `SharedArrayBuffer`. Rather than casting that away, concatenate
+  // every part into one explicitly-allocated `ArrayBuffer` first, then hand
+  // Blob only that single, unambiguous buffer — the ZIP bytes themselves
+  // are unchanged, only how they reach `Blob` differs.
+  const parts: (ArrayBuffer | Uint8Array)[] = [...localParts, ...centralParts, endRecord.buffer]
+  const totalSize = parts.reduce((total, part) => total + partByteLength(part), 0)
+
+  const archiveBuffer = new ArrayBuffer(totalSize)
+  const archiveBytes = new Uint8Array(archiveBuffer)
+
+  let offset = 0
+  for (const part of parts) {
+    const bytes = part instanceof ArrayBuffer ? new Uint8Array(part) : part
+    archiveBytes.set(bytes, offset)
+    offset += bytes.byteLength
+  }
+
+  return new Blob([archiveBuffer], { type: 'application/zip' })
 }
