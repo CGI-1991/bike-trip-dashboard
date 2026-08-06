@@ -45,7 +45,6 @@ export interface ImportWizardDeps {
   readonly database: IDBDatabase
   readonly now: () => string
   readonly idFactory: () => string
-  readonly referenceSpeedKph?: number
   /** Test-only seam; defaults to the real `preAnalyzeGpxFiles`. */
   readonly preAnalyzeFiles?: (files: readonly GpxImportFile[]) => Promise<readonly GpxPreAnalysis[]>
 }
@@ -125,7 +124,8 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
         name: state.name.trim(),
         startDate: state.startDate,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        referenceSpeedKph: deps.referenceSpeedKph,
+        referenceSpeedKph: state.referenceSpeedKph,
+        mountainMode: state.mountainMode,
         totalBreakMinutes: 'adaptive',
         importedAt,
         engineVersion: 'trips-manager-wizard@1',
@@ -281,7 +281,11 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
           ? `<section class="wizard-structure" data-wizard-structure><h3>Structure du voyage</h3>${loopChoice}<ul class="wizard-structure__list">${structureRows}</ul></section>`
           : ''}
         ${renderAlerts()}
-        <details class="wizard-advanced"><summary>Réglages avancés</summary><p>Vitesse de référence : ${deps.referenceSpeedKph ?? 18} km/h. Budget de pauses calculé automatiquement selon la distance, la durée et le D+ de chaque étape.</p></details>
+        <details class="wizard-advanced"><summary>Réglages avancés</summary>
+          <div class="field"><label for="wizard-reference-speed">Vitesse de référence</label><div class="field__control"><input id="wizard-reference-speed" type="number" min="8" max="40" step="0.5" data-field="reference-speed" value="${state.referenceSpeedKph}"><span>km/h</span></div></div>
+          <label class="trip-settings__toggle"><input type="checkbox" data-field="mountain-mode" ${state.mountainMode ? 'checked' : ''}> Mode montagne (voyage alpin)</label>
+          <p>Budget de pauses calculé automatiquement selon la distance, la durée et le D+ de chaque étape.</p>
+        </details>
         ${state.errorMessage !== null ? `<p class="wizard-error" role="alert">${escapeHtml(state.errorMessage)}</p>` : ''}
         ${renderProgress()}
         <footer class="wizard-actions">
@@ -322,12 +326,17 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
     if (!(target instanceof HTMLInputElement)) return
     if (target.dataset.field === 'name') state.name = target.value
     else if (target.dataset.field === 'start-date') state.startDate = target.value
+    else if (target.dataset.field === 'reference-speed') { if (Number.isFinite(target.valueAsNumber)) state.referenceSpeedKph = target.valueAsNumber; return }
     else return
     updateValidationUI()
   }, { signal: controller.signal })
 
   container.addEventListener('change', (event) => {
     const target = event.target
+    if (target instanceof HTMLInputElement && target.dataset.field === 'mountain-mode') {
+      state.mountainMode = target.checked
+      return
+    }
     if (target instanceof HTMLInputElement && target.dataset.field === 'files' && target.files !== null && target.files.length > 0) {
       const files = Array.from(target.files)
       // Reset immediately after capturing a plain-array snapshot, so the

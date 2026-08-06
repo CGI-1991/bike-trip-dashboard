@@ -58,6 +58,9 @@ export interface WizardState {
   progressReached: Set<string>
   errorMessage: string | null
   duplicateSelectionNotice: string | null
+  /** Trip-level settings (CDC Jalon B4.3 sections 19-21): reference speed and Mode montagne belong to the trip, set here at creation and editable afterwards via "Modifier le voyage" — never per-stage/per-day, never a separate global settings screen. */
+  referenceSpeedKph: number
+  mountainMode: boolean
 }
 
 let structureKeyCounter = 0
@@ -76,6 +79,8 @@ export function createEmptyWizardState(): WizardState {
     progressReached: new Set(),
     errorMessage: null,
     duplicateSelectionNotice: null,
+    referenceSpeedKph: 18,
+    mountainMode: false,
   }
 }
 

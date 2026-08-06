@@ -118,6 +118,7 @@ function resolveOptions(raw: GpxTripImportOptions): { readonly options: Resolved
       referenceSpeedKph,
       departureTime,
       totalBreakMinutes,
+      mountainMode: raw.mountainMode ?? false,
       importedAt: raw.importedAt,
       engineVersion: raw.engineVersion,
     },

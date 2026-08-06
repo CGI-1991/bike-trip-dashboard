@@ -4,35 +4,51 @@ import test from 'node:test'
 import { renderTripDetail } from '../../src/ui/trips/trip-detail-view.ts'
 import { createGenericTripBundle } from '../trip-core/support/generic-trip-fixture.mjs'
 
-test('a ride day header is compact — date before locations, no GPX/roadbook stage name', () => {
+test('the Voyage screen has no global stats — title then straight into the day list (CDC Jalon B4.3 section 9)', () => {
   const bundle = createGenericTripBundle()
   const html = renderTripDetail(bundle)
-  assert.match(html, /J1 — 10\.05\.27 — Riverside → Hilltown/)
+  assert.match(html, /<h2>Sample Loop 01<\/h2>/)
+  assert.doesNotMatch(html, /trip-detail__summary/)
+  assert.doesNotMatch(html, /Distance totale/)
+  assert.doesNotMatch(html, /Progression du voyage/)
+})
+
+test('a ride day card is a single clickable button — compact date, no GPX/roadbook stage name, no separate "Voir le détail" (CDC Jalon B4.3 sections 4/10)', () => {
+  const bundle = createGenericTripBundle()
+  const html = renderTripDetail(bundle)
+  assert.match(html, /<button class="trip-day-card trip-day-card--ride" type="button" data-action="open-day-detail" data-day-id="day-alpha">/)
+  assert.match(html, /J1 · 10 Mai/)
+  assert.match(html, /Riverside → Hilltown/)
   assert.doesNotMatch(html, /Riverside to Hilltown/)
+  assert.doesNotMatch(html, /Voir le détail/)
 })
 
-test('a transfer day header reads "Jn — Transfert — date", with the known locations as a secondary line', () => {
+test('an OFF day card shows the OFF badge and its auto-filled/known location, no "Voir le détail"', () => {
   const bundle = createGenericTripBundle()
   const html = renderTripDetail(bundle)
-  assert.match(html, /J3 — Transfert — 12\.05\.27/)
-  assert.match(html, /<span class="trip-detail__day-subtitle">Hilltown → Lakeside<\/span>/)
+  assert.match(html, /trip-day-card--off/)
+  assert.match(html, /<span class="tag tag--off">OFF<\/span>/)
+  assert.match(html, /J2 · 11 Mai/)
+  assert.match(html, /Hilltown/)
 })
 
-test('an OFF day header reads "Jn — OFF — date", with a single known location when start and end match', () => {
+test('a transfer day card shows the Transfert badge and origin → destination', () => {
   const bundle = createGenericTripBundle()
   const html = renderTripDetail(bundle)
-  assert.match(html, /J2 — OFF — 11\.05\.27/)
-  assert.match(html, /<span class="trip-detail__day-subtitle">Hilltown<\/span>/)
+  assert.match(html, /trip-day-card--transfer/)
+  assert.match(html, /<span class="tag tag--transfer">Transfert<\/span>/)
+  assert.match(html, /J3 · 12 Mai/)
+  assert.match(html, /Hilltown → Lakeside/)
 })
 
 test('an undated day header omits the date segment entirely rather than showing a placeholder', () => {
   const bundle = createGenericTripBundle({ dated: false })
   const html = renderTripDetail(bundle)
-  assert.match(html, /J1 — Riverside → Hilltown<\/strong>/)
-  assert.doesNotMatch(html, /J1 — \d/)
+  assert.match(html, /J1<\/span>/)
+  assert.doesNotMatch(html, /J1 · \d/)
 })
 
-test('the Voyage screen never lists structural points (Localités/Villages/Relief) or hamlet/peak — those live only in the Étape view', () => {
+test('the Voyage screen never lists structural points (Ville/Villages/Relief) or hamlet/peak — those live only in the Étape view', () => {
   const bundle = createGenericTripBundle()
   bundle.routePoints.push(
     {
@@ -45,7 +61,6 @@ test('the Voyage screen never lists structural points (Localités/Villages/Relie
   bundle.stages[0].routePointIds.push('village-ui')
   const html = renderTripDetail(bundle)
   assert.doesNotMatch(html, /Petit Village/)
-  assert.doesNotMatch(html, /trip-detail__structural-points/)
   assert.doesNotMatch(html, /<h4>Localités<\/h4>/)
 })
 
@@ -75,14 +90,33 @@ test('a ride day card shows distance, D+, departure time and estimated arrival',
 test('a ride day with no route geometry shows an em dash for departure/arrival rather than a fabricated time', () => {
   const bundle = createGenericTripBundle()
   const html = renderTripDetail(bundle)
-  const deltaCard = html.split('data-day-id="day-delta"')[0]?.split('trip-detail__day--ride').at(-1) ?? ''
+  const deltaCard = html.split('data-day-id="day-delta"')[1] ?? ''
   assert.match(deltaCard, /<dt>Arrivée estimée<\/dt><dd>—<\/dd>/)
 })
 
-test('every day row offers a "Voir le détail" action carrying its own day id, for ride days only', () => {
+test('a stage switched to manual pause mode changes the Voyage screen\'s estimated arrival time (CDC Jalon B4 section 15/16)', () => {
+  const automaticBundle = createGenericTripBundle()
+  const manualBundle = createGenericTripBundle()
+  manualBundle.settings.stages[0] = {
+    stageId: manualBundle.stages[0].id, pausePlanMode: 'custom',
+    pauses: [{ id: 'pause-manual-1', active: true, routePointId: manualBundle.routePoints[0].id, durationSeconds: 3_600, order: 0, origin: 'custom' }],
+  }
+  const automaticArrival = renderTripDetail(automaticBundle).match(/<dt>Arrivée estimée<\/dt><dd>(\d{2}:\d{2})<\/dd>/)[1]
+  const manualArrival = renderTripDetail(manualBundle).match(/<dt>Arrivée estimée<\/dt><dd>(\d{2}:\d{2})<\/dd>/)[1]
+  assert.notEqual(automaticArrival, manualArrival)
+})
+
+test('every ride day is its own clickable card carrying its own day id — OFF/transfer days are not (no Étape screen to land on)', () => {
   const bundle = createGenericTripBundle()
   const html = renderTripDetail(bundle)
   assert.equal((html.match(/data-action="open-day-detail"/g) ?? []).length, 2)
   assert.match(html, /data-day-id="day-alpha"/)
   assert.match(html, /data-day-id="day-delta"/)
+})
+
+test('a single "Télécharger les GPX" action is offered once the trip has at least one ride stage (CDC Jalon B4.3 section 15)', () => {
+  const bundle = createGenericTripBundle()
+  const html = renderTripDetail(bundle)
+  assert.match(html, /data-action="download-trip-gpx"/)
+  assert.match(html, /Télécharger les GPX/)
 })

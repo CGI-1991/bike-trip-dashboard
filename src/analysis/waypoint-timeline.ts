@@ -16,11 +16,12 @@
 import { createTerrainTiming, interpolateTerrainTiming, buildTerrainProfileSeries } from '../route/terrain-profile.ts'
 import { formatRouteClockTime } from '../route/time.ts'
 import type { RouteProfilePosition } from '../route/types.ts'
-import type { Climb, RideStage, Route, RoutePoint } from '../trip-core/index.ts'
+import type { Climb, PausePlanMode, RideStage, RideStageSettings, Route, RoutePoint } from '../trip-core/index.ts'
 import { routeGeometryWithDistances } from './canonical-waypoints.ts'
 import type { CanonicalWaypoint } from './canonical-waypoints.ts'
 import { buildCanonicalWaypoints } from './canonical-waypoints.ts'
 import { applyPausesToWaypoints, placeAutomaticPauses } from './pause-placement.ts'
+import type { PlacedPause } from './pause-placement.ts'
 import type { PauseAnchor } from './pauses.ts'
 import { buildTimeline, parseClockToMinutes } from './timing.ts'
 
@@ -30,12 +31,55 @@ export interface WaypointTimelineSettings {
   readonly departureTime: string
 }
 
+/** One resolved manual pause, already reduced to what placement needs: a real, existing canonical waypoint (`routePointId`) and a duration. */
+export interface ManualPauseSetting {
+  readonly id: string
+  readonly routePointId: string
+  readonly durationMinutes: number
+  readonly order: number
+}
+
+export interface StagePauseResolution {
+  readonly mode: PausePlanMode
+  /** Only meaningful when `mode === 'custom'` — always `[]` for `'automatic'`. */
+  readonly manualPauses: readonly ManualPauseSetting[]
+}
+
+/**
+ * Resolves one stage's effective pause plan (CDC Jalon B4 section 15): a
+ * per-stage override (`RideStageSettings.pausePlanMode`) wins over the
+ * trip-wide default (`GlobalTripSettings.pausePlanMode`); `null` on either
+ * means "inherit". Only `active` pauses with a real `routePointId` become
+ * `ManualPauseSetting`s — an inactive or dangling (deleted point) entry is
+ * simply dropped rather than crashing placement.
+ */
+export function resolveStagePauseSettings(globalMode: PausePlanMode, stageSettings: RideStageSettings | undefined): StagePauseResolution {
+  const mode = stageSettings?.pausePlanMode ?? globalMode
+  if (mode !== 'custom') return { mode: 'automatic', manualPauses: [] }
+  const manualPauses = (stageSettings?.pauses ?? [])
+    .filter((pause) => pause.active && pause.routePointId !== null)
+    .slice()
+    .sort((left, right) => left.order - right.order)
+    .map((pause) => ({ id: pause.id, routePointId: pause.routePointId as string, durationMinutes: Math.round(pause.durationSeconds / 60), order: pause.order }))
+  return { mode: 'custom', manualPauses }
+}
+
 export interface ComputeStageWaypointsInput {
   readonly stage: RideStage
   readonly route: Route
   readonly routePoints: readonly RoutePoint[]
   readonly climbs: readonly Climb[]
   readonly settings: WaypointTimelineSettings
+  /**
+   * When provided, pauses are placed exactly on these existing canonical
+   * waypoints instead of the automatic budget/anchor search (CDC Jalon B4
+   * section 15: manual pause editing never invents a new engine — it only
+   * feeds fixed anchors into the same `applyPausesToWaypoints`/timeline
+   * pipeline the automatic mode already uses). Omit for automatic mode.
+   */
+  readonly manualPauses?: readonly ManualPauseSetting[]
+  /** `GlobalTripSettings.mountainMode` (Jalon B4.2 section 15) — forwarded as-is to `buildCanonicalWaypoints`; `false` when omitted. */
+  readonly mountainMode?: boolean
 }
 
 function movingElapsedMinutesAt(source: RouteProfilePosition[], totalDistanceKm: number, referenceSpeedKph: number): (distanceKm: number) => number {
@@ -55,8 +99,8 @@ function movingElapsedMinutesAt(source: RouteProfilePosition[], totalDistanceKm:
  * geometry (same degenerate case as `buildCanonicalWaypoints`).
  */
 export function computeStageWaypoints(input: ComputeStageWaypointsInput): readonly CanonicalWaypoint[] {
-  const { stage, route, routePoints, climbs, settings } = input
-  const baseWaypoints = buildCanonicalWaypoints({ stage, route, routePoints, climbs })
+  const { stage, route, routePoints, climbs, settings, mountainMode } = input
+  const baseWaypoints = buildCanonicalWaypoints({ stage, route, routePoints, climbs, mountainMode })
   if (baseWaypoints.length === 0) return []
 
   const geometryWithDistances = routeGeometryWithDistances(route)
@@ -65,7 +109,15 @@ export function computeStageWaypoints(input: ComputeStageWaypointsInput): readon
   const totalDistanceKm = distances.at(-1) ?? 0
   const totalBreakMinutes = (stage.pauseDurationSeconds ?? 0) / 60
 
-  const placedPauses = placeAutomaticPauses(totalBreakMinutes, totalDistanceKm, baseWaypoints)
+  const placedPauses: readonly PlacedPause[] = input.manualPauses === undefined
+    ? placeAutomaticPauses(totalBreakMinutes, totalDistanceKm, baseWaypoints)
+    : input.manualPauses
+        .map((pause): PlacedPause | null => {
+          const anchor = baseWaypoints.find((waypoint) => waypoint.id === pause.routePointId)
+          if (anchor === undefined) return null
+          return { id: pause.id, name: anchor.name, distanceKm: anchor.trackDistanceKm, durationMinutes: pause.durationMinutes, waypointId: anchor.id }
+        })
+        .filter((pause): pause is PlacedPause => pause !== null)
   const withPauses = applyPausesToWaypoints(baseWaypoints, placedPauses, route)
 
   if (!(settings.referenceSpeedKph > 0) || !(totalDistanceKm > 0)) return withPauses

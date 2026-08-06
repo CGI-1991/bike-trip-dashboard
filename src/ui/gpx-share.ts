@@ -39,7 +39,7 @@ async function fetchGpxFile(target: GpxShareTarget): Promise<File> {
   return new File([blob], target.filename, { type: 'application/gpx+xml' })
 }
 
-function downloadBlob(
+export function downloadBlob(
   blob: Blob,
   filename: string,
   documentRef: DownloadDocument = document as unknown as DownloadDocument,

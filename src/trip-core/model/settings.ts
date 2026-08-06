@@ -11,6 +11,16 @@ export type PausePlanMode = 'automatic' | 'custom'
 export interface GlobalTripSettings {
   readonly referenceSpeedKph: KilometersPerHour
   readonly pausePlanMode: PausePlanMode
+  /**
+   * Jalon B4.2 section 15: adapts the importance threshold used to classify
+   * detected climbs as "principale"/"secondaire" (`analysis/canonical-
+   * waypoints.ts::classifyClimbImportance`) — never re-runs GPX detection
+   * itself. `true` for an alpine/mountain trip (stricter threshold, only
+   * genuinely major ascents stay principale by default); `false` for a
+   * rolling/local trip (permissive threshold, a modest climb can already be
+   * principale). Optional/absent on historical records — treat as `false`.
+   */
+  readonly mountainMode?: boolean
 }
 
 /** Per-day override: departure time and total break budget for that day. */

@@ -1,20 +1,39 @@
 /**
- * Generic single-day detail screen (CDC Jalon B section 15): header, stats,
- * canonical waypoints, map, profile. Built from the active `TripBundle`
- * only — never from RGA-hardcoded data. Only produces the header/stats/
- * waypoints markup plus empty map/profile containers; the caller
- * (`trips-manager.ts`) wires the actual Leaflet map and SVG profile into
- * those containers, since that requires real DOM elements, not strings.
+ * Generic single-day detail screen (CDC Jalon B section 15, reworked across
+ * Jalons B4.2/B4.3): a compact sticky identity + nav + tablist composition
+ * (CDC B4.3 sections 24-25), a real Parcours/Météo/Infos tablist (ARIA
+ * `tablist`/`tab`/`tabpanel`), and inside Parcours a single chronological
+ * points list — only départ/arrivée/pauses/significant relief in normal
+ * view (CDC B4.3 sections 26-29/40), sorted by `trackDistanceKm`, never
+ * duplicated. Built from the active `TripBundle` only — never from
+ * RGA-hardcoded data. Only produces markup plus empty map/profile
+ * containers; the caller (`trips-manager.ts`) wires the actual Leaflet map
+ * and SVG profile into those containers, since that requires real DOM
+ * elements, not strings.
  *
  * Not meant for OFF/transfer days (CDC: "pas de carte/profil vélo forcé
  * pour une journée OFF") — `buildDayDetail` returns `null` for those; the
  * caller keeps showing them through `trip-detail-view.ts`'s day list only.
  */
 
-import { computeStageWaypoints } from '../../analysis/waypoint-timeline.ts'
-import type { CanonicalWaypoint, CanonicalWaypointKind } from '../../analysis/canonical-waypoints.ts'
+import { computeStageWaypoints, resolveStagePauseSettings } from '../../analysis/waypoint-timeline.ts'
+import { isSignificantWaypoint } from '../../analysis/canonical-waypoints.ts'
+import type { CanonicalWaypoint, CanonicalWaypointKind, WaypointVisibilityFilters } from '../../analysis/canonical-waypoints.ts'
+import { buildClimbProfile } from '../../analysis/climb-profile.ts'
+import type { ClimbGradeClass, ClimbProfileSegment } from '../../analysis/climb-profile.ts'
 import { routeGeometry } from '../../route-enrichment/route-fingerprint.ts'
-import type { RouteGeometryPoint, TripBundle, TripDayId } from '../../trip-core/index.ts'
+import { formatCompactDate } from '../date-format.ts'
+import type { Accommodation, Climb, RideStageSettings, RouteGeometryPoint, RoutePointId, SourceFileId, TripBundle, TripDayId } from '../../trip-core/index.ts'
+
+/** Kinds that can anchor a pause (CDC Jalon B4 section 15): the same set `pause-placement.ts` already restricts automatic anchors to. Also the manual pause editor's full candidate list (CDC Jalon B4.3 section 31) — a separate, wider need from `isSignificantWaypoint`'s normal-view policy (CDC section 40: never conflate the two). Exported so `trips-manager.ts` can build/validate pause mutations against the same set. */
+export const PAUSE_ANCHOR_KINDS: ReadonlySet<CanonicalWaypointKind> = new Set(['city', 'town', 'village', 'mountain-pass', 'saddle'])
+
+const DEFAULT_FILTERS: WaypointVisibilityFilters = { showSecondaryClimbs: false }
+
+export interface DayDetailOptions {
+  /** Montées secondaires toggle (CDC Jalon B4.3 section 29) — local UI state owned by the caller, never persisted. Defaults to off. There is no Villages toggle any more: an ordinary city/town/village never shows in normal view regardless (CDC section 26/28) — the full list stays reachable only through the manual pause editor. */
+  readonly filters?: WaypointVisibilityFilters
+}
 
 function escapeHtml(value: string): string {
   return value
@@ -32,83 +51,313 @@ function formatDuration(seconds: number | null): string {
   return `${hours} h ${String(minutes).padStart(2, '0')}`
 }
 
-function formatShortDate(iso: string): string {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
-  if (match === null) return iso
-  const [, year, month, day] = match
-  return `${day}.${month}.${year?.slice(2)}`
-}
-
 function formatKilometers(value: number): string {
   return `${value.toFixed(1).replace('.', ',')} km`
 }
 
-/**
- * A category's group title (Localités/Villages/Relief) already carries the
- * OSM subtype — a row never repeats it inline (CDC hardening section 6).
- * Only `climb`/`pause` still need their own inline word since they are not
- * grouped under one of those three section titles.
- */
-const WAYPOINT_KIND_LABELS: Readonly<Record<CanonicalWaypointKind, string>> = {
-  start: 'Départ',
-  end: 'Arrivée',
-  city: '',
-  town: '',
-  village: '',
-  'mountain-pass': '',
-  saddle: '',
-  climb: 'Montée',
-  pause: 'Pause',
+function formatPercent(value: number | null): string {
+  return value === null ? '—' : `${value.toFixed(1).replace('.', ',')} %`
 }
 
-function renderWaypointRow(waypoint: CanonicalWaypoint): string {
-  const label = WAYPOINT_KIND_LABELS[waypoint.kind]
+/**
+ * User-facing category per waypoint kind (CDC Jalon B4.3 section 26/41:
+ * "Ville", never "Localité"; never a raw OSM `place=*`/`mountain_pass=yes`
+ * value).
+ */
+const KIND_LABELS: Readonly<Record<CanonicalWaypointKind, string>> = {
+  start: 'Départ', end: 'Arrivée', city: 'Ville', town: 'Ville', village: 'Village',
+  'mountain-pass': 'Col', saddle: 'Col', climb: 'Montée', pause: 'Pause',
+}
+
+const KIND_MARKERS: Readonly<Record<CanonicalWaypointKind, string>> = {
+  start: 'D', end: 'A', city: '●', town: '●', village: '●', 'mountain-pass': '◆', saddle: '◆', climb: '▲', pause: '❚❚',
+}
+
+function renderPauseBadge(waypoint: CanonicalWaypoint): string {
+  return waypoint.pauseDurationMinutes === null ? '' : `<span class="tag tag--pause">Pause ${waypoint.pauseDurationMinutes} min</span>`
+}
+
+/** One plain chronological row — every kind except `climb`, which gets the richer mini-card below (CDC Jalon B4.2 section 17). */
+function renderTimelineRow(waypoint: CanonicalWaypoint): string {
   const altitude = waypoint.elevationM === null ? null : `${Math.round(waypoint.elevationM)} m`
-  const pause = waypoint.pauseDurationMinutes === null ? null : `pause ${waypoint.pauseDurationMinutes} min`
-  const parts = [formatKilometers(waypoint.trackDistanceKm), label, escapeHtml(waypoint.name), altitude, waypoint.clockTime, pause]
+  const meta = [KIND_LABELS[waypoint.kind], altitude, `Kilomètre ${formatKilometers(waypoint.trackDistanceKm)}`]
     .filter((part): part is string => part !== null)
-  return `<li class="day-detail__waypoint day-detail__waypoint--${waypoint.importance}" data-waypoint-id="${escapeHtml(waypoint.id)}" data-waypoint-kind="${waypoint.kind}">${parts.join(' · ')}</li>`
+    .join(' · ')
+  const time = waypoint.clockTime === null ? '' : `<span class="day-detail__timeline-time">${escapeHtml(waypoint.clockTime)}</span>`
+  return `<li class="day-detail__timeline-row day-detail__timeline-row--${waypoint.importance}" data-waypoint-id="${escapeHtml(waypoint.id)}" data-waypoint-kind="${waypoint.kind}">
+    <span class="day-detail__timeline-marker" aria-hidden="true">${KIND_MARKERS[waypoint.kind]}</span>
+    <div class="day-detail__timeline-body">
+      <strong>${escapeHtml(waypoint.name)}</strong>
+      <span class="day-detail__timeline-meta">${meta}</span>
+      ${renderPauseBadge(waypoint)}
+    </div>
+    ${time}
+  </li>`
 }
 
 /**
- * Grouped point-of-passage sections (CDC section 15): Localités (city+town,
- * open by default), Villages (collapsed by default — same information, just
- * less prominent), Relief (mountain-pass+saddle, open by default). A group
- * with no matching waypoint renders nothing at all, never an empty section.
+ * Colour scale for the climb mini-profile bar (CDC Jalon B4.2 section 18) —
+ * progressive green → yellow → orange → red → dark violet as the positive
+ * gradient increases, matching `analysis/climb-profile.ts::ClimbGradeClass`'s
+ * fixed bands. A brief downhill dip inside a climb's own bounds gets a
+ * neutral cool tone, never part of the "positive gradient" scale.
  */
-function renderWaypointGroup(title: string, waypoints: readonly CanonicalWaypoint[], collapsed: boolean): string {
-  if (waypoints.length === 0) return ''
-  const rows = `<ol class="day-detail__waypoints">${waypoints.map(renderWaypointRow).join('')}</ol>`
-  if (collapsed) return `<details class="day-detail__waypoint-group"><summary>${escapeHtml(title)} (${waypoints.length})</summary>${rows}</details>`
-  return `<section class="day-detail__waypoint-group"><h4>${escapeHtml(title)}</h4>${rows}</section>`
+const GRADE_CLASS_COLORS: Readonly<Record<ClimbGradeClass, string>> = {
+  'descent-7-plus': '#4f7f8f',
+  'descent-0-7': '#7fa9a6',
+  'climb-0-1': '#7fb35a',
+  'climb-1-4': '#c9c24a',
+  'climb-4-8': '#e2963a',
+  'climb-8-12': '#cf4a3a',
+  'climb-12-plus': '#7a2a52',
 }
 
-function renderWaypointsList(waypoints: readonly CanonicalWaypoint[]): string {
-  const localities = waypoints.filter((waypoint) => waypoint.kind === 'city' || waypoint.kind === 'town')
-  const villages = waypoints.filter((waypoint) => waypoint.kind === 'village')
-  const relief = waypoints.filter((waypoint) => waypoint.kind === 'mountain-pass' || waypoint.kind === 'saddle')
-  const groups = [
-    renderWaypointGroup('Localités', localities, false),
-    renderWaypointGroup('Villages', villages, true),
-    renderWaypointGroup('Relief', relief, false),
-  ].join('')
-  return groups === '' ? '<p>Aucun point de passage disponible.</p>' : groups
+/** < 3 km climbs use 250 m bins to stay readable (CDC Jalon B4.2 section 18); longer climbs use the analysis module's own 500 m default. */
+function climbSegmentLengthMeters(climb: Climb): number {
+  return climb.endDistanceKm - climb.startDistanceKm < 3 ? 250 : 500
 }
 
-/** Montées (CDC section 20): only the stage's own `climb` waypoints — never rendered at all when there are none. */
-function renderClimbsSection(waypoints: readonly CanonicalWaypoint[]): string {
-  const climbs = waypoints.filter((waypoint) => waypoint.kind === 'climb')
-  if (climbs.length === 0) return ''
-  const rows = `<ol class="day-detail__waypoints">${climbs.map(renderWaypointRow).join('')}</ol>`
-  return `<section class="card day-detail__climbs"><p class="eyebrow">Relief</p><h3>Montées</h3>${rows}</section>`
+/**
+ * A lightweight SVG elevation silhouette (CDC Jalon B4.3 section 34: "il
+ * faut voir une forme altimétrique", not just flat colour blocks), coloured
+ * per-segment by gradient (CDC section 18). Reuses only this climb's own
+ * window of the already-computed segments — never a second GPX/recompute.
+ */
+function renderClimbProfileShape(segments: readonly ClimbProfileSegment[]): string {
+  const altitudes = segments.flatMap((segment) => [segment.startAltitudeM, segment.endAltitudeM]).filter((value): value is number => value !== null)
+  if (altitudes.length === 0) return ''
+  const minAltitude = Math.min(...altitudes)
+  const maxAltitude = Math.max(...altitudes)
+  const span = Math.max(maxAltitude - minAltitude, 1)
+  const totalKm = Math.max((segments[segments.length - 1]?.endDistanceKm ?? 0) - (segments[0]?.startDistanceKm ?? 0), 0.001)
+  const startKm = segments[0]?.startDistanceKm ?? 0
+  const width = 300
+  const height = 64
+  const x = (km: number): number => ((km - startKm) / totalKm) * width
+  const y = (altitude: number): number => height - ((altitude - minAltitude) / span) * (height - 6) - 3
+
+  const bands = segments.map((segment) => {
+    if (segment.startAltitudeM === null || segment.endAltitudeM === null) return ''
+    const x1 = x(segment.startDistanceKm)
+    const x2 = x(segment.endDistanceKm)
+    const y1 = y(segment.startAltitudeM)
+    const y2 = y(segment.endAltitudeM)
+    const color = segment.gradeClass === null ? '#c7d2cc' : GRADE_CLASS_COLORS[segment.gradeClass]
+    return `<polygon points="${x1.toFixed(1)},${height} ${x1.toFixed(1)},${y1.toFixed(1)} ${x2.toFixed(1)},${y2.toFixed(1)} ${x2.toFixed(1)},${height}" fill="${color}"></polygon>`
+  }).join('')
+  const outline = segments
+    .filter((segment) => segment.startAltitudeM !== null)
+    .map((segment, index) => `${index === 0 ? 'M' : 'L'}${x(segment.startDistanceKm).toFixed(1)},${y(segment.startAltitudeM as number).toFixed(1)}`)
+    .join(' ')
+  const last = segments[segments.length - 1]
+  const outlineEnd = last?.endAltitudeM === null || last?.endAltitudeM === undefined ? '' : ` L${x(last.endDistanceKm).toFixed(1)},${y(last.endAltitudeM).toFixed(1)}`
+
+  return `<svg class="day-detail__climb-profile-shape" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="presentation">${bands}<path d="${outline}${outlineEnd}" fill="none" stroke="var(--forest-950, #102d28)" stroke-width="1.5"></path></svg>`
 }
 
-/** Pauses (CDC section 24): automatic placement by default — this only displays them; editing is wired separately by the caller. */
-function renderPausesSection(waypoints: readonly CanonicalWaypoint[]): string {
-  const pauses = waypoints.filter((waypoint) => waypoint.kind === 'pause')
-  if (pauses.length === 0) return ''
-  const rows = `<ol class="day-detail__waypoints">${pauses.map(renderWaypointRow).join('')}</ol>`
-  return `<section class="card day-detail__pauses"><p class="eyebrow">Arrêts</p><h3>Pauses</h3>${rows}</section>`
+function renderClimbProfileBar(segments: readonly ClimbProfileSegment[]): string {
+  if (segments.length === 0) return '<p class="day-detail__climb-profile-empty">Profil indisponible pour cette montée.</p>'
+  const totalKm = Math.max(segments[segments.length - 1]?.endDistanceKm ?? 0, 0.001) - (segments[0]?.startDistanceKm ?? 0)
+  const bars = segments.map((segment) => {
+    const lengthKm = segment.endDistanceKm - segment.startDistanceKm
+    const widthPercent = (lengthKm / totalKm) * 100
+    const color = segment.gradeClass === null ? '#c7d2cc' : GRADE_CLASS_COLORS[segment.gradeClass]
+    const title = `Km ${formatKilometers(segment.startDistanceKm)} → ${formatKilometers(segment.endDistanceKm)}`
+      + ` · ${segment.startAltitudeM === null ? '—' : `${Math.round(segment.startAltitudeM)} m`} → ${segment.endAltitudeM === null ? '—' : `${Math.round(segment.endAltitudeM)} m`}`
+      + ` · pente ${formatPercent(segment.averageGradientPercent)}`
+    return `<span class="day-detail__climb-profile-segment" style="width:${widthPercent.toFixed(2)}%;background:${color}" title="${escapeHtml(title)}"></span>`
+  }).join('')
+  const first = segments[0]
+  const last = segments[segments.length - 1]
+  return `${renderClimbProfileShape(segments)}
+    <div class="day-detail__climb-profile-bar" role="img" aria-label="Variation de la pente le long de la montée, du plus doux (vert) au plus raide (violet)">${bars}</div>
+    <div class="day-detail__climb-profile-scale">
+      <span>${formatKilometers(first?.startDistanceKm ?? 0)} · ${first?.startAltitudeM === null || first?.startAltitudeM === undefined ? '—' : `${Math.round(first.startAltitudeM)} m`}</span>
+      <span>${formatKilometers(last?.endDistanceKm ?? 0)} · ${last?.endAltitudeM === null || last?.endAltitudeM === undefined ? '—' : `${Math.round(last.endAltitudeM)} m`}</span>
+    </div>
+    <p class="day-detail__climb-profile-caption">Survolez une tranche pour la distance, l’altitude et la pente moyenne locale.</p>`
+}
+
+/**
+ * Climb mini-card (CDC Jalon B4.2/B4.3 section 17/34): name/altitude/
+ * distance/D+/pente moyenne always visible; tapping it expands a
+ * colour-coded silhouette of just this climb's own portion of the stage
+ * profile (never a second GPX/recalculation — a window over the
+ * already-computed route geometry). Expand/collapse is a pure client-side
+ * attribute toggle (`trips-manager.ts`), never a re-render.
+ */
+function renderClimbCard(waypoint: CanonicalWaypoint, climb: Climb, routeGeometryFull: readonly RouteGeometryPoint[] | null): string {
+  const lengthKm = climb.endDistanceKm - climb.startDistanceKm
+  const summitAltitude = climb.endAltitudeM === null ? null : `${Math.round(climb.endAltitudeM)} m`
+  const profile = routeGeometryFull === null ? null : buildClimbProfile(routeGeometryFull, climb, climbSegmentLengthMeters(climb))
+  const profileId = `climb-profile-${escapeHtml(climb.id)}`
+  return `<li class="day-detail__timeline-row day-detail__timeline-row--${waypoint.importance} day-detail__climb-card" data-waypoint-id="${escapeHtml(waypoint.id)}" data-waypoint-kind="climb">
+    <button class="day-detail__climb-toggle" type="button" data-action="toggle-climb-profile" data-climb-id="${escapeHtml(climb.id)}" aria-expanded="false" aria-controls="${profileId}">
+      <span class="day-detail__climb-toggle-row">
+        <strong>${escapeHtml(waypoint.name)}</strong>
+        ${summitAltitude === null ? '' : `<span>${summitAltitude}</span>`}
+      </span>
+      <span class="day-detail__climb-toggle-row day-detail__climb-toggle-row--stats">
+        <span>${formatKilometers(lengthKm)}</span>
+        <span>+${Math.round(climb.elevationGainM)} m</span>
+        <span>${formatPercent(climb.averageGradientPercent)}</span>
+      </span>
+      ${renderPauseBadge(waypoint)}
+    </button>
+    <div class="day-detail__climb-profile" id="${profileId}" data-climb-profile hidden>
+      ${profile === null ? '<p class="day-detail__climb-profile-empty">Profil indisponible pour cette montée.</p>' : renderClimbProfileBar(profile.segments)}
+    </div>
+  </li>`
+}
+
+/**
+ * Single ordered Parcours list (CDC Jalon B4.3 sections 11/26-29): one
+ * chronological `<ol>`, sorted by `trackDistanceKm` (already the order
+ * `waypoints` comes in), no grouping/duplication. In normal view, only
+ * départ/arrivée/pauses/significant relief show (`isSignificantWaypoint`) —
+ * the exact same policy the map/profile use.
+ */
+function renderTimelineList(waypoints: readonly CanonicalWaypoint[], climbs: readonly Climb[], filters: WaypointVisibilityFilters, routeGeometryFull: readonly RouteGeometryPoint[] | null): string {
+  const visible = waypoints.filter((waypoint) => isSignificantWaypoint(waypoint, filters))
+  if (visible.length === 0) return '<p>Aucun point de passage disponible.</p>'
+  const rows = visible.map((waypoint) => {
+    if (waypoint.kind !== 'climb' || waypoint.climbId === null) return renderTimelineRow(waypoint)
+    const climb = climbs.find((candidate) => candidate.id === waypoint.climbId)
+    return climb === undefined ? renderTimelineRow(waypoint) : renderClimbCard(waypoint, climb, routeGeometryFull)
+  }).join('')
+  return `<ol class="day-detail__timeline">${rows}</ol>`
+}
+
+/** Only "Montées secondaires" remains (CDC Jalon B4.3 section 29) — no Villages toggle: an ordinary city/town/village never appears in the normal view any more, with or without a filter (the full list lives only in the manual pause editor, section 31). */
+function renderFilters(filters: WaypointVisibilityFilters): string {
+  const secondaryClimbs = filters.showSecondaryClimbs ?? false
+  return `<div class="point-filters" role="group" aria-label="Filtres du parcours" data-day-detail-filters>
+    <button class="button" type="button" data-action="toggle-parcours-filter" data-filter="secondary-climbs" aria-pressed="${secondaryClimbs}">Montées secondaires</button>
+  </div>`
+}
+
+function pauseStatusText(mode: 'automatic' | 'custom', activeCount: number): string {
+  if (mode === 'automatic') return 'Gestion automatique'
+  if (activeCount === 0) return 'Mode manuel · aucune pause'
+  return `Mode manuel · ${activeCount} pause${activeCount > 1 ? 's' : ''}`
+}
+
+/**
+ * One compact candidate row for the manual pause editor (CDC Jalon B4.3
+ * section 31) — name/type/distance/ETA, a single checkbox, and a duration
+ * field that only shows once checked. No card, no dropdown, no per-change
+ * save: every row's state is read together by the caller's single
+ * "Enregistrer" action (`trips-manager.ts`).
+ */
+function renderPauseCandidateRow(candidate: CanonicalWaypoint, activePause: RideStageSettings['pauses'][number] | undefined): string {
+  const isActive = activePause !== undefined
+  const durationMinutes = activePause === undefined ? 15 : Math.round(activePause.durationSeconds / 60)
+  return `<div class="pause-editor__row" data-candidate-id="${escapeHtml(candidate.id)}">
+    <label class="pause-editor__row-check">
+      <input type="checkbox" data-field="pause-active" ${isActive ? 'checked' : ''}>
+      <strong>${escapeHtml(candidate.name)}</strong>
+    </label>
+    <span class="pause-editor__row-meta">${KIND_LABELS[candidate.kind]} · ${formatKilometers(candidate.trackDistanceKm)}${candidate.clockTime === null ? '' : ` · ${escapeHtml(candidate.clockTime)}`}</span>
+    <label class="pause-editor__row-duration" ${isActive ? '' : 'hidden'}>
+      <input type="number" min="0" max="120" step="5" value="${durationMinutes}" data-field="pause-duration"> min
+    </label>
+  </div>`
+}
+
+/**
+ * Pauses (CDC Jalon B4.3 sections 30-32): the normal view is a compact
+ * status line only — never the pause list, never a card/select/input in
+ * consultation. "Manuel" deploys a single `<details>` panel (native
+ * disclosure, no extra JS needed to open/close it) with one compact row per
+ * candidate point (city/town/village/col); everything is batched behind one
+ * "Enregistrer" action (`trips-manager.ts`'s `save-manual-pauses` handler) —
+ * never a save per checkbox/duration change, never a full `renderDay()`.
+ * Always wrapped in a stable `data-day-detail-pauses` container so the
+ * caller can patch just this subtree after a mutation.
+ */
+function renderPauseEditor(
+  stageId: string,
+  resolution: { readonly mode: 'automatic' | 'custom' },
+  stageSettings: RideStageSettings | undefined,
+  anchorCandidates: readonly CanonicalWaypoint[],
+): string {
+  const activePauses = (stageSettings?.pauses ?? []).filter((pause) => pause.active)
+  const activeByRoutePointId = new Map(activePauses.map((pause) => [pause.routePointId, pause]))
+  const status = pauseStatusText(resolution.mode, activePauses.length)
+
+  const candidateRows = anchorCandidates.length === 0
+    ? '<p>Aucun point canonique disponible pour ancrer une pause sur cette étape.</p>'
+    : anchorCandidates.map((candidate) => renderPauseCandidateRow(candidate, activeByRoutePointId.get(candidate.id as RoutePointId))).join('')
+
+  return `<section class="card day-detail__pauses" data-day-detail-pauses data-stage-id="${escapeHtml(stageId)}">
+    <p class="eyebrow">Arrêts</p><h3>Pauses</h3>
+    <p class="day-detail__pauses-status">${status}</p>
+    <details class="pause-editor" data-pause-editor>
+      <summary class="button button--quiet">Manuel</summary>
+      <div class="pause-editor__list">${candidateRows}</div>
+      <div class="pause-editor__actions">
+        <button class="button button--primary" type="button" data-action="save-manual-pauses">Enregistrer</button>
+        ${resolution.mode === 'custom' ? '<button class="button button--quiet" type="button" data-action="pause-mode-automatic">Revenir à l’automatique</button>' : ''}
+      </div>
+    </details>
+  </section>`
+}
+
+/** Météo tab (CDC Jalon B4.2/B4.3 section 22/37-38): an honest placeholder only — the weather engine itself is out of scope for this pass, never fake data. */
+function renderWeatherPanel(): string {
+  return `<section id="day-panel-weather" class="card" role="tabpanel" aria-labelledby="day-tab-weather" data-day-panel="weather" hidden>
+    <p class="eyebrow">Conditions</p><h3>Météo</h3>
+    <p>Les données météo ne sont pas encore disponibles pour ce voyage.</p>
+  </section>`
+}
+
+/** Read-only lodging display (CDC Jalon B4.3 section 35) — name + Maps/site buttons only, never a form. Nothing rendered at all when no lodging is set, per section 35: no large empty block. */
+function renderLodgingReadView(accommodation: Accommodation | undefined): string {
+  if (accommodation === undefined) return ''
+  const mapsLink = accommodation.mapsUrl === null ? '' : `<a class="button button--primary" href="${escapeHtml(accommodation.mapsUrl)}" target="_blank" rel="noopener">Ouvrir dans Maps</a>`
+  const websiteLink = accommodation.website === null ? '' : `<a class="button button--quiet" href="${escapeHtml(accommodation.website)}" target="_blank" rel="noopener">Voir le site</a>`
+  const links = [mapsLink, websiteLink].join('')
+  return `<div class="day-infos__lodging-display">
+    <p class="eyebrow">Hébergement</p>
+    ${accommodation.name === '' ? '' : `<h4>${escapeHtml(accommodation.name)}</h4>`}
+    ${links === '' ? '' : `<div class="day-infos__lodging-links">${links}</div>`}
+  </div>`
+}
+
+/**
+ * Infos tab (CDC Jalon B4.3 sections 35-36): read-only in normal
+ * consultation — free text and lodging shown as plain content, a single
+ * "Modifier" button reveals one grouped edit form (textarea + lodging
+ * fields together) with one "Enregistrer" — never a form directly in view,
+ * never a separate action per field. Deliberately never lists climbs here
+ * — they belong to Parcours only (CDC hardening: never duplicated between
+ * tabs).
+ */
+function renderInfosPanel(day: TripBundle['days'][number], accommodation: Accommodation | undefined): string {
+  const hasNotes = day.notes !== null && day.notes.trim() !== ''
+  const readView = `<div class="day-infos__read" data-day-infos-read>
+    ${hasNotes ? `<p class="day-infos__notes-text">${escapeHtml(day.notes as string).replaceAll('\n', '<br>')}</p>` : '<p class="day-infos__empty">Aucune note pour cette étape.</p>'}
+    ${renderLodgingReadView(accommodation)}
+    <button class="button button--quiet" type="button" data-action="edit-day-infos">Modifier</button>
+  </div>`
+
+  const editView = `<div class="day-infos__edit" data-day-infos-edit hidden>
+    <div class="field"><label for="day-notes">Notes</label><div class="field__control"><textarea id="day-notes" data-field="day-notes" rows="5" placeholder="Conseils, description, logistique, choses à faire…">${escapeHtml(day.notes ?? '')}</textarea></div></div>
+    <div class="field"><label for="lodging-name">Nom du logement</label><div class="field__control"><input id="lodging-name" type="text" data-field="lodging-name" value="${escapeHtml(accommodation?.name ?? '')}" placeholder="Hôtel, gîte, camping…"></div></div>
+    <div class="field"><label for="lodging-maps-url">URL Maps</label><div class="field__control"><input id="lodging-maps-url" type="url" data-field="lodging-maps-url" value="${escapeHtml(accommodation?.mapsUrl ?? '')}" placeholder="https://maps.google.com/…"></div></div>
+    <div class="field"><label for="lodging-website">URL du site</label><div class="field__control"><input id="lodging-website" type="url" data-field="lodging-website" value="${escapeHtml(accommodation?.website ?? '')}" placeholder="https://…"></div></div>
+    <div class="day-infos__notes-actions">
+      <button class="button button--primary" type="button" data-action="save-day-infos">Enregistrer</button>
+      <button class="button button--quiet" type="button" data-action="cancel-edit-day-infos">Annuler</button>
+      <span role="status" aria-live="polite" data-day-notes-status></span>
+    </div>
+  </div>`
+
+  return `<section id="day-panel-infos" class="card" role="tabpanel" aria-labelledby="day-tab-infos" data-day-panel="infos" hidden>
+    <p class="eyebrow">Éditorial et logistique</p><h3>Infos</h3>
+    ${readView}
+    ${editView}
+  </section>`
 }
 
 export interface DayDetail {
@@ -116,6 +365,15 @@ export interface DayDetail {
   readonly waypoints: readonly CanonicalWaypoint[]
   readonly geometry: readonly RouteGeometryPoint[] | null
   readonly stageLabel: string
+  /** Villages only (CDC Jalon B4 section 9): hidden by default on both map/profile, offered as an opt-in fullscreen-map layer. */
+  readonly villageWaypoints: readonly CanonicalWaypoint[]
+  /** For the "GPX" download action in Parcours (CDC Jalon B4.3 section 33) — the original source file, never a reconstruction. `null` when the route has no known source (should not happen for a resolvable ride day, but never assumed). */
+  readonly sourceFileId: SourceFileId | null
+  /** Targeted-patch fragments (CDC Jalon B4.2/B4.3 section 3): each already carries its own stable wrapper attribute, so a caller can replace just one subtree instead of the whole screen after a pause/filter/Infos mutation — never a full `renderDay`. */
+  readonly statsHtml: string
+  readonly pausesHtml: string
+  readonly timelineHtml: string
+  readonly infosHtml: string
 }
 
 /**
@@ -124,7 +382,7 @@ export interface DayDetail {
  * or the route has no usable geometry — the caller falls back to the day
  * list in all those cases.
  */
-export function buildDayDetail(bundle: TripBundle, dayId: TripDayId): DayDetail | null {
+export function buildDayDetail(bundle: TripBundle, dayId: TripDayId, options: DayDetailOptions = {}): DayDetail | null {
   const day = bundle.days.find((candidate) => candidate.id === dayId)
   if (day === undefined || day.stageId === null) return null
   const stage = bundle.stages.find((candidate) => candidate.id === day.stageId)
@@ -132,58 +390,85 @@ export function buildDayDetail(bundle: TripBundle, dayId: TripDayId): DayDetail 
   const route = bundle.routes.find((candidate) => candidate.id === stage.sourceRouteId)
   if (route === undefined) return null
   const geometry = routeGeometry(route)
+  const filters = options.filters ?? DEFAULT_FILTERS
 
   const daySettings = bundle.settings.days.find((candidate) => candidate.dayId === dayId)
   const settings = { referenceSpeedKph: bundle.settings.global.referenceSpeedKph, departureTime: daySettings?.departureTime ?? '08:00' }
-  const waypoints = computeStageWaypoints({ stage, route, routePoints: bundle.routePoints, climbs: bundle.climbs, settings })
+  const stageSettings = bundle.settings.stages.find((candidate) => candidate.stageId === stage.id)
+  const pauseResolution = resolveStagePauseSettings(bundle.settings.global.pausePlanMode, stageSettings)
+  const waypoints = computeStageWaypoints({
+    stage, route, routePoints: bundle.routePoints, climbs: bundle.climbs, settings,
+    manualPauses: pauseResolution.mode === 'custom' ? pauseResolution.manualPauses : undefined,
+    mountainMode: bundle.settings.global.mountainMode ?? false,
+  })
+  const anchorCandidates = waypoints.filter((waypoint) => PAUSE_ANCHOR_KINDS.has(waypoint.kind))
 
-  const dateLabel = day.date === null ? null : formatShortDate(day.date)
+  const dateLabel = day.date === null ? null : formatCompactDate(day.date)
   const locations = `${escapeHtml(stage.startLocationName ?? '—')} → ${escapeHtml(stage.endLocationName ?? '—')}`
   const stageLabel = `J${day.displayNumber} — ${stage.startLocationName ?? '—'} → ${stage.endLocationName ?? '—'}`
-  // Compact day title (CDC section 8): date before locations, e.g.
-  // "J1 — 14.08.26 — Saint-Mars-la-Réorthe → Chauché". The GPX/roadbook
-  // stage name (`stage.name`) is deliberately never shown here — it stays
-  // available as technical data only (`trip-detail-view.ts`'s "Vue technique").
-  const headerParts = [`J${day.displayNumber}`, dateLabel, locations].filter((part): part is string => part !== null)
+  // Compact sticky identity (CDC Jalon B4.3 section 24): one line, date
+  // before locations — "J9 · 20.08.26 · Briançon → Faucon-de-Barcelonnette".
+  // The GPX/roadbook stage name (`stage.name`) is deliberately never shown
+  // here — it stays available as technical data only.
+  const identityParts = [`J${day.displayNumber}`, dateLabel, locations].filter((part): part is string => part !== null)
 
   const arrival = waypoints.length === 0 ? null : waypoints[waypoints.length - 1]
-  const stats = `<dl class="day-detail__stats">
+  // In manual mode, the displayed total reflects the actually-placed pauses
+  // (which the user controls directly) rather than the imported automatic
+  // budget estimate — the two only ever match by coincidence once edited.
+  const totalPauseMinutes = pauseResolution.mode === 'custom'
+    ? waypoints.reduce((total, waypoint) => total + (waypoint.pauseDurationMinutes ?? 0), 0)
+    : stage.pauseDurationSeconds === null ? null : Math.round(stage.pauseDurationSeconds / 60)
+  const statsHtml = `<dl class="day-detail__stats" data-day-detail-stats>
     <div><dt>Distance</dt><dd>${stage.distanceKm === null ? '—' : formatKilometers(stage.distanceKm)}</dd></div>
     <div><dt>D+</dt><dd>${stage.elevationGainM === null ? '—' : `+${Math.round(stage.elevationGainM)} m`}</dd></div>
     <div><dt>D−</dt><dd>${stage.elevationLossM === null ? '—' : `−${Math.round(stage.elevationLossM)} m`}</dd></div>
     <div><dt>Roulage</dt><dd>${formatDuration(stage.movingDurationSeconds)}</dd></div>
-    <div><dt>Pauses</dt><dd>${stage.pauseDurationSeconds === null ? '—' : `${Math.round(stage.pauseDurationSeconds / 60)} min`}</dd></div>
+    <div><dt>Pauses</dt><dd>${totalPauseMinutes === null ? '—' : `${totalPauseMinutes} min`}</dd></div>
     <div><dt>Montées</dt><dd>${stage.climbIds.length}</dd></div>
     <div><dt>Arrivée estimée</dt><dd>${arrival?.clockTime ?? '—'}</dd></div>
   </dl>`
 
+  const pausesHtml = renderPauseEditor(stage.id, pauseResolution, stageSettings, anchorCandidates)
+  const timelineHtml = renderTimelineList(waypoints, bundle.climbs, filters, geometry)
+  const accommodation = day.accommodationId === null ? undefined : bundle.accommodations.find((candidate) => candidate.id === day.accommodationId)
+  const infosHtml = renderInfosPanel(day, accommodation)
+
   const html = `<div class="day-detail" data-day-detail>
+    <header class="day-detail__sticky-identity" data-day-detail-identity><span class="eyebrow">Détail de l’étape</span><strong>${identityParts.join(' · ')}</strong></header>
     <nav class="day-detail__sticky-nav" data-day-detail-nav aria-label="Navigation de l’étape">
       <button class="button button--quiet" type="button" data-action="back-to-trip-detail">← Retour</button>
       <button class="button button--quiet" type="button" data-action="previous-day" aria-label="Étape précédente">‹</button>
       <button class="button button--quiet" type="button" data-action="next-day" aria-label="Étape suivante">›</button>
     </nav>
-    <header class="view-heading"><p class="eyebrow">Détail de l’étape</p><h2>${headerParts.join(' — ')}</h2></header>
-    ${stats}
-    <section class="card route-map-card" data-route-visuals>
+    ${statsHtml}
+    <nav class="day-tabs" role="tablist" aria-label="Sections de l’étape" data-day-detail-tabs>
+      <button id="day-tab-route" type="button" role="tab" data-day-tab="route" aria-controls="day-panel-route" aria-selected="true" tabindex="0">Parcours</button>
+      <button id="day-tab-weather" type="button" role="tab" data-day-tab="weather" aria-controls="day-panel-weather" aria-selected="false" tabindex="-1">Météo</button>
+      <button id="day-tab-infos" type="button" role="tab" data-day-tab="infos" aria-controls="day-panel-infos" aria-selected="false" tabindex="-1">Infos</button>
+    </nav>
+    <section id="day-panel-route" class="card" role="tabpanel" aria-labelledby="day-tab-route" data-day-panel="route">
       <div class="section-heading"><div><p class="eyebrow">Trace GPX</p><h3>Carte de l’étape</h3></div><button class="button button--quiet" type="button" data-explore-map>Explorer la carte</button></div>
       <div class="route-map" data-day-detail-map></div>
+      <p class="eyebrow day-detail__profile-eyebrow">Relief</p>
+      <div data-day-detail-profile></div>
+      ${renderFilters(filters)}
+      <div data-day-detail-timeline>${timelineHtml}</div>
+      ${pausesHtml}
+      <button class="button button--quiet button--full" type="button" data-action="download-stage-gpx">GPX</button>
     </section>
     <dialog class="route-map-dialog" data-day-detail-map-dialog aria-labelledby="day-detail-expanded-map-title">
-      <header><h2 id="day-detail-expanded-map-title">Carte de l’étape</h2><div class="route-map-dialog__actions"><button class="button button--quiet" type="button" data-close-map>Fermer</button></div></header>
-      <div class="route-map-dialog__map-wrap"><div class="route-map route-map--expanded" data-route-map-expanded></div><p class="route-map__fallback route-map__fallback--expanded" data-expanded-route-map-fallback hidden>Fond de carte indisponible. Le tracé reste accessible dans le profil.</p></div>
+      <header><h2 id="day-detail-expanded-map-title">Carte de l’étape</h2><div class="route-map-dialog__actions"><button class="button button--quiet" type="button" data-map-layers-toggle aria-expanded="false" aria-controls="day-detail-map-layers-panel" hidden>Calques</button><button class="button button--quiet" type="button" data-close-map>Fermer</button></div></header>
+      <div class="route-map-dialog__map-wrap"><div class="route-map route-map--expanded" data-route-map-expanded></div><p class="route-map__fallback route-map__fallback--expanded" data-expanded-route-map-fallback hidden>Fond de carte indisponible. Le tracé reste accessible dans le profil.</p><button class="practical-layers-backdrop" type="button" data-map-layers-backdrop aria-label="Fermer les calques" tabindex="-1" hidden></button><section class="practical-layers-panel" id="day-detail-map-layers-panel" data-map-layers-panel role="dialog" aria-labelledby="day-detail-map-layers-title" hidden><header><div><p class="eyebrow">Points principaux toujours visibles</p><h3 id="day-detail-map-layers-title">Calques</h3></div><button class="button button--quiet" type="button" data-map-layers-close>Fermer</button></header><div class="practical-layers-list" data-map-layers-list></div></section></div>
     </dialog>
-    <section class="card elevation-profile-card">
-      <p class="eyebrow">Relief</p><h3>Profil altimétrique</h3>
-      <div data-day-detail-profile></div>
-    </section>
-    <section class="card day-detail__waypoints-card">
-      <p class="eyebrow">Lieux</p><h3>Points de passage</h3>
-      ${renderWaypointsList(waypoints)}
-    </section>
-    ${renderPausesSection(waypoints)}
-    ${renderClimbsSection(waypoints)}
+    ${renderWeatherPanel()}
+    ${infosHtml}
   </div>`
 
-  return { html, waypoints, geometry, stageLabel }
+  return {
+    html, waypoints, geometry, stageLabel,
+    villageWaypoints: waypoints.filter((waypoint) => waypoint.kind === 'village'),
+    sourceFileId: route.sourceFileId,
+    statsHtml, pausesHtml, timelineHtml, infosHtml,
+  }
 }

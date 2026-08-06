@@ -1549,6 +1549,8 @@ ul {
 .pause-editor__item label { display: grid; gap: 5px; font-weight: 700; }
 .pause-editor__item .pause-active { grid-template-columns: auto 1fr; align-items: center; }
 .pause-editor__item select, .pause-editor__item input[type='number'] { width: 100%; min-height: 44px; padding: 8px; border: 1px solid var(--line-strong); border-radius: 8px; background: #fff; }
+.pause-mode-toggle { display: flex; gap: 8px; margin: 10px 0; }
+.pause-mode-toggle .button { flex: 1; min-width: 0; }
 
 @media (min-width: 620px) {
   .day-header { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
@@ -2993,4 +2995,138 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .wizard-progress li.is-done { background: var(--forest-800); color: #fff; font-weight: 700; }
 .wizard-actions { display: flex; gap: 8px; }
 .wizard-actions .button { flex: 1; }
+
+/*
+ * Jalon B4.2 (UX cleanup): the generic Étape screen (`day-detail-view.ts`)
+ * had NO dedicated styling at all before this pass — every `.day-detail__*`
+ * class below is new. A single chronological Parcours list replaces the
+ * previous grouped cards; a compact colour-coded climb mini-profile; a
+ * sober generic Réglages screen. `.day-tabs`/`.point-filters`/`.card`/
+ * `.eyebrow`/`.tag` are all reused as-is, not redefined here.
+ */
+.day-detail { display: grid; gap: 14px; padding: 14px max(14px, env(safe-area-inset-right)) 90px max(14px, env(safe-area-inset-left)); }
+.day-detail__sticky-nav { position: sticky; top: 0; z-index: 2; display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; background: var(--surface-muted, #edf1ec); }
+.day-detail__sticky-nav > div { display: flex; gap: 6px; }
+.day-detail__stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.day-detail__stats div { padding: 9px; background: var(--surface-muted); border-radius: 8px; }
+.day-detail__stats dt { color: var(--ink-soft); font-size: .72rem; }
+.day-detail__stats dd { margin-top: 2px; font-weight: 800; }
+.day-detail__profile-eyebrow { margin-top: 14px; }
+.day-detail__pauses { display: grid; gap: 10px; }
+
+.day-detail__timeline { display: grid; gap: 8px; margin: 12px 0; }
+.day-detail__timeline-row { padding: 10px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 10px; align-items: start; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+.day-detail__timeline-marker { min-width: 22px; text-align: center; color: var(--forest-800); font-weight: 800; }
+.day-detail__timeline-row--major .day-detail__timeline-marker { color: var(--forest-950); }
+.day-detail__timeline-row--minor .day-detail__timeline-marker { color: var(--ink-faint); }
+.day-detail__timeline-body { min-width: 0; display: grid; gap: 2px; }
+.day-detail__timeline-body strong { overflow-wrap: anywhere; }
+.day-detail__timeline-meta { color: var(--ink-soft); font-size: .78rem; }
+.day-detail__timeline-time { color: var(--ink-soft); font-size: .78rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tag--pause { justify-self: start; color: var(--forest-800); background: var(--forest-50); }
+
+.day-detail__climb-card { grid-template-columns: minmax(0, 1fr); padding: 0; overflow: hidden; }
+.day-detail__climb-toggle { width: 100%; min-height: 44px; padding: 10px; display: grid; gap: 4px; text-align: left; color: inherit; background: none; border: 0; cursor: pointer; }
+.day-detail__climb-toggle-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.day-detail__climb-toggle-row--stats { color: var(--ink-soft); font-size: .82rem; font-variant-numeric: tabular-nums; }
+.day-detail__climb-profile { padding: 0 10px 12px; }
+.day-detail__climb-profile-bar { display: flex; height: 26px; border-radius: 6px; overflow: hidden; }
+.day-detail__climb-profile-segment { display: block; height: 100%; }
+.day-detail__climb-profile-scale { display: flex; justify-content: space-between; margin-top: 4px; color: var(--ink-soft); font-size: .72rem; }
+.day-detail__climb-profile-caption { margin-top: 4px; color: var(--ink-faint); font-size: .72rem; }
+.day-detail__climb-profile-empty { color: var(--ink-soft); font-size: .82rem; }
+
+.day-infos__lodging { display: grid; gap: 10px; }
+.day-infos__lodging-display { display: grid; gap: 6px; }
+.day-infos__lodging-links { display: flex; flex-wrap: wrap; gap: 8px; }
+.day-infos__lodging-form summary { cursor: pointer; font-weight: 800; padding: 6px 0; }
+.day-infos__lodging-form { display: grid; gap: 10px; }
+.day-infos__lodging-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.day-infos__notes-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+.trip-settings { display: grid; gap: 14px; padding: 14px max(14px, env(safe-area-inset-right)) 90px max(14px, env(safe-area-inset-left)); }
+.trip-settings__section { display: grid; gap: 8px; }
+.trip-settings__toggle { display: flex; align-items: center; gap: 8px; min-height: 44px; font-weight: 700; }
+
+@media (max-width: 430px) {
+  .day-detail__timeline-row { grid-template-columns: auto minmax(0, 1fr); }
+  .day-detail__timeline-time { grid-column: 2; justify-self: start; }
+}
 .wizard-validation-reasons { color: var(--ink-soft); font-size: .8rem; display: grid; gap: 3px; }
+
+/*
+ * Jalon B4.3 (UX finalization): clickable cards, Aperçu/Voyage restructure,
+ * sticky Étape header, compact manual pause editor, Infos read/edit toggle.
+ */
+
+/* Clickable cards (section 4) — a card acting as a button (trip cards, the
+   Aperçu highlighted-day card) gets the same focus treatment a real
+   `<button>` already has, plus an explicit pointer cursor and a subtle
+   pressed state so it reads as tappable, not just decorative. */
+[role='button'] { cursor: pointer; }
+[role='button']:focus-visible { outline: 3px solid var(--forest-700); outline-offset: 2px; }
+.trip-card:active, .trip-overview__highlighted-day:active { transform: scale(0.99); }
+
+/* Aperçu (sections 5-8): stats → map → highlighted day, in that order. */
+.trip-overview__dates { color: var(--ink-soft); margin-top: -6px; }
+.trip-overview__progress-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin-top: 10px; }
+.trip-overview__progress-grid div { padding: 9px; background: var(--surface-muted); border-radius: 8px; }
+.trip-overview__progress-grid dt { color: var(--ink-soft); font-size: .68rem; }
+.trip-overview__progress-grid dd { margin-top: 2px; font-weight: 800; }
+@media (min-width: 700px) {
+  .trip-overview__progress-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+.trip-overview__highlighted-day { display: grid; gap: 10px; text-align: left; }
+.route-map--compact { min-height: 160px; }
+.route-map--compact .route-map__canvas { height: 160px; }
+.trip-overview__highlighted-day-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.trip-overview__highlighted-day-stats div { padding: 8px; background: var(--surface-muted); border-radius: 8px; }
+.trip-overview__highlighted-day-stats dt { color: var(--ink-soft); font-size: .72rem; }
+.trip-overview__highlighted-day-stats dd { margin-top: 2px; font-weight: 800; }
+.trip-overview__weather-placeholder { color: var(--ink-faint); font-size: .82rem; }
+
+/* Voyage (sections 9-11): compact cards, colour-coded by day type. */
+.trip-day-list { display: grid; gap: 8px; padding: 14px max(14px, env(safe-area-inset-right)) 90px max(14px, env(safe-area-inset-left)); }
+.trip-day-card { width: 100%; padding: 12px; display: grid; gap: 8px; text-align: left; color: inherit; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); font: inherit; }
+.trip-day-card__header { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.trip-day-card__label { font-weight: 800; }
+.trip-day-card__route { color: var(--ink-soft); }
+.trip-day-card__stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.trip-day-card__stats div { padding: 7px; background: var(--surface-muted); border-radius: 7px; }
+.trip-day-card__stats dt { color: var(--ink-soft); font-size: .68rem; }
+.trip-day-card__stats dd { margin-top: 2px; font-weight: 800; }
+.trip-day-card--ride { border-left: 4px solid var(--forest-700); }
+.trip-day-card--off { background: #eef1f6; border-left: 4px solid #6b7fa3; }
+.trip-day-card--transfer { background: #f5efe6; border-left: 4px solid #a3794f; }
+.tag--transfer { color: #6a4c2e; background: #f0e2d1; }
+
+/* Étape sticky composition (sections 24-25): identity → nav → tabs, each
+   sticky, stacked in that order. Heights are approximate/content-driven —
+   real devices may need the custom properties below nudged after a visual
+   pass this environment cannot perform (no browser available). */
+:root { --day-sticky-identity-h: 40px; --day-sticky-nav-h: 48px; }
+.day-detail__sticky-identity { position: sticky; top: 0; z-index: 5; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-height: var(--day-sticky-identity-h); padding: 6px max(10px, env(safe-area-inset-right)) 6px max(10px, env(safe-area-inset-left)); background: var(--surface); border-bottom: 1px solid var(--line); }
+.day-detail__sticky-identity .eyebrow { margin: 0; }
+.day-detail__sticky-nav { position: sticky; top: var(--day-sticky-identity-h); z-index: 4; background: var(--surface-muted, #edf1ec); }
+.day-tabs[data-day-detail-tabs] { position: sticky; top: calc(var(--day-sticky-identity-h) + var(--day-sticky-nav-h)); z-index: 3; }
+
+/* Arrêts (sections 30-32): compact status line + native `<details>` panel — one row per candidate, never a card/select/input in normal consultation. */
+.day-detail__pauses-status { color: var(--ink-soft); }
+.pause-editor { margin-top: 6px; }
+.pause-editor > summary { list-style: none; cursor: pointer; }
+.pause-editor > summary::-webkit-details-marker { display: none; }
+.pause-editor__list { display: grid; gap: 6px; margin-top: 10px; }
+.pause-editor__row { padding: 9px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; align-items: center; background: var(--surface-muted); border: 1px solid var(--line); border-radius: 8px; }
+.pause-editor__row-check { grid-column: 1; display: flex; align-items: center; gap: 8px; min-height: 44px; }
+.pause-editor__row-meta { grid-column: 1; color: var(--ink-soft); font-size: .78rem; }
+.pause-editor__row-duration { grid-column: 2; grid-row: 1 / span 2; display: flex; align-items: center; gap: 6px; }
+.pause-editor__row-duration input { width: 64px; min-height: 40px; padding: 4px 6px; border: 1px solid var(--line-strong); border-radius: 8px; }
+.pause-editor__actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+
+/* Infos read/edit toggle (sections 35-36). */
+.day-infos__read { display: grid; gap: 10px; }
+.day-infos__empty { color: var(--ink-soft); }
+.day-infos__edit { display: grid; gap: 10px; margin-top: 10px; }
+
+/* Trip editor auto-fill preview (sections 13-14). */
+.wizard-structure__autofill { margin: 4px 0 0; color: var(--ink-soft); font-size: .78rem; }

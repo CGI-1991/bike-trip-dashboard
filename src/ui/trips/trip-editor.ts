@@ -3,6 +3,8 @@
 import type { GpxImportFile } from '../../import/gpx/types.ts'
 import { checkChainContinuity, detectStrictDuplicates, editGpxTrip, loadTripEditDraft, preAnalyzeGpxFiles } from '../../trips-manager/index.ts'
 import type { GpxPreAnalysis, TripEditSlot } from '../../trips-manager/index.ts'
+import { createTripRepository } from '../../storage/indexeddb/trip-repository.ts'
+import { nearestNextRideStage, nearestPreviousRideStage } from '../../analysis/day-location-fill.ts'
 import type { SourceFileId, TripBundle, TripDayId, TripId } from '../../trip-core/index.ts'
 import type { TripsManagerDeps } from './trips-manager.ts'
 
@@ -64,6 +66,11 @@ export function createTripEditor(
   let items: EditorItem[] = []
   let tripName = ''
   let errorMessage: string | null = null
+  /** Trip-level settings (CDC Jalon B4.3 sections 19-21): reference speed and Mode montagne belong to the trip — edited here, never per-stage/per-day, never a separate global settings screen. */
+  let referenceSpeedKph = 18
+  let mountainMode = false
+  /** Kept only to preview the auto-filled OFF/transfer location (CDC Jalon B4.3 sections 13-14) for slots that already existed before this editing session — a brand-new slot has no neighbouring stage data to preview from yet (it is only produced once this edit is saved and re-analysed). */
+  let originalBundle: TripBundle | null = null
 
   function rideItems(): readonly Extract<EditorItem, { readonly kind: 'ride' }>[] {
     return items.filter((item): item is Extract<EditorItem, { readonly kind: 'ride' }> => item.kind === 'ride')
@@ -162,7 +169,17 @@ export function createTripEditor(
     )
     const result = await editGpxTrip({ database: deps.database, tripId, slots, idFactory: deps.idFactory, now: deps.now })
     if (result.ok) {
-      onSaved(result.bundle)
+      // Trip-level settings (CDC Jalon B4.3 sections 19-21) are edited here
+      // but are not part of `editGpxTrip`'s structural concern — applied as
+      // a small follow-up patch, the same load/mutate/save shape used
+      // everywhere else in this codebase, never a second storage path.
+      const tripRepository = createTripRepository(deps.database)
+      const patched: TripBundle = {
+        ...result.bundle,
+        settings: { ...result.bundle.settings, global: { ...result.bundle.settings.global, referenceSpeedKph, mountainMode } },
+      }
+      await tripRepository.saveTripBundle(patched)
+      onSaved(patched)
       return
     }
     stage = 'editing'
@@ -180,12 +197,38 @@ export function createTripEditor(
     return `<div class='wizard-structure__insert'><button class='button button--quiet' type='button' data-editor-action='insert-off' data-position='${position}'>+ OFF</button><button class='button button--quiet' type='button' data-editor-action='insert-transfer' data-position='${position}'>+ Transfert</button></div>`
   }
 
+  /**
+   * Read-only preview of the auto-filled location (CDC Jalon B4.3 sections
+   * 13-14) — "visible dans l'éditeur" without waiting for the final
+   * re-analysed Voyage screen. Only available for a slot that already
+   * existed before this editing session (a brand-new OFF/transfer has no
+   * neighbouring stage data yet — it only gets one once this edit is saved
+   * and re-analysed).
+   */
+  function renderAutoFillPreview(item: Extract<EditorItem, { readonly kind: 'off' | 'transfer' }>): string {
+    if (originalBundle === null || item.existingDayId === null) return ''
+    const day = originalBundle.days.find((candidate) => candidate.id === item.existingDayId)
+    if (day === undefined) return ''
+    if (item.kind === 'off') {
+      const previous = nearestPreviousRideStage(originalBundle, day.index)
+      const next = nearestNextRideStage(originalBundle, day.index)
+      const location = day.startLocationName ?? previous?.endLocationName ?? next?.startLocationName ?? null
+      return location === null ? '' : `<p class='wizard-structure__autofill'>Lieu (auto) : ${escapeHtml(location)}</p>`
+    }
+    const previous = nearestPreviousRideStage(originalBundle, day.index)
+    const next = nearestNextRideStage(originalBundle, day.index)
+    const origin = day.startLocationName ?? previous?.endLocationName ?? null
+    const destination = day.endLocationName ?? next?.startLocationName ?? null
+    if (origin === null && destination === null) return ''
+    return `<p class='wizard-structure__autofill'>${escapeHtml(origin ?? '—')} → ${escapeHtml(destination ?? '—')} (auto)</p>`
+  }
+
   function renderItem(item: EditorItem, position: number): string {
     const moveControls = renderMoveControls(position)
     const insertControls = renderInsertControls(position)
     if (item.kind !== 'ride') {
       const label = item.kind === 'off' ? 'OFF' : 'Transfert'
-      return `<li class='wizard-structure__row wizard-structure__row--${item.kind}'><span class='tag tag--off'>${label}</span>${moveControls}<button class='button button--quiet' type='button' data-editor-action='remove' data-position='${position}'>Retirer</button></li>${insertControls}`
+      return `<li class='wizard-structure__row wizard-structure__row--${item.kind}'><span class='tag tag--off'>${label}</span>${renderAutoFillPreview(item)}${moveControls}<button class='button button--quiet' type='button' data-editor-action='remove' data-position='${position}'>Retirer</button></li>${insertControls}`
     }
 
     const analysis = item.preAnalysis
@@ -219,6 +262,11 @@ export function createTripEditor(
           : null
     container.innerHTML = `<div class='wizard' data-trip-editor>
       <header class='view-heading'><p class='eyebrow'>Mes voyages</p><h2>Modifier ${escapeHtml(tripName)}</h2></header>
+      <section class='card trip-settings__section'>
+        <p class='eyebrow'>Réglages du voyage</p>
+        <div class='field'><label for='editor-reference-speed'>Vitesse de référence</label><div class='field__control'><input id='editor-reference-speed' type='number' min='8' max='40' step='0.5' data-editor-field='reference-speed' value='${referenceSpeedKph}'><span>km/h</span></div></div>
+        <label class='trip-settings__toggle'><input type='checkbox' data-editor-field='mountain-mode' ${mountainMode ? 'checked' : ''}> Mode montagne (voyage alpin)</label>
+      </section>
       <div class='field'><label for='editor-add-files'>Ajouter des GPX</label><div class='field__control'><input id='editor-add-files' type='file' accept='.gpx' multiple data-editor-field='add'></div></div>
       <section class='wizard-structure'><h3>Structure du voyage</h3><ul class='wizard-structure__list'>${items.map(renderItem).join('')}</ul></section>
       ${renderWarnings()}
@@ -240,6 +288,9 @@ export function createTripEditor(
         return
       }
       tripName = draft.bundle.metadata.name
+      originalBundle = draft.bundle
+      referenceSpeedKph = draft.bundle.settings.global.referenceSpeedKph
+      mountainMode = draft.bundle.settings.global.mountainMode ?? false
       const files = draft.slots.filter((slot) => slot.kind === 'ride').map((slot) => slot.file)
       const analyses = await preAnalyzeGpxFiles(files)
       let rideIndex = 0
@@ -260,7 +311,12 @@ export function createTripEditor(
 
   container.addEventListener('change', (event) => {
     const target = event.target
-    if (!(target instanceof HTMLInputElement) || target.files === null || target.files.length === 0) return
+    if (!(target instanceof HTMLInputElement)) return
+    if (target.dataset.editorField === 'mountain-mode') {
+      mountainMode = target.checked
+      return
+    }
+    if (target.files === null || target.files.length === 0) return
     if (target.dataset.editorField === 'add') {
       const files = target.files
       target.value = ''
@@ -272,6 +328,12 @@ export function createTripEditor(
       input.value = ''
       if (file !== undefined) void replaceFile(position, file)
     }
+  }, { signal: controller.signal })
+
+  container.addEventListener('input', (event) => {
+    const target = event.target
+    if (!(target instanceof HTMLInputElement) || target.dataset.editorField !== 'reference-speed') return
+    if (Number.isFinite(target.valueAsNumber)) referenceSpeedKph = target.valueAsNumber
   }, { signal: controller.signal })
 
   container.addEventListener('click', (event) => {

@@ -48,3 +48,43 @@ test('the Overpass climb-name provider module itself may remain in the repo, unw
   // only documents that decision, it does not assert the file's absence.
   assert.doesNotThrow(() => source('src/climb-names/overpass-provider.ts'))
 })
+
+/**
+ * Jalon B4.2 section 27: the guard above only ever covered the climb-names
+ * Overpass provider. Two other legacy Overpass providers exist in the repo
+ * (`practical-places/overpass-provider.ts`, `route-enrichment/
+ * overpass-provider.ts`, both built on `route-enrichment/overpass-bbox.ts`)
+ * — neither is currently wired into generic runtime code, but nothing said
+ * so explicitly. These tests make "normal generic navigation never calls
+ * overpass-api.de" a single, exhaustive, named guarantee instead of an
+ * implicit consequence of import-graph tracing. Source-text guard, not
+ * execution — consistent with the rest of this file.
+ */
+test('the generic runtime entry point never imports any Overpass provider, structural or practical-places', () => {
+  const main = source('src/main.ts')
+  assert.doesNotMatch(main, /practical-places\/overpass-provider/)
+  assert.doesNotMatch(main, /route-enrichment\/overpass-provider/)
+  assert.doesNotMatch(main, /createOverpassRouteEnrichmentProvider/)
+  assert.doesNotMatch(main, /createOverpassPracticalPlacesProvider/)
+})
+
+test('the generic trips-manager, trip editor, and import wizard never reference an Overpass provider', () => {
+  for (const path of ['src/ui/trips/trips-manager.ts', 'src/ui/trips/trip-editor.ts', 'src/ui/trips/import-wizard.ts']) {
+    const contents = source(path)
+    assert.doesNotMatch(contents, /overpass-provider/, `${path} must not import an Overpass provider`)
+    assert.doesNotMatch(contents, /overpass-api\.de/, `${path} must not hardcode the Overpass endpoint`)
+  }
+})
+
+test('automatic route enrichment is wired to Postpass only, never to an Overpass provider', () => {
+  const automaticEnrichment = source('src/route-enrichment/automatic-enrichment.ts')
+  assert.doesNotMatch(automaticEnrichment, /overpass-provider/)
+  assert.doesNotMatch(automaticEnrichment, /overpass-api\.de/)
+})
+
+test('the practical-places and route-enrichment Overpass provider modules may remain in the repo, unwired (legacy/tests only)', () => {
+  // Same policy as the climb-names provider above: kept for non-regression
+  // and their own unit tests, never imported from generic runtime code.
+  assert.doesNotThrow(() => source('src/practical-places/overpass-provider.ts'))
+  assert.doesNotThrow(() => source('src/route-enrichment/overpass-provider.ts'))
+})
