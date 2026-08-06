@@ -50,6 +50,72 @@ export interface BuildCanonicalWaypointsInput {
   readonly route: Route
   readonly routePoints: readonly RoutePoint[]
   readonly climbs: readonly Climb[]
+  /** `GlobalTripSettings.mountainMode` (Jalon B4.2 section 15) — `false` when omitted. Only affects the principale/secondaire split of bare `climb`-kind waypoints (never landmark-merged mountain-pass/saddle ones, always principale); never re-runs GPX climb detection. */
+  readonly mountainMode?: boolean
+}
+
+/**
+ * Importance thresholds layered on top of the climb an already-detected
+ * `Climb` carries (Jalon B4.2 section 15) — deliberately never touches
+ * `analysis/climb-detection.ts::CLIMB_SIGNIFICANCE_PROFILES` or re-runs
+ * detection; this only classifies an already-detected climb as
+ * "principale" (major) or "secondaire" (hidden by default, behind the
+ * Montées secondaires filter). The "rolling" profile intentionally mirrors
+ * `CLIMB_SIGNIFICANCE_PROFILES` itself (Mode montagne OFF: a climb that
+ * barely qualifies as a climb at all is already principale — permissive, per
+ * CDC section 15 "une montée plus modeste peut devenir pertinente"); the
+ * "mountain" profile requires substantially more (Mode montagne ON: only
+ * genuinely major ascents stay principale by default, per CDC "les seuils
+ * de visibilité principale doivent être plus exigeants").
+ */
+const CLIMB_IMPORTANCE_PROFILES: Readonly<Record<'mountain' | 'rolling', readonly { readonly minLengthKm: number; readonly minElevationGainM: number; readonly minAverageGradientPercent: number }[]>> = {
+  rolling: [
+    { minLengthKm: 1.5, minElevationGainM: 100, minAverageGradientPercent: 2 },
+    { minLengthKm: 1, minElevationGainM: 60, minAverageGradientPercent: 3 },
+    { minLengthKm: 0.5, minElevationGainM: 40, minAverageGradientPercent: 4 },
+  ],
+  mountain: [
+    { minLengthKm: 4, minElevationGainM: 300, minAverageGradientPercent: 3 },
+    { minLengthKm: 1.5, minElevationGainM: 150, minAverageGradientPercent: 6 },
+  ],
+}
+
+/**
+ * Classifies an already-detected climb as `'major'` (principale) or
+ * `'secondary'` — a named/OSM-confirmed climb always stays principale
+ * regardless of size (CDC section 16: a real name is itself a signal of
+ * importance), otherwise the size/gradient thresholds above decide.
+ */
+export function classifyClimbImportance(climb: Climb, mountainMode: boolean): CanonicalWaypointImportance {
+  if (climb.name !== null && climb.provenance.sourceType === 'osm') return 'major'
+  const lengthKm = climb.endDistanceKm - climb.startDistanceKm
+  const profiles = mountainMode ? CLIMB_IMPORTANCE_PROFILES.mountain : CLIMB_IMPORTANCE_PROFILES.rolling
+  const isMajor = profiles.some((profile) =>
+    lengthKm >= profile.minLengthKm && climb.elevationGainM >= profile.minElevationGainM && climb.averageGradientPercent >= profile.minAverageGradientPercent,
+  )
+  return isMajor ? 'major' : 'secondary'
+}
+
+/**
+ * Single significance policy shared by the map, profile, and Parcours list
+ * (CDC Jalon B4.3 sections 26-29/40): normal view shows only départ/arrivée,
+ * pauses, and significant relief (mountain-pass/saddle always; a climb only
+ * when principale) — an ordinary city/town/village is never shown unless it
+ * carries a pause, whatever its own kind. Pause is an absolute priority
+ * (CDC section 27): checked FIRST, before any kind-based rule, so it can
+ * never be overridden by a filter or a kind default. The full city/town/
+ * village list stays available to the manual pause editor
+ * (`PAUSE_ANCHOR_KINDS` in `day-detail-view.ts`) — a separate, wider need
+ * this policy must never be conflated with (CDC section 40).
+ */
+export interface WaypointVisibilityFilters {
+  readonly showSecondaryClimbs?: boolean
+}
+
+export function isSignificantWaypoint(waypoint: CanonicalWaypoint, filters: WaypointVisibilityFilters = {}): boolean {
+  if (waypoint.pauseDurationMinutes !== null) return true
+  if (waypoint.kind === 'climb' && waypoint.importance === 'secondary') return filters.showSecondaryClimbs ?? false
+  return waypoint.visibleByDefault
 }
 
 /**
@@ -73,11 +139,18 @@ const KIND_PRESENTATION: Readonly<Record<CanonicalWaypointKind, { readonly impor
   end: { importance: 'major', visibleByDefault: true },
   'mountain-pass': { importance: 'major', visibleByDefault: true },
   saddle: { importance: 'major', visibleByDefault: true },
-  city: { importance: 'major', visibleByDefault: true },
-  town: { importance: 'major', visibleByDefault: true },
+  // City/town stay out of the normal view by default (CDC Jalon B4.3
+  // sections 26/28: "une ville qui n'est ni départ, ni arrivée, ni pause...
+  // ne doit PAS apparaître") — `importance` stays 'major' (they are
+  // inherently significant places, e.g. when they double as start/end or
+  // gain a pause), only the always-shown default changed since Jalon B4.2.
+  city: { importance: 'major', visibleByDefault: false },
+  town: { importance: 'major', visibleByDefault: false },
+  // Bare `climb`-kind waypoints (no matching OSM landmark) never spread this
+  // entry — their importance/visibleByDefault come from `classifyClimbImportance`
+  // instead (Jalon B4.2 section 15). Kept only so this table stays a total
+  // `Record<CanonicalWaypointKind, ...>`.
   climb: { importance: 'secondary', visibleByDefault: true },
-  // Villages stay out of the compact map/profile by default (CDC section 19/21)
-  // but are not "minor/hidden" in the waypoint list the way hamlets used to be.
   village: { importance: 'secondary', visibleByDefault: false },
   pause: { importance: 'minor', visibleByDefault: true },
 }
@@ -120,7 +193,7 @@ function isLandmarkForClimbMerge(point: RoutePoint): boolean {
  * meaningful to place on a map/profile without it.
  */
 export function buildCanonicalWaypoints(input: BuildCanonicalWaypointsInput): readonly CanonicalWaypoint[] {
-  const { stage, route, routePoints, climbs } = input
+  const { stage, route, routePoints, climbs, mountainMode = false } = input
   const geometry = routeGeometry(route)
   if (geometry === null) return []
   const distances = cumulativeGeometryDistances(geometry)
@@ -173,8 +246,9 @@ export function buildCanonicalWaypoints(input: BuildCanonicalWaypointsInput): re
       continue
     }
     const at = pointAtDistance(geometry, distances, climb.endDistanceKm)
+    const importance = classifyClimbImportance(climb, mountainMode)
     waypoints.push({
-      id: climb.id, kind: 'climb', ...KIND_PRESENTATION.climb, name: climb.name ?? 'Montée', trackDistanceKm: climb.endDistanceKm,
+      id: climb.id, kind: 'climb', importance, visibleByDefault: importance === 'major', name: climb.name ?? 'Montée', trackDistanceKm: climb.endDistanceKm,
       latitude: at.latitude, longitude: at.longitude, elevationM: climb.endAltitudeM,
       climbId: climb.id, pauseDurationMinutes: null, elapsedMinutes: null, clockTime: null,
     })

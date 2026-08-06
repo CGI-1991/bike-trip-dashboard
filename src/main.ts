@@ -50,6 +50,7 @@ import { downloadGpx, shareGpx } from './ui/gpx-share.ts'
 import type { GpxShareTarget } from './ui/gpx-share.ts'
 import { openImageViewer } from './ui/image-viewer.ts'
 import { initializeTripsManager } from './ui/trips/trips-manager.ts'
+import type { TripsManagerHandle } from './ui/trips/trips-manager.ts'
 import { createNominatimGeocodingProvider } from './geocoding/nominatim-provider.ts'
 import { createPostpassRouteEnrichmentProvider } from './route-enrichment/postpass-provider.ts'
 import { openBikeTripDatabase } from './storage/indexeddb/open-database.ts'
@@ -183,11 +184,38 @@ const automaticBreakField = getRequiredElement<HTMLElement>('[data-automatic-bre
 let pauseDraft: PauseDayPlan | null = null
 let daySettingsDraft: RideDaySettings | null = null
 let returnView: Exclude<AppView, 'day-detail'> = 'today'
-let tripsManagerHandle: { readonly goToList: () => void } | null = null
+let tripsManagerHandle: TripsManagerHandle | null = null
+
+/**
+ * Jalon B4 (UX consolidation): the bottom-nav Aperçu/Voyage links now show
+ * the active `TripBundle` (via "Mes voyages"'s own generic screens) rather
+ * than the RGA-hardcoded pipeline below — CDC section 3: "la sélection d'un
+ * voyage dans Mes voyages détermine le voyage actif affiché ailleurs". Both
+ * share the same `[data-app-view="trips"]` DOM section; the historical
+ * `today`/`trip` sections stay in the document (so every `getRequiredElement`
+ * below keeps resolving and the RGA pipeline keeps working as a golden
+ * master/fixture) but are never shown again. `#/day/Jx` deep links are
+ * untouched and still open the historical Étape screen directly — nothing
+ * in "Mes voyages" produces that hash shape, so the two never collide.
+ *
+ * Jalon B4.3 section 19-23: the trip-level settings that used to live in a
+ * generic Réglages screen (reference speed, Mode montagne) now live in
+ * "Créer un voyage"/"Modifier le voyage" instead, and the global pause-mode
+ * setting was removed outright — nothing genuinely global is left, so the
+ * bottom nav no longer offers a "Réglages" link at all (`render.ts`). The
+ * historical `[data-app-view="settings"]` section (RGA-hardcoded) stays in
+ * the document for the golden master/legacy tests that still read
+ * `settingsView()`'s markup directly, reachable only by a direct `#/settings`
+ * hash — never linked to from the generic app.
+ */
+function domViewFor(view: AppView): AppView | 'trips' {
+  return view === 'today' || view === 'trip' ? 'trips' : view
+}
 
 function showView(view: AppView): void {
+  const domView = domViewFor(view)
   for (const section of document.querySelectorAll<HTMLElement>('[data-app-view]')) {
-    section.hidden = section.dataset.appView !== view
+    section.hidden = section.dataset.appView !== domView
   }
   for (const link of document.querySelectorAll<HTMLAnchorElement>('[data-nav-view]')) {
     const active = link.dataset.navView === view
@@ -198,6 +226,31 @@ function showView(view: AppView): void {
   window.scrollTo({ top: 0 })
 }
 
+/** Drives "Mes voyages" to the active trip's Aperçu/Voyage whenever the bottom nav lands there — a no-op while the database hasn't opened yet (the container's own loading placeholder shows instead); re-applied once it has, see `openBikeTripDatabase().then(...)` below. */
+function syncGenericTripNav(view: AppView): void {
+  if (view === 'today') void tripsManagerHandle?.goToOverviewForActiveTrip()
+  else if (view === 'trip') void tripsManagerHandle?.goToDetailForActiveTrip()
+}
+
+/**
+ * Lets `trips-manager.ts` (e.g. "Ouvrir" on a trip card) drive the top-level
+ * nav exactly like clicking the bottom-nav Aperçu/Voyage link would (CDC
+ * Jalon B4.2 section 5: "Ouvrir le voyage" must be strictly equivalent to
+ * selecting the trip active, then clicking Aperçu) — updates the URL hash
+ * (so the nav link highlights and back/forward keep working) when it
+ * differs, or re-applies `showView`/`syncGenericTripNav` directly when the
+ * hash is already there (a plain hash write would not fire `hashchange`).
+ */
+function navigateGenericTripView(view: Exclude<AppView, 'day-detail' | 'settings'>): void {
+  const hash = view === 'today' ? '#/today' : view === 'trip' ? '#/trip' : '#/trips'
+  if (window.location.hash === hash) {
+    showView(view)
+    syncGenericTripNav(view)
+  } else {
+    window.location.hash = hash
+  }
+}
+
 function syncHash(): void {
   const route = parseAppHash(window.location.hash, selectedDayId)
   if (route.currentView === 'day-detail') {
@@ -206,6 +259,7 @@ function syncHash(): void {
   }
   showView(route.currentView)
   renderCurrentTripSelection()
+  syncGenericTripNav(route.currentView)
 }
 
 const weatherStateLabels: Record<WeatherDayState['availability'], string> = {
@@ -986,7 +1040,12 @@ void openBikeTripDatabase()
       onRouteEnrichmentDiagnostic: import.meta.env.DEV
         ? (diagnostic) => console.debug('[postpass-structural-client]', diagnostic)
         : undefined,
+      onNavigateToView: navigateGenericTripView,
     })
+    // The database only just opened — re-apply whatever Aperçu/Voyage/Mes
+    // voyages route is currently in the URL, now that there is a handle to
+    // act on it (see `syncGenericTripNav`, a no-op until this point).
+    syncGenericTripNav(parseAppHash(window.location.hash, selectedDayId).currentView)
   })
   .catch((error: unknown) => {
     const message = error instanceof Error ? error.message : 'Erreur inconnue.'

@@ -31,6 +31,7 @@ const expandedOpeners = new WeakMap<HTMLDialogElement, HTMLButtonElement>()
 const expandedHistory = new WeakMap<HTMLDialogElement, MapOverlayHistoryController>()
 const scrollUnlocks = new WeakMap<HTMLDialogElement, () => void>()
 const pendingFrames = new WeakMap<HTMLDialogElement, number>()
+const mapLayerControllers = new WeakMap<HTMLDialogElement, { dispose(): void }>()
 /** Exported so other map screens (e.g. the trip-wide overview map) can destroy their own Leaflet instances the same way. */
 export function destroyRouteMap(container: HTMLElement): void { const map = mapInstances.get(container); if (map !== undefined) { map.remove(); mapInstances.delete(container) } }
 function destroy(container: HTMLElement): void { destroyRouteMap(container) }
@@ -106,6 +107,116 @@ export function createRouteMap(container: HTMLElement, model: RouteMapModel, opt
     })
   }
   return map
+}
+
+/**
+ * One togglable layer of extra markers on the fullscreen map (CDC Jalon B4
+ * section 9): V1 only ever passes a single "Villages" entry, but the panel
+ * itself takes an arbitrary list so a future POI layer (water, shelter,
+ * bike repair…) is just one more entry, never a rewritten system.
+ */
+export interface MapLayerDefinition {
+  readonly id: string
+  readonly label: string
+  readonly markers: readonly RouteMapMarkerModel[]
+  readonly defaultVisible: boolean
+}
+
+export function disposeMapLayerPanel(dialog: HTMLDialogElement): void {
+  mapLayerControllers.get(dialog)?.dispose()
+  mapLayerControllers.delete(dialog)
+}
+
+/**
+ * Installs the small "Calques" panel on the fullscreen map (structural
+ * points are always drawn by `createRouteMap`, never part of this panel —
+ * only additional, opt-in layers like Villages are). Reuses the practical
+ * layers panel's own CSS classes so it looks identical without new styling.
+ */
+function installMapLayerPanel(dialog: HTMLDialogElement, map: L.Map, layers: readonly MapLayerDefinition[]): void {
+  disposeMapLayerPanel(dialog)
+  const toggle = dialog.querySelector<HTMLButtonElement>('[data-map-layers-toggle]')
+  const panel = dialog.querySelector<HTMLElement>('[data-map-layers-panel]')
+  const list = dialog.querySelector<HTMLElement>('[data-map-layers-list]')
+  const backdrop = dialog.querySelector<HTMLButtonElement>('[data-map-layers-backdrop]')
+  const close = dialog.querySelector<HTMLButtonElement>('[data-map-layers-close]')
+  if (toggle === null || panel === null || list === null || backdrop === null || close === null) return
+
+  const usableLayers = layers.filter((layer) => layer.markers.length > 0)
+  toggle.hidden = usableLayers.length === 0
+  panel.hidden = true
+  backdrop.hidden = true
+  toggle.setAttribute('aria-expanded', 'false')
+  list.replaceChildren()
+  if (usableLayers.length === 0) return
+
+  const eventController = new AbortController()
+  const { signal } = eventController
+  const groups = new Map<string, L.LayerGroup>()
+
+  for (const layer of usableLayers) {
+    const label = document.createElement('label')
+    label.className = 'practical-layer-option'
+    const input = document.createElement('input')
+    input.type = 'checkbox'
+    input.checked = layer.defaultVisible
+    input.dataset.mapLayer = layer.id
+    const symbol = document.createElement('span')
+    symbol.className = 'practical-layer-option__symbol'
+    symbol.style.setProperty('--practical-color', '#3f5a72')
+    symbol.setAttribute('aria-hidden', 'true')
+    const name = document.createElement('span')
+    name.className = 'practical-layer-option__name'
+    name.textContent = layer.label
+    const count = document.createElement('span')
+    count.className = 'practical-layer-option__count'
+    count.textContent = `${layer.markers.length}`
+    label.append(input, symbol, name, count)
+    list.appendChild(label)
+
+    const group = L.layerGroup(layer.markers.map((marker) =>
+      L.marker(toLatLng(marker.coordinate), { icon: createRouteDivIcon(marker.category, { offRoute: marker.offRoute, pauseActive: marker.pauseActive }) })
+        .bindTooltip(markerTooltip(marker)),
+    ))
+    groups.set(layer.id, group)
+    if (layer.defaultVisible) group.addTo(map)
+
+    input.addEventListener('change', () => {
+      if (input.checked) group.addTo(map)
+      else group.remove()
+    }, { signal })
+  }
+
+  const openPanel = (): void => {
+    if (!panel.hidden) return
+    panel.hidden = false
+    backdrop.hidden = false
+    toggle.setAttribute('aria-expanded', 'true')
+    close.focus()
+  }
+  const closePanel = (): void => {
+    if (panel.hidden) return
+    panel.hidden = true
+    backdrop.hidden = true
+    toggle.setAttribute('aria-expanded', 'false')
+    toggle.focus()
+  }
+  toggle.addEventListener('click', () => { if (panel.hidden) openPanel(); else closePanel() }, { signal })
+  backdrop.addEventListener('click', closePanel, { signal })
+  close.addEventListener('click', closePanel, { signal })
+  dialog.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || panel.hidden) return
+    event.preventDefault()
+    event.stopPropagation()
+    closePanel()
+  }, { signal })
+
+  mapLayerControllers.set(dialog, {
+    dispose(): void {
+      eventController.abort()
+      for (const group of groups.values()) group.remove()
+    },
+  })
 }
 
 function renderLegend(container: HTMLElement): void {
@@ -231,13 +342,14 @@ export function renderRouteMap(container: HTMLElement, dialog: HTMLDialogElement
  * this phase). Reuses the same `createRouteMap` Leaflet primitive, the same
  * fullscreen-dialog/back-button history wiring, and the same legend.
  */
-export function renderGenericRouteMap(container: HTMLElement, dialog: HTMLDialogElement, model: RouteMapModel | null): void {
+export function renderGenericRouteMap(container: HTMLElement, dialog: HTMLDialogElement, model: RouteMapModel | null, layers: readonly MapLayerDefinition[] = []): void {
   destroy(container)
   if (dialog.open || scrollUnlocks.has(dialog) || expandedHistory.has(dialog)) {
     closeExpandedRouteMap(dialog)
   }
   const practicalToggle = dialog.querySelector<HTMLButtonElement>('[data-practical-layers-toggle]')
   if (practicalToggle !== null) practicalToggle.hidden = true
+  disposeMapLayerPanel(dialog)
   if (model === null || model.coordinates.length < 2) {
     container.innerHTML = '<p class="route-map__fallback">Carte indisponible.</p>'
     return
@@ -298,6 +410,7 @@ export function renderGenericRouteMap(container: HTMLElement, dialog: HTMLDialog
         )
         map.on('popupopen', () => { popupOpen = true })
         map.on('popupclose', () => { popupOpen = false })
+        installMapLayerPanel(dialog, map, layers)
       } catch {
         closeExpandedRouteMap(dialog)
       }
@@ -330,6 +443,7 @@ export function closeExpandedRouteMap(
 
   try {
     disposePracticalLayerPanel(dialog)
+    disposeMapLayerPanel(dialog)
     const expanded = dialog.querySelector<HTMLElement>('[data-route-map-expanded]')
     if (expanded !== null) destroy(expanded)
     if (dialog.open) dialog.close()

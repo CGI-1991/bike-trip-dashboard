@@ -4,6 +4,17 @@ import type { AccommodationId, RideStageId, TripDayId } from './ids.ts'
 export type TripDayType = 'ride' | 'off' | 'transfer'
 
 /**
+ * When a `transfer` day actually happens on the calendar (CDC Jalon B4.3
+ * section 12): `'dedicated'` occupies its own calendar day (the historical,
+ * only supported shape); `'after_previous'`/`'before_next'` happen on the
+ * same calendar date as the neighbouring ride day, so the trip's calendar
+ * day count must not count it twice. Optional/absent on historical records
+ * — always treated as `'dedicated'` when missing, so this is purely
+ * additive. Meaningless (and always `undefined`) for non-`transfer` days.
+ */
+export type TransferTiming = 'dedicated' | 'after_previous' | 'before_next'
+
+/**
  * Generic enrichment lifecycle for a day's derived/enriched content. Not tied
  * to any specific provider or computation.
  */
@@ -41,4 +52,6 @@ export interface TripDay {
   readonly accommodationId: AccommodationId | null
   readonly notes: string | null
   readonly enrichmentStatus: TripDayEnrichmentStatus
+  /** Only meaningful when `type === 'transfer'` — see `TransferTiming`. */
+  readonly transferTiming?: TransferTiming
 }

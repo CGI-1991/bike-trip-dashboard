@@ -29,13 +29,14 @@ import {
   formValidation,
   insertSlot,
   moveStructureItem,
-  removeFileFromState,
-  removeSlot,
+  removeStructureItem,
   rideFileEntries,
+  setTransferTiming,
   similarPairs,
   strictDuplicateFileNames,
 } from './import-wizard-state.ts'
-import type { FileEntry, FileEntryId, StructureItem, WizardStage, WizardState } from './import-wizard-state.ts'
+import type { TransferTiming } from '../../trip-core/index.ts'
+import type { FileEntryId, StructureItem, WizardStage, WizardState } from './import-wizard-state.ts'
 
 function asTripId(value: string): TripId {
   return value as TripId
@@ -45,7 +46,6 @@ export interface ImportWizardDeps {
   readonly database: IDBDatabase
   readonly now: () => string
   readonly idFactory: () => string
-  readonly referenceSpeedKph?: number
   /** Test-only seam; defaults to the real `preAnalyzeGpxFiles`. */
   readonly preAnalyzeFiles?: (files: readonly GpxImportFile[]) => Promise<readonly GpxPreAnalysis[]>
 }
@@ -112,7 +112,11 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
 
     const orderedFiles = rideFileEntries(state).map(({ entry }) => entry.file)
     const daySlots: DayStructureSlot[] = state.structure.map((item) =>
-      item.kind === 'ride' ? { kind: 'ride' } : { kind: item.kind, notes: item.notes ?? null },
+      item.kind === 'ride'
+        ? { kind: 'ride' }
+        : item.kind === 'transfer'
+          ? { kind: 'transfer', notes: item.notes ?? null, transferTiming: item.transferTiming }
+          : { kind: item.kind, notes: item.notes ?? null },
     )
     const tripId = asTripId(deps.idFactory())
     const importedAt = deps.now()
@@ -125,7 +129,8 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
         name: state.name.trim(),
         startDate: state.startDate,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        referenceSpeedKph: deps.referenceSpeedKph,
+        referenceSpeedKph: state.referenceSpeedKph,
+        mountainMode: state.mountainMode,
         totalBreakMinutes: 'adaptive',
         importedAt,
         engineVersion: 'trips-manager-wizard@1',
@@ -181,34 +186,66 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
     onCancelled()
   }
 
-  function renderFileRow(entry: FileEntry): string {
-    if (entry.removed) return ''
-    const preAnalysis = entry.preAnalysis
-    const isDuplicate = strictDuplicateFileNames(state).has(entry.file.name)
-
-    if (preAnalysis === null) {
-      return `<li class="wizard-file" data-file-row><span class="wizard-file__name">${escapeHtml(entry.file.name)}</span><span class="tag tag--data">Analyse…</span></li>`
-    }
-    if (preAnalysis.status === 'invalid') {
-      return `<li class="wizard-file wizard-file--invalid" data-file-row><span class="wizard-file__name">${escapeHtml(entry.file.name)}</span><span class="tag tag--error">À corriger</span><p class="wizard-file__error">${escapeHtml(preAnalysis.errorMessage ?? 'Fichier invalide.')}</p><button class="button button--quiet" type="button" data-action="remove-file" data-file-id="${escapeHtml(entry.id)}">Retirer</button></li>`
-    }
-    return `<li class="wizard-file" data-file-row><span class="wizard-file__name">${escapeHtml(entry.file.name)}</span>${isDuplicate ? '<span class="tag tag--error">Doublon strict</span>' : ''}<dl class="wizard-file__metrics"><div><dt>Distance</dt><dd>${(preAnalysis.distanceKm ?? 0).toFixed(1)} km</dd></div><div><dt>D+</dt><dd>${preAnalysis.elevationGainM === null ? '—' : `+${Math.round(preAnalysis.elevationGainM)} m`}</dd></div><div><dt>D−</dt><dd>${preAnalysis.elevationLossM === null ? '—' : `−${Math.round(preAnalysis.elevationLossM)} m`}</dd></div></dl><button class="button button--quiet" type="button" data-action="remove-file" data-file-id="${escapeHtml(entry.id)}">Retirer</button></li>`
+  const TRANSFER_TIMING_LABELS: Readonly<Record<TransferTiming, string>> = {
+    dedicated: 'Journée dédiée',
+    after_previous: 'Après l’étape précédente',
+    before_next: 'Avant l’étape suivante',
   }
 
-  function renderStructureRow(item: StructureItem, position: number): string {
+  /**
+   * Compact `transferTiming` picker for a transfer row (CDC Jalon B4.4
+   * section 22) — the model already supports the three moments; this is the
+   * only UI that lets the user actually choose one. Takes the whole
+   * `StructureItem` (not narrowed to `kind: 'transfer'`) because that type
+   * is one flat interface, not a discriminated union — the caller only
+   * invokes this for a `'transfer'` row; `transferTiming` is optional on
+   * every kind, so accessing it here is always type-safe regardless.
+   */
+  function renderTransferTimingSelect(item: StructureItem, position: number): string {
+    const current = item.transferTiming ?? 'dedicated'
+    const options = (Object.keys(TRANSFER_TIMING_LABELS) as TransferTiming[])
+      .map((value) => `<option value="${value}" ${value === current ? 'selected' : ''}>${TRANSFER_TIMING_LABELS[value]}</option>`)
+      .join('')
+    return `<label class="wizard-structure__timing">Moment<select data-action="set-transfer-timing" data-position="${position}">${options}</select></label>`
+  }
+
+  /**
+   * One unified timeline row per structure item, whatever its kind (CDC
+   * Jalon B4.4 sections 19-21): a ride row shows exactly what the old,
+   * separate `wizard-file-list` row used to (name, metrics/error/duplicate
+   * state) PLUS the move/insert/remove controls the old `wizard-structure__list`
+   * row had — one row, one place, never the same GPX shown twice. `rideNumber`
+   * is the 1-based position among ride rows only (never the raw structure
+   * position, which also counts OFF/transfer rows).
+   */
+  function renderTimelineRow(item: StructureItem, position: number, rideNumber: number | null): string {
     const isFirst = position === 0
     const isLast = position === state.structure.length - 1
     const moveControls = `<div class="wizard-structure__move"><button class="button button--quiet" type="button" data-action="move-up" data-position="${position}" ${isFirst ? 'disabled' : ''} aria-label="Monter">↑</button><button class="button button--quiet" type="button" data-action="move-down" data-position="${position}" ${isLast ? 'disabled' : ''} aria-label="Descendre">↓</button></div>`
     const insertControls = `<div class="wizard-structure__insert"><button class="button button--quiet" type="button" data-action="insert-off" data-position="${position}">+ OFF</button><button class="button button--quiet" type="button" data-action="insert-transfer" data-position="${position}">+ Transfert</button></div>`
+    const removeControl = `<button class="button button--quiet" type="button" data-action="remove-structure-item" data-position="${position}">Retirer</button>`
 
     if (item.kind === 'ride') {
-      const entry = item.fileId !== undefined ? state.files.find((candidate) => candidate.id === item.fileId) : undefined
-      const name = entry?.file.name ?? '—'
-      return `<li class="wizard-structure__row" data-structure-row data-position="${position}"><span class="tag tag--ride">Étape ${position + 1}</span><span class="wizard-structure__name">${escapeHtml(name)}</span>${moveControls}</li>${insertControls}`
+      const entry = item.fileId !== undefined ? state.files.find((candidate) => candidate.id === item.fileId && !candidate.removed) : undefined
+      // Should not happen given `import-wizard-state.ts`'s own invariants
+      // (a ride item always keeps a live `fileId` until it's removed, which
+      // drops the structure item in the same step) — never rendered as a
+      // broken row if it somehow did.
+      if (entry === undefined) return ''
+      const preAnalysis = entry.preAnalysis
+      const isInvalid = preAnalysis?.status === 'invalid'
+      const isDuplicate = strictDuplicateFileNames(state).has(entry.file.name)
+      const body = preAnalysis === null
+        ? '<span class="tag tag--data">Analyse…</span>'
+        : isInvalid
+          ? `<span class="tag tag--error">À corriger</span><p class="wizard-file__error">${escapeHtml(preAnalysis.errorMessage ?? 'Fichier invalide.')}</p>`
+          : `${isDuplicate ? '<span class="tag tag--error">Doublon strict</span>' : ''}<dl class="wizard-file__metrics"><div><dt>Distance</dt><dd>${(preAnalysis.distanceKm ?? 0).toFixed(1)} km</dd></div><div><dt>D+</dt><dd>${preAnalysis.elevationGainM === null ? '—' : `+${Math.round(preAnalysis.elevationGainM)} m`}</dd></div><div><dt>D−</dt><dd>${preAnalysis.elevationLossM === null ? '—' : `−${Math.round(preAnalysis.elevationLossM)} m`}</dd></div></dl>`
+      return `<li class="wizard-structure__row wizard-file${isInvalid ? ' wizard-file--invalid' : ''}" data-structure-row data-position="${position}"><span class="tag tag--ride">Étape ${rideNumber ?? 1}</span><strong class="wizard-structure__name">${escapeHtml(entry.file.name)}</strong>${body}${moveControls}${removeControl}</li>${insertControls}`
     }
 
     const label = item.kind === 'off' ? 'OFF' : 'Transfert'
-    return `<li class="wizard-structure__row wizard-structure__row--${item.kind}" data-structure-row data-position="${position}"><span class="tag tag--off">${label}</span>${moveControls}<button class="button button--quiet" type="button" data-action="remove-slot" data-position="${position}">Retirer</button></li>${insertControls}`
+    const timingControl = item.kind === 'transfer' ? renderTransferTimingSelect(item, position) : ''
+    return `<li class="wizard-structure__row wizard-structure__row--${item.kind}" data-structure-row data-position="${position}"><span class="tag tag--off">${label}</span>${timingControl}${moveControls}${removeControl}</li>${insertControls}`
   }
 
   function renderAlerts(): string {
@@ -259,14 +296,23 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
           .join('')}</select></div>`
       : ''
 
-    // Defensive: `renderStructureRow` must never receive `undefined` — this
+    // CDC Jalon B4.4 sections 19-21: ONE editable timeline, not two mirrored
+    // lists — `state.files` (raw upload order) never gets its own separate
+    // `<ul>` any more; `state.structure` (the trip's actual day order,
+    // already interleaving ride/OFF/transfer) is the only list rendered.
+    // Defensive: `renderTimelineRow` must never receive `undefined` — this
     // filter is a last-resort guard even though every mutation in
     // `import-wizard-state.ts` is written to keep `state.structure` dense
     // by construction.
-    const structureRows = state.structure
+    let rideCounter = 0
+    const timelineRows = state.structure
       .map((item, position) => ({ item, position }))
       .filter((entry): entry is { item: StructureItem; position: number } => entry.item !== undefined)
-      .map(({ item, position }) => renderStructureRow(item, position))
+      .map(({ item, position }) => {
+        if (item.kind !== 'ride') return renderTimelineRow(item, position, null)
+        rideCounter += 1
+        return renderTimelineRow(item, position, rideCounter)
+      })
       .join('')
 
     container.innerHTML = `
@@ -274,14 +320,17 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
         <header class="view-heading"><p class="eyebrow">Nouveau voyage</p><h2>Créer un voyage</h2></header>
         <div class="field"><label for="wizard-name">Nom du voyage</label><div class="field__control"><input id="wizard-name" type="text" data-field="name" value="${escapeHtml(state.name)}" required></div></div>
         <div class="field"><label for="wizard-start-date">Date de départ</label><div class="field__control"><input id="wizard-start-date" type="date" data-field="start-date" value="${escapeHtml(state.startDate)}" required></div></div>
-        <div class="field"><label for="wizard-files">Fichiers GPX</label><div class="field__control"><input id="wizard-files" type="file" accept=".gpx" multiple data-field="files"></div></div>
+        <button class="button button--quiet" type="button" data-action="trigger-add-files">+ Ajouter des GPX</button>
+        <input id="wizard-files" class="visually-hidden" type="file" accept=".gpx" multiple data-field="files" tabindex="-1" aria-hidden="true">
         ${summaryLine}
-        <ul class="wizard-file-list" data-wizard-file-list>${state.files.map((entry) => renderFileRow(entry)).join('')}</ul>
-        ${state.structure.length > 0
-          ? `<section class="wizard-structure" data-wizard-structure><h3>Structure du voyage</h3>${loopChoice}<ul class="wizard-structure__list">${structureRows}</ul></section>`
-          : ''}
+        ${loopChoice}
+        <ul class="wizard-structure__list" data-wizard-structure>${timelineRows}</ul>
         ${renderAlerts()}
-        <details class="wizard-advanced"><summary>Réglages avancés</summary><p>Vitesse de référence : ${deps.referenceSpeedKph ?? 18} km/h. Budget de pauses calculé automatiquement selon la distance, la durée et le D+ de chaque étape.</p></details>
+        <details class="wizard-advanced"><summary>Réglages avancés</summary>
+          <div class="field"><label for="wizard-reference-speed">Vitesse de référence</label><div class="field__control"><input id="wizard-reference-speed" type="number" min="8" max="40" step="0.5" data-field="reference-speed" value="${state.referenceSpeedKph}"><span>km/h</span></div></div>
+          <label class="trip-settings__toggle"><input type="checkbox" data-field="mountain-mode" ${state.mountainMode ? 'checked' : ''}> Mode montagne (voyage alpin)</label>
+          <p>Budget de pauses calculé automatiquement selon la distance, la durée et le D+ de chaque étape.</p>
+        </details>
         ${state.errorMessage !== null ? `<p class="wizard-error" role="alert">${escapeHtml(state.errorMessage)}</p>` : ''}
         ${renderProgress()}
         <footer class="wizard-actions">
@@ -322,12 +371,17 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
     if (!(target instanceof HTMLInputElement)) return
     if (target.dataset.field === 'name') state.name = target.value
     else if (target.dataset.field === 'start-date') state.startDate = target.value
+    else if (target.dataset.field === 'reference-speed') { if (Number.isFinite(target.valueAsNumber)) state.referenceSpeedKph = target.valueAsNumber; return }
     else return
     updateValidationUI()
   }, { signal: controller.signal })
 
   container.addEventListener('change', (event) => {
     const target = event.target
+    if (target instanceof HTMLInputElement && target.dataset.field === 'mountain-mode') {
+      state.mountainMode = target.checked
+      return
+    }
     if (target instanceof HTMLInputElement && target.dataset.field === 'files' && target.files !== null && target.files.length > 0) {
       const files = Array.from(target.files)
       // Reset immediately after capturing a plain-array snapshot, so the
@@ -341,6 +395,11 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
     if (target instanceof HTMLSelectElement && target.dataset.action === 'choose-first-stage') {
       chooseFirstStage(state, target.value as FileEntryId)
       render()
+      return
+    }
+    if (target instanceof HTMLSelectElement && target.dataset.action === 'set-transfer-timing' && target.dataset.position !== undefined) {
+      setTransferTiming(state, Number(target.dataset.position), target.value as TransferTiming)
+      render()
     }
   }, { signal: controller.signal })
 
@@ -351,14 +410,16 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
     if (button === null) return
     const action = button.dataset.action
     const position = button.dataset.position === undefined ? null : Number(button.dataset.position)
-    const fileId = button.dataset.fileId
 
-    if (action === 'remove-file' && fileId !== undefined) { removeFileFromState(state, fileId); render() }
-    else if (action === 'move-up' && position !== null) { moveStructureItem(state, position, -1); render() }
+    // CDC Jalon B4.4 section 17: the visible "+ Ajouter des GPX" button
+    // proxies the real (visually-hidden) `<input type="file">` — never the
+    // browser's own native file control rendered directly in the layout.
+    if (action === 'trigger-add-files') { container.querySelector<HTMLInputElement>('#wizard-files')?.click(); return }
+    if (action === 'move-up' && position !== null) { moveStructureItem(state, position, -1); render() }
     else if (action === 'move-down' && position !== null) { moveStructureItem(state, position, 1); render() }
     else if (action === 'insert-off' && position !== null) { insertSlot(state, position, 'off'); render() }
     else if (action === 'insert-transfer' && position !== null) { insertSlot(state, position, 'transfer'); render() }
-    else if (action === 'remove-slot' && position !== null) { removeSlot(state, position); render() }
+    else if (action === 'remove-structure-item' && position !== null) { removeStructureItem(state, position); render() }
     else if (action === 'submit') void submit()
     else if (action === 'cancel') cancel()
   }, { signal: controller.signal })

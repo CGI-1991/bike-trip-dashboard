@@ -263,6 +263,119 @@ export function renderElevationProfile(
  * report/accommodation inputs. Reuses the same SVG shell, marker drawing
  * and interactive cursor as the RGA profile.
  */
+/** `[startDistanceKm, endDistanceKm, startAltitudeM, endAltitudeM, averageGradientPercent]` — the trimmed shape `day-detail-view.ts::renderClimbProfileShape` embeds as `data-segments` JSON; kept in sync with that function deliberately. */
+type ClimbSegmentTuple = readonly [number, number, number | null, number | null, number | null]
+
+function formatClimbKm(value: number): string {
+  return `${value.toFixed(1).replace('.', ',')} km`
+}
+
+function formatClimbPercent(value: number | null): string {
+  return value === null ? '—' : `${value.toFixed(1).replace('.', ',')} %`
+}
+
+/**
+ * Real pointer/touch/keyboard tooltip for the climb mini-profile (CDC Jalon
+ * B4.4 sections 28-30) — reuses this module's own `clampCenteredOffsetPercent`
+ * (same tooltip-clamping arithmetic as the main elevation profile) and the
+ * same `.profile-cursor`/`.profile-tooltip` CSS, rather than a second,
+ * divergent interaction model. Never depends on `title=""` (poor touch/
+ * screen-reader support, no synced cursor) — see the CDC section 30
+ * complaint this fixes.
+ *
+ * Reads its data from the `svg`'s own `data-segments`/`data-start-km`
+ * attributes (embedded once by `renderClimbProfileShape`) — never a second
+ * recomputation of the climb profile from the GPX/route geometry here.
+ */
+export function mountClimbProfileInteraction(svg: SVGSVGElement): void {
+  if (typeof svg.closest !== 'function') return
+  const scope = svg.closest<HTMLElement>('[data-climb-profile]')
+  const cursor = svg.querySelector<SVGGElement>('[data-profile-cursor]')
+  const line = svg.querySelector<SVGLineElement>('[data-profile-cursor-line]')
+  const dot = svg.querySelector<SVGCircleElement>('[data-profile-cursor-dot]')
+  const tooltip = scope?.querySelector<HTMLElement>('[data-profile-tooltip]') ?? null
+  const live = scope?.querySelector<HTMLElement>('[data-profile-live]') ?? null
+  if (cursor === null || line === null || dot === null || tooltip === null || live === null) return
+
+  let segments: ClimbSegmentTuple[]
+  try {
+    segments = JSON.parse(svg.dataset.segments ?? '[]') as ClimbSegmentTuple[]
+  } catch {
+    return
+  }
+  const firstSegment = segments[0]
+  const lastSegment = segments[segments.length - 1]
+  if (firstSegment === undefined || lastSegment === undefined) return
+
+  const startKm = Number(svg.dataset.startKm ?? '0')
+  const totalKm = Math.max(lastSegment[1] - firstSegment[0], 0.001)
+  const altitudes = segments.flatMap((segment) => [segment[2], segment[3]]).filter((value): value is number => value !== null)
+  const minAltitude = altitudes.length === 0 ? 0 : Math.min(...altitudes)
+  const maxAltitude = altitudes.length === 0 ? 1 : Math.max(...altitudes)
+  const span = Math.max(maxAltitude - minAltitude, 1)
+  const width = 300
+  const height = 130
+  const x = (km: number): number => ((km - startKm) / totalKm) * width
+  const y = (altitude: number): number => height - ((altitude - minAltitude) / span) * (height - 10) - 5
+
+  const findSegment = (km: number): ClimbSegmentTuple =>
+    segments.find((segment) => km >= segment[0] && km <= segment[1]) ?? lastSegment
+
+  const interpolateAltitude = (segment: ClimbSegmentTuple, km: number): number | null => {
+    const [s0, s1, a0, a1] = segment
+    if (a0 === null || a1 === null) return a0 ?? a1
+    const ratio = s1 - s0 <= 1e-9 ? 0 : Math.min(1, Math.max(0, (km - s0) / (s1 - s0)))
+    return a0 + (a1 - a0) * ratio
+  }
+
+  let selectedIndex = 0
+  const show = (km: number): void => {
+    const clampedKm = Math.min(lastSegment[1], Math.max(firstSegment[0], km))
+    const segment = findSegment(clampedKm)
+    selectedIndex = segments.indexOf(segment)
+    const altitude = interpolateAltitude(segment, clampedKm)
+    const cx = x(clampedKm)
+    const cy = altitude === null ? height / 2 : y(altitude)
+    line.setAttribute('x1', cx.toFixed(1)); line.setAttribute('x2', cx.toFixed(1))
+    dot.setAttribute('cx', cx.toFixed(1)); dot.setAttribute('cy', cy.toFixed(1))
+    cursor.removeAttribute('hidden')
+
+    const afterText = formatClimbKm(clampedKm - startKm)
+    const altitudeText = altitude === null ? '—' : `${Math.round(altitude)} m`
+    const gradeText = formatClimbPercent(segment[4])
+    live.textContent = `Après ${afterText} · Altitude ${altitudeText} · Pente ${gradeText}`
+    tooltip.innerHTML = `<strong>Après ${afterText}</strong><span>Altitude : ${altitudeText}</span><span>Pente : ${gradeText}</span><span>Km absolu de l’étape : ${formatClimbKm(clampedKm)}</span>`
+    tooltip.hidden = false
+
+    const containerRect = svg.getBoundingClientRect()
+    const tooltipRect = tooltip.getBoundingClientRect()
+    const tooltipWidthPx = tooltipRect.width > 0 ? tooltipRect.width : PROFILE_TOOLTIP_FALLBACK_WIDTH_PX
+    const tooltipHeightPx = tooltipRect.height > 0 ? tooltipRect.height : PROFILE_TOOLTIP_FALLBACK_HEIGHT_PX
+    const cursorPercent = (cx / width) * 100
+    tooltip.style.left = `${clampCenteredOffsetPercent(cursorPercent, containerRect.width, tooltipWidthPx).toFixed(1)}%`
+    const defaultTopPx = 8
+    const desiredCenterPercent = ((defaultTopPx + tooltipHeightPx / 2) / Math.max(containerRect.height, 1)) * 100
+    const clampedTopPercent = clampCenteredOffsetPercent(desiredCenterPercent, containerRect.height, tooltipHeightPx)
+    tooltip.style.top = `${((clampedTopPercent / 100) * Math.max(containerRect.height, 1) - tooltipHeightPx / 2).toFixed(1)}px`
+  }
+
+  const fromPointer = (event: PointerEvent): void => {
+    const rect = svg.getBoundingClientRect()
+    show(startKm + ((event.clientX - rect.left) / Math.max(rect.width, 1)) * totalKm)
+  }
+  svg.addEventListener('pointerdown', (event) => { svg.setPointerCapture?.(event.pointerId); fromPointer(event) })
+  svg.addEventListener('pointermove', fromPointer)
+  svg.addEventListener('pointerleave', () => { cursor.setAttribute('hidden', ''); tooltip.hidden = true })
+  svg.addEventListener('pointerup', (event) => { svg.releasePointerCapture?.(event.pointerId) })
+  svg.addEventListener('keydown', (event) => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+    event.preventDefault()
+    selectedIndex = Math.min(segments.length - 1, Math.max(0, selectedIndex + (event.key === 'ArrowRight' ? 1 : -1)))
+    const segment = segments[selectedIndex]
+    if (segment !== undefined) show(segment[0])
+  })
+}
+
 export function renderGenericElevationProfile(container: HTMLElement, geometry: readonly RouteGeometryPoint[] | null, waypoints: readonly CanonicalWaypoint[], stageLabel = 'étape'): void {
   if (geometry === null || geometry.length < 2) { container.innerHTML = '<p>Profil indisponible.</p>'; return }
   const samples = sampleElevationProfileFromGeometry(geometry)

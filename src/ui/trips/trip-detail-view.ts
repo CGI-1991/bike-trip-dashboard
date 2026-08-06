@@ -1,16 +1,19 @@
 /**
- * "Voyage" screen (CDC Jalon B2 section 9): a compact, RGA-style day-card
- * list for one `TripBundle` — Jx / date / départ→arrivée / distance / D+ /
- * departure time / ETA / OFF-Transfert badges. Structural points (Localités/
- * Villages/Relief) and the climbs list live only inside each stage's own
- * Étape view (`day-detail-view.ts`) — never duplicated here (CDC hardening
- * sections 6/20). The global "Mes voyages" app-nav link always returns to
- * the trip list, so this screen carries no redundant "Retour" button of its
- * own (CDC hardening section 14).
+ * "Voyage" screen (CDC Jalon B4.3 sections 9-11): a compact, RGA-style
+ * chronological day-card list for one `TripBundle` — nothing else. Global
+ * trip statistics live only in Aperçu (CDC section 9: "ne pas répéter dans
+ * Voyage"); structural points/climbs live only in each stage's own Étape
+ * view (`day-detail-view.ts`) — never duplicated here. The whole card is the
+ * navigation target for a ride day (CDC section 4: no separate "Voir le
+ * détail" button when the card itself can carry the action). The global
+ * "Mes voyages" app-nav link always returns to the trip list, so this screen
+ * carries no redundant "Retour" button of its own (CDC hardening section 14).
  */
 
-import { computeStageWaypoints } from '../../analysis/waypoint-timeline.ts'
+import { computeStageWaypoints, resolveStagePauseSettings } from '../../analysis/waypoint-timeline.ts'
 import { routeGeometry } from '../../route-enrichment/route-fingerprint.ts'
+import { resolveOffLocation, resolveTransferLocations } from '../../analysis/day-location-fill.ts'
+import { formatSimpleDate } from '../date-format.ts'
 import type { EnrichmentProviderStatus, PracticalPlaceCategory, TripBundle, TripDayId } from '../../trip-core/index.ts'
 
 export interface TripDetailRenderOptions {
@@ -43,14 +46,6 @@ function escapeHtml(value: string): string {
     .replaceAll("'", '&#039;')
 }
 
-/** "2027-05-10" → "10.05.27" — the compact day-header date format (CDC section 11). */
-function formatShortDate(iso: string): string {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
-  if (match === null) return iso
-  const [, year, month, day] = match
-  return `${day}.${month}.${year?.slice(2)}`
-}
-
 function formatKilometers(value: number): string {
   return `${value.toFixed(1).replace('.', ',')} km`
 }
@@ -60,48 +55,71 @@ function computeDayEta(bundle: TripBundle, stage: TripBundle['stages'][number], 
   if (route === undefined || routeGeometry(route) === null) return null
   const daySettings = bundle.settings.days.find((candidate) => candidate.dayId === dayId)
   const settings = { referenceSpeedKph: bundle.settings.global.referenceSpeedKph, departureTime: daySettings?.departureTime ?? '08:00' }
-  const waypoints = computeStageWaypoints({ stage, route, routePoints: bundle.routePoints, climbs: bundle.climbs, settings })
+  const stageSettings = bundle.settings.stages.find((candidate) => candidate.stageId === stage.id)
+  const pauseResolution = resolveStagePauseSettings(bundle.settings.global.pausePlanMode, stageSettings)
+  const waypoints = computeStageWaypoints({
+    stage, route, routePoints: bundle.routePoints, climbs: bundle.climbs, settings,
+    manualPauses: pauseResolution.mode === 'custom' ? pauseResolution.manualPauses : undefined,
+    mountainMode: bundle.settings.global.mountainMode ?? false,
+  })
   return waypoints.length === 0 ? null : waypoints[waypoints.length - 1]?.clockTime ?? null
 }
 
-function renderRideDayRow(bundle: TripBundle, day: TripBundle['days'][number], stage: TripBundle['stages'][number]): string {
-  const dateLabel = day.date === null ? null : formatShortDate(day.date)
+function renderRideDayCard(bundle: TripBundle, day: TripBundle['days'][number], stage: TripBundle['stages'][number]): string {
+  const dateLabel = day.date === null ? null : formatSimpleDate(day.date)
   const locations = `${escapeHtml(stage.startLocationName ?? '—')} → ${escapeHtml(stage.endLocationName ?? '—')}`
-  // Compact day title (CDC section 8): date before locations. The GPX/
-  // roadbook stage name (`stage.name`) is deliberately never shown here.
-  const headerParts = [`J${day.displayNumber}`, dateLabel, locations].filter((part): part is string => part !== null)
+  const headerParts = [`J${day.displayNumber}`, dateLabel].filter((part): part is string => part !== null)
   const daySettings = bundle.settings.days.find((candidate) => candidate.dayId === day.id)
   const departureTime = daySettings?.departureTime ?? null
   const eta = computeDayEta(bundle, stage, day.id)
-  return `<li class="trip-detail__day trip-detail__day--ride">
-    <span class="tag tag--ride">Roulé</span>
-    <header class="trip-detail__day-header"><strong>${headerParts.join(' — ')}</strong></header>
-    <dl class="trip-detail__day-stats">
-      <div><dt>Distance</dt><dd>${stage.distanceKm === null ? '—' : formatKilometers(stage.distanceKm)}</dd></div>
-      <div><dt>D+</dt><dd>${stage.elevationGainM === null ? '—' : `+${Math.round(stage.elevationGainM)} m`}</dd></div>
-      <div><dt>Départ</dt><dd>${departureTime ?? '—'}</dd></div>
-      <div><dt>Arrivée estimée</dt><dd>${eta ?? '—'}</dd></div>
-    </dl>
-    <button class="button button--quiet" type="button" data-action="open-day-detail" data-day-id="${escapeHtml(day.id)}">Voir le détail</button>
+  return `<li>
+    <button class="trip-day-card trip-day-card--ride" type="button" data-action="open-day-detail" data-day-id="${escapeHtml(day.id)}">
+      <div class="trip-day-card__header"><span class="tag tag--ride">Roulé</span><span class="trip-day-card__label">${headerParts.join(' · ')}</span></div>
+      <p class="trip-day-card__route">${locations}</p>
+      <dl class="trip-day-card__stats">
+        <div><dt>Distance</dt><dd>${stage.distanceKm === null ? '—' : formatKilometers(stage.distanceKm)}</dd></div>
+        <div><dt>D+</dt><dd>${stage.elevationGainM === null ? '—' : `+${Math.round(stage.elevationGainM)} m`}</dd></div>
+        <div><dt>Départ</dt><dd>${departureTime ?? '—'}</dd></div>
+        <div><dt>Arrivée estimée</dt><dd>${eta ?? '—'}</dd></div>
+      </dl>
+    </button>
   </li>`
 }
 
-function renderOffOrTransferDayRow(day: TripBundle['days'][number]): string {
-  const dateLabel = day.date === null ? null : formatShortDate(day.date)
-  const typeLabel = day.type === 'off' ? 'OFF' : 'Transfert'
-  const headerParts = [`J${day.displayNumber}`, typeLabel, dateLabel].filter((part): part is string => part !== null)
-  const known = day.startLocationName !== null && day.startLocationName === day.endLocationName
-    ? escapeHtml(day.startLocationName)
-    : `${escapeHtml(day.startLocationName ?? '—')} → ${escapeHtml(day.endLocationName ?? '—')}`
-  return `<li class="trip-detail__day trip-detail__day--${day.type}">
-    <span class="tag tag--off">${typeLabel}</span>
-    <header class="trip-detail__day-header"><strong>${headerParts.join(' — ')}</strong><span class="trip-detail__day-subtitle">${known}</span></header>
+// CDC Jalon B4.4 section 23/35: OFF/transfer cards are real navigation
+// targets now that `day-detail-view.ts` has a shell to open them into — a
+// `<button data-action="open-day-detail">`, exactly like a ride day card,
+// not the plain non-interactive `<div>` these used to be.
+function renderOffDayCard(bundle: TripBundle, day: TripBundle['days'][number]): string {
+  const dateLabel = day.date === null ? null : formatSimpleDate(day.date)
+  const headerParts = [`J${day.displayNumber}`, dateLabel].filter((part): part is string => part !== null)
+  const location = resolveOffLocation(bundle, day)
+  return `<li>
+    <button class="trip-day-card trip-day-card--off" type="button" data-action="open-day-detail" data-day-id="${escapeHtml(day.id)}">
+      <div class="trip-day-card__header"><span class="tag tag--off">OFF</span><span class="trip-day-card__label">${headerParts.join(' · ')}</span></div>
+      ${location.name === null ? '' : `<p class="trip-day-card__route">${escapeHtml(location.name)}</p>`}
+    </button>
   </li>`
 }
 
-function renderDayRow(bundle: TripBundle, day: TripBundle['days'][number]): string {
+function renderTransferDayCard(bundle: TripBundle, day: TripBundle['days'][number]): string {
+  const dateLabel = day.date === null ? null : formatSimpleDate(day.date)
+  const headerParts = [`J${day.displayNumber}`, dateLabel].filter((part): part is string => part !== null)
+  const { origin, destination } = resolveTransferLocations(bundle, day)
+  const route = origin === null && destination === null ? null : `${escapeHtml(origin ?? '—')} → ${escapeHtml(destination ?? '—')}`
+  return `<li>
+    <button class="trip-day-card trip-day-card--transfer" type="button" data-action="open-day-detail" data-day-id="${escapeHtml(day.id)}">
+      <div class="trip-day-card__header"><span class="tag tag--transfer">Transfert</span><span class="trip-day-card__label">${headerParts.join(' · ')}</span></div>
+      ${route === null ? '' : `<p class="trip-day-card__route">${route}</p>`}
+    </button>
+  </li>`
+}
+
+function renderDayCard(bundle: TripBundle, day: TripBundle['days'][number]): string {
   const stage = day.stageId === null ? null : bundle.stages.find((candidate) => candidate.id === day.stageId) ?? null
-  return stage === null ? renderOffOrTransferDayRow(day) : renderRideDayRow(bundle, day, stage)
+  if (stage !== null) return renderRideDayCard(bundle, day, stage)
+  if (day.type === 'off') return renderOffDayCard(bundle, day)
+  return renderTransferDayCard(bundle, day)
 }
 
 function renderPracticalPlaces(bundle: TripBundle, searchStatus: EnrichmentProviderStatus | null): string {
@@ -129,9 +147,6 @@ function renderPracticalPlaces(bundle: TripBundle, searchStatus: EnrichmentProvi
 }
 
 export function renderTripDetail(bundle: TripBundle, options: TripDetailRenderOptions = {}): string {
-  const totalDistanceKm = bundle.stages.reduce((total, stage) => total + (stage.distanceKm ?? 0), 0)
-  const totalElevationGainM = bundle.stages.reduce((total, stage) => total + (stage.elevationGainM ?? 0), 0)
-
   const hasOsmEndpoints = bundle.routePoints.some((point) =>
     (point.type === 'start' || point.type === 'end') && point.provenance.sourceType === 'osm',
   )
@@ -141,12 +156,13 @@ export function renderTripDetail(bundle: TripBundle, options: TripDetailRenderOp
   const osmState = bundle.enrichmentMetadata.providers.find((state) => state.provider === 'osm')
   const practicalPlacesState = bundle.enrichmentMetadata.providers.find((state) => state.provider === 'osm-practical-places')
   const routeEnrichmentState = bundle.enrichmentMetadata.providers.find((state) => state.provider === 'postpass-route-enrichment')
+  const hasRideStages = bundle.stages.length > 0
   const automaticStatus = options.automaticEnrichmentPending
     ? `<div class="trip-detail__enrichment" role="status"><strong>Enrichissement en cours…</strong><span>${escapeHtml(options.automaticEnrichmentProgress ?? 'Préparation')}</span></div>`
     : options.automaticEnrichmentError !== null && options.automaticEnrichmentError !== undefined
       ? `<div class="trip-detail__enrichment" role="status"><strong>Enrichissement partiel</strong><span>${escapeHtml(options.automaticEnrichmentError)}</span></div>`
       : routeEnrichmentState?.status === 'success' && (osmState === undefined || osmState.status === 'success')
-        ? '<p class="trip-detail__enrichment"><strong>Voyage enrichi</strong></p>'
+        ? ''
         : routeEnrichmentState?.status === 'partial' || routeEnrichmentState?.status === 'error' || osmState?.status === 'partial' || osmState?.status === 'error'
           ? '<p class="trip-detail__enrichment"><strong>Enrichissement partiel</strong> — certaines données seront complétées ultérieurement.</p>'
           : ''
@@ -161,28 +177,16 @@ export function renderTripDetail(bundle: TripBundle, options: TripDetailRenderOp
     ? '<button class="button button--quiet" type="button" data-action="enrich-trip-endpoints">Identifier les lieux de départ et d’arrivée</button>'
     : ''
   const attribution = hasOsmEndpoints || hasOsmRouteData || hasOsmClimbNames || hasOsmPracticalPlaces ? '<p class="trip-detail__attribution">Données géographiques : © OpenStreetMap contributors.</p>' : ''
-  const routeDiagnostic = routeEnrichmentState?.message === null || routeEnrichmentState?.message === undefined
-    ? ''
-    : `<p class="trip-detail__enrichment-diagnostic">Provider = Postpass · ${escapeHtml(routeEnrichmentState.message)}</p>`
 
   return `
     <div class="trip-detail" data-trip-detail>
       <header class="view-heading"><p class="eyebrow">Voyage</p><h2>${escapeHtml(bundle.metadata.name)}</h2></header>
-      <dl class="trip-detail__summary">
-        <div><dt>Dates</dt><dd>${bundle.metadata.startDate ?? 'Non daté'}${bundle.metadata.endDate ? ` → ${bundle.metadata.endDate}` : ''}</dd></div>
-        <div><dt>Journées</dt><dd>${bundle.days.length}</dd></div>
-        <div><dt>Étapes</dt><dd>${bundle.stages.length}</dd></div>
-        <div><dt>Distance totale</dt><dd>${totalDistanceKm.toFixed(1)} km</dd></div>
-        <div><dt>D+ total</dt><dd>+${Math.round(totalElevationGainM)} m</dd></div>
-      </dl>
-      <p class="tag tag--data">Disponible localement</p>
+      <ol class="trip-day-list">${bundle.days.map((day) => renderDayCard(bundle, day)).join('')}</ol>
+      ${hasRideStages ? '<button class="button button--quiet button--full" type="button" data-action="download-trip-gpx">Télécharger les GPX</button>' : ''}
       ${automaticStatus}
-      ${routeDiagnostic}
       ${geocodingStatus}
       ${geocodingAction}
-      <ol class="trip-detail__day-list">${bundle.days.map((day) => renderDayRow(bundle, day)).join('')}</ol>
       ${attribution}
-      <h3>Lieux pratiques</h3>
-      ${renderPracticalPlaces(bundle, practicalPlacesState?.status ?? null)}
+      <details class="technical-details" data-trip-detail-practical><summary>Lieux pratiques</summary>${renderPracticalPlaces(bundle, practicalPlacesState?.status ?? null)}</details>
     </div>`
 }

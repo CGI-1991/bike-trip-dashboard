@@ -1549,6 +1549,8 @@ ul {
 .pause-editor__item label { display: grid; gap: 5px; font-weight: 700; }
 .pause-editor__item .pause-active { grid-template-columns: auto 1fr; align-items: center; }
 .pause-editor__item select, .pause-editor__item input[type='number'] { width: 100%; min-height: 44px; padding: 8px; border: 1px solid var(--line-strong); border-radius: 8px; background: #fff; }
+.pause-mode-toggle { display: flex; gap: 8px; margin: 10px 0; }
+.pause-mode-toggle .button { flex: 1; min-width: 0; }
 
 @media (min-width: 620px) {
   .day-header { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
@@ -2982,6 +2984,9 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .wizard-structure__move .button, .wizard-structure__row .button { min-height: 36px; padding: 0 10px; }
 .wizard-structure__insert { display: flex; gap: 6px; padding-left: 8px; }
 .wizard-structure__insert .button { min-height: 32px; font-size: .72rem; padding: 0 8px; }
+/* Transfer's `transferTiming` picker (CDC Jalon B4.4 section 22). */
+.wizard-structure__timing { display: flex; align-items: center; gap: 6px; font-size: .8rem; color: var(--ink-soft); }
+.wizard-structure__timing select { min-height: 36px; padding: 2px 6px; border: 1px solid var(--line-strong); border-radius: 8px; }
 .wizard-loop-choice { padding: 10px; background: var(--warning-bg); border: 1px solid var(--warning-border); border-radius: 9px; color: var(--warning-text); }
 .wizard-alerts { display: grid; gap: 6px; }
 .wizard-alert { padding: 8px 10px; background: var(--warning-bg); border: 1px solid var(--warning-border); border-radius: 8px; color: var(--warning-text); font-size: .85rem; }
@@ -2993,4 +2998,186 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .wizard-progress li.is-done { background: var(--forest-800); color: #fff; font-weight: 700; }
 .wizard-actions { display: flex; gap: 8px; }
 .wizard-actions .button { flex: 1; }
+
+/*
+ * Jalon B4.2 (UX cleanup): the generic Étape screen (`day-detail-view.ts`)
+ * had NO dedicated styling at all before this pass — every `.day-detail__*`
+ * class below is new. A single chronological Parcours list replaces the
+ * previous grouped cards; a compact colour-coded climb mini-profile; a
+ * sober generic Réglages screen. `.day-tabs`/`.point-filters`/`.card`/
+ * `.eyebrow`/`.tag` are all reused as-is, not redefined here.
+ */
+.day-detail { display: grid; gap: 14px; padding: 14px max(14px, env(safe-area-inset-right)) 90px max(14px, env(safe-area-inset-left)); }
+.day-detail__stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.day-detail__stats div { padding: 9px; background: var(--surface-muted); border-radius: 8px; }
+.day-detail__stats dt { color: var(--ink-soft); font-size: .72rem; }
+.day-detail__stats dd { margin-top: 2px; font-weight: 800; }
+.day-detail__profile-eyebrow { margin-top: 14px; }
+.day-detail__pauses { display: grid; gap: 10px; }
+
+.day-detail__timeline { display: grid; gap: 8px; margin: 12px 0; }
+.day-detail__timeline-row { padding: 10px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 10px; align-items: start; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+.day-detail__timeline-marker { min-width: 22px; text-align: center; color: var(--forest-800); font-weight: 800; }
+.day-detail__timeline-row--major .day-detail__timeline-marker { color: var(--forest-950); }
+.day-detail__timeline-row--minor .day-detail__timeline-marker { color: var(--ink-faint); }
+.day-detail__timeline-body { min-width: 0; display: grid; gap: 2px; }
+.day-detail__timeline-body strong { overflow-wrap: anywhere; }
+.day-detail__timeline-meta { color: var(--ink-soft); font-size: .78rem; }
+.day-detail__timeline-time { color: var(--ink-soft); font-size: .78rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tag--pause { justify-self: start; color: var(--forest-800); background: var(--forest-50); }
+
+.day-detail__climb-card { grid-template-columns: minmax(0, 1fr); padding: 0; overflow: hidden; }
+.day-detail__climb-toggle { width: 100%; min-height: 44px; padding: 10px; display: grid; gap: 4px; text-align: left; color: inherit; background: none; border: 0; cursor: pointer; }
+.day-detail__climb-toggle-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.day-detail__climb-toggle-row--stats { color: var(--ink-soft); font-size: .82rem; font-variant-numeric: tabular-nums; }
+.day-detail__climb-profile { padding: 0 10px 12px; }
+/* CDC Jalon B4.4 sections 30-31: tall enough to actually read the climb's
+   shape (not a flat strip), with a real pointer/touch/keyboard tooltip —
+   `.elevation-profile__stage`/`.profile-tooltip`/`.profile-cursor` above are
+   the exact same classes the main elevation profile already uses. */
+.day-detail__climb-profile-shape { display: block; width: 100%; height: clamp(110px, 22vw, 160px); touch-action: pan-y; cursor: crosshair; outline-offset: 4px; }
+.day-detail__climb-profile-bar { display: flex; height: 26px; border-radius: 6px; overflow: hidden; }
+.day-detail__climb-profile-segment { display: block; height: 100%; }
+.day-detail__climb-profile-scale { display: flex; justify-content: space-between; margin-top: 4px; color: var(--ink-soft); font-size: .72rem; }
+.day-detail__climb-profile-caption { margin-top: 4px; color: var(--ink-faint); font-size: .72rem; }
+.day-detail__climb-profile-empty { color: var(--ink-soft); font-size: .82rem; }
+
+.day-infos__lodging { display: grid; gap: 10px; }
+.day-infos__lodging-display { display: grid; gap: 6px; }
+.day-infos__lodging-links { display: flex; flex-wrap: wrap; gap: 8px; }
+.day-infos__lodging-form summary { cursor: pointer; font-weight: 800; padding: 6px 0; }
+.day-infos__lodging-form { display: grid; gap: 10px; }
+.day-infos__lodging-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.day-infos__notes-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+.trip-settings { display: grid; gap: 14px; padding: 14px max(14px, env(safe-area-inset-right)) 90px max(14px, env(safe-area-inset-left)); }
+.trip-settings__section { display: grid; gap: 8px; }
+.trip-settings__toggle { display: flex; align-items: center; gap: 8px; min-height: 44px; font-weight: 700; }
+
+@media (max-width: 430px) {
+  .day-detail__timeline-row { grid-template-columns: auto minmax(0, 1fr); }
+  .day-detail__timeline-time { grid-column: 2; justify-self: start; }
+}
 .wizard-validation-reasons { color: var(--ink-soft); font-size: .8rem; display: grid; gap: 3px; }
+
+/*
+ * Jalon B4.3 (UX finalization): clickable cards, Aperçu/Voyage restructure,
+ * sticky Étape header, compact manual pause editor, Infos read/edit toggle.
+ */
+
+/* Clickable cards (section 4) — a card acting as a button (trip cards, the
+   Aperçu highlighted-day card) gets the same focus treatment a real
+   `<button>` already has, plus an explicit pointer cursor and a subtle
+   pressed state so it reads as tappable, not just decorative. */
+[role='button'] { cursor: pointer; }
+[role='button']:focus-visible { outline: 3px solid var(--forest-700); outline-offset: 2px; }
+.trip-card:active, .trip-overview__highlighted-day:active { transform: scale(0.99); }
+
+/* Aperçu (sections 5-8): stats → map → highlighted day, in that order. */
+.trip-overview__dates { color: var(--ink-soft); margin-top: -6px; }
+
+/*
+ * CDC Jalon B4.4 sections 14/34: two visually hierarchised zones — VOYAGE
+ * (progress + global map) then AUJOURD'HUI/PROCHAINE ÉTAPE (the highlighted
+ * day) — an eyebrow + spacing + accent border each, never a heavy extra
+ * title. Kept sober (RGA reference): no card-in-card nesting, no duplicate
+ * borders around content that already has its own `.card`.
+ */
+.trip-overview__zone { display: grid; gap: 10px; padding-top: 14px; border-top: 1px solid var(--line); }
+.trip-overview__zone-eyebrow { margin: 0; }
+.trip-overview__zone--next { border-top-color: var(--forest-700); }
+.trip-overview__zone--next .trip-overview__zone-eyebrow { color: var(--forest-800); font-weight: 800; }
+.trip-overview__progress-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin-top: 10px; }
+.trip-overview__progress-grid div { padding: 9px; background: var(--surface-muted); border-radius: 8px; }
+.trip-overview__progress-grid dt { color: var(--ink-soft); font-size: .68rem; }
+.trip-overview__progress-grid dd { margin-top: 2px; font-weight: 800; }
+@media (min-width: 700px) {
+  .trip-overview__progress-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+.trip-overview__highlighted-day { display: grid; gap: 10px; text-align: left; }
+.route-map--compact { min-height: 160px; }
+.route-map--compact .route-map__canvas { height: 160px; }
+.trip-overview__highlighted-day-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.trip-overview__highlighted-day-stats div { padding: 8px; background: var(--surface-muted); border-radius: 8px; }
+.trip-overview__highlighted-day-stats dt { color: var(--ink-soft); font-size: .72rem; }
+.trip-overview__highlighted-day-stats dd { margin-top: 2px; font-weight: 800; }
+.trip-overview__weather-placeholder { color: var(--ink-faint); font-size: .82rem; }
+
+/* Voyage (sections 9-11): compact cards, colour-coded by day type. */
+.trip-day-list { display: grid; gap: 8px; padding: 14px max(14px, env(safe-area-inset-right)) 90px max(14px, env(safe-area-inset-left)); }
+.trip-day-card { width: 100%; padding: 12px; display: grid; gap: 8px; text-align: left; color: inherit; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); font: inherit; }
+.trip-day-card__header { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.trip-day-card__label { font-weight: 800; }
+.trip-day-card__route { color: var(--ink-soft); }
+.trip-day-card__stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.trip-day-card__stats div { padding: 7px; background: var(--surface-muted); border-radius: 7px; }
+.trip-day-card__stats dt { color: var(--ink-soft); font-size: .68rem; }
+.trip-day-card__stats dd { margin-top: 2px; font-weight: 800; }
+.trip-day-card--ride { border-left: 4px solid var(--forest-700); }
+.trip-day-card--off { background: #eef1f6; border-left: 4px solid #6b7fa3; }
+.trip-day-card--transfer { background: #f5efe6; border-left: 4px solid #a3794f; }
+.tag--transfer { color: #6a4c2e; background: #f0e2d1; }
+
+/*
+ * Étape/Journée sticky composition (CDC Jalon B4.4 sections 12-13):
+ * identity+nav share ONE real sticky wrapper (`.day-detail__sticky-header`)
+ * — its height is whatever it naturally needs (a one- or two-line identity,
+ * any locale/font), never guessed. The tabbar sticks right under it, at
+ * `--day-sticky-header-h`: a CSS custom property kept in sync with that
+ * wrapper's real, live-measured height by `sticky-header-offset.ts`
+ * (`ResizeObserver`-based) — replaces the previous fixed-px
+ * `--day-sticky-identity-h: 40px`/`--day-sticky-nav-h: 48px` guesses, which
+ * broke as soon as the identity line wrapped to two rows. The `0px` fallback
+ * only matters before the observer's first synchronous measurement, or in
+ * an environment with no real layout (tests) — `--day-sticky-header-h`
+ * itself is always set at mount time regardless of `ResizeObserver`
+ * availability.
+ */
+.day-detail__sticky-header { position: sticky; top: 0; z-index: 5; background: var(--surface); }
+.day-detail__sticky-identity { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; padding: 6px max(10px, env(safe-area-inset-right)) 6px max(10px, env(safe-area-inset-left)); border-bottom: 1px solid var(--line); }
+.day-detail__sticky-identity .eyebrow { margin: 0; }
+.day-detail__sticky-nav { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; background: var(--surface-muted, #edf1ec); }
+.day-detail__sticky-nav > div { display: flex; gap: 6px; }
+.day-tabs[data-day-detail-tabs] { position: sticky; top: var(--day-sticky-header-h, 0px); z-index: 3; }
+
+.day-detail__summary { display: grid; gap: 4px; }
+.day-detail__summary-timing { color: var(--ink-soft); font-size: .85rem; }
+
+/*
+ * Arrêts (CDC Jalon B4.3 sections 30-32, B4.4 sections 7-10): compact status
+ * line + native `<details>` panel — one compact row per candidate, never a
+ * card/select/input in normal consultation. Namespaced `.day-pause-editor*`
+ * (CDC B4.4 section 7) — the legacy RGA `.pause-editor` dialog (still used by
+ * the historical Étape screen's pause modal, see the earlier `.pause-editor`
+ * rules above) imposes a fixed width/max-height/overflow-y/box-shadow that
+ * used to bleed onto this `<details>` panel purely because both reused the
+ * exact same class name: shadowed panel, odd width, a scrollbar nested
+ * inside the page's own scroll. A distinct namespace fixes that at the
+ * root — no override stacking. This panel deliberately sets no
+ * max-height/overflow of its own: it expands naturally in the page flow,
+ * the page itself keeps scrolling (CDC section 9: no modal, no nested
+ * scroll).
+ */
+.day-detail__pauses-status { color: var(--ink-soft); }
+.day-pause-editor { margin-top: 6px; }
+.day-pause-editor > summary { list-style: none; cursor: pointer; }
+.day-pause-editor > summary::-webkit-details-marker { display: none; }
+.day-pause-editor__list { display: grid; gap: 6px; margin-top: 10px; }
+.day-pause-editor__row { padding: 9px 11px; display: flex; flex-wrap: wrap; column-gap: 10px; row-gap: 2px; align-items: center; background: var(--surface-muted); border: 1px solid var(--line); border-radius: 8px; }
+.day-pause-editor__row-check { display: flex; align-items: center; gap: 8px; min-height: 44px; }
+.day-pause-editor__row-meta { color: var(--ink-soft); font-size: .78rem; flex: 1 1 auto; }
+.day-pause-editor__row-duration { display: flex; align-items: center; gap: 6px; }
+.day-pause-editor__row-duration input { width: 64px; min-height: 40px; padding: 4px 6px; border: 1px solid var(--line-strong); border-radius: 8px; }
+.day-pause-editor__actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+@media (min-width: 520px) {
+  /* Wide enough to read as one compact line (CDC B4.4 section 10): "☑ Morillon · Ville · 28,7 km · 10:08 · 15 min" — same markup, just laid out on one row instead of wrapping. */
+  .day-pause-editor__row { flex-wrap: nowrap; }
+}
+
+/* Infos read/edit toggle (sections 35-36). */
+.day-infos__read { display: grid; gap: 10px; }
+.day-infos__empty { color: var(--ink-soft); }
+.day-infos__edit { display: grid; gap: 10px; margin-top: 10px; }
+
+/* Trip editor auto-fill preview (sections 13-14). */
+.wizard-structure__autofill { margin: 4px 0 0; color: var(--ink-soft); font-size: .78rem; }

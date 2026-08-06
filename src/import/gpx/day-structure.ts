@@ -12,12 +12,13 @@
 
 import { addCivilDays } from '../../trip-core/validation/primitives.ts'
 import { tripDayId } from '../../trip-core/index.ts'
-import type { IsoDate, TripBundle, TripDay } from '../../trip-core/index.ts'
+import type { IsoDate, TransferTiming, TripBundle, TripDay } from '../../trip-core/index.ts'
 
 export type DayStructureSlot =
   | { readonly kind: 'ride' }
   | { readonly kind: 'off'; readonly notes?: string | null }
-  | { readonly kind: 'transfer'; readonly notes?: string | null }
+  /** `transferTiming` (CDC Jalon B4.4 section 22) — `undefined`/omitted means `'dedicated'`, exactly like `TripDay.transferTiming` itself. */
+  | { readonly kind: 'transfer'; readonly notes?: string | null; readonly transferTiming?: TransferTiming }
 
 export class DayStructureError extends Error {}
 
@@ -111,6 +112,7 @@ export function applyDayStructure(bundle: TripBundle, slots: readonly DayStructu
       accommodationId: null,
       notes: slot.notes ?? null,
       enrichmentStatus: 'not-started',
+      transferTiming: slot.transferTiming,
     })
     previousEndLocationName = endLocationName
   })

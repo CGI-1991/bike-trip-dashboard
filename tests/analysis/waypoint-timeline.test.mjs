@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { computeStageWaypoints } from '../../src/analysis/waypoint-timeline.ts'
+import { computeStageWaypoints, resolveStagePauseSettings } from '../../src/analysis/waypoint-timeline.ts'
 
 function route(overrides = {}) {
   return {
@@ -101,4 +101,80 @@ test('an invalid reference speed leaves pauses placed but never fabricates an ET
 test('is deterministic across repeated calls with the same input', () => {
   const input = { stage: stage({ pauseDurationSeconds: 480, routePointIds: ['city1'] }), route: route(), climbs: [], routePoints: [point({ id: 'city1', trackDistanceKm: 5.1 })], settings }
   assert.deepEqual(computeStageWaypoints(input), computeStageWaypoints(input))
+})
+
+// --- manual pause mode (CDC Jalon B4 section 15) ---------------------------
+
+test('a manual pause anchored on a real waypoint sets its duration instead of the automatic budget', () => {
+  const waypoints = computeStageWaypoints({
+    stage: stage({ pauseDurationSeconds: 9_999, routePointIds: ['city1'] }), route: route(), climbs: [],
+    routePoints: [point({ id: 'city1', trackDistanceKm: 8 })],
+    settings, manualPauses: [{ id: 'manual-1', routePointId: 'city1', durationMinutes: 15, order: 0 }],
+  })
+  const anchor = waypoints.find((waypoint) => waypoint.id === 'city1')
+  assert.equal(anchor.pauseDurationMinutes, 15)
+  assert.ok(waypoints.every((waypoint) => waypoint.kind !== 'pause'), 'no synthetic pause waypoint when every manual pause has a real anchor')
+})
+
+test('a manual pause referencing an unknown routePointId is silently dropped, never crashes', () => {
+  const waypoints = computeStageWaypoints({
+    stage: stage(), route: route(), routePoints: [], climbs: [],
+    settings, manualPauses: [{ id: 'manual-ghost', routePointId: 'does-not-exist', durationMinutes: 20, order: 0 }],
+  })
+  assert.ok(waypoints.every((waypoint) => waypoint.pauseDurationMinutes === null))
+})
+
+test('manual mode ignores the automatic pause budget entirely — duration comes only from the manual entry', () => {
+  const waypoints = computeStageWaypoints({
+    stage: stage({ pauseDurationSeconds: 1_200, routePointIds: ['city1'] }), route: route(), climbs: [],
+    routePoints: [point({ id: 'city1', trackDistanceKm: 8 })],
+    settings, manualPauses: [{ id: 'manual-1', routePointId: 'city1', durationMinutes: 5, order: 0 }],
+  })
+  const anchor = waypoints.find((waypoint) => waypoint.id === 'city1')
+  assert.equal(anchor.pauseDurationMinutes, 5)
+})
+
+test('the arrival time reflects the sum of manual pause durations, same as automatic mode does for its own budget', () => {
+  const routePoints = [point({ id: 'city1', trackDistanceKm: 8 })]
+  const withoutPause = computeStageWaypoints({ stage: stage({ routePointIds: ['city1'] }), route: route(), routePoints, climbs: [], settings, manualPauses: [] })
+  const withPause = computeStageWaypoints({ stage: stage({ routePointIds: ['city1'] }), route: route(), routePoints, climbs: [], settings, manualPauses: [{ id: 'manual-1', routePointId: 'city1', durationMinutes: 12, order: 0 }] })
+  const endWithout = withoutPause.find((waypoint) => waypoint.kind === 'end')
+  const endWith = withPause.find((waypoint) => waypoint.kind === 'end')
+  assert.ok(Math.abs((endWith.elapsedMinutes - endWithout.elapsedMinutes) - 12) < 0.01)
+})
+
+// --- resolveStagePauseSettings ----------------------------------------------
+
+test('resolveStagePauseSettings defaults to automatic when nothing overrides it', () => {
+  assert.deepEqual(resolveStagePauseSettings('automatic', undefined), { mode: 'automatic', manualPauses: [] })
+})
+
+test('resolveStagePauseSettings: a stage-level null pausePlanMode inherits the trip-wide default', () => {
+  const stageSettings = { stageId: 'stage-test', pausePlanMode: null, pauses: [] }
+  assert.deepEqual(resolveStagePauseSettings('automatic', stageSettings), { mode: 'automatic', manualPauses: [] })
+})
+
+test('resolveStagePauseSettings: a stage-level override wins over the trip-wide default in both directions', () => {
+  const toCustom = { stageId: 'stage-test', pausePlanMode: 'custom', pauses: [] }
+  const toAutomatic = { stageId: 'stage-test', pausePlanMode: 'automatic', pauses: [{ id: 'p1', active: true, routePointId: 'city1', durationSeconds: 600, order: 0, origin: 'custom' }] }
+  assert.equal(resolveStagePauseSettings('automatic', toCustom).mode, 'custom')
+  assert.equal(resolveStagePauseSettings('custom', toAutomatic).mode, 'automatic')
+})
+
+test('resolveStagePauseSettings: only active pauses with a real routePointId become manual pauses, ordered and in minutes', () => {
+  const stageSettings = {
+    stageId: 'stage-test', pausePlanMode: 'custom',
+    pauses: [
+      { id: 'p2', active: true, routePointId: 'city2', durationSeconds: 300, order: 1, origin: 'custom' },
+      { id: 'p1', active: true, routePointId: 'city1', durationSeconds: 900, order: 0, origin: 'custom' },
+      { id: 'p-inactive', active: false, routePointId: 'city3', durationSeconds: 600, order: 2, origin: 'custom' },
+      { id: 'p-null', active: true, routePointId: null, durationSeconds: 600, order: 3, origin: 'custom' },
+    ],
+  }
+  const resolution = resolveStagePauseSettings('automatic', stageSettings)
+  assert.equal(resolution.mode, 'custom')
+  assert.deepEqual(resolution.manualPauses, [
+    { id: 'p1', routePointId: 'city1', durationMinutes: 15, order: 0 },
+    { id: 'p2', routePointId: 'city2', durationMinutes: 5, order: 1 },
+  ])
 })

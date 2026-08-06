@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { selectMostRelevantTrip } from '../../src/trips-manager/active-trip-selection.ts'
+import { resolvePreferredActiveTripId, selectMostRelevantTrip } from '../../src/trips-manager/active-trip-selection.ts'
 
 function trip(id, startDate, endDate) {
   return { id, startDate, endDate }
@@ -72,4 +72,37 @@ test('never mutates the input trips array', () => {
   const snapshot = JSON.parse(JSON.stringify(trips))
   selectMostRelevantTrip(trips, TODAY, null)
   assert.deepEqual(trips, snapshot)
+})
+
+// --- resolvePreferredActiveTripId (CDC Jalon B4.4 sections 2-3/36: the
+// "wrong trip opens" bug fix — an explicit choice must always win over
+// automatic selection, never the other way around) -------------------------
+
+test('an explicit choice (stored active trip) wins even when a nearer/in-progress trip exists — CDC B4.4 section 36 test 1', () => {
+  const trips = [trip('near', '2027-06-20', '2027-06-25'), trip('far', '2027-09-01', '2027-09-10')]
+  // Both are upcoming relative to TODAY; selectMostRelevantTrip alone would
+  // pick "near". The user explicitly chose "far" (e.g. clicked its card).
+  assert.equal(selectMostRelevantTrip(trips, TODAY, null), 'near', 'sanity check: the automatic fallback alone would pick the nearer trip')
+  assert.equal(resolvePreferredActiveTripId(trips, TODAY, 'far'), 'far', 'the explicit choice must survive even though it is not the nearest upcoming trip')
+})
+
+test('an explicit choice wins even over a trip currently in progress — CDC B4.4 section 36 test 2', () => {
+  const trips = [trip('in-progress', '2027-06-10', '2027-06-20'), trip('chosen', '2027-08-01', '2027-08-10')]
+  assert.equal(selectMostRelevantTrip(trips, TODAY, null), 'in-progress', 'sanity check: the automatic fallback alone would pick the in-progress trip')
+  assert.equal(resolvePreferredActiveTripId(trips, TODAY, 'chosen'), 'chosen', 'the user\'s explicit pick must win over an in-progress trip they did not choose')
+})
+
+test('a stored active trip id that no longer exists (deleted trip) falls back to automatic selection — CDC B4.4 section 36 test 3', () => {
+  const trips = [trip('near', '2027-06-20', '2027-06-25'), trip('far', '2027-09-01', '2027-09-10')]
+  assert.equal(resolvePreferredActiveTripId(trips, TODAY, 'deleted-trip'), 'near', 'only a genuinely invalid stored id falls through to the automatic fallback')
+})
+
+test('no stored active trip id at all (first launch) falls back to automatic selection', () => {
+  const trips = [trip('near', '2027-06-20', '2027-06-25'), trip('far', '2027-09-01', '2027-09-10')]
+  assert.equal(resolvePreferredActiveTripId(trips, TODAY, null), 'near')
+})
+
+test('an explicit choice with no in-progress/upcoming trips at all still wins (an entirely past trip, deliberately reopened)', () => {
+  const trips = [trip('past-a', '2027-01-01', '2027-01-10'), trip('past-b', '2027-02-01', '2027-02-10')]
+  assert.equal(resolvePreferredActiveTripId(trips, TODAY, 'past-a'), 'past-a')
 })

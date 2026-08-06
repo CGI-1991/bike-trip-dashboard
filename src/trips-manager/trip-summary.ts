@@ -6,6 +6,7 @@
  */
 
 import type { IsoDate, TripBundle, TripId, TripStatus } from '../trip-core/index.ts'
+import { countCalendarDays } from '../analysis/day-location-fill.ts'
 
 export interface TripListEntry {
   readonly id: TripId
@@ -26,7 +27,7 @@ export function summarizeTripBundle(bundle: TripBundle): TripListEntry {
     slug: bundle.metadata.slug,
     startDate: bundle.metadata.startDate,
     endDate: bundle.metadata.endDate,
-    dayCount: bundle.days.length,
+    dayCount: countCalendarDays(bundle.days),
     stageCount: bundle.stages.length,
     totalDistanceKm: bundle.stages.reduce((total, stage) => total + (stage.distanceKm ?? 0), 0),
     status: bundle.metadata.status,
