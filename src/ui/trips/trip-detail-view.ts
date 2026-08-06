@@ -86,15 +86,19 @@ function renderRideDayCard(bundle: TripBundle, day: TripBundle['days'][number], 
   </li>`
 }
 
+// CDC Jalon B4.4 section 23/35: OFF/transfer cards are real navigation
+// targets now that `day-detail-view.ts` has a shell to open them into — a
+// `<button data-action="open-day-detail">`, exactly like a ride day card,
+// not the plain non-interactive `<div>` these used to be.
 function renderOffDayCard(bundle: TripBundle, day: TripBundle['days'][number]): string {
   const dateLabel = day.date === null ? null : formatSimpleDate(day.date)
   const headerParts = [`J${day.displayNumber}`, dateLabel].filter((part): part is string => part !== null)
   const location = resolveOffLocation(bundle, day)
   return `<li>
-    <div class="trip-day-card trip-day-card--off">
+    <button class="trip-day-card trip-day-card--off" type="button" data-action="open-day-detail" data-day-id="${escapeHtml(day.id)}">
       <div class="trip-day-card__header"><span class="tag tag--off">OFF</span><span class="trip-day-card__label">${headerParts.join(' · ')}</span></div>
       ${location.name === null ? '' : `<p class="trip-day-card__route">${escapeHtml(location.name)}</p>`}
-    </div>
+    </button>
   </li>`
 }
 
@@ -104,10 +108,10 @@ function renderTransferDayCard(bundle: TripBundle, day: TripBundle['days'][numbe
   const { origin, destination } = resolveTransferLocations(bundle, day)
   const route = origin === null && destination === null ? null : `${escapeHtml(origin ?? '—')} → ${escapeHtml(destination ?? '—')}`
   return `<li>
-    <div class="trip-day-card trip-day-card--transfer">
+    <button class="trip-day-card trip-day-card--transfer" type="button" data-action="open-day-detail" data-day-id="${escapeHtml(day.id)}">
       <div class="trip-day-card__header"><span class="tag tag--transfer">Transfert</span><span class="trip-day-card__label">${headerParts.join(' · ')}</span></div>
       ${route === null ? '' : `<p class="trip-day-card__route">${route}</p>`}
-    </div>
+    </button>
   </li>`
 }
 

@@ -106,11 +106,13 @@ test('a stage switched to manual pause mode changes the Voyage screen\'s estimat
   assert.notEqual(automaticArrival, manualArrival)
 })
 
-test('every ride day is its own clickable card carrying its own day id — OFF/transfer days are not (no Étape screen to land on)', () => {
+test('every day — ride, OFF, and transfer alike — is its own clickable card carrying its own day id (CDC Jalon B4.4 sections 23/35: every day type now has a Journée/Étape shell to land on)', () => {
   const bundle = createGenericTripBundle()
   const html = renderTripDetail(bundle)
-  assert.equal((html.match(/data-action="open-day-detail"/g) ?? []).length, 2)
+  assert.equal((html.match(/data-action="open-day-detail"/g) ?? []).length, 4)
   assert.match(html, /data-day-id="day-alpha"/)
+  assert.match(html, /data-day-id="day-bravo"/)
+  assert.match(html, /data-day-id="day-charlie"/)
   assert.match(html, /data-day-id="day-delta"/)
 })
 

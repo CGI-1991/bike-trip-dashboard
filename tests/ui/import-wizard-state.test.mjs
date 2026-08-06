@@ -10,6 +10,7 @@ import {
   moveStructureItem,
   removeFileFromState,
   removeSlot,
+  removeStructureItem,
   rideFileEntries,
 } from '../../src/ui/trips/import-wizard-state.ts'
 
@@ -213,6 +214,42 @@ test('removeSlot never removes a ride item, and is a no-op out of range', async 
 
   removeSlot(state, 1) // the OFF slot — allowed
   assert.equal(state.structure.length, before - 1)
+})
+
+// --- removeStructureItem (CDC Jalon B4.4 sections 19-21): the unified
+// timeline's single "Retirer" entry point, regardless of row kind — no more
+// separate `remove-file`/`remove-slot` DOM actions needing to know which
+// underlying removal applies. ------------------------------------------
+
+test('removeStructureItem removes a ride row by removing its underlying file (never rejected, unlike removeSlot)', async () => {
+  const state = createEmptyWizardState()
+  await addFilesToState(state, { rawFiles: ['1-a.gpx', '2-b.gpx'].map((name) => rawFile(name)), idFactory: idFactory(), preAnalyzeFiles: instantPreAnalyze })
+  const rideFileId = state.structure[0].fileId
+
+  removeStructureItem(state, 0)
+
+  assert.equal(state.structure.length, 1)
+  assert.equal(state.structure[0].fileId, state.files.find((entry) => entry.file.name === '2-b.gpx').id)
+  assert.equal(state.files.find((entry) => entry.id === rideFileId).removed, true, 'the file itself is marked removed, not just detached from structure')
+})
+
+test('removeStructureItem removes an OFF/transfer row exactly like removeSlot', async () => {
+  const state = createEmptyWizardState()
+  await addFilesToState(state, { rawFiles: ['1-a.gpx'].map((name) => rawFile(name)), idFactory: idFactory(), preAnalyzeFiles: instantPreAnalyze })
+  insertSlot(state, 0, 'off')
+  assert.equal(state.structure.length, 2)
+
+  removeStructureItem(state, 1)
+
+  assert.equal(state.structure.length, 1)
+  assert.equal(state.structure[0].kind, 'ride')
+})
+
+test('removeStructureItem is a no-op out of range', async () => {
+  const state = createEmptyWizardState()
+  await addFilesToState(state, { rawFiles: ['1-a.gpx'].map((name) => rawFile(name)), idFactory: idFactory(), preAnalyzeFiles: instantPreAnalyze })
+  removeStructureItem(state, 99)
+  assert.equal(state.structure.length, 1)
 })
 
 // H. no way to ever call renderStructureRow(undefined) — the state itself never holds a hole.

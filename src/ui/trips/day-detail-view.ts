@@ -1,19 +1,25 @@
 /**
  * Generic single-day detail screen (CDC Jalon B section 15, reworked across
- * Jalons B4.2/B4.3): a compact sticky identity + nav + tablist composition
- * (CDC B4.3 sections 24-25), a real Parcours/Météo/Infos tablist (ARIA
- * `tablist`/`tab`/`tabpanel`), and inside Parcours a single chronological
- * points list — only départ/arrivée/pauses/significant relief in normal
- * view (CDC B4.3 sections 26-29/40), sorted by `trackDistanceKm`, never
- * duplicated. Built from the active `TripBundle` only — never from
- * RGA-hardcoded data. Only produces markup plus empty map/profile
- * containers; the caller (`trips-manager.ts`) wires the actual Leaflet map
- * and SVG profile into those containers, since that requires real DOM
- * elements, not strings.
+ * Jalons B4.2/B4.3/B4.4): a compact sticky identity + nav + tablist
+ * composition (CDC B4.3 sections 24-25), built from the active `TripBundle`
+ * only — never from RGA-hardcoded data.
  *
- * Not meant for OFF/transfer days (CDC: "pas de carte/profil vélo forcé
- * pour une journée OFF") — `buildDayDetail` returns `null` for those; the
- * caller keeps showing them through `trip-detail-view.ts`'s day list only.
+ * Three shells, one shared shell chrome (sticky header, tablist, Infos,
+ * Météo — CDC Jalon B4.4 sections 23-27):
+ * - `ride`: the full shell — Résumé/stats, map+profile, Parcours, Météo,
+ *   Infos. Only produces the map/profile containers' markup; the caller
+ *   (`trips-manager.ts`) wires the actual Leaflet map and SVG profile into
+ *   them, since that requires real DOM elements, not strings.
+ * - `off`/`transfer`: a lighter shell — a Résumé card (day type + known
+ *   location(s), no cycling stats), Météo, Infos — never a fake map/profile
+ *   for a day with no GPX/route at all. `buildDayDetail` used to return
+ *   `null` for these (a real regression: OFF/transfer days had no Étape
+ *   screen to land on at all, no Infos/Météo of their own) — every day is
+ *   now openable, so "Précédent/Suivant" can traverse the whole trip
+ *   chronology, not just ride days (CDC section 25).
+ *
+ * `buildDayDetail` still returns `null` only when `dayId` itself can't be
+ * resolved, or (ride only) its stage/route can't be resolved either.
  */
 
 import { computeStageWaypoints, resolveStagePauseSettings } from '../../analysis/waypoint-timeline.ts'
@@ -22,8 +28,9 @@ import type { CanonicalWaypoint, CanonicalWaypointKind, WaypointVisibilityFilter
 import { buildClimbProfile } from '../../analysis/climb-profile.ts'
 import type { ClimbGradeClass, ClimbProfileSegment } from '../../analysis/climb-profile.ts'
 import { routeGeometry } from '../../route-enrichment/route-fingerprint.ts'
+import { resolveOffLocation, resolveTransferLocations } from '../../analysis/day-location-fill.ts'
 import { formatCompactDate } from '../date-format.ts'
-import type { Accommodation, Climb, RideStageSettings, RouteGeometryPoint, RoutePointId, SourceFileId, TripBundle, TripDayId } from '../../trip-core/index.ts'
+import type { Accommodation, Climb, RideStageSettings, RouteGeometryPoint, RoutePointId, SourceFileId, TransferTiming, TripBundle, TripDay, TripDayId } from '../../trip-core/index.ts'
 
 /** Kinds that can anchor a pause (CDC Jalon B4 section 15): the same set `pause-placement.ts` already restricts automatic anchors to. Also the manual pause editor's full candidate list (CDC Jalon B4.3 section 31) — a separate, wider need from `isSignificantWaypoint`'s normal-view policy (CDC section 40: never conflate the two). Exported so `trips-manager.ts` can build/validate pause mutations against the same set. */
 export const PAUSE_ANCHOR_KINDS: ReadonlySet<CanonicalWaypointKind> = new Set(['city', 'town', 'village', 'mountain-pass', 'saddle'])
@@ -122,6 +129,17 @@ function climbSegmentLengthMeters(climb: Climb): number {
  * faut voir une forme altimétrique", not just flat colour blocks), coloured
  * per-segment by gradient (CDC section 18). Reuses only this climb's own
  * window of the already-computed segments — never a second GPX/recompute.
+ * Tall enough to actually read the shape (CDC Jalon B4.4 section 31 — the
+ * previous 64px-tall silhouette was closer to a coloured strip than a real
+ * profile). Carries a real pointer/touch/keyboard tooltip interaction (CDC
+ * B4.4 section 30) — `trips-manager.ts::mountClimbProfileInteractions`
+ * reuses the exact same tooltip-clamping helper
+ * (`elevation-profile.ts::clampCenteredOffsetPercent`) and cursor/tooltip
+ * CSS classes as the main elevation profile, never a second, divergent
+ * interaction model; this function only needs to embed the per-segment data
+ * it can't otherwise reach from the DOM (a plain `title=""` attribute is not
+ * enough — CDC section 30: "ne pas dépendre de title="" comme interaction
+ * principale").
  */
 function renderClimbProfileShape(segments: readonly ClimbProfileSegment[]): string {
   const altitudes = segments.flatMap((segment) => [segment.startAltitudeM, segment.endAltitudeM]).filter((value): value is number => value !== null)
@@ -132,9 +150,9 @@ function renderClimbProfileShape(segments: readonly ClimbProfileSegment[]): stri
   const totalKm = Math.max((segments[segments.length - 1]?.endDistanceKm ?? 0) - (segments[0]?.startDistanceKm ?? 0), 0.001)
   const startKm = segments[0]?.startDistanceKm ?? 0
   const width = 300
-  const height = 64
+  const height = 130
   const x = (km: number): number => ((km - startKm) / totalKm) * width
-  const y = (altitude: number): number => height - ((altitude - minAltitude) / span) * (height - 6) - 3
+  const y = (altitude: number): number => height - ((altitude - minAltitude) / span) * (height - 10) - 5
 
   const bands = segments.map((segment) => {
     if (segment.startAltitudeM === null || segment.endAltitudeM === null) return ''
@@ -152,7 +170,11 @@ function renderClimbProfileShape(segments: readonly ClimbProfileSegment[]): stri
   const last = segments[segments.length - 1]
   const outlineEnd = last?.endAltitudeM === null || last?.endAltitudeM === undefined ? '' : ` L${x(last.endDistanceKm).toFixed(1)},${y(last.endAltitudeM).toFixed(1)}`
 
-  return `<svg class="day-detail__climb-profile-shape" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="presentation">${bands}<path d="${outline}${outlineEnd}" fill="none" stroke="var(--forest-950, #102d28)" stroke-width="1.5"></path></svg>`
+  // Embedded once, read by `mountClimbProfileInteractions` — never a second
+  // recomputation of the climb profile in the DOM-wiring layer.
+  const interactionData = JSON.stringify(segments.map((segment) => [segment.startDistanceKm, segment.endDistanceKm, segment.startAltitudeM, segment.endAltitudeM, segment.averageGradientPercent]))
+
+  return `<svg class="day-detail__climb-profile-shape" data-climb-profile-interactive tabindex="0" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="Profil interactif de la montée" data-segments="${escapeHtml(interactionData)}" data-start-km="${startKm}">${bands}<path d="${outline}${outlineEnd}" fill="none" stroke="var(--forest-950, #102d28)" stroke-width="1.5"></path><g class="profile-cursor" data-profile-cursor hidden><line data-profile-cursor-line y1="0" y2="${height}"></line><circle data-profile-cursor-dot r="4"></circle></g></svg>`
 }
 
 function renderClimbProfileBar(segments: readonly ClimbProfileSegment[]): string {
@@ -169,7 +191,12 @@ function renderClimbProfileBar(segments: readonly ClimbProfileSegment[]): string
   }).join('')
   const first = segments[0]
   const last = segments[segments.length - 1]
-  return `${renderClimbProfileShape(segments)}
+  // `.elevation-profile__stage`/`.profile-tooltip` (CDC Jalon B4.4 section
+  // 30) — the exact same positioning classes the main elevation profile
+  // uses for its own interactive tooltip, reused here rather than a second,
+  // parallel set of tooltip CSS.
+  return `<div class="elevation-profile__stage">${renderClimbProfileShape(segments)}<div class="profile-tooltip" data-profile-tooltip hidden></div></div>
+    <p class="visually-hidden" data-profile-live aria-live="polite"></p>
     <div class="day-detail__climb-profile-bar" role="img" aria-label="Variation de la pente le long de la montée, du plus doux (vert) au plus raide (violet)">${bars}</div>
     <div class="day-detail__climb-profile-scale">
       <span>${formatKilometers(first?.startDistanceKm ?? 0)} · ${first?.startAltitudeM === null || first?.startAltitudeM === undefined ? '—' : `${Math.round(first.startAltitudeM)} m`}</span>
@@ -179,21 +206,28 @@ function renderClimbProfileBar(segments: readonly ClimbProfileSegment[]): string
 }
 
 /**
- * Climb mini-card (CDC Jalon B4.2/B4.3 section 17/34): name/altitude/
- * distance/D+/pente moyenne always visible; tapping it expands a
- * colour-coded silhouette of just this climb's own portion of the stage
+ * Climb mini-card (CDC Jalon B4.2/B4.3 section 17/34, B4.4 section 28-29):
+ * name/altitude/distance/D+/pente moyenne always visible; tapping it expands
+ * a colour-coded silhouette of just this climb's own portion of the stage
  * profile (never a second GPX/recalculation — a window over the
  * already-computed route geometry). Expand/collapse is a pure client-side
- * attribute toggle (`trips-manager.ts`), never a re-render.
+ * attribute toggle (`trips-manager.ts`), never a re-render. Used for every
+ * waypoint carrying a `climbId` — a bare `climb`-kind waypoint as much as a
+ * `mountain-pass`/`saddle` landmark merged with a detected climb (CDC B4.4
+ * section 28) — so the marker/label stay the waypoint's own real `kind`
+ * (◆ "Col" for a named pass/saddle, ▲ "Montée" for a bare climb), never
+ * hardcoded to "climb": the whole point of the merge is that this is still
+ * the named col, just with its profile attached.
  */
 function renderClimbCard(waypoint: CanonicalWaypoint, climb: Climb, routeGeometryFull: readonly RouteGeometryPoint[] | null): string {
   const lengthKm = climb.endDistanceKm - climb.startDistanceKm
   const summitAltitude = climb.endAltitudeM === null ? null : `${Math.round(climb.endAltitudeM)} m`
   const profile = routeGeometryFull === null ? null : buildClimbProfile(routeGeometryFull, climb, climbSegmentLengthMeters(climb))
   const profileId = `climb-profile-${escapeHtml(climb.id)}`
-  return `<li class="day-detail__timeline-row day-detail__timeline-row--${waypoint.importance} day-detail__climb-card" data-waypoint-id="${escapeHtml(waypoint.id)}" data-waypoint-kind="climb">
+  return `<li class="day-detail__timeline-row day-detail__timeline-row--${waypoint.importance} day-detail__climb-card" data-waypoint-id="${escapeHtml(waypoint.id)}" data-waypoint-kind="${waypoint.kind}">
     <button class="day-detail__climb-toggle" type="button" data-action="toggle-climb-profile" data-climb-id="${escapeHtml(climb.id)}" aria-expanded="false" aria-controls="${profileId}">
       <span class="day-detail__climb-toggle-row">
+        <span class="day-detail__timeline-marker" aria-hidden="true">${KIND_MARKERS[waypoint.kind]}</span>
         <strong>${escapeHtml(waypoint.name)}</strong>
         ${summitAltitude === null ? '' : `<span>${summitAltitude}</span>`}
       </span>
@@ -221,7 +255,15 @@ function renderTimelineList(waypoints: readonly CanonicalWaypoint[], climbs: rea
   const visible = waypoints.filter((waypoint) => isSignificantWaypoint(waypoint, filters))
   if (visible.length === 0) return '<p>Aucun point de passage disponible.</p>'
   const rows = visible.map((waypoint) => {
-    if (waypoint.kind !== 'climb' || waypoint.climbId === null) return renderTimelineRow(waypoint)
+    // CDC Jalon B4.4 section 28: a col merged with a detected climb
+    // (`kind` stays `mountain-pass`/`saddle` — the landmark's own kind, per
+    // `canonical-waypoints.ts::buildCanonicalWaypoints`'s merge — while
+    // `climbId` still points at the real `Climb`) must get the same
+    // mini-profile card as a bare `climb`-kind waypoint. Checking `climbId`
+    // first, regardless of `kind`, is what makes that case — the single most
+    // common one for a named col — actually resolve to `renderClimbCard`
+    // instead of a plain row with no profile at all.
+    if (waypoint.climbId === null) return renderTimelineRow(waypoint)
     const climb = climbs.find((candidate) => candidate.id === waypoint.climbId)
     return climb === undefined ? renderTimelineRow(waypoint) : renderClimbCard(waypoint, climb, routeGeometryFull)
   }).join('')
@@ -252,13 +294,13 @@ function pauseStatusText(mode: 'automatic' | 'custom', activeCount: number): str
 function renderPauseCandidateRow(candidate: CanonicalWaypoint, activePause: RideStageSettings['pauses'][number] | undefined): string {
   const isActive = activePause !== undefined
   const durationMinutes = activePause === undefined ? 15 : Math.round(activePause.durationSeconds / 60)
-  return `<div class="pause-editor__row" data-candidate-id="${escapeHtml(candidate.id)}">
-    <label class="pause-editor__row-check">
+  return `<div class="day-pause-editor__row" data-candidate-id="${escapeHtml(candidate.id)}">
+    <label class="day-pause-editor__row-check">
       <input type="checkbox" data-field="pause-active" ${isActive ? 'checked' : ''}>
       <strong>${escapeHtml(candidate.name)}</strong>
     </label>
-    <span class="pause-editor__row-meta">${KIND_LABELS[candidate.kind]} · ${formatKilometers(candidate.trackDistanceKm)}${candidate.clockTime === null ? '' : ` · ${escapeHtml(candidate.clockTime)}`}</span>
-    <label class="pause-editor__row-duration" ${isActive ? '' : 'hidden'}>
+    <span class="day-pause-editor__row-meta">${KIND_LABELS[candidate.kind]} · ${formatKilometers(candidate.trackDistanceKm)}${candidate.clockTime === null ? '' : ` · ${escapeHtml(candidate.clockTime)}`}</span>
+    <label class="day-pause-editor__row-duration" ${isActive ? '' : 'hidden'}>
       <input type="number" min="0" max="120" step="5" value="${durationMinutes}" data-field="pause-duration"> min
     </label>
   </div>`
@@ -292,10 +334,10 @@ function renderPauseEditor(
   return `<section class="card day-detail__pauses" data-day-detail-pauses data-stage-id="${escapeHtml(stageId)}">
     <p class="eyebrow">Arrêts</p><h3>Pauses</h3>
     <p class="day-detail__pauses-status">${status}</p>
-    <details class="pause-editor" data-pause-editor>
+    <details class="day-pause-editor" data-day-pause-editor>
       <summary class="button button--quiet">Manuel</summary>
-      <div class="pause-editor__list">${candidateRows}</div>
-      <div class="pause-editor__actions">
+      <div class="day-pause-editor__list">${candidateRows}</div>
+      <div class="day-pause-editor__actions">
         <button class="button button--primary" type="button" data-action="save-manual-pauses">Enregistrer</button>
         ${resolution.mode === 'custom' ? '<button class="button button--quiet" type="button" data-action="pause-mode-automatic">Revenir à l’automatique</button>' : ''}
       </div>
@@ -303,11 +345,21 @@ function renderPauseEditor(
   </section>`
 }
 
-/** Météo tab (CDC Jalon B4.2/B4.3 section 22/37-38): an honest placeholder only — the weather engine itself is out of scope for this pass, never fake data. */
-function renderWeatherPanel(): string {
-  return `<section id="day-panel-weather" class="card" role="tabpanel" aria-labelledby="day-tab-weather" data-day-panel="weather" hidden>
+/**
+ * Météo tab (CDC Jalon B4.2/B4.3 section 22/37-38, B4.4 section 27): an
+ * honest placeholder only — the weather engine itself is out of scope for
+ * this pass, never fake data. Identical placeholder for ride/OFF/transfer
+ * days (CDC B4.4 section 27: "afficher le même placeholder propre") — a
+ * future phase can key it off the OFF location or the transfer's origin/
+ * destination, but never before the engine itself exists. `defaultVisible`
+ * is `false` for a ride day (Parcours is the first tab there) and `true` for
+ * an OFF/transfer day (which has no Parcours tab at all, so Météo opens
+ * first).
+ */
+function renderWeatherPanel(defaultVisible = false): string {
+  return `<section id="day-panel-weather" class="card" role="tabpanel" aria-labelledby="day-tab-weather" data-day-panel="weather" ${defaultVisible ? '' : 'hidden'}>
     <p class="eyebrow">Conditions</p><h3>Météo</h3>
-    <p>Les données météo ne sont pas encore disponibles pour ce voyage.</p>
+    <p>Météo non disponible pour le moment.</p>
   </section>`
 }
 
@@ -377,14 +429,87 @@ export interface DayDetail {
 }
 
 /**
- * Builds the day-detail screen for one ride day. Returns `null` when the
- * day is OFF/transfer (no stage), the day/stage/route cannot be resolved,
- * or the route has no usable geometry — the caller falls back to the day
- * list in all those cases.
+ * Builds the Étape/Journée detail screen for one day, whatever its type
+ * (CDC Jalon B4.4 sections 23-24). Returns `null` only when `dayId` itself
+ * can't be resolved, or — ride days only — its stage/route can't be
+ * resolved either; the caller falls back to the day list in those cases.
  */
 export function buildDayDetail(bundle: TripBundle, dayId: TripDayId, options: DayDetailOptions = {}): DayDetail | null {
   const day = bundle.days.find((candidate) => candidate.id === dayId)
-  if (day === undefined || day.stageId === null) return null
+  if (day === undefined) return null
+  if (day.type !== 'ride') return buildOffOrTransferDayDetail(bundle, day)
+  return buildRideDayDetail(bundle, day, options)
+}
+
+function transferTimingLabel(timing: TransferTiming | undefined): string {
+  if (timing === 'after_previous') return 'Après l’étape précédente'
+  if (timing === 'before_next') return 'Avant l’étape suivante'
+  return 'Journée dédiée'
+}
+
+/**
+ * The lighter OFF/transfer shell (CDC Jalon B4.4 section 24): a Résumé card
+ * (day type + known location(s), no cycling stats), Météo (placeholder),
+ * Infos — never a fake map/profile/Parcours for a day with no GPX/route at
+ * all. Shares the same sticky header + tablist chrome as the ride shell so
+ * "Précédent/Suivant" lands on a screen that looks and behaves the same way.
+ */
+function buildOffOrTransferDayDetail(bundle: TripBundle, day: TripDay): DayDetail {
+  const dateLabel = day.date === null ? null : formatCompactDate(day.date)
+  const typeLabel = day.type === 'off' ? 'Journée OFF' : 'Transfert'
+  const identityParts = [`J${day.displayNumber}`, dateLabel, typeLabel].filter((part): part is string => part !== null)
+  const stageLabel = `J${day.displayNumber} — ${typeLabel}`
+
+  const summaryHtml = day.type === 'off' ? renderOffSummary(bundle, day) : renderTransferSummary(bundle, day)
+  const accommodation = day.accommodationId === null ? undefined : bundle.accommodations.find((candidate) => candidate.id === day.accommodationId)
+  const infosHtml = renderInfosPanel(day, accommodation)
+
+  const html = `<div class="day-detail" data-day-detail>
+    <div class="day-detail__sticky-header" data-day-detail-sticky-header>
+      <header class="day-detail__sticky-identity" data-day-detail-identity><span class="eyebrow">Détail de la journée</span><strong>${identityParts.join(' · ')}</strong></header>
+      <nav class="day-detail__sticky-nav" data-day-detail-nav aria-label="Navigation de la journée">
+        <button class="button button--quiet" type="button" data-action="back-to-trip-detail">← Retour</button>
+        <button class="button button--quiet" type="button" data-action="previous-day" aria-label="Journée précédente">‹</button>
+        <button class="button button--quiet" type="button" data-action="next-day" aria-label="Journée suivante">›</button>
+      </nav>
+    </div>
+    ${summaryHtml}
+    <nav class="day-tabs" role="tablist" aria-label="Sections de la journée" data-day-detail-tabs>
+      <button id="day-tab-weather" type="button" role="tab" data-day-tab="weather" aria-controls="day-panel-weather" aria-selected="true" tabindex="0">Météo</button>
+      <button id="day-tab-infos" type="button" role="tab" data-day-tab="infos" aria-controls="day-panel-infos" aria-selected="false" tabindex="-1">Infos</button>
+    </nav>
+    ${renderWeatherPanel(true)}
+    ${infosHtml}
+  </div>`
+
+  return {
+    html, waypoints: [], geometry: null, stageLabel, villageWaypoints: [], sourceFileId: null,
+    statsHtml: '', pausesHtml: '', timelineHtml: '', infosHtml,
+  }
+}
+
+/** OFF Résumé (CDC Jalon B4.4 section 24) — day type + known location, reusing the same auto-fill as the Voyage day card (`day-location-fill.ts`), never a second, divergent resolution. */
+function renderOffSummary(bundle: TripBundle, day: TripDay): string {
+  const location = resolveOffLocation(bundle, day)
+  return `<section class="card day-detail__summary" data-day-detail-summary>
+    <p class="eyebrow">Résumé</p>
+    <p>${location.name === null ? 'Lieu inconnu.' : escapeHtml(location.name)}</p>
+  </section>`
+}
+
+/** Transfer Résumé (CDC Jalon B4.4 sections 22/24) — origin → destination, plus the transfer's own moment when it isn't the default "journée dédiée" (CDC section 22's `transferTiming`, edited from the trip editor). */
+function renderTransferSummary(bundle: TripBundle, day: TripDay): string {
+  const { origin, destination } = resolveTransferLocations(bundle, day)
+  const route = origin === null && destination === null ? 'Origine/destination inconnues.' : `${escapeHtml(origin ?? '—')} → ${escapeHtml(destination ?? '—')}`
+  return `<section class="card day-detail__summary" data-day-detail-summary>
+    <p class="eyebrow">Résumé</p>
+    <p>${route}</p>
+    <p class="day-detail__summary-timing">${escapeHtml(transferTimingLabel(day.transferTiming))}</p>
+  </section>`
+}
+
+function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number], options: DayDetailOptions): DayDetail | null {
+  if (day.stageId === null) return null
   const stage = bundle.stages.find((candidate) => candidate.id === day.stageId)
   if (stage === undefined) return null
   const route = bundle.routes.find((candidate) => candidate.id === stage.sourceRouteId)
@@ -392,7 +517,7 @@ export function buildDayDetail(bundle: TripBundle, dayId: TripDayId, options: Da
   const geometry = routeGeometry(route)
   const filters = options.filters ?? DEFAULT_FILTERS
 
-  const daySettings = bundle.settings.days.find((candidate) => candidate.dayId === dayId)
+  const daySettings = bundle.settings.days.find((candidate) => candidate.dayId === day.id)
   const settings = { referenceSpeedKph: bundle.settings.global.referenceSpeedKph, departureTime: daySettings?.departureTime ?? '08:00' }
   const stageSettings = bundle.settings.stages.find((candidate) => candidate.stageId === stage.id)
   const pauseResolution = resolveStagePauseSettings(bundle.settings.global.pausePlanMode, stageSettings)
@@ -435,12 +560,14 @@ export function buildDayDetail(bundle: TripBundle, dayId: TripDayId, options: Da
   const infosHtml = renderInfosPanel(day, accommodation)
 
   const html = `<div class="day-detail" data-day-detail>
-    <header class="day-detail__sticky-identity" data-day-detail-identity><span class="eyebrow">Détail de l’étape</span><strong>${identityParts.join(' · ')}</strong></header>
-    <nav class="day-detail__sticky-nav" data-day-detail-nav aria-label="Navigation de l’étape">
-      <button class="button button--quiet" type="button" data-action="back-to-trip-detail">← Retour</button>
-      <button class="button button--quiet" type="button" data-action="previous-day" aria-label="Étape précédente">‹</button>
-      <button class="button button--quiet" type="button" data-action="next-day" aria-label="Étape suivante">›</button>
-    </nav>
+    <div class="day-detail__sticky-header" data-day-detail-sticky-header>
+      <header class="day-detail__sticky-identity" data-day-detail-identity><span class="eyebrow">Détail de l’étape</span><strong>${identityParts.join(' · ')}</strong></header>
+      <nav class="day-detail__sticky-nav" data-day-detail-nav aria-label="Navigation de l’étape">
+        <button class="button button--quiet" type="button" data-action="back-to-trip-detail">← Retour</button>
+        <button class="button button--quiet" type="button" data-action="previous-day" aria-label="Étape précédente">‹</button>
+        <button class="button button--quiet" type="button" data-action="next-day" aria-label="Étape suivante">›</button>
+      </nav>
+    </div>
     ${statsHtml}
     <nav class="day-tabs" role="tablist" aria-label="Sections de l’étape" data-day-detail-tabs>
       <button id="day-tab-route" type="button" role="tab" data-day-tab="route" aria-controls="day-panel-route" aria-selected="true" tabindex="0">Parcours</button>

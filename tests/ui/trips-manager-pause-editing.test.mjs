@@ -78,7 +78,7 @@ function fakeActionElement(dataset) {
   return element
 }
 
-/** A fake `.pause-editor__row` good enough for the `save-manual-pauses` handler, which reads `row.dataset.candidateId` plus its own checkbox/duration inputs via `row.querySelector(...)`. */
+/** A fake `.day-pause-editor__row` good enough for the `save-manual-pauses` handler, which reads `row.dataset.candidateId` plus its own checkbox/duration inputs via `row.querySelector(...)`. */
 function fakePauseRow(candidateId, { checked, durationMinutes } = {}) {
   const checkbox = { checked: checked ?? false }
   const durationInput = { valueAsNumber: durationMinutes ?? Number.NaN }
@@ -151,7 +151,7 @@ test('saving the manual pause editor patches only the pauses/stats/timeline subt
     container.register('[data-day-detail-pauses]', pausesElement)
     container.register('[data-day-detail-stats]', fakeSubElement())
     container.register('[data-day-detail-timeline]', fakeSubElement())
-    container.register('.pause-editor__row', [fakePauseRow('town-ui', { checked: true, durationMinutes: 20 })])
+    container.register('.day-pause-editor__row', [fakePauseRow('town-ui', { checked: true, durationMinutes: 20 })])
 
     initializeTripsManager(container, noopDeps(db))
     await flush()
@@ -195,7 +195,7 @@ test('an unchecked row is never saved as a pause — only checked candidates sur
     container.register('[data-day-detail-pauses]', pausesElement)
     container.register('[data-day-detail-stats]', fakeSubElement())
     container.register('[data-day-detail-timeline]', fakeSubElement())
-    container.register('.pause-editor__row', [fakePauseRow('town-ui', { checked: false })])
+    container.register('.day-pause-editor__row', [fakePauseRow('town-ui', { checked: false })])
 
     initializeTripsManager(container, noopDeps(db))
     await flush()

@@ -2,16 +2,22 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { buildDayDetail } from '../../src/ui/trips/day-detail-view.ts'
+import { isSignificantWaypoint } from '../../src/analysis/canonical-waypoints.ts'
 import { createGenericTripBundle } from '../trip-core/support/generic-trip-fixture.mjs'
 
-test('returns null for an OFF day (no stage)', () => {
+// CDC Jalon B4.4 sections 23-24: OFF/transfer days used to have no Étape
+// screen at all (`buildDayDetail` returned `null`). They now build the
+// lighter OFF/transfer shell instead — see the dedicated tests further down
+// ("an OFF day now builds a real detail shell…" / "a transfer day builds a
+// real detail shell…") for the shape of that shell.
+test('an OFF day (no stage) still resolves — not null any more', () => {
   const bundle = createGenericTripBundle()
-  assert.equal(buildDayDetail(bundle, 'day-bravo'), null)
+  assert.notEqual(buildDayDetail(bundle, 'day-bravo'), null)
 })
 
-test('returns null for a transfer day (no stage)', () => {
+test('a transfer day (no stage) still resolves — not null any more', () => {
   const bundle = createGenericTripBundle()
-  assert.equal(buildDayDetail(bundle, 'day-charlie'), null)
+  assert.notEqual(buildDayDetail(bundle, 'day-charlie'), null)
 })
 
 test('returns null for an unknown day id', () => {
@@ -152,15 +158,27 @@ test('Parcours is a single flat chronological list — no grouped waypoint secti
   assert.match(detail.timelineHtml, /Départ|Arrivée/, 'départ/arrivée always show, regardless of what else is filtered out')
 })
 
-test('a city/town/village without a pause is never shown in normal view — no toggle brings it back (CDC Jalon B4.3 sections 26/28/29)', () => {
+test('a city/town/village without a pause is never shown in the Parcours timeline, map, or profile waypoint set — no toggle brings it back (CDC Jalon B4.3 sections 26/28/29, B4.4 sections 5-6/32)', () => {
   const bundle = pushVillageAndTown(createGenericTripBundle())
   const detail = buildDayDetail(bundle, 'day-alpha')
-  assert.doesNotMatch(detail.html, /Micro Village/)
-  assert.doesNotMatch(detail.html, /Grand Bourg/)
+  // Scoped to the timeline fragment specifically — never the whole
+  // `detail.html`, which also carries the manual pause editor's candidate
+  // list (CDC section 31/40: a deliberately WIDER, separate need that always
+  // proposes city/town/village to anchor a *new* pause on, section 11).
+  assert.doesNotMatch(detail.timelineHtml, /Micro Village/)
+  assert.doesNotMatch(detail.timelineHtml, /Grand Bourg/)
+  // Same policy on the map/profile waypoint set (CDC B4.4 section 32: one
+  // shared significance policy, never a second filter).
+  assert.ok(!detail.waypoints.some((waypoint) => isSignificantWaypoint(waypoint) && waypoint.name === 'Micro Village'))
+  assert.ok(!detail.waypoints.some((waypoint) => isSignificantWaypoint(waypoint) && waypoint.name === 'Grand Bourg'))
   // No filter of any kind changes that — there is no Villages toggle any more.
   const withSecondaryClimbsOn = buildDayDetail(bundle, 'day-alpha', { filters: { showSecondaryClimbs: true } })
-  assert.doesNotMatch(withSecondaryClimbsOn.html, /Micro Village/)
-  assert.doesNotMatch(withSecondaryClimbsOn.html, /Grand Bourg/)
+  assert.doesNotMatch(withSecondaryClimbsOn.timelineHtml, /Micro Village/)
+  assert.doesNotMatch(withSecondaryClimbsOn.timelineHtml, /Grand Bourg/)
+  // They DO still show, unchecked, as pause candidates — a separate list
+  // this policy must never suppress (CDC section 40).
+  assert.match(detail.pausesHtml, /Micro Village/)
+  assert.match(detail.pausesHtml, /Grand Bourg/)
 })
 
 test('"Ville" is the label used for city/town — never "Localité" (CDC Jalon B4.3 section 26/41)', () => {
@@ -232,7 +250,7 @@ test('the Étape screen is a real ARIA tablist with Parcours/Météo/Infos panel
 test('the Météo tab shows an honest placeholder — no fake temperature/rain/alert/refresh', () => {
   const bundle = createGenericTripBundle()
   const detail = buildDayDetail(bundle, 'day-alpha')
-  assert.match(detail.html, /Les données météo ne sont pas encore disponibles pour ce voyage\./)
+  assert.match(detail.html, /Météo non disponible pour le moment\./)
   assert.doesNotMatch(detail.html, /°C/)
   assert.doesNotMatch(detail.html, /data-weather-refresh/)
 })
@@ -304,4 +322,111 @@ test('a climb name is never rendered as "Montée sans nom : : 4.2 km" or any dou
   const detail = buildDayDetail(bundle, 'day-alpha')
   assert.doesNotMatch(detail.html, /::/)
   assert.doesNotMatch(detail.html, /sans nom/i)
+})
+
+// --- mountain-pass/saddle merged with a climb still get the mini-profile ---
+// (CDC Jalon B4.4 section 28: the bug was `waypoint.kind !== 'climb'`
+// gating the mini-card, so a named col merged with its detected climb
+// — `kind` stays `mountain-pass`/`saddle`, only `climbId` points at the
+// climb — fell back to a plain point with no profile at all.)
+
+function pushMergedCol(bundle, osmFeatureType) {
+  bundle.climbs.push({
+    id: 'climb-col-1', routeId: bundle.routes[0].id, name: 'Col de Test',
+    startDistanceKm: 10, endDistanceKm: 15, elevationGainM: 450,
+    averageGradientPercent: 9, maxGradientPercent: 13, startAltitudeM: 300, endAltitudeM: 750,
+    confidence: 'confirmed',
+    provenance: { sourceType: 'osm', sourceId: 'postpass:climb:1', fetchedAt: null, engineVersion: 'route-enrichment@4', confidence: 'high', manuallyOverridden: false },
+  })
+  bundle.stages[0].climbIds.push('climb-col-1')
+  bundle.routePoints.push({
+    id: 'col-landmark-1', routeId: bundle.routes[0].id, type: 'passage', name: 'Col de Test',
+    latitude: 45.25, longitude: 6.4, elevationM: 750, trackDistanceKm: 15,
+    osmFeatureType, lateralDistanceKm: 0.05,
+    provenance: { sourceType: 'osm', sourceId: 'postpass:col:1', fetchedAt: null, engineVersion: 'route-enrichment@4', confidence: 'high', manuallyOverridden: false },
+  })
+  bundle.stages[0].routePointIds.push('col-landmark-1')
+  return bundle
+}
+
+test('a mountain-pass landmark merged with its detected climb still gets the climb mini-profile card (CDC Jalon B4.4 section 28)', () => {
+  const bundle = pushMergedCol(createGenericTripBundle(), 'mountain-pass')
+  const detail = buildDayDetail(bundle, 'day-alpha')
+  const waypoint = detail.waypoints.find((candidate) => candidate.name === 'Col de Test')
+  assert.equal(waypoint.kind, 'mountain-pass')
+  assert.equal(waypoint.climbId, 'climb-col-1')
+  assert.match(detail.timelineHtml, /day-detail__climb-card" data-waypoint-id="col-landmark-1" data-waypoint-kind="mountain-pass"/)
+  assert.match(detail.timelineHtml, /data-action="toggle-climb-profile" data-climb-id="climb-col-1"/)
+  assert.match(detail.timelineHtml, /Col de Test/)
+  assert.match(detail.timelineHtml, /750 m/)
+  assert.match(detail.timelineHtml, /◆/, 'the col marker/icon is preserved, not swapped for the generic climb marker')
+})
+
+test('a saddle landmark merged with its detected climb also gets the climb mini-profile card (CDC Jalon B4.4 section 28)', () => {
+  const bundle = pushMergedCol(createGenericTripBundle(), 'saddle')
+  const detail = buildDayDetail(bundle, 'day-alpha')
+  const waypoint = detail.waypoints.find((candidate) => candidate.name === 'Col de Test')
+  assert.equal(waypoint.kind, 'saddle')
+  assert.equal(waypoint.climbId, 'climb-col-1')
+  assert.match(detail.timelineHtml, /day-detail__climb-card" data-waypoint-id="col-landmark-1" data-waypoint-kind="saddle"/)
+  assert.match(detail.timelineHtml, /data-action="toggle-climb-profile" data-climb-id="climb-col-1"/)
+})
+
+test('a mountain-pass landmark with no matching detected climb (climbId null) stays a simple point, never a climb mini-card', () => {
+  const bundle = createGenericTripBundle()
+  bundle.routePoints.push({
+    id: 'bare-pass', routeId: bundle.routes[0].id, type: 'passage', name: 'Col Isolé',
+    latitude: 45.22, longitude: 6.3, elevationM: 900, trackDistanceKm: 20,
+    osmFeatureType: 'mountain-pass', lateralDistanceKm: 0.05,
+    provenance: { sourceType: 'osm', sourceId: 'postpass:pass:1', fetchedAt: null, engineVersion: 'route-enrichment@4', confidence: 'high', manuallyOverridden: false },
+  })
+  bundle.stages[0].routePointIds.push('bare-pass')
+  const detail = buildDayDetail(bundle, 'day-alpha')
+  const waypoint = detail.waypoints.find((candidate) => candidate.id === 'bare-pass')
+  assert.equal(waypoint.climbId, null)
+  assert.doesNotMatch(detail.timelineHtml, /day-detail__climb-card/)
+  assert.match(detail.timelineHtml, /Col Isolé/)
+})
+
+// --- OFF/transfer detail shell (CDC Jalon B4.4 sections 23-24/38): every
+// day type is now openable — no more `null` for OFF/transfer. ---------------
+
+test('an OFF day now builds a real detail shell — Résumé + Météo/Infos, no Parcours tab, no fake map/profile', () => {
+  const bundle = createGenericTripBundle()
+  const detail = buildDayDetail(bundle, 'day-bravo')
+  assert.ok(detail !== null, 'OFF days must be openable now (CDC Jalon B4.4 section 13)')
+  assert.equal(detail.waypoints.length, 0)
+  assert.equal(detail.geometry, null)
+  assert.doesNotMatch(detail.html, /data-day-detail-map/, 'never a fake cycling map for a day with no route')
+  assert.doesNotMatch(detail.html, /data-day-detail-profile/, 'never a fake elevation profile')
+  assert.doesNotMatch(detail.html, /data-day-tab="route"/, 'no Parcours tab at all')
+  assert.match(detail.html, /Journée OFF/)
+  assert.match(detail.html, /Hilltown/, 'the OFF day\'s known/auto-filled location shows in the Résumé')
+  assert.match(detail.html, /Météo non disponible pour le moment\./)
+  assert.match(detail.html, /data-action="edit-day-infos">Modifier/, 'Infos is the same read/edit component as a ride day')
+})
+
+test('a transfer day builds a real detail shell — origin → destination and its transferTiming (CDC Jalon B4.4 sections 22/24)', () => {
+  const bundle = createGenericTripBundle()
+  bundle.days[2].transferTiming = 'after_previous'
+  const detail = buildDayDetail(bundle, 'day-charlie')
+  assert.ok(detail !== null)
+  assert.equal(detail.geometry, null)
+  assert.doesNotMatch(detail.html, /data-day-tab="route"/)
+  assert.match(detail.html, /Transfert/)
+  assert.match(detail.html, /Hilltown → Lakeside/)
+  assert.match(detail.html, /Après l’étape précédente/)
+})
+
+test('a transfer day with no explicit transferTiming shows the "journée dédiée" default', () => {
+  const bundle = createGenericTripBundle()
+  const detail = buildDayDetail(bundle, 'day-charlie')
+  assert.match(detail.html, /Journée dédiée/)
+})
+
+test('every day type resolves through buildDayDetail — the precondition for a previous/next nav that traverses the whole trip chronology (CDC Jalon B4.4 section 25; the click-driven traversal itself lives in trips-manager.ts, not covered here)', () => {
+  const bundle = createGenericTripBundle()
+  for (const dayId of ['day-alpha', 'day-bravo', 'day-charlie', 'day-delta']) {
+    assert.ok(buildDayDetail(bundle, dayId) !== null, `${dayId} must be openable`)
+  }
 })

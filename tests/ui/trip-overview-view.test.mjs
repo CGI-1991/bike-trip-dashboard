@@ -50,6 +50,35 @@ test('buildTripOverview renders the trip name and dates', () => {
   assert.match(overview.html, /2027-05-10 → 2027-05-13/)
 })
 
+// --- visual hierarchy: Voyage vs Aujourd'hui/Prochaine étape (CDC Jalon B4.4 sections 14/34) ---
+
+test('Aperçu distinguishes a "Voyage" zone (stats + map) from a "Prochaine étape" zone (the highlighted day)', () => {
+  const bundle = createGenericTripBundle()
+  const overview = buildTripOverview(bundle, '2027-05-01')
+  const voyageZoneIndex = overview.html.indexOf('data-trip-overview-zone="trip"')
+  const voyageEyebrowIndex = overview.html.indexOf('>Voyage<')
+  const statsIndex = overview.html.indexOf('data-trip-overview-progress')
+  const mapIndex = overview.html.indexOf('data-trip-overview-map')
+  const nextZoneIndex = overview.html.indexOf('data-trip-overview-zone="next"')
+  const nextEyebrowIndex = overview.html.indexOf('>Prochaine étape<')
+  const dayIndex = overview.html.indexOf('trip-overview__highlighted-day')
+  assert.ok(voyageZoneIndex >= 0 && nextZoneIndex >= 0, 'both zones are present')
+  assert.ok(voyageZoneIndex < voyageEyebrowIndex && voyageEyebrowIndex < statsIndex && statsIndex < mapIndex, 'the Voyage zone wraps stats + map, eyebrow first')
+  assert.ok(mapIndex < nextZoneIndex && nextZoneIndex < nextEyebrowIndex && nextEyebrowIndex < dayIndex, 'the next-step zone starts only after the Voyage zone, eyebrow before the day card')
+})
+
+test('Aperçu labels the highlighted day "Aujourd’hui" when it is today, "Prochaine étape" otherwise', () => {
+  const bundle = createGenericTripBundle()
+  assert.match(buildTripOverview(bundle, '2027-05-10').html, />Aujourd’hui</)
+  assert.match(buildTripOverview(bundle, '2027-05-01').html, />Prochaine étape</)
+})
+
+test('Aperçu renders no "next step" zone at all once the trip is entirely in the past (nothing to highlight)', () => {
+  const bundle = createGenericTripBundle()
+  const overview = buildTripOverview(bundle, '2028-01-01')
+  assert.doesNotMatch(overview.html, /data-trip-overview-zone="next"/)
+})
+
 test('buildTripOverview shows all 12 requested progress metrics (CDC Jalon B4.3 section 6)', () => {
   const bundle = createGenericTripBundle()
   const overview = buildTripOverview(bundle, '2027-05-01')
@@ -59,7 +88,11 @@ test('buildTripOverview shows all 12 requested progress metrics (CDC Jalon B4.3 
     'D− total', 'D− parcouru', 'D− restant',
     'Étapes roulées terminées', 'Étapes roulées restantes', 'Journées OFF',
   ]) {
-    assert.match(overview.html, new RegExp(`<dt>${label}</dt>`), `missing metric: ${label}`)
+    // `label` can contain regex-special characters ("D+ total") — escaped
+    // here (pre-existing bug fixed incidentally: an unescaped "+" is a
+    // quantifier, not a literal plus, so this assertion silently never
+    // matched the D+/D− metrics at all).
+    assert.match(overview.html, new RegExp(`<dt>${label.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&')}</dt>`), `missing metric: ${label}`)
   }
   // Before the trip starts (today before every ride day), nothing is done yet.
   assert.match(overview.html, /<dt>Distance parcourue<\/dt><dd>0,0 km<\/dd>/)
@@ -86,12 +119,12 @@ test('buildTripOverview shows the highlighted ride day with a clickable card and
   assert.doesNotMatch(overview.html, /°C/)
 })
 
-test('buildTripOverview shows the highlighted OFF day with no click action (no Étape view for OFF days)', () => {
+test('buildTripOverview shows the highlighted OFF day as a clickable card too — OFF days now have their own Journée shell (CDC Jalon B4.4 sections 23/35)', () => {
   const bundle = createGenericTripBundle()
   const overview = buildTripOverview(bundle, '2027-05-11')
   assert.equal(overview.highlightedDayId, 'day-bravo')
   assert.match(overview.html, /J2 — OFF — 11 Mai/)
-  assert.doesNotMatch(overview.html, /data-action="open-day-detail" data-day-id="day-bravo"/)
+  assert.match(overview.html, /data-action="open-day-detail" data-day-id="day-bravo"/)
 })
 
 test('after the trip, no highlighted-day section renders at all', () => {

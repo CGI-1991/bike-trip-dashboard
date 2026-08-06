@@ -5,7 +5,7 @@ import { checkChainContinuity, detectStrictDuplicates, editGpxTrip, loadTripEdit
 import type { GpxPreAnalysis, TripEditSlot } from '../../trips-manager/index.ts'
 import { createTripRepository } from '../../storage/indexeddb/trip-repository.ts'
 import { nearestNextRideStage, nearestPreviousRideStage } from '../../analysis/day-location-fill.ts'
-import type { SourceFileId, TripBundle, TripDayId, TripId } from '../../trip-core/index.ts'
+import type { SourceFileId, TransferTiming, TripBundle, TripDayId, TripId } from '../../trip-core/index.ts'
 import type { TripsManagerDeps } from './trips-manager.ts'
 
 type EditorItem =
@@ -22,7 +22,15 @@ type EditorItem =
       readonly kind: 'off' | 'transfer'
       readonly existingDayId: TripDayId | null
       readonly notes: string | null
+      /** Only meaningful for `kind === 'transfer'` (CDC Jalon B4.4 section 22). */
+      readonly transferTiming?: TransferTiming
     }
+
+const TRANSFER_TIMING_LABELS: Readonly<Record<TransferTiming, string>> = {
+  dedicated: 'Journée dédiée',
+  after_previous: 'Après l’étape précédente',
+  before_next: 'Avant l’étape suivante',
+}
 
 type EditorStage = 'loading' | 'editing' | 'saving'
 
@@ -157,6 +165,16 @@ export function createTripEditor(
     render()
   }
 
+  /** CDC Jalon B4.4 section 22 — the only UI that lets the user actually pick a transfer's `transferTiming`; a no-op for any other item kind. */
+  function setItemTransferTiming(position: number, timing: TransferTiming): void {
+    const target = items[position]
+    if (target === undefined || target.kind !== 'transfer') return
+    const next = [...items]
+    next[position] = { ...target, transferTiming: timing }
+    items = next
+    render()
+  }
+
   async function save(): Promise<void> {
     if (!canSave()) return
     stage = 'saving'
@@ -165,7 +183,9 @@ export function createTripEditor(
     const slots: TripEditSlot[] = items.map((item) =>
       item.kind === 'ride'
         ? { kind: 'ride', existingDayId: item.existingDayId, existingSourceFileId: item.existingSourceFileId, file: item.file }
-        : { kind: item.kind, existingDayId: item.existingDayId, notes: item.notes },
+        : item.kind === 'transfer'
+          ? { kind: 'transfer', existingDayId: item.existingDayId, notes: item.notes, transferTiming: item.transferTiming }
+          : { kind: item.kind, existingDayId: item.existingDayId, notes: item.notes },
     )
     const result = await editGpxTrip({ database: deps.database, tripId, slots, idFactory: deps.idFactory, now: deps.now })
     if (result.ok) {
@@ -223,19 +243,33 @@ export function createTripEditor(
     return `<p class='wizard-structure__autofill'>${escapeHtml(origin ?? '—')} → ${escapeHtml(destination ?? '—')} (auto)</p>`
   }
 
+  /** CDC Jalon B4.4 section 22 — the only UI that lets the user actually pick a transfer's `transferTiming`. Takes the off/transfer `EditorItem` variant (same `Extract` shape `renderAutoFillPreview` already uses) — `transferTiming` is optional on it, so this only ever gets called for an actual `'transfer'` row. */
+  function renderTransferTimingSelect(item: Extract<EditorItem, { readonly kind: 'off' | 'transfer' }>, position: number): string {
+    const current = item.transferTiming ?? 'dedicated'
+    const options = (Object.keys(TRANSFER_TIMING_LABELS) as TransferTiming[])
+      .map((value) => `<option value='${value}' ${value === current ? 'selected' : ''}>${TRANSFER_TIMING_LABELS[value]}</option>`)
+      .join('')
+    return `<label class='wizard-structure__timing'>Moment<select data-editor-action='set-transfer-timing' data-position='${position}'>${options}</select></label>`
+  }
+
   function renderItem(item: EditorItem, position: number): string {
     const moveControls = renderMoveControls(position)
     const insertControls = renderInsertControls(position)
     if (item.kind !== 'ride') {
       const label = item.kind === 'off' ? 'OFF' : 'Transfert'
-      return `<li class='wizard-structure__row wizard-structure__row--${item.kind}'><span class='tag tag--off'>${label}</span>${renderAutoFillPreview(item)}${moveControls}<button class='button button--quiet' type='button' data-editor-action='remove' data-position='${position}'>Retirer</button></li>${insertControls}`
+      const timingControl = item.kind === 'transfer' ? renderTransferTimingSelect(item, position) : ''
+      return `<li class='wizard-structure__row wizard-structure__row--${item.kind}'><span class='tag tag--off'>${label}</span>${renderAutoFillPreview(item)}${timingControl}${moveControls}<button class='button button--quiet' type='button' data-editor-action='remove' data-position='${position}'>Retirer</button></li>${insertControls}`
     }
 
     const analysis = item.preAnalysis
     const metrics = analysis?.status === 'valid'
       ? `<dl class='wizard-file__metrics'><div><dt>Distance</dt><dd>${(analysis.distanceKm ?? 0).toFixed(1)} km</dd></div><div><dt>D+</dt><dd>+${Math.round(analysis.elevationGainM ?? 0)} m</dd></div><div><dt>D−</dt><dd>−${Math.round(analysis.elevationLossM ?? 0)} m</dd></div></dl>`
       : `<p class='wizard-file__error'>${analysis === null ? 'Analyse…' : escapeHtml(analysis.errorMessage ?? 'Fichier invalide.')}</p>`
-    return `<li class='wizard-structure__row wizard-file'><span class='tag tag--ride'>Étape</span><strong>${escapeHtml(item.file.name)}</strong>${metrics}${moveControls}<label class='button button--quiet'>Remplacer<input type='file' accept='.gpx' data-editor-field='replace' data-position='${position}'></label><button class='button button--quiet' type='button' data-editor-action='remove' data-position='${position}'>Retirer</button></li>${insertControls}`
+    // CDC Jalon B4.4 section 18: a real button proxies a visually-hidden
+    // per-row `<input type="file">` — never the native file control exposed
+    // directly (the old `<label class="button">Remplacer<input …></label>`
+    // pattern let the browser's own file-input UI show through the label).
+    return `<li class='wizard-structure__row wizard-file'><span class='tag tag--ride'>Étape</span><strong>${escapeHtml(item.file.name)}</strong>${metrics}${moveControls}<button class='button button--quiet' type='button' data-editor-action='trigger-replace' data-position='${position}'>Remplacer</button><input type='file' accept='.gpx' class='visually-hidden' data-editor-field='replace' data-position='${position}' tabindex='-1' aria-hidden='true'><button class='button button--quiet' type='button' data-editor-action='remove' data-position='${position}'>Retirer</button></li>${insertControls}`
   }
 
   function renderWarnings(): string {
@@ -262,14 +296,14 @@ export function createTripEditor(
           : null
     container.innerHTML = `<div class='wizard' data-trip-editor>
       <header class='view-heading'><p class='eyebrow'>Mes voyages</p><h2>Modifier ${escapeHtml(tripName)}</h2></header>
-      <section class='card trip-settings__section'>
-        <p class='eyebrow'>Réglages du voyage</p>
+      <button class='button button--quiet' type='button' data-editor-action='trigger-add'>+ Ajouter des GPX</button>
+      <input id='editor-add-files' class='visually-hidden' type='file' accept='.gpx' multiple data-editor-field='add' tabindex='-1' aria-hidden='true'>
+      <ul class='wizard-structure__list'>${items.map(renderItem).join('')}</ul>
+      ${renderWarnings()}
+      <details class='wizard-advanced'><summary>Réglages avancés</summary>
         <div class='field'><label for='editor-reference-speed'>Vitesse de référence</label><div class='field__control'><input id='editor-reference-speed' type='number' min='8' max='40' step='0.5' data-editor-field='reference-speed' value='${referenceSpeedKph}'><span>km/h</span></div></div>
         <label class='trip-settings__toggle'><input type='checkbox' data-editor-field='mountain-mode' ${mountainMode ? 'checked' : ''}> Mode montagne (voyage alpin)</label>
-      </section>
-      <div class='field'><label for='editor-add-files'>Ajouter des GPX</label><div class='field__control'><input id='editor-add-files' type='file' accept='.gpx' multiple data-editor-field='add'></div></div>
-      <section class='wizard-structure'><h3>Structure du voyage</h3><ul class='wizard-structure__list'>${items.map(renderItem).join('')}</ul></section>
-      ${renderWarnings()}
+      </details>
       ${errorMessage === null ? '' : `<p class='wizard-error' role='alert'>${escapeHtml(errorMessage)}</p>`}
       ${stage === 'saving' ? `<p role='status'>Recalcul et enregistrement atomique…</p>` : ''}
       <footer class='wizard-actions'><button class='button button--primary' type='button' data-editor-action='save' ${canSave() ? '' : 'disabled'}>Enregistrer les modifications</button><button class='button button--quiet' type='button' data-editor-action='cancel' ${stage === 'saving' ? 'disabled' : ''}>Annuler</button></footer>
@@ -295,6 +329,7 @@ export function createTripEditor(
       const analyses = await preAnalyzeGpxFiles(files)
       let rideIndex = 0
       items = draft.slots.map((slot) => {
+        if (slot.kind === 'transfer') return { key: nextKey(), kind: 'transfer', existingDayId: slot.existingDayId, notes: slot.notes ?? null, transferTiming: slot.transferTiming }
         if (slot.kind !== 'ride') return { key: nextKey(), kind: slot.kind, existingDayId: slot.existingDayId, notes: slot.notes ?? null }
         const item: EditorItem = { key: nextKey(), ...slot, preAnalysis: analyses[rideIndex] ?? null }
         rideIndex++
@@ -311,6 +346,10 @@ export function createTripEditor(
 
   container.addEventListener('change', (event) => {
     const target = event.target
+    if (target instanceof HTMLSelectElement && target.dataset.editorAction === 'set-transfer-timing' && target.dataset.position !== undefined) {
+      setItemTransferTiming(Number(target.dataset.position), target.value as TransferTiming)
+      return
+    }
     if (!(target instanceof HTMLInputElement)) return
     if (target.dataset.editorField === 'mountain-mode') {
       mountainMode = target.checked
@@ -343,6 +382,11 @@ export function createTripEditor(
     if (button === null) return
     const action = button.dataset.editorAction
     const position = Number(button.dataset.position)
+    // CDC Jalon B4.4 sections 17-18: both file pickers are real buttons
+    // proxying their own visually-hidden `<input type="file">` — never the
+    // native control shown directly in the layout.
+    if (action === 'trigger-add') { container.querySelector<HTMLInputElement>('#editor-add-files')?.click(); return }
+    if (action === 'trigger-replace') { container.querySelector<HTMLInputElement>(`input[data-editor-field="replace"][data-position="${position}"]`)?.click(); return }
     if (action === 'move-up') move(position, -1)
     else if (action === 'move-down') move(position, 1)
     else if (action === 'insert-off') insertAfter(position, 'off')

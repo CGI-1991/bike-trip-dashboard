@@ -2984,6 +2984,9 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .wizard-structure__move .button, .wizard-structure__row .button { min-height: 36px; padding: 0 10px; }
 .wizard-structure__insert { display: flex; gap: 6px; padding-left: 8px; }
 .wizard-structure__insert .button { min-height: 32px; font-size: .72rem; padding: 0 8px; }
+/* Transfer's `transferTiming` picker (CDC Jalon B4.4 section 22). */
+.wizard-structure__timing { display: flex; align-items: center; gap: 6px; font-size: .8rem; color: var(--ink-soft); }
+.wizard-structure__timing select { min-height: 36px; padding: 2px 6px; border: 1px solid var(--line-strong); border-radius: 8px; }
 .wizard-loop-choice { padding: 10px; background: var(--warning-bg); border: 1px solid var(--warning-border); border-radius: 9px; color: var(--warning-text); }
 .wizard-alerts { display: grid; gap: 6px; }
 .wizard-alert { padding: 8px 10px; background: var(--warning-bg); border: 1px solid var(--warning-border); border-radius: 8px; color: var(--warning-text); font-size: .85rem; }
@@ -3005,8 +3008,6 @@ button:disabled { cursor: not-allowed; opacity: .55; }
  * `.eyebrow`/`.tag` are all reused as-is, not redefined here.
  */
 .day-detail { display: grid; gap: 14px; padding: 14px max(14px, env(safe-area-inset-right)) 90px max(14px, env(safe-area-inset-left)); }
-.day-detail__sticky-nav { position: sticky; top: 0; z-index: 2; display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; background: var(--surface-muted, #edf1ec); }
-.day-detail__sticky-nav > div { display: flex; gap: 6px; }
 .day-detail__stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
 .day-detail__stats div { padding: 9px; background: var(--surface-muted); border-radius: 8px; }
 .day-detail__stats dt { color: var(--ink-soft); font-size: .72rem; }
@@ -3030,6 +3031,11 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .day-detail__climb-toggle-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .day-detail__climb-toggle-row--stats { color: var(--ink-soft); font-size: .82rem; font-variant-numeric: tabular-nums; }
 .day-detail__climb-profile { padding: 0 10px 12px; }
+/* CDC Jalon B4.4 sections 30-31: tall enough to actually read the climb's
+   shape (not a flat strip), with a real pointer/touch/keyboard tooltip —
+   `.elevation-profile__stage`/`.profile-tooltip`/`.profile-cursor` above are
+   the exact same classes the main elevation profile already uses. */
+.day-detail__climb-profile-shape { display: block; width: 100%; height: clamp(110px, 22vw, 160px); touch-action: pan-y; cursor: crosshair; outline-offset: 4px; }
 .day-detail__climb-profile-bar { display: flex; height: 26px; border-radius: 6px; overflow: hidden; }
 .day-detail__climb-profile-segment { display: block; height: 100%; }
 .day-detail__climb-profile-scale { display: flex; justify-content: space-between; margin-top: 4px; color: var(--ink-soft); font-size: .72rem; }
@@ -3069,6 +3075,18 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 
 /* Aperçu (sections 5-8): stats → map → highlighted day, in that order. */
 .trip-overview__dates { color: var(--ink-soft); margin-top: -6px; }
+
+/*
+ * CDC Jalon B4.4 sections 14/34: two visually hierarchised zones — VOYAGE
+ * (progress + global map) then AUJOURD'HUI/PROCHAINE ÉTAPE (the highlighted
+ * day) — an eyebrow + spacing + accent border each, never a heavy extra
+ * title. Kept sober (RGA reference): no card-in-card nesting, no duplicate
+ * borders around content that already has its own `.card`.
+ */
+.trip-overview__zone { display: grid; gap: 10px; padding-top: 14px; border-top: 1px solid var(--line); }
+.trip-overview__zone-eyebrow { margin: 0; }
+.trip-overview__zone--next { border-top-color: var(--forest-700); }
+.trip-overview__zone--next .trip-overview__zone-eyebrow { color: var(--forest-800); font-weight: 800; }
 .trip-overview__progress-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin-top: 10px; }
 .trip-overview__progress-grid div { padding: 9px; background: var(--surface-muted); border-radius: 8px; }
 .trip-overview__progress-grid dt { color: var(--ink-soft); font-size: .68rem; }
@@ -3100,28 +3118,61 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .trip-day-card--transfer { background: #f5efe6; border-left: 4px solid #a3794f; }
 .tag--transfer { color: #6a4c2e; background: #f0e2d1; }
 
-/* Étape sticky composition (sections 24-25): identity → nav → tabs, each
-   sticky, stacked in that order. Heights are approximate/content-driven —
-   real devices may need the custom properties below nudged after a visual
-   pass this environment cannot perform (no browser available). */
-:root { --day-sticky-identity-h: 40px; --day-sticky-nav-h: 48px; }
-.day-detail__sticky-identity { position: sticky; top: 0; z-index: 5; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-height: var(--day-sticky-identity-h); padding: 6px max(10px, env(safe-area-inset-right)) 6px max(10px, env(safe-area-inset-left)); background: var(--surface); border-bottom: 1px solid var(--line); }
+/*
+ * Étape/Journée sticky composition (CDC Jalon B4.4 sections 12-13):
+ * identity+nav share ONE real sticky wrapper (`.day-detail__sticky-header`)
+ * — its height is whatever it naturally needs (a one- or two-line identity,
+ * any locale/font), never guessed. The tabbar sticks right under it, at
+ * `--day-sticky-header-h`: a CSS custom property kept in sync with that
+ * wrapper's real, live-measured height by `sticky-header-offset.ts`
+ * (`ResizeObserver`-based) — replaces the previous fixed-px
+ * `--day-sticky-identity-h: 40px`/`--day-sticky-nav-h: 48px` guesses, which
+ * broke as soon as the identity line wrapped to two rows. The `0px` fallback
+ * only matters before the observer's first synchronous measurement, or in
+ * an environment with no real layout (tests) — `--day-sticky-header-h`
+ * itself is always set at mount time regardless of `ResizeObserver`
+ * availability.
+ */
+.day-detail__sticky-header { position: sticky; top: 0; z-index: 5; background: var(--surface); }
+.day-detail__sticky-identity { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; padding: 6px max(10px, env(safe-area-inset-right)) 6px max(10px, env(safe-area-inset-left)); border-bottom: 1px solid var(--line); }
 .day-detail__sticky-identity .eyebrow { margin: 0; }
-.day-detail__sticky-nav { position: sticky; top: var(--day-sticky-identity-h); z-index: 4; background: var(--surface-muted, #edf1ec); }
-.day-tabs[data-day-detail-tabs] { position: sticky; top: calc(var(--day-sticky-identity-h) + var(--day-sticky-nav-h)); z-index: 3; }
+.day-detail__sticky-nav { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; background: var(--surface-muted, #edf1ec); }
+.day-detail__sticky-nav > div { display: flex; gap: 6px; }
+.day-tabs[data-day-detail-tabs] { position: sticky; top: var(--day-sticky-header-h, 0px); z-index: 3; }
 
-/* Arrêts (sections 30-32): compact status line + native `<details>` panel — one row per candidate, never a card/select/input in normal consultation. */
+.day-detail__summary { display: grid; gap: 4px; }
+.day-detail__summary-timing { color: var(--ink-soft); font-size: .85rem; }
+
+/*
+ * Arrêts (CDC Jalon B4.3 sections 30-32, B4.4 sections 7-10): compact status
+ * line + native `<details>` panel — one compact row per candidate, never a
+ * card/select/input in normal consultation. Namespaced `.day-pause-editor*`
+ * (CDC B4.4 section 7) — the legacy RGA `.pause-editor` dialog (still used by
+ * the historical Étape screen's pause modal, see the earlier `.pause-editor`
+ * rules above) imposes a fixed width/max-height/overflow-y/box-shadow that
+ * used to bleed onto this `<details>` panel purely because both reused the
+ * exact same class name: shadowed panel, odd width, a scrollbar nested
+ * inside the page's own scroll. A distinct namespace fixes that at the
+ * root — no override stacking. This panel deliberately sets no
+ * max-height/overflow of its own: it expands naturally in the page flow,
+ * the page itself keeps scrolling (CDC section 9: no modal, no nested
+ * scroll).
+ */
 .day-detail__pauses-status { color: var(--ink-soft); }
-.pause-editor { margin-top: 6px; }
-.pause-editor > summary { list-style: none; cursor: pointer; }
-.pause-editor > summary::-webkit-details-marker { display: none; }
-.pause-editor__list { display: grid; gap: 6px; margin-top: 10px; }
-.pause-editor__row { padding: 9px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; align-items: center; background: var(--surface-muted); border: 1px solid var(--line); border-radius: 8px; }
-.pause-editor__row-check { grid-column: 1; display: flex; align-items: center; gap: 8px; min-height: 44px; }
-.pause-editor__row-meta { grid-column: 1; color: var(--ink-soft); font-size: .78rem; }
-.pause-editor__row-duration { grid-column: 2; grid-row: 1 / span 2; display: flex; align-items: center; gap: 6px; }
-.pause-editor__row-duration input { width: 64px; min-height: 40px; padding: 4px 6px; border: 1px solid var(--line-strong); border-radius: 8px; }
-.pause-editor__actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.day-pause-editor { margin-top: 6px; }
+.day-pause-editor > summary { list-style: none; cursor: pointer; }
+.day-pause-editor > summary::-webkit-details-marker { display: none; }
+.day-pause-editor__list { display: grid; gap: 6px; margin-top: 10px; }
+.day-pause-editor__row { padding: 9px 11px; display: flex; flex-wrap: wrap; column-gap: 10px; row-gap: 2px; align-items: center; background: var(--surface-muted); border: 1px solid var(--line); border-radius: 8px; }
+.day-pause-editor__row-check { display: flex; align-items: center; gap: 8px; min-height: 44px; }
+.day-pause-editor__row-meta { color: var(--ink-soft); font-size: .78rem; flex: 1 1 auto; }
+.day-pause-editor__row-duration { display: flex; align-items: center; gap: 6px; }
+.day-pause-editor__row-duration input { width: 64px; min-height: 40px; padding: 4px 6px; border: 1px solid var(--line-strong); border-radius: 8px; }
+.day-pause-editor__actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+@media (min-width: 520px) {
+  /* Wide enough to read as one compact line (CDC B4.4 section 10): "☑ Morillon · Ville · 28,7 km · 10:08 · 15 min" — same markup, just laid out on one row instead of wrapping. */
+  .day-pause-editor__row { flex-wrap: nowrap; }
+}
 
 /* Infos read/edit toggle (sections 35-36). */
 .day-infos__read { display: grid; gap: 10px; }

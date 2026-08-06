@@ -17,6 +17,7 @@
 
 import type { DayStructureSlot } from '../../import/gpx/day-structure.ts'
 import type { GpxImportFile } from '../../import/gpx/types.ts'
+import type { TransferTiming } from '../../trip-core/index.ts'
 import {
   checkChainContinuity,
   detectSimilarTraces,
@@ -45,6 +46,8 @@ export interface StructureItem {
   readonly kind: DayStructureSlot['kind']
   readonly fileId?: FileEntryId
   readonly notes?: string | null
+  /** Only meaningful for `kind === 'transfer'` (CDC Jalon B4.4 section 22) — `undefined` means `'dedicated'`, exactly like `TripDay.transferTiming`. */
+  readonly transferTiming?: TransferTiming
 }
 
 export type WizardStage = 'editing' | 'submitting' | 'cancelled'
@@ -286,6 +289,15 @@ export function insertSlot(state: WizardState, afterPosition: number, kind: 'off
   state.structure = next
 }
 
+/** Sets a transfer row's own `transferTiming` (CDC Jalon B4.4 section 22) — a no-op for any other kind or an out-of-range position. */
+export function setTransferTiming(state: WizardState, position: number, timing: TransferTiming): void {
+  const target = state.structure[position]
+  if (target === undefined || target.kind !== 'transfer') return
+  const next = [...state.structure]
+  next[position] = { ...target, transferTiming: timing }
+  state.structure = next
+}
+
 export function removeSlot(state: WizardState, position: number): void {
   if (!Number.isInteger(position) || position < 0 || position >= state.structure.length) return
   const target = state.structure[position]
@@ -293,6 +305,27 @@ export function removeSlot(state: WizardState, position: number): void {
   const next = [...state.structure]
   next.splice(position, 1)
   state.structure = next
+}
+
+/**
+ * CDC Jalon B4.4 sections 19-20: the single unified timeline row's own
+ * "Retirer" action, whatever the row's kind — a ride row removes its own
+ * `FileEntry` (via `removeFileFromState`, which also drops the matching
+ * structure reference, exactly like removing a file from the old separate
+ * file list used to), an OFF/transfer row removes its slot (via
+ * `removeSlot`, unchanged — still never touches a `ride` item itself, which
+ * is why this function exists as the one entry point the unified row can
+ * call regardless of kind, rather than the row needing to know which of the
+ * two underlying removals applies).
+ */
+export function removeStructureItem(state: WizardState, position: number): void {
+  const target = state.structure[position]
+  if (target === undefined) return
+  if (target.kind === 'ride') {
+    if (target.fileId !== undefined) removeFileFromState(state, target.fileId)
+    return
+  }
+  removeSlot(state, position)
 }
 
 export function chooseFirstStage(state: WizardState, fileId: FileEntryId): void {

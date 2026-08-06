@@ -19,6 +19,7 @@ import type {
   RoutePoint,
   SourceFile,
   SourceFileId,
+  TransferTiming,
   TripBundle,
   TripDay,
   TripDayId,
@@ -46,6 +47,8 @@ export interface TripEditOffSlot extends RetainedSlotIdentity {
 export interface TripEditTransferSlot extends RetainedSlotIdentity {
   readonly kind: 'transfer'
   readonly notes?: string | null
+  /** CDC Jalon B4.4 section 22 — `undefined` means `'dedicated'`, exactly like `TripDay.transferTiming`. */
+  readonly transferTiming?: TransferTiming
 }
 
 export type TripEditSlot = TripEditRideSlot | TripEditOffSlot | TripEditTransferSlot
@@ -96,7 +99,11 @@ export async function loadTripEditDraft(database: IDBDatabase, tripId: TripId): 
   const slots: TripEditSlot[] = []
   for (const day of [...bundle.days].sort((left, right) => left.index - right.index)) {
     if (day.type !== 'ride') {
-      slots.push({ kind: day.type, existingDayId: day.id, notes: day.notes })
+      slots.push(
+        day.type === 'transfer'
+          ? { kind: 'transfer', existingDayId: day.id, notes: day.notes, transferTiming: day.transferTiming }
+          : { kind: day.type, existingDayId: day.id, notes: day.notes },
+      )
       continue
     }
 
@@ -368,7 +375,13 @@ export async function editGpxTrip(input: EditGpxTripInput): Promise<EditGpxTripR
     },
     idFactory: input.idFactory,
     now: input.now,
-    dayStructure: input.slots.map((slot) => (slot.kind === 'ride' ? { kind: 'ride' } : { kind: slot.kind, notes: slot.notes ?? null })),
+    dayStructure: input.slots.map((slot) =>
+      slot.kind === 'ride'
+        ? { kind: 'ride' }
+        : slot.kind === 'transfer'
+          ? { kind: 'transfer', notes: slot.notes ?? null, transferTiming: slot.transferTiming }
+          : { kind: slot.kind, notes: slot.notes ?? null },
+    ),
     onProgress: input.onProgress,
   })
 

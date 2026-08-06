@@ -18,16 +18,19 @@ import type {
   AccommodationId, IsoDate, RideStageId, RideStageSettings, RoutePointId, StagePauseSetting, TripBundle, TripDayId, TripId,
 } from '../../trip-core/index.ts'
 import { getActiveTripId } from '../../storage/indexeddb/active-trip.ts'
-import { selectMostRelevantTrip } from '../../trips-manager/active-trip-selection.ts'
+import { resolvePreferredActiveTripId } from '../../trips-manager/active-trip-selection.ts'
 import { deleteTripCompletely, listTripSummaries, setActiveTrip } from '../../trips-manager/trip-manager-actions.ts'
 import type { TripListEntry } from '../../trips-manager/trip-summary.ts'
 import { closeExpandedRouteMap, renderGenericRouteMap } from '../route-map.ts'
 import type { MapLayerDefinition } from '../route-map.ts'
 import { buildGenericOverviewRouteMapModel, buildGenericRouteMapModel } from '../route-map-model.ts'
-import { renderGenericElevationProfile } from '../elevation-profile.ts'
+import { mountClimbProfileInteraction, renderGenericElevationProfile } from '../elevation-profile.ts'
 import { downloadBlob } from '../gpx-share.ts'
 import { buildZipArchive } from '../zip-writer.ts'
 import type { ZipEntryInput } from '../zip-writer.ts'
+import { isSignificantWaypoint } from '../../analysis/canonical-waypoints.ts'
+import { observeStickyHeaderHeight } from '../sticky-header-offset.ts'
+import type { StickyHeaderObserverHandle } from '../sticky-header-offset.ts'
 import { buildDayDetail } from './day-detail-view.ts'
 import type { DayDetail } from './day-detail-view.ts'
 import { createImportWizard } from './import-wizard.ts'
@@ -80,12 +83,16 @@ type Mode =
   | { readonly kind: 'confirmation'; readonly result: ImportWizardResult }
 
 /**
- * Ride days only, in chronological order — the Étape sticky nav's ‹/›
- * (CDC section 13) navigates between them because only ride days have an
- * Étape screen at all; an OFF/transfer day has none to land on.
+ * Every day, in the trip's own structural order (CDC Jalon B4.4 section 25):
+ * the Étape/Journée sticky nav's ‹/› traverses the whole trip chronology now
+ * that OFF/transfer days have a shell to land on too (`day-detail-view.ts`),
+ * not just ride days. Sorting by `index` — never `date` — is what keeps a
+ * `transferTiming: 'after_previous' | 'before_next'` transfer (which shares
+ * its calendar date with a neighbouring ride day) in its correct structural
+ * position rather than colliding/reordering on that shared date.
  */
-function rideDayIds(bundle: TripBundle): readonly TripDayId[] {
-  return bundle.days.filter((day) => day.type === 'ride').sort((left, right) => left.index - right.index).map((day) => day.id)
+function openableDayIds(bundle: TripBundle): readonly TripDayId[] {
+  return bundle.days.slice().sort((left, right) => left.index - right.index).map((day) => day.id)
 }
 
 function escapeHtml(value: string): string {
@@ -220,6 +227,31 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     mountDayDetail(bundle, dayId)
   }
 
+  /**
+   * Single source of truth for "which waypoints actually show" (CDC Jalon
+   * B4.4 sections 5-6/32): the exact same `isSignificantWaypoint` policy the
+   * Parcours timeline and Aperçu already use — a village/town only earns its
+   * place once it carries a pause, whatever `visibleByDefault` says on its
+   * own. Before this fix, the map/profile filtered on `visibleByDefault`
+   * directly, which does NOT go through the pause-priority rule (CDC
+   * section 27) — a paused village showed on the Parcours list yet vanished
+   * from the map/profile right above it. Filtering the shared
+   * `detail.waypoints` array here (rather than reusing `detail.timelineHtml`,
+   * a string) keeps map/profile/timeline three views of one waypoint set,
+   * never three independent filters.
+   */
+  function getDisplayedStageWaypoints(detail: DayDetail, dayId: TripDayId): readonly import('../../analysis/canonical-waypoints.ts').CanonicalWaypoint[] {
+    return detail.waypoints.filter((waypoint) => isSignificantWaypoint(waypoint, getDayFilters(dayId)))
+  }
+
+  /** Live measured offset for the Étape tabbar (CDC Jalon B4.4 sections 12-13) — replaces the previous fixed-px `--day-sticky-identity-h`/`--day-sticky-nav-h` guesses, which broke as soon as the identity line wrapped to two rows. Re-created on every full mount; the previous mount's observer (if any) is disconnected first so observers never pile up across day-to-day navigation. */
+  let stickyHeaderObserver: StickyHeaderObserverHandle | null = null
+
+  function teardownStickyHeaderObserver(): void {
+    stickyHeaderObserver?.destroy()
+    stickyHeaderObserver = null
+  }
+
   /** Builds and mounts the whole Étape screen (map + profile + everything) — the *only* place that does a full teardown/rebuild of this screen; every pause/filter mutation instead goes through `patchDayDetail` (CDC Jalon B4.2 section 3). */
   function mountDayDetail(bundle: TripBundle, dayId: TripDayId): DayDetail | null {
     const detail = buildDayDetail(bundle, dayId, { filters: getDayFilters(dayId) })
@@ -228,25 +260,29 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       void renderDetail(bundle.metadata.id)
       return null
     }
+    teardownStickyHeaderObserver()
     container.innerHTML = detail.html
-    mountMapAndProfile(detail)
-    // Sticky nav (CDC section 13): ‹/› only ever step between ride days —
-    // an OFF/transfer day has no Étape screen to land on — disabled at
-    // either boundary rather than wrapping or leading to a dead click.
-    const rideIds = rideDayIds(bundle)
-    const currentIndex = rideIds.indexOf(dayId)
+    mountMapAndProfile(detail, dayId)
+    const stickyHeader = container.querySelector<HTMLElement>('[data-day-detail-sticky-header]')
+    if (stickyHeader !== null) stickyHeaderObserver = observeStickyHeaderHeight(stickyHeader, container, '--day-sticky-header-h')
+    // Sticky nav (CDC section 13): ‹/› only ever step between openable days —
+    // see `openableDayIds` (CDC Jalon B4.4 section 25: traverses the whole
+    // trip chronology, not just ride days, now that OFF/transfer days have
+    // their own Étape-shell screen to land on too).
+    const openableIds = openableDayIds(bundle)
+    const currentIndex = openableIds.indexOf(dayId)
     const previousButton = container.querySelector<HTMLButtonElement>('[data-action="previous-day"]')
     const nextButton = container.querySelector<HTMLButtonElement>('[data-action="next-day"]')
     if (previousButton !== null) previousButton.disabled = currentIndex <= 0
-    if (nextButton !== null) nextButton.disabled = currentIndex < 0 || currentIndex >= rideIds.length - 1
+    if (nextButton !== null) nextButton.disabled = currentIndex < 0 || currentIndex >= openableIds.length - 1
     return detail
   }
 
-  function mountMapAndProfile(detail: DayDetail): void {
+  function mountMapAndProfile(detail: DayDetail, dayId: TripDayId): void {
     const mapContainer = container.querySelector<HTMLElement>('[data-day-detail-map]')
     const mapDialog = container.querySelector<HTMLDialogElement>('[data-day-detail-map-dialog]')
+    const visibleWaypoints = getDisplayedStageWaypoints(detail, dayId)
     if (mapContainer !== null && mapDialog !== null) {
-      const visibleWaypoints = detail.waypoints.filter((waypoint) => waypoint.visibleByDefault)
       const model = detail.geometry === null
         ? null
         : buildGenericRouteMapModel(visibleWaypoints, detail.geometry.map((point) => [point.latitude, point.longitude] as const))
@@ -255,8 +291,16 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     }
     const profileContainer = container.querySelector<HTMLElement>('[data-day-detail-profile]')
     if (profileContainer !== null) {
-      renderGenericElevationProfile(profileContainer, detail.geometry, detail.waypoints.filter((waypoint) => waypoint.visibleByDefault), detail.stageLabel)
+      renderGenericElevationProfile(profileContainer, detail.geometry, visibleWaypoints, detail.stageLabel)
     }
+    // Real pointer/touch/keyboard tooltip for every climb mini-profile in
+    // the timeline (CDC Jalon B4.4 section 30) — `mountMapAndProfile` runs
+    // on every full mount AND every `patchDayDetail` patch (pause/filter
+    // mutation, both of which replace the timeline subtree), so this always
+    // re-wires freshly-created climb-card SVGs; nothing to tear down first,
+    // since the old ones were discarded along with their own listeners when
+    // their subtree's `innerHTML` was replaced.
+    for (const svg of container.querySelectorAll<SVGSVGElement>('[data-climb-profile-interactive]')) mountClimbProfileInteraction(svg)
   }
 
   /**
@@ -277,7 +321,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     if (pausesEl !== null) pausesEl.outerHTML = detail.pausesHtml
     const timelineEl = container.querySelector('[data-day-detail-timeline]')
     if (timelineEl !== null) timelineEl.innerHTML = detail.timelineHtml
-    mountMapAndProfile(detail)
+    mountMapAndProfile(detail, dayId)
   }
 
   /**
@@ -415,10 +459,17 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     void startAutomaticEnrichment(tripId)
   }
 
-  /** CDC section 3/25: in progress > nearest upcoming > last active > none (shows the list instead). Re-resolved from storage every call, so switching trips in "Mes voyages" is immediately reflected the next time Aperçu/Voyage is opened from the bottom nav. */
+  /**
+   * CDC Jalon B4.4 sections 2-3: delegates to `resolvePreferredActiveTripId`
+   * (an explicit `setActiveTrip` choice always wins over automatic
+   * selection — see that function's own doc for the "wrong trip opens" bug
+   * this fixes). Re-resolved from storage every call, so switching trips in
+   * "Mes voyages" is immediately reflected the next time Aperçu/Voyage is
+   * opened from the bottom nav.
+   */
   async function resolveActiveTripId(): Promise<TripId | null> {
     const trips = await listTripSummaries(deps.database)
-    return selectMostRelevantTrip(trips, deps.now().slice(0, 10) as IsoDate, getActiveTripId())
+    return resolvePreferredActiveTripId(trips, deps.now().slice(0, 10) as IsoDate, getActiveTripId())
   }
 
   async function goToOverviewForActiveTrip(): Promise<void> {
@@ -668,8 +719,21 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     } else if (action === 'edit-trip' && tripId !== undefined) {
       openEditor(tripId as TripId)
     } else if (action === 'open-trip' && tripId !== undefined) {
-      void openOverview(tripId as TripId)
-      deps.onNavigateToView?.('today')
+      // CDC Jalon B4.4 section 4: one click must resolve to exactly one
+      // tripId and one render. Marking the trip active here (synchronous,
+      // localStorage-backed) then handing off to `onNavigateToView` lets the
+      // top-level nav (`navigateGenericTripView` → `syncGenericTripNav` →
+      // `goToOverviewForActiveTrip`) do the one real render itself — it
+      // re-reads the same `activeTripId` we just wrote, so it resolves to
+      // the same trip, never a second competing resolution. Calling
+      // `openOverview` directly here AND letting the nav callback trigger
+      // `goToOverviewForActiveTrip` afterwards used to run the whole Aperçu
+      // render (plus `startAutomaticEnrichment`) twice per click. Falls back
+      // to rendering directly only when there is no top-level nav to hand
+      // off to (e.g. this component used standalone, outside `main.ts`).
+      setActiveTrip(tripId as TripId)
+      if (deps.onNavigateToView !== undefined) deps.onNavigateToView('today')
+      else void openOverview(tripId as TripId)
     } else if (action === 'open-day-detail' && dayId !== undefined && (mode.kind === 'detail' || mode.kind === 'overview')) {
       void openDay(mode.tripId, dayId as TripDayId, mode.kind)
     } else if (action === 'back-to-trip-detail' && mode.kind === 'day') {
@@ -679,16 +743,16 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       void (async () => {
         const bundle = await createTripRepository(deps.database).loadTripBundle(mode.tripId)
         if (bundle === null) return
-        const rideIds = rideDayIds(bundle)
-        const previousId = rideIds[rideIds.indexOf(mode.dayId) - 1]
+        const openableIds = openableDayIds(bundle)
+        const previousId = openableIds[openableIds.indexOf(mode.dayId) - 1]
         if (previousId !== undefined) await openDay(mode.tripId, previousId, mode.origin)
       })()
     } else if (action === 'next-day' && mode.kind === 'day') {
       void (async () => {
         const bundle = await createTripRepository(deps.database).loadTripBundle(mode.tripId)
         if (bundle === null) return
-        const rideIds = rideDayIds(bundle)
-        const nextId = rideIds[rideIds.indexOf(mode.dayId) + 1]
+        const openableIds = openableDayIds(bundle)
+        const nextId = openableIds[openableIds.indexOf(mode.dayId) + 1]
         if (nextId !== undefined) await openDay(mode.tripId, nextId, mode.origin)
       })()
     } else if (action === 'back-to-list') {
@@ -722,7 +786,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       const { tripId, dayId } = mode
       const stageId = findCurrentStageId()
       if (stageId === undefined) return
-      const rows = container.querySelectorAll<HTMLElement>('.pause-editor__row')
+      const rows = container.querySelectorAll<HTMLElement>('.day-pause-editor__row')
       const existingPauses = new Map<string, StagePauseSetting>()
       void (async () => {
         const tripRepository = createTripRepository(deps.database)
@@ -747,7 +811,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
           patchDayDetail(updated, dayId)
           // Re-collapse the panel after save (CDC Jalon B4.3 section 31) —
           // scroll/focus stay put since only the pauses subtree was patched.
-          const details = container.querySelector<HTMLDetailsElement>('[data-pause-editor]')
+          const details = container.querySelector<HTMLDetailsElement>('[data-day-pause-editor]')
           if (details !== null) details.open = false
         }
       })()
@@ -831,8 +895,8 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     // si Pause = oui") — never a save, matches every checked/unchecked row
     // locally until the single "Enregistrer" action reads them all.
     if (target.dataset.field === 'pause-active') {
-      const row = target.closest<HTMLElement>('.pause-editor__row')
-      const durationField = row?.querySelector<HTMLElement>('.pause-editor__row-duration')
+      const row = target.closest<HTMLElement>('.day-pause-editor__row')
+      const durationField = row?.querySelector<HTMLElement>('.day-pause-editor__row-duration')
       if (durationField !== null && durationField !== undefined) durationField.hidden = !target.checked
     }
   })

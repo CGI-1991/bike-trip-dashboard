@@ -155,7 +155,11 @@ function renderHighlightedDay(bundle: TripBundle, highlightedDayId: TripDayId | 
       ? escapeHtml(day.startLocationName)
       : `${escapeHtml(day.startLocationName ?? '—')} → ${escapeHtml(day.endLocationName ?? '—')}`
     const headerParts = [`J${day.displayNumber}`, typeLabel, dateLabel].filter((part): part is string => part !== null)
-    return `<section class="card trip-overview__highlighted-day"><p class="eyebrow">À suivre</p><h3>${headerParts.join(' — ')}</h3><p>${known}</p></section>`
+    // CDC Jalon B4.4 sections 23/35: OFF/transfer days now have their own
+    // Journée shell to open (`day-detail-view.ts`) — the highlighted card
+    // here is a real navigation target too, exactly like a ride day's,
+    // never left as a dead end just because it isn't a ride.
+    return `<article class="trip-overview__highlighted-day card" data-action="open-day-detail" data-day-id="${escapeHtml(day.id)}" role="button" tabindex="0"><p class="eyebrow">À suivre</p><h3>${headerParts.join(' — ')}</h3><p>${known}</p></article>`
   }
 
   const stage = bundle.stages.find((candidate) => candidate.id === day.stageId)
@@ -230,19 +234,35 @@ export function buildTripOverview(bundle: TripBundle, todayIso: string | null): 
   const highlightedStageIndex = highlightedStage === undefined ? -1 : bundle.stages.indexOf(highlightedStage)
   const highlightedDayMap = highlightedStageIndex === -1 ? null : mapStages[highlightedStageIndex] ?? null
 
+  // CDC Jalon B4.4 sections 14/34: two visually hierarchised zones — VOYAGE
+  // (progress + global map) then AUJOURD'HUI/PROCHAINE ÉTAPE (the
+  // highlighted day) — rather than one undifferentiated stack. An eyebrow +
+  // spacing + accent border, never a heavy extra title (kept RGA-reference
+  // sober). The highlighted day's own zone is only rendered at all when
+  // there is something to highlight — an empty "Prochaine étape" eyebrow
+  // over nothing would be worse than omitting the zone entirely.
+  const nextZoneLabel = highlightedDay?.date !== null && highlightedDay?.date === todayIso ? 'Aujourd’hui' : 'Prochaine étape'
+  const highlightedDayHtml = renderHighlightedDay(bundle, highlightedDayId)
+
   const html = `<div class="trip-overview" data-trip-overview>
     <header class="view-heading"><p class="eyebrow">Aperçu</p><h2>${escapeHtml(bundle.metadata.name)}</h2></header>
     <p class="trip-overview__dates">${bundle.metadata.startDate ?? 'Non daté'}${bundle.metadata.endDate ? ` → ${bundle.metadata.endDate}` : ''}</p>
-    ${renderProgressStats(progress)}
-    <section class="card route-map-card" data-route-visuals>
-      <div class="section-heading"><div><p class="eyebrow">Vue d’ensemble</p><h3>Carte du voyage</h3></div><button class="button button--quiet" type="button" data-explore-map>Explorer la carte</button></div>
-      <div class="route-map" data-trip-overview-map></div>
+    <section class="trip-overview__zone trip-overview__zone--trip" data-trip-overview-zone="trip">
+      <p class="eyebrow trip-overview__zone-eyebrow">Voyage</p>
+      ${renderProgressStats(progress)}
+      <section class="card route-map-card" data-route-visuals>
+        <div class="section-heading"><div><p class="eyebrow">Vue d’ensemble</p><h3>Carte du voyage</h3></div><button class="button button--quiet" type="button" data-explore-map>Explorer la carte</button></div>
+        <div class="route-map" data-trip-overview-map></div>
+      </section>
+      <dialog class="route-map-dialog" data-trip-overview-map-dialog aria-labelledby="trip-overview-expanded-map-title">
+        <header><h2 id="trip-overview-expanded-map-title">Carte du voyage</h2><div class="route-map-dialog__actions"><button class="button button--quiet" type="button" data-map-layers-toggle aria-expanded="false" aria-controls="trip-overview-map-layers-panel" hidden>Calques</button><button class="button button--quiet" type="button" data-close-map>Fermer</button></div></header>
+        <div class="route-map-dialog__map-wrap"><div class="route-map route-map--expanded" data-route-map-expanded></div><p class="route-map__fallback route-map__fallback--expanded" data-expanded-route-map-fallback hidden>Fond de carte indisponible.</p><button class="practical-layers-backdrop" type="button" data-map-layers-backdrop aria-label="Fermer les calques" tabindex="-1" hidden></button><section class="practical-layers-panel" id="trip-overview-map-layers-panel" data-map-layers-panel role="dialog" aria-labelledby="trip-overview-map-layers-title" hidden><header><div><p class="eyebrow">Points principaux toujours visibles</p><h3 id="trip-overview-map-layers-title">Calques</h3></div><button class="button button--quiet" type="button" data-map-layers-close>Fermer</button></header><div class="practical-layers-list" data-map-layers-list></div></section></div>
+      </dialog>
     </section>
-    <dialog class="route-map-dialog" data-trip-overview-map-dialog aria-labelledby="trip-overview-expanded-map-title">
-      <header><h2 id="trip-overview-expanded-map-title">Carte du voyage</h2><div class="route-map-dialog__actions"><button class="button button--quiet" type="button" data-map-layers-toggle aria-expanded="false" aria-controls="trip-overview-map-layers-panel" hidden>Calques</button><button class="button button--quiet" type="button" data-close-map>Fermer</button></div></header>
-      <div class="route-map-dialog__map-wrap"><div class="route-map route-map--expanded" data-route-map-expanded></div><p class="route-map__fallback route-map__fallback--expanded" data-expanded-route-map-fallback hidden>Fond de carte indisponible.</p><button class="practical-layers-backdrop" type="button" data-map-layers-backdrop aria-label="Fermer les calques" tabindex="-1" hidden></button><section class="practical-layers-panel" id="trip-overview-map-layers-panel" data-map-layers-panel role="dialog" aria-labelledby="trip-overview-map-layers-title" hidden><header><div><p class="eyebrow">Points principaux toujours visibles</p><h3 id="trip-overview-map-layers-title">Calques</h3></div><button class="button button--quiet" type="button" data-map-layers-close>Fermer</button></header><div class="practical-layers-list" data-map-layers-list></div></section></div>
-    </dialog>
-    ${renderHighlightedDay(bundle, highlightedDayId)}
+    ${highlightedDayHtml === '' ? '' : `<section class="trip-overview__zone trip-overview__zone--next" data-trip-overview-zone="next">
+      <p class="eyebrow trip-overview__zone-eyebrow">${nextZoneLabel}</p>
+      ${highlightedDayHtml}
+    </section>`}
   </div>`
 
   return { html, mapStages, mapVillageStages, highlightedDayId, highlightedDayMap }
