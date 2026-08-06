@@ -1,5 +1,4 @@
-import type { TripDayId } from '../../trip/types.ts'
-import type { LocalIsoDateTime } from '../types.ts'
+import type { LocalIsoDateTime, WeatherDayKey } from '../types.ts'
 
 export type WeatherRiskLevel = 'green' | 'orange' | 'red' | 'unknown'
 
@@ -43,7 +42,7 @@ export interface RiskFinding {
 
 export interface WeatherAlert {
   readonly id: string
-  readonly dayId: TripDayId
+  readonly dayId: WeatherDayKey
   readonly pointId?: string
   readonly pointName?: string
   readonly pointType?: string

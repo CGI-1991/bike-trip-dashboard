@@ -108,14 +108,18 @@ test('a ride day already in the past counts as done — distance/D+/D− parcour
   assert.match(overview.html, /<dt>Distance parcourue<\/dt><dd>62,4 km<\/dd>/)
 })
 
-test('buildTripOverview shows the highlighted ride day with a clickable card and no fabricated weather', () => {
+test('buildTripOverview shows the highlighted ride day with a clickable card and a weather mount point, no fabricated weather baked into the static markup', () => {
   const bundle = createGenericTripBundle()
   const overview = buildTripOverview(bundle, '2027-05-01')
   assert.equal(overview.highlightedDayId, 'day-alpha')
   assert.match(overview.html, /J1 — Riverside → Hilltown/)
   assert.match(overview.html, /data-action="open-day-detail" data-day-id="day-alpha"/)
   assert.match(overview.html, /role="button" tabindex="0"/)
-  assert.match(overview.html, /Météo non disponible pour le moment\./)
+  // CDC Jalon C1 section 20: real weather is mounted asynchronously by
+  // `trips-manager.ts` (via `GenericWeatherCoordinator`) into this mount
+  // point — never baked into `buildTripOverview`'s own synchronous markup.
+  assert.match(overview.html, /data-trip-overview-weather-mount data-day-id="day-alpha"/)
+  assert.match(overview.html, /Météo non disponible pour le moment\./, 'the placeholder shown before real data ever arrives')
   assert.doesNotMatch(overview.html, /°C/)
 })
 

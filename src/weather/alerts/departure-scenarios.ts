@@ -1,6 +1,5 @@
 import { addIsoDays } from '../../trip/calendar.ts'
 import type { IsoDate } from '../../trip/calendar.ts'
-import type { TripDayId } from '../../trip/types.ts'
 import type { RouteClockTime } from '../../route/types.ts'
 import {
   getSuccessfulLocationForecast,
@@ -12,6 +11,7 @@ import type {
   LocalIsoDateTime,
   WaypointWeather,
   WeatherDayDefinition,
+  WeatherDayKey,
   WeatherForecastResult,
   WeatherSamplePoint,
 } from '../types.ts'
@@ -193,7 +193,7 @@ function computeMinimumExposedApparentTemperatureC(
  * not and can be cached on `WeatherDayState` from fetch time.
  */
 export function attachRiskToScenarios(
-  dayId: TripDayId,
+  dayId: WeatherDayKey,
   tripDate: IsoDate,
   scenarios: readonly DepartureScenarioWaypoints[],
   context: DayRiskContext,

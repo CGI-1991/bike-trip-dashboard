@@ -1,8 +1,8 @@
 import type { IsoDate } from '../trip/calendar.ts'
-import type { TripDayId } from '../trip/types.ts'
 import { weatherConfig } from './config.ts'
 import type {
   WeatherCacheState,
+  WeatherDayKey,
   WeatherForecastResult,
   WeatherRequest,
 } from './types.ts'
@@ -15,7 +15,7 @@ export interface WeatherStorage {
 
 export interface WeatherCacheEntry {
   readonly requestKey: string
-  readonly dayId: TripDayId
+  readonly dayId: WeatherDayKey
   readonly tripDate: IsoDate
   readonly fetchedAt: string
   readonly expiresAt: string
@@ -101,7 +101,15 @@ function isValidEntry(value: unknown): value is WeatherCacheEntry {
   return (
     isRecord(value) &&
     typeof value.requestKey === 'string' &&
-    /^J(?:[1-9]|1[0-2])$/.test(String(value.dayId)) &&
+    // CDC Jalon C1: used to require the historical RGA `"J1"`..`"J12"`
+    // day-id pattern specifically — a real landmine for reuse, since it
+    // silently dropped any cached entry whose `dayId` didn't match that
+    // exact shape on the very next read (including entries this same
+    // `WeatherCache` had itself just `put()`). `dayId` is opaque everywhere
+    // else in this module (see `WeatherDayKey`'s own doc comment in
+    // `types.ts`) — this only needs to reject a missing/empty/non-string
+    // value, exactly like every other field check here.
+    typeof value.dayId === 'string' && value.dayId.length > 0 &&
     typeof value.tripDate === 'string' &&
     typeof value.fetchedAt === 'string' &&
     Number.isFinite(Date.parse(value.fetchedAt)) &&

@@ -82,6 +82,7 @@ function renderRideDayCard(bundle: TripBundle, day: TripBundle['days'][number], 
         <div><dt>Départ</dt><dd>${departureTime ?? '—'}</dd></div>
         <div><dt>Arrivée estimée</dt><dd>${eta ?? '—'}</dd></div>
       </dl>
+      <span class="trip-day-card__weather-mount" data-trip-day-weather-mount data-day-id="${escapeHtml(day.id)}"></span>
     </button>
   </li>`
 }
@@ -98,6 +99,7 @@ function renderOffDayCard(bundle: TripBundle, day: TripBundle['days'][number]): 
     <button class="trip-day-card trip-day-card--off" type="button" data-action="open-day-detail" data-day-id="${escapeHtml(day.id)}">
       <div class="trip-day-card__header"><span class="tag tag--off">OFF</span><span class="trip-day-card__label">${headerParts.join(' · ')}</span></div>
       ${location.name === null ? '' : `<p class="trip-day-card__route">${escapeHtml(location.name)}</p>`}
+      <span class="trip-day-card__weather-mount" data-trip-day-weather-mount data-day-id="${escapeHtml(day.id)}"></span>
     </button>
   </li>`
 }

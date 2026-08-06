@@ -1,6 +1,5 @@
 import type { RouteClockTime } from '../route/types.ts'
 import type { RoadbookPointMatch } from '../trip/roadbook-match.ts'
-import type { TripDayId } from '../trip/types.ts'
 import { evaluateHourlyRisk } from './alerts/evaluate-point.ts'
 import { getWeatherExposureContext } from './alerts/exposure.ts'
 import type { WeatherRiskLevel } from './alerts/types.ts'
@@ -14,6 +13,7 @@ import type {
   DocumentedPointForecast,
   LocalIsoDateTime,
   NormalizedHourlyWeather,
+  WeatherDayKey,
   WeatherDayState,
   WeatherSamplePoint,
 } from './types.ts'
@@ -25,7 +25,7 @@ export type DocumentedPointWeatherStatus =
 
 export interface DocumentedPointWeatherViewModel {
   readonly pointId: string
-  readonly dayId: TripDayId
+  readonly dayId: WeatherDayKey
   readonly forecastMode: WeatherDisplayMode
   readonly forecastStatus: DocumentedPointWeatherStatus
   readonly eta: RouteClockTime | null
@@ -46,7 +46,7 @@ export interface DocumentedPointWeatherViewModel {
 }
 
 export interface DocumentedPointWeatherListViewModel {
-  readonly dayId: TripDayId | null
+  readonly dayId: WeatherDayKey | null
   readonly forecastMode: WeatherDisplayMode | null
   readonly status: 'loading' | 'available' | 'unavailable' | 'hidden'
   readonly note: string | null
@@ -207,7 +207,7 @@ function buildRisk(
 }
 
 function buildPointViewModel(
-  dayId: TripDayId,
+  dayId: WeatherDayKey,
   mode: WeatherDisplayMode,
   point: RoadbookPointMatch,
   association: AssociatedWeather,

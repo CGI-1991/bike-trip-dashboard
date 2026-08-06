@@ -177,18 +177,18 @@ function renderClimbProfileShape(segments: readonly ClimbProfileSegment[]): stri
   return `<svg class="day-detail__climb-profile-shape" data-climb-profile-interactive tabindex="0" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="Profil interactif de la montée" data-segments="${escapeHtml(interactionData)}" data-start-km="${startKm}">${bands}<path d="${outline}${outlineEnd}" fill="none" stroke="var(--forest-950, #102d28)" stroke-width="1.5"></path><g class="profile-cursor" data-profile-cursor hidden><line data-profile-cursor-line y1="0" y2="${height}"></line><circle data-profile-cursor-dot r="4"></circle></g></svg>`
 }
 
+/**
+ * CDC Jalon C1 closeout: the colour-coded altimetric silhouette
+ * (`renderClimbProfileShape`) already carries the same per-segment gradient
+ * colouring — the horizontal colour-coded strip that used to render right
+ * below it (`day-detail__climb-profile-bar`, one `<span>` per segment) was a
+ * plain duplicate of the exact same information, just flattened. Removed
+ * outright; the segmentation itself (`ClimbProfileSegment[]`, grade classes)
+ * still drives the shape's colours and the interactive tooltip — only this
+ * second, redundant visual is gone.
+ */
 function renderClimbProfileBar(segments: readonly ClimbProfileSegment[]): string {
   if (segments.length === 0) return '<p class="day-detail__climb-profile-empty">Profil indisponible pour cette montée.</p>'
-  const totalKm = Math.max(segments[segments.length - 1]?.endDistanceKm ?? 0, 0.001) - (segments[0]?.startDistanceKm ?? 0)
-  const bars = segments.map((segment) => {
-    const lengthKm = segment.endDistanceKm - segment.startDistanceKm
-    const widthPercent = (lengthKm / totalKm) * 100
-    const color = segment.gradeClass === null ? '#c7d2cc' : GRADE_CLASS_COLORS[segment.gradeClass]
-    const title = `Km ${formatKilometers(segment.startDistanceKm)} → ${formatKilometers(segment.endDistanceKm)}`
-      + ` · ${segment.startAltitudeM === null ? '—' : `${Math.round(segment.startAltitudeM)} m`} → ${segment.endAltitudeM === null ? '—' : `${Math.round(segment.endAltitudeM)} m`}`
-      + ` · pente ${formatPercent(segment.averageGradientPercent)}`
-    return `<span class="day-detail__climb-profile-segment" style="width:${widthPercent.toFixed(2)}%;background:${color}" title="${escapeHtml(title)}"></span>`
-  }).join('')
   const first = segments[0]
   const last = segments[segments.length - 1]
   // `.elevation-profile__stage`/`.profile-tooltip` (CDC Jalon B4.4 section
@@ -197,12 +197,11 @@ function renderClimbProfileBar(segments: readonly ClimbProfileSegment[]): string
   // parallel set of tooltip CSS.
   return `<div class="elevation-profile__stage">${renderClimbProfileShape(segments)}<div class="profile-tooltip" data-profile-tooltip hidden></div></div>
     <p class="visually-hidden" data-profile-live aria-live="polite"></p>
-    <div class="day-detail__climb-profile-bar" role="img" aria-label="Variation de la pente le long de la montée, du plus doux (vert) au plus raide (violet)">${bars}</div>
     <div class="day-detail__climb-profile-scale">
       <span>${formatKilometers(first?.startDistanceKm ?? 0)} · ${first?.startAltitudeM === null || first?.startAltitudeM === undefined ? '—' : `${Math.round(first.startAltitudeM)} m`}</span>
       <span>${formatKilometers(last?.endDistanceKm ?? 0)} · ${last?.endAltitudeM === null || last?.endAltitudeM === undefined ? '—' : `${Math.round(last.endAltitudeM)} m`}</span>
     </div>
-    <p class="day-detail__climb-profile-caption">Survolez une tranche pour la distance, l’altitude et la pente moyenne locale.</p>`
+    <p class="day-detail__climb-profile-caption">Survolez, touchez ou utilisez les flèches pour lire la distance, l’altitude et la pente.</p>`
 }
 
 /**
@@ -307,13 +306,27 @@ function renderPauseCandidateRow(candidate: CanonicalWaypoint, activePause: Ride
 }
 
 /**
- * Pauses (CDC Jalon B4.3 sections 30-32): the normal view is a compact
- * status line only — never the pause list, never a card/select/input in
- * consultation. "Manuel" deploys a single `<details>` panel (native
- * disclosure, no extra JS needed to open/close it) with one compact row per
- * candidate point (city/town/village/col); everything is batched behind one
- * "Enregistrer" action (`trips-manager.ts`'s `save-manual-pauses` handler) —
- * never a save per checkbox/duration change, never a full `renderDay()`.
+ * Pauses (CDC Jalon B4.3 sections 30-32, CDC Jalon C1 closeout section 4):
+ * the normal view is a compact status line only — never the pause list,
+ * never a card/select/input in consultation. "Manuel" deploys a single
+ * `<details>` panel (native disclosure, no extra JS needed to open/close
+ * it) with one compact row per candidate point (city/town/village/col);
+ * everything is batched behind one "Enregistrer" action (`trips-manager.ts`'s
+ * `save-manual-pauses` handler) — never a save per checkbox/duration
+ * change, never a full `renderDay()`.
+ *
+ * "Rétablir Auto" sits next to "Manuel" — a sibling of the `<details>`
+ * inside `.day-detail__pauses-actions`, deliberately NOT a child of
+ * `<details>` itself: any element inside `<details>` other than its own
+ * first `<summary>` is native toggle content (hidden while collapsed), so
+ * it used to only ever show once the user had already opened the Manuel
+ * panel and scrolled to the bottom. As a sibling it is always visible
+ * whenever the stage genuinely carries a manual override (`resolution.mode
+ * === 'custom'`), reverting instantly via the same `pause-mode-automatic`
+ * action — no need to open the panel first, and (unchanged) that handler
+ * only ever patches the pauses/stats/timeline subtree, never a full
+ * reload.
+ *
  * Always wrapped in a stable `data-day-detail-pauses` container so the
  * caller can patch just this subtree after a mutation.
  */
@@ -334,14 +347,16 @@ function renderPauseEditor(
   return `<section class="card day-detail__pauses" data-day-detail-pauses data-stage-id="${escapeHtml(stageId)}">
     <p class="eyebrow">Arrêts</p><h3>Pauses</h3>
     <p class="day-detail__pauses-status">${status}</p>
-    <details class="day-pause-editor" data-day-pause-editor>
-      <summary class="button button--quiet">Manuel</summary>
-      <div class="day-pause-editor__list">${candidateRows}</div>
-      <div class="day-pause-editor__actions">
-        <button class="button button--primary" type="button" data-action="save-manual-pauses">Enregistrer</button>
-        ${resolution.mode === 'custom' ? '<button class="button button--quiet" type="button" data-action="pause-mode-automatic">Revenir à l’automatique</button>' : ''}
-      </div>
-    </details>
+    <div class="day-detail__pauses-actions">
+      <details class="day-pause-editor" data-day-pause-editor>
+        <summary class="button button--quiet">Manuel</summary>
+        <div class="day-pause-editor__list">${candidateRows}</div>
+        <div class="day-pause-editor__actions">
+          <button class="button button--primary" type="button" data-action="save-manual-pauses">Enregistrer</button>
+        </div>
+      </details>
+      ${resolution.mode === 'custom' ? '<button class="button button--quiet" type="button" data-action="pause-mode-automatic">Rétablir Auto</button>' : ''}
+    </div>
   </section>`
 }
 
@@ -359,7 +374,7 @@ function renderPauseEditor(
 function renderWeatherPanel(defaultVisible = false): string {
   return `<section id="day-panel-weather" class="card" role="tabpanel" aria-labelledby="day-tab-weather" data-day-panel="weather" ${defaultVisible ? '' : 'hidden'}>
     <p class="eyebrow">Conditions</p><h3>Météo</h3>
-    <p>Météo non disponible pour le moment.</p>
+    <div data-day-detail-weather><p role="status">Chargement des prévisions…</p></div>
   </section>`
 }
 

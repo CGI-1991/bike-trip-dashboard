@@ -4,9 +4,25 @@ import type {
   RoadbookPointType,
 } from '../trip/roadbook-types.ts'
 import type { IsoDate } from '../trip/calendar.ts'
-import type { TripDayId } from '../trip/types.ts'
 
 export type LocalIsoDateTime = `${IsoDate}T${string}`
+
+/**
+ * CDC Jalon C1: this whole module's `dayId` fields used to be typed as the
+ * historical RGA `TripDayId` (`` `J${TripDayNumber}` `` from `trip/types.ts`)
+ * — a hardcoded 12-day numbering scheme. Nothing in `src/weather/*` ever
+ * actually depends on that literal shape (no code parses/validates the "J"
+ * prefix or the specific number range — verified across
+ * `cache.ts`/`coordinator.ts`/`alerts/*`/`documented-point-view-model.ts`);
+ * it was only ever used as an opaque, stable per-day correlation key. Widened
+ * to a plain `string` so the exact same types/provider/cache/coordinator/
+ * alerts engine can serve both the historical RGA pipeline (which still only
+ * ever passes `"J1"`..`"J12"` — still valid strings, so this is a
+ * non-breaking widening) and the generic `TripBundle` pipeline (arbitrary
+ * `TripDayId` from `trip-core`, e.g. `"day-alpha"`) — see
+ * `src/weather/generic/` for the generic adapter layer built on top.
+ */
+export type WeatherDayKey = string
 
 export type WeatherHourlyVariable =
   | 'temperature_2m'
@@ -62,7 +78,7 @@ export interface WeatherSampleReference {
 
 export interface WeatherSamplePoint {
   readonly id: string
-  readonly dayId: TripDayId
+  readonly dayId: WeatherDayKey
   readonly dayType: 'ride' | 'off'
   readonly tripDate: IsoDate
   readonly name: string
@@ -89,7 +105,7 @@ export interface WeatherRequestLocation {
 }
 
 export interface WeatherDayDefinition {
-  readonly dayId: TripDayId
+  readonly dayId: WeatherDayKey
   readonly dayType: 'ride' | 'off'
   readonly tripDate: IsoDate
   readonly samplePoints: readonly WeatherSamplePoint[]
@@ -100,7 +116,7 @@ export interface WeatherDayDefinition {
 
 export interface WeatherRequest {
   readonly key: string
-  readonly dayId: TripDayId
+  readonly dayId: WeatherDayKey
   readonly tripDate: IsoDate
   readonly timezone: 'Europe/Paris'
   readonly locations: readonly WeatherRequestLocation[]
@@ -278,7 +294,7 @@ export interface TodayReferenceWeather {
 
 export interface RideDayWeather {
   readonly type: 'ride'
-  readonly dayId: TripDayId
+  readonly dayId: WeatherDayKey
   readonly tripDate: IsoDate
   readonly waypoints: readonly WaypointWeather[]
   readonly routeSummary: RideWeatherSummary
@@ -293,7 +309,7 @@ export interface RideDayWeather {
 
 export interface OffDayWeather {
   readonly type: 'off'
-  readonly dayId: TripDayId
+  readonly dayId: WeatherDayKey
   readonly tripDate: IsoDate
   readonly samplePoint: WeatherSamplePoint
   readonly daily: NormalizedDailyWeather | null
@@ -305,7 +321,7 @@ export interface OffDayWeather {
 export type WeatherDayData = RideDayWeather | OffDayWeather
 
 export interface WeatherDayState {
-  readonly dayId: TripDayId
+  readonly dayId: WeatherDayKey
   readonly dayType: 'ride' | 'off'
   readonly tripDate: IsoDate
   readonly availability: WeatherAvailability
@@ -325,6 +341,6 @@ export interface WeatherDayState {
 }
 
 export interface WeatherSnapshot {
-  readonly selectedDayId: TripDayId
-  readonly states: ReadonlyMap<TripDayId, WeatherDayState>
+  readonly selectedDayId: WeatherDayKey
+  readonly states: ReadonlyMap<WeatherDayKey, WeatherDayState>
 }
