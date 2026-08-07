@@ -12,6 +12,7 @@ import type { LatLngTuple } from '../route-map-model.ts'
 import { routeGeometry } from '../../route-enrichment/route-fingerprint.ts'
 import { isSignificantWaypoint } from '../../analysis/canonical-waypoints.ts'
 import type { CanonicalWaypoint } from '../../analysis/canonical-waypoints.ts'
+import { resolveOffLocation, resolveTransferLocations } from '../../analysis/day-location-fill.ts'
 import { formatSimpleDate } from '../date-format.ts'
 import type { TripBundle, TripDayId } from '../../trip-core/index.ts'
 
@@ -151,9 +152,21 @@ function renderHighlightedDay(bundle: TripBundle, highlightedDayId: TripDayId | 
 
   if (day.type !== 'ride') {
     const typeLabel = day.type === 'off' ? 'OFF' : 'Transfert'
-    const known = day.startLocationName !== null && day.startLocationName === day.endLocationName
-      ? escapeHtml(day.startLocationName)
-      : `${escapeHtml(day.startLocationName ?? '—')} → ${escapeHtml(day.endLocationName ?? '—')}`
+    // Bug 5-9 closeout: this used to read `day.startLocationName`/
+    // `endLocationName` directly, bypassing `resolveOffLocation`/
+    // `resolveTransferLocations` entirely — the same OFF/transfer day could
+    // then show a different (stale) location here than on the Voyage card
+    // or the Journée detail shell, both of which already went through the
+    // resolver. Single canonical source now, like every other consumer.
+    const known = day.type === 'off'
+      ? (() => {
+          const location = resolveOffLocation(bundle, day)
+          return escapeHtml(location.name ?? '—')
+        })()
+      : (() => {
+          const { origin, destination } = resolveTransferLocations(bundle, day)
+          return origin !== null && origin === destination ? escapeHtml(origin) : `${escapeHtml(origin ?? '—')} → ${escapeHtml(destination ?? '—')}`
+        })()
     const headerParts = [`J${day.displayNumber}`, typeLabel, dateLabel].filter((part): part is string => part !== null)
     // CDC Jalon B4.4 sections 23/35: OFF/transfer days now have their own
     // Journée shell to open (`day-detail-view.ts`) — the highlighted card

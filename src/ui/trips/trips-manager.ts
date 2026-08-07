@@ -42,6 +42,8 @@ import { createOpenMeteoProvider } from '../../weather/open-meteo.ts'
 import type { WeatherProvider } from '../../weather/types.ts'
 import { GenericWeatherCoordinator } from '../../weather/generic/coordinator.ts'
 import { renderGenericDayCardWeatherLine, renderGenericOverviewWeatherBlock, renderGenericStageWeatherPanel } from '../weather-view.ts'
+import { GENERIC_APP_HEADER_NO_ACTIVE_TRIP, buildGenericAppHeader } from './app-header.ts'
+import type { GenericAppHeaderState } from './app-header.ts'
 
 /** One "Villages" layer entry for the fullscreen map (CDC Jalon B4 section 9) — `[]` when the stage has no village at all, so the "Calques" button stays hidden rather than showing an empty layer. */
 function villagesLayer(waypoints: readonly import('../../analysis/canonical-waypoints.ts').CanonicalWaypoint[]): readonly MapLayerDefinition[] {
@@ -72,6 +74,17 @@ export interface TripsManagerDeps {
    * in tests that don't exercise top-level navigation.
    */
   readonly onNavigateToView?: (view: 'today' | 'trip') => void
+  /**
+   * Drives the app-shell header (bug 48B closeout) — `main.ts` owns the
+   * actual `.brand`/`[data-day-indicator]` DOM nodes (outside this
+   * component's own `[data-trips-manager]` container) and applies whatever
+   * state this reports. Called on every full render of Mes voyages/Aperçu/
+   * Voyage/Étape, plus the wizard/editor/confirmation screens (all of which
+   * report `GENERIC_APP_HEADER_NO_ACTIVE_TRIP` — CDC: never leak the last
+   * active trip's name outside of an actual trip screen). Omitted in tests
+   * that only check this component's own container markup.
+   */
+  readonly onHeaderChange?: (state: GenericAppHeaderState) => void
   /**
    * Leaflet-touching map rendering (CDC Jalon C1 closeout) — injected
    * rather than imported directly by this module, exactly like
@@ -255,6 +268,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
 
   async function renderList(): Promise<void> {
     teardownSubComponent()
+    deps.onHeaderChange?.(GENERIC_APP_HEADER_NO_ACTIVE_TRIP)
     container.innerHTML = '<p role="status">Chargement de vos voyages…</p>'
     const trips = await listTripSummaries(deps.database)
 
@@ -286,6 +300,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       await renderList()
       return
     }
+    deps.onHeaderChange?.(buildGenericAppHeader(bundle, null))
     const enrichmentBusy = geocodingInFlight.has(tripId) || automaticEnrichmentGuard.isInFlight(tripId)
     container.innerHTML = renderTripDetail(bundle, {
       canEnrichEndpoints: !enrichmentBusy && deps.geocodingProvider !== undefined && tripNeedsEndpointGeocoding(bundle),
@@ -344,6 +359,8 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       void renderDetail(bundle.metadata.id)
       return null
     }
+    const day = bundle.days.find((candidate) => candidate.id === dayId) ?? null
+    deps.onHeaderChange?.(buildGenericAppHeader(bundle, day))
     teardownStickyHeaderObserver()
     container.innerHTML = detail.html
     mountMapAndProfile(detail, dayId)
@@ -402,6 +419,8 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     if (detail === null) return
     const statsEl = container.querySelector('[data-day-detail-stats]')
     if (statsEl !== null) statsEl.outerHTML = detail.statsHtml
+    const departureEditorEl = container.querySelector('[data-day-departure-editor]')
+    if (departureEditorEl !== null && detail.departureEditorHtml !== '') departureEditorEl.outerHTML = detail.departureEditorHtml
     const pausesEl = container.querySelector('[data-day-detail-pauses]')
     if (pausesEl !== null) pausesEl.outerHTML = detail.pausesHtml
     const timelineEl = container.querySelector('[data-day-detail-timeline]')
@@ -444,6 +463,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       await renderList()
       return
     }
+    deps.onHeaderChange?.(buildGenericAppHeader(bundle, null))
     const overview = buildTripOverview(bundle, deps.now().slice(0, 10))
     container.innerHTML = overview.html
     const mapContainer = container.querySelector<HTMLElement>('[data-trip-overview-map]')
@@ -645,6 +665,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   }
 
   function renderConfirmation(result: ImportWizardResult): void {
+    deps.onHeaderChange?.(GENERIC_APP_HEADER_NO_ACTIVE_TRIP)
     const dateLabel = result.startDate === null ? 'Non daté' : result.endDate === null ? result.startDate : `${result.startDate} → ${result.endDate}`
     container.innerHTML = `
       <div class="trip-confirmation" data-trip-confirmation>
@@ -677,6 +698,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
    */
   function openWizard(): void {
     mode = { kind: 'wizard' }
+    deps.onHeaderChange?.(GENERIC_APP_HEADER_NO_ACTIVE_TRIP)
     let wizard: { readonly destroy: () => void }
     wizard = createImportWizard(
       container,
@@ -697,6 +719,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
 
   function openEditor(tripId: TripId): void {
     mode = { kind: 'editor', tripId }
+    deps.onHeaderChange?.(GENERIC_APP_HEADER_NO_ACTIVE_TRIP)
     let editor: { readonly destroy: () => void }
     editor = createTripEditor(
       container,
@@ -724,6 +747,24 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     const updated = mutate(bundle)
     await tripRepository.saveTripBundle(updated)
     return updated
+  }
+
+  /**
+   * Sections 13-17/41 closeout: `TripDaySettings.departureTime` is the ONE
+   * source of truth for a ride day's departure time — per day, never the
+   * trip-wide `referenceSpeedKph`. Mutates only this day's entry in
+   * `settings.days` (by-reference-replace, same idiom as
+   * `saveStagePauseSettings` above), preserving its `totalBreakSeconds` and
+   * every other day's own entry untouched — J1's departure time changing
+   * must never move J2's.
+   */
+  async function saveDayDepartureTime(tripId: TripId, dayId: TripDayId, departureTime: string): Promise<TripBundle | null> {
+    return mutateTripBundle(tripId, (bundle) => {
+      const existing = bundle.settings.days.find((entry) => entry.dayId === dayId)
+      const days = bundle.settings.days.filter((entry) => entry.dayId !== dayId)
+      days.push({ dayId, departureTime, totalBreakSeconds: existing?.totalBreakSeconds ?? null })
+      return { ...bundle, settings: { ...bundle.settings, days } }
+    })
   }
 
   function trimmedOrNull(value: string): string | null {
@@ -911,6 +952,69 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
           const details = container.querySelector<HTMLDetailsElement>('[data-day-pause-editor]')
           if (details !== null) details.open = false
         }
+      })()
+    } else if (action === 'edit-day-departure-time' && mode.kind === 'day') {
+      // Sections 15-16 closeout: a pure client-side reveal, exactly like
+      // `edit-day-infos` above — never a full re-render just to show the
+      // editor.
+      const editor = container.querySelector<HTMLElement>('[data-day-departure-editor]')
+      if (editor !== null) editor.hidden = false
+    } else if (action === 'cancel-edit-day-departure-time' && mode.kind === 'day') {
+      const editor = container.querySelector<HTMLElement>('[data-day-departure-editor]')
+      if (editor !== null) editor.hidden = true
+    } else if (action === 'save-day-departure-time' && mode.kind === 'day') {
+      const { tripId, dayId } = mode
+      const input = container.querySelector<HTMLInputElement>('[data-field="day-departure-time"]')
+      const value = input?.value ?? ''
+      const status = container.querySelector<HTMLElement>('[data-day-departure-status]')
+      // The native `<input type="time">` already constrains the picker, but
+      // a typed/pasted value could still slip through empty or malformed —
+      // never persist that silently.
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(value)) {
+        if (status !== null) status.textContent = 'Heure invalide.'
+        return
+      }
+      void (async () => {
+        const updated = await saveDayDepartureTime(tripId, dayId, value)
+        // `patchDayDetail` rebuilds the stats/departure-editor/pauses/
+        // timeline subtrees from the just-saved bundle (section 16: never a
+        // full app reload) — the editor's own fresh markup is collapsed by
+        // default, so the panel closes itself; `refreshWeather` inside it
+        // recalculates the weather sample points against the new ETAs
+        // (section 17), all from the exact same `computeStageWaypoints` call
+        // the Parcours timeline already uses — never a second recomputation.
+        if (updated !== null) patchDayDetail(updated, dayId)
+      })()
+    } else if (action === 'apply-weather-departure-time' && mode.kind === 'day') {
+      // Sections 25-26 closeout: "Appliquer"/"Choisir" never persists
+      // directly — it only reveals the shared compact confirmation panel,
+      // pre-filled with the current → target times, exactly like a
+      // dedicated dialog would be but without a second, heavier component.
+      const target = button.dataset.departureTime
+      const current = button.dataset.currentDepartureTime
+      if (target === undefined) return
+      const confirmPanel = container.querySelector<HTMLElement>('[data-weather-apply-confirm]')
+      const timesEl = container.querySelector<HTMLElement>('[data-weather-apply-confirm-times]')
+      if (confirmPanel === null) return
+      confirmPanel.dataset.pendingDepartureTime = target
+      if (timesEl !== null) timesEl.textContent = `${current ?? '—'} → ${target}`
+      confirmPanel.hidden = false
+    } else if (action === 'cancel-apply-weather-departure-time' && mode.kind === 'day') {
+      const confirmPanel = container.querySelector<HTMLElement>('[data-weather-apply-confirm]')
+      if (confirmPanel !== null) confirmPanel.hidden = true
+    } else if (action === 'confirm-apply-weather-departure-time' && mode.kind === 'day') {
+      const { tripId, dayId } = mode
+      const confirmPanel = container.querySelector<HTMLElement>('[data-weather-apply-confirm]')
+      const target = confirmPanel?.dataset.pendingDepartureTime
+      if (target === undefined) return
+      void (async () => {
+        // The exact same `saveDayDepartureTime` pipeline as the Étape stats
+        // editor (section 27: no new weather fetch — the coordinator
+        // reassociates the already-fetched forecast against the new ETAs;
+        // see `tests/weather/generic/coordinator.test.mjs`'s "re-associates a
+        // changed ETA without fetching the same signature").
+        const updated = await saveDayDepartureTime(tripId, dayId, target)
+        if (updated !== null) patchDayDetail(updated, dayId)
       })()
     } else if (action === 'save-day-infos' && mode.kind === 'day') {
       const { tripId, dayId } = mode

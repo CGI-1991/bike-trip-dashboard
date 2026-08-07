@@ -28,6 +28,16 @@ function settingsView(rideDaySettings: RideDaySettingsDocument): string {
   return `<section class="app-view" data-app-view="settings" hidden><button class="button button--quiet" type="button" data-settings-back>← Retour</button><header class="view-heading"><p class="eyebrow">Préférences locales</p><h2>Réglages</h2><p>La vitesse de référence est commune aux dix journées roulées. Heure de départ et pauses restent réglables par étape.</p></header>${referenceSpeedSettings(rideDaySettings)}<section class="pause-stages" aria-labelledby="pause-stages-title"><header class="view-heading"><h3 id="pause-stages-title">Réglages par étape</h3></header>${rideDays}</section>${dayEditorDialog()}<details class="card technical-details settings-diagnostics" data-sources-sheet><summary>Diagnostic et sources</summary><h3>Diagnostic roadbook / GPX</h3><div data-roadbook-diagnostics data-roadbook-diagnostic-state="loading" aria-busy="true"></div><h3>Analyse des traces GPX</h3><div data-gpx-analysis data-gpx-state="loading" aria-busy="true"></div></details></section>`
 }
 
+/**
+ * Bug 48B closeout: `<h1>RGA 2026</h1><p>Route des Grandes Alpes</p>` and
+ * `data-day-indicator`'s initial `"J1 sur ${plan.totalDays}"` are the RGA
+ * golden-master's own static content — kept as-is here, since this function
+ * (and its `plan` default) is still exactly what the legacy RGA runtime and
+ * its golden-master tests exercise. For a real user, `main.ts` overwrites
+ * `.brand`/`[data-day-indicator]` synchronously at boot, before the
+ * IndexedDB database even opens (`applyGenericAppHeader`), so this markup is
+ * only ever visible to the legacy/test paths, never to the generic app.
+ */
 export function renderDashboard(rideDaySettings: RideDaySettingsDocument, plan: TripPlan = rga2026TripPlan): string {
   return `<div class="app-shell"><header class="app-header"><div class="app-header__inner"><div class="brand"><h1>RGA 2026</h1><p>Route des Grandes Alpes</p></div><span class="stage-indicator" data-day-indicator>J1 sur ${plan.totalDays}</span></div></header><p class="network-status" data-network-status role="status" aria-live="polite" hidden>Mode hors ligne · données locales disponibles</p><main class="dashboard">
   <section class="app-view" data-app-view="today"><header class="view-heading"><p class="eyebrow">Vue d’ensemble du voyage</p><h2>Aperçu</h2></header><div class="overview" data-today-panel data-today-state="loading"><p role="status">Préparation de l’aperçu…</p></div><dialog class="route-map-dialog" data-overview-map-dialog aria-labelledby="overview-expanded-map-title"><header><h2 id="overview-expanded-map-title">Carte du voyage</h2><div class="route-map-dialog__actions"><button class="button button--quiet" type="button" data-overview-close-map>Fermer</button></div></header><div class="route-map-dialog__map-wrap"><div class="route-map route-map--expanded" data-overview-map-expanded></div><p class="route-map__fallback route-map__fallback--expanded" data-overview-map-expanded-fallback hidden>Fond de carte indisponible. Le tracé et les marqueurs locaux restent accessibles.</p></div></dialog></section>

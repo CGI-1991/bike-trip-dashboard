@@ -2,8 +2,9 @@
  * The one piece of trip state this module allows in localStorage (CDC
  * section 9.3/14): which trip is currently active. Everything else — the
  * `TripBundle` itself, its source files, import jobs — lives in IndexedDB
- * only. Not wired into any bootstrap or UI yet; a later phase decides when
- * to actually read/write this.
+ * only. Wired into `trips-manager.ts` (`setActiveTrip`/`resolveActiveTripId`
+ * via `active-trip-selection.ts::resolvePreferredActiveTripId`) — every
+ * "Ouvrir" click and the bottom-nav Aperçu/Voyage links read/write this.
  */
 
 import type { TripId } from '../../trip-core/index.ts'
