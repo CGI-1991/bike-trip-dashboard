@@ -36,6 +36,11 @@ function baseModel(overrides = {}) {
     ],
     riskLevel: 'red',
     alerts: [{ id: 'a1', dayId: 'day-alpha', riskType: 'gust', level: 'red', title: 'Rafales fortes en altitude', summary: 'x' }],
+    // Sections 18-27 closeout: dedicated scenario/recommendation coverage
+    // lives in `tests/ui/weather-decision.test.mjs` — this file's own tests
+    // predate that feature and stay focused on the plain synthesis/points/
+    // Aperçu/Voyage rendering, so the baseline here carries no scenarios.
+    departureScenarios: [], recommendation: null, departureAlreadyPassed: false,
     ...overrides,
   }
 }

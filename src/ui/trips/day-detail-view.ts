@@ -84,12 +84,20 @@ function renderPauseBadge(waypoint: CanonicalWaypoint): string {
   return waypoint.pauseDurationMinutes === null ? '' : `<span class="tag tag--pause">Pause ${waypoint.pauseDurationMinutes} min</span>`
 }
 
-/** One plain chronological row — every kind except `climb`, which gets the richer mini-card below (CDC Jalon B4.2 section 17). */
+/**
+ * One plain chronological row — every kind except `climb`, which gets the
+ * richer mini-card below (CDC Jalon B4.2 section 17). Sections 32-40/47
+ * closeout: the secondary line is exactly "Type · Distance" — never a
+ * competing "Kilomètre X km" phrasing (section 39: the formatter's own
+ * "X,X km" already says it, a second "Kilomètre" prefix is redundant), never
+ * the point's own altitude either (section 37: not a primary value here —
+ * it stays available in the profile/tooltip/météo/data instead). `Distance`
+ * is always `trackDistanceKm` — the point's own position on the stage from
+ * the departure (CDC section 33), the one canonical source
+ * (`CanonicalWaypoint.trackDistanceKm`, section 38), never recomputed here.
+ */
 function renderTimelineRow(waypoint: CanonicalWaypoint): string {
-  const altitude = waypoint.elevationM === null ? null : `${Math.round(waypoint.elevationM)} m`
-  const meta = [KIND_LABELS[waypoint.kind], altitude, `Kilomètre ${formatKilometers(waypoint.trackDistanceKm)}`]
-    .filter((part): part is string => part !== null)
-    .join(' · ')
+  const meta = `${KIND_LABELS[waypoint.kind]} · ${formatKilometers(waypoint.trackDistanceKm)}`
   const time = waypoint.clockTime === null ? '' : `<span class="day-detail__timeline-time">${escapeHtml(waypoint.clockTime)}</span>`
   return `<li class="day-detail__timeline-row day-detail__timeline-row--${waypoint.importance}" data-waypoint-id="${escapeHtml(waypoint.id)}" data-waypoint-kind="${waypoint.kind}">
     <span class="day-detail__timeline-marker" aria-hidden="true">${KIND_MARKERS[waypoint.kind]}</span>
@@ -205,22 +213,26 @@ function renderClimbProfileBar(segments: readonly ClimbProfileSegment[]): string
 }
 
 /**
- * Climb mini-card (CDC Jalon B4.2/B4.3 section 17/34, B4.4 section 28-29):
- * name/altitude/distance/D+/pente moyenne always visible; tapping it expands
- * a colour-coded silhouette of just this climb's own portion of the stage
- * profile (never a second GPX/recalculation — a window over the
- * already-computed route geometry). Expand/collapse is a pure client-side
- * attribute toggle (`trips-manager.ts`), never a re-render. Used for every
- * waypoint carrying a `climbId` — a bare `climb`-kind waypoint as much as a
- * `mountain-pass`/`saddle` landmark merged with a detected climb (CDC B4.4
- * section 28) — so the marker/label stay the waypoint's own real `kind`
- * (◆ "Col" for a named pass/saddle, ▲ "Montée" for a bare climb), never
- * hardcoded to "climb": the whole point of the merge is that this is still
- * the named col, just with its profile attached.
+ * Climb mini-card (CDC Jalon B4.2/B4.3 section 17/34, B4.4 section 28-29,
+ * sections 35-38/47 closeout). Closed state carries only the identity every
+ * other Parcours row carries — Picto | Nom | ETA (au sommet), then
+ * "Type · Distance" as the secondary line, `Distance` being the SUMMIT's own
+ * position on the stage (`Climb.endDistanceKm`, section 35 — never the
+ * climb's length) — never D+/pente/longueur, which only ever show once
+ * expanded (section 47). Tapping it expands a colour-coded silhouette of
+ * just this climb's own portion of the stage profile (never a second GPX/
+ * recalculation — a window over the already-computed route geometry), plus
+ * the Longueur/D+/Pente moyenne stats that used to sit in the closed toggle
+ * (section 36). Expand/collapse is a pure client-side attribute toggle
+ * (`trips-manager.ts`), never a re-render. Used for every waypoint carrying
+ * a `climbId` — a bare `climb`-kind waypoint as much as a `mountain-pass`/
+ * `saddle` landmark merged with a detected climb (CDC B4.4 section 28) — so
+ * the marker/label stay the waypoint's own real `kind` (◆ "Col" for a named
+ * pass/saddle, ▲ "Montée" for a bare climb), never hardcoded to "climb": the
+ * whole point of the merge is that this is still the named col, just with
+ * its profile attached.
  */
 function renderClimbCard(waypoint: CanonicalWaypoint, climb: Climb, routeGeometryFull: readonly RouteGeometryPoint[] | null): string {
-  const lengthKm = climb.endDistanceKm - climb.startDistanceKm
-  const summitAltitude = climb.endAltitudeM === null ? null : `${Math.round(climb.endAltitudeM)} m`
   const profile = routeGeometryFull === null ? null : buildClimbProfile(routeGeometryFull, climb, climbSegmentLengthMeters(climb))
   const profileId = `climb-profile-${escapeHtml(climb.id)}`
   return `<li class="day-detail__timeline-row day-detail__timeline-row--${waypoint.importance} day-detail__climb-card" data-waypoint-id="${escapeHtml(waypoint.id)}" data-waypoint-kind="${waypoint.kind}">
@@ -228,16 +240,17 @@ function renderClimbCard(waypoint: CanonicalWaypoint, climb: Climb, routeGeometr
       <span class="day-detail__climb-toggle-row">
         <span class="day-detail__timeline-marker" aria-hidden="true">${KIND_MARKERS[waypoint.kind]}</span>
         <strong>${escapeHtml(waypoint.name)}</strong>
-        ${summitAltitude === null ? '' : `<span>${summitAltitude}</span>`}
+        ${waypoint.clockTime === null ? '' : `<span class="day-detail__timeline-time">${escapeHtml(waypoint.clockTime)}</span>`}
       </span>
-      <span class="day-detail__climb-toggle-row day-detail__climb-toggle-row--stats">
-        <span>${formatKilometers(lengthKm)}</span>
-        <span>+${Math.round(climb.elevationGainM)} m</span>
-        <span>${formatPercent(climb.averageGradientPercent)}</span>
-      </span>
+      <span class="day-detail__climb-toggle-row day-detail__climb-toggle-row--meta">${KIND_LABELS[waypoint.kind]} · ${formatKilometers(climb.endDistanceKm)}</span>
       ${renderPauseBadge(waypoint)}
     </button>
     <div class="day-detail__climb-profile" id="${profileId}" data-climb-profile hidden>
+      <dl class="day-detail__climb-profile-stats">
+        <div><dt>Longueur</dt><dd>${formatKilometers(climb.endDistanceKm - climb.startDistanceKm)}</dd></div>
+        <div><dt>D+</dt><dd>+${Math.round(climb.elevationGainM)} m</dd></div>
+        <div><dt>Pente moyenne</dt><dd>${formatPercent(climb.averageGradientPercent)}</dd></div>
+      </dl>
       ${profile === null ? '<p class="day-detail__climb-profile-empty">Profil indisponible pour cette montée.</p>' : renderClimbProfileBar(profile.segments)}
     </div>
   </li>`
@@ -438,6 +451,8 @@ export interface DayDetail {
   readonly sourceFileId: SourceFileId | null
   /** Targeted-patch fragments (CDC Jalon B4.2/B4.3 section 3): each already carries its own stable wrapper attribute, so a caller can replace just one subtree instead of the whole screen after a pause/filter/Infos mutation — never a full `renderDay`. */
   readonly statsHtml: string
+  /** `''` for OFF/transfer days — a departure time only ever applies to a ride day's own stage timeline (sections 13-17). */
+  readonly departureEditorHtml: string
   readonly pausesHtml: string
   readonly timelineHtml: string
   readonly infosHtml: string
@@ -499,7 +514,7 @@ function buildOffOrTransferDayDetail(bundle: TripBundle, day: TripDay): DayDetai
 
   return {
     html, waypoints: [], geometry: null, stageLabel, villageWaypoints: [], sourceFileId: null,
-    statsHtml: '', pausesHtml: '', timelineHtml: '', infosHtml,
+    statsHtml: '', departureEditorHtml: '', pausesHtml: '', timelineHtml: '', infosHtml,
   }
 }
 
@@ -559,7 +574,15 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
   const totalPauseMinutes = pauseResolution.mode === 'custom'
     ? waypoints.reduce((total, waypoint) => total + (waypoint.pauseDurationMinutes ?? 0), 0)
     : stage.pauseDurationSeconds === null ? null : Math.round(stage.pauseDurationSeconds / 60)
+  // Sections 13-17 closeout: the departure time is per-day
+  // (`TripDaySettings.departureTime`, never the trip-wide
+  // `referenceSpeedKph`) — shown here alongside the day's other stats, with
+  // its own compact "Modifier" affordance rather than the full Réglages
+  // screen. `data-day-departure-value` is the one spot `trips-manager.ts`'s
+  // `edit-day-departure-time` handler needs to reach without a full rebuild
+  // (pre-filling the inline editor's `<input type="time">`).
   const statsHtml = `<dl class="day-detail__stats" data-day-detail-stats>
+    <div><dt>Départ</dt><dd><span data-day-departure-value>${escapeHtml(settings.departureTime)}</span> <button class="button button--quiet day-detail__departure-edit-trigger" type="button" data-action="edit-day-departure-time">Modifier</button></dd></div>
     <div><dt>Distance</dt><dd>${stage.distanceKm === null ? '—' : formatKilometers(stage.distanceKm)}</dd></div>
     <div><dt>D+</dt><dd>${stage.elevationGainM === null ? '—' : `+${Math.round(stage.elevationGainM)} m`}</dd></div>
     <div><dt>D−</dt><dd>${stage.elevationLossM === null ? '—' : `−${Math.round(stage.elevationLossM)} m`}</dd></div>
@@ -568,6 +591,21 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
     <div><dt>Montées</dt><dd>${stage.climbIds.length}</dd></div>
     <div><dt>Arrivée estimée</dt><dd>${arrival?.clockTime ?? '—'}</dd></div>
   </dl>`
+
+  // Always rendered, always collapsed by default (`hidden`) — a pure
+  // client-side toggle (`edit-day-departure-time`/`cancel-edit-day-departure-time`
+  // in `trips-manager.ts`, exactly like `renderInfosPanel`'s read/edit split
+  // above), never a second screen. Re-rendered fresh (and therefore always
+  // freshly collapsed, pre-filled with the just-saved value) every time
+  // `patchDayDetail` patches `[data-day-departure-editor]` after a save.
+  const departureEditorHtml = `<div class="day-detail__departure-editor" data-day-departure-editor hidden>
+    <div class="field"><label for="day-departure-time-input">Heure de départ</label><div class="field__control"><input id="day-departure-time-input" type="time" data-field="day-departure-time" value="${escapeHtml(settings.departureTime)}" required></div></div>
+    <div class="day-detail__departure-editor-actions">
+      <button class="button button--primary" type="button" data-action="save-day-departure-time">Enregistrer</button>
+      <button class="button button--quiet" type="button" data-action="cancel-edit-day-departure-time">Annuler</button>
+      <span role="status" aria-live="polite" data-day-departure-status></span>
+    </div>
+  </div>`
 
   const pausesHtml = renderPauseEditor(stage.id, pauseResolution, stageSettings, anchorCandidates)
   const timelineHtml = renderTimelineList(waypoints, bundle.climbs, filters, geometry)
@@ -584,6 +622,7 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
       </nav>
     </div>
     ${statsHtml}
+    ${departureEditorHtml}
     <nav class="day-tabs" role="tablist" aria-label="Sections de l’étape" data-day-detail-tabs>
       <button id="day-tab-route" type="button" role="tab" data-day-tab="route" aria-controls="day-panel-route" aria-selected="true" tabindex="0">Parcours</button>
       <button id="day-tab-weather" type="button" role="tab" data-day-tab="weather" aria-controls="day-panel-weather" aria-selected="false" tabindex="-1">Météo</button>
@@ -611,6 +650,6 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
     html, waypoints, geometry, stageLabel,
     villageWaypoints: waypoints.filter((waypoint) => waypoint.kind === 'village'),
     sourceFileId: route.sourceFileId,
-    statsHtml, pausesHtml, timelineHtml, infosHtml,
+    statsHtml, departureEditorHtml, pausesHtml, timelineHtml, infosHtml,
   }
 }

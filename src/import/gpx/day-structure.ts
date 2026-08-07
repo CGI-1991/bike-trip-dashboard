@@ -26,18 +26,6 @@ function asIsoDate(value: string): IsoDate {
   return value as IsoDate
 }
 
-function findNextRideStart(slots: readonly DayStructureSlot[], fromIndex: number, rideDays: readonly TripDay[], rideCursor: number): string | null {
-  let cursor = rideCursor
-  for (let i = fromIndex; i < slots.length; i++) {
-    if (slots[i]?.kind === 'ride') {
-      const ride = rideDays[cursor]
-      return ride?.startLocationName ?? null
-    }
-    if (i > fromIndex) cursor++
-  }
-  return null
-}
-
 /**
  * `slots` describes the FULL final day order. Every `'ride'` slot consumes
  * the next entry of `bundle.days` in order — `bundle.days` must already be
@@ -55,7 +43,6 @@ export function applyDayStructure(bundle: TripBundle, slots: readonly DayStructu
   const dated = bundle.calendar.startDate !== null
   const startDate = bundle.calendar.startDate
   const newDays: TripDay[] = []
-  let previousEndLocationName: string | null = null
   let rideCursor = 0
 
   slots.forEach((slot, index) => {
@@ -69,18 +56,22 @@ export function applyDayStructure(bundle: TripBundle, slots: readonly DayStructu
       }
       rideCursor++
       newDays.push({ ...original, index, displayNumber, date })
-      previousEndLocationName = original.endLocationName
       return
     }
 
-    const nextRideStart = findNextRideStart(slots, index + 1, bundle.days, rideCursor)
+    // Bug 5-9 closeout: a brand-new OFF/transfer slot never bakes a
+    // computed default (or a placeholder string like "Lieu à préciser")
+    // into `startLocationName`/`endLocationName` any more — `null` is the
+    // only value that means "no manual override", per
+    // `day-location-fill.ts`'s contract. Baking a snapshot here made it
+    // permanent: a later geocoding update to the neighbouring ride stage
+    // (`endpoint-enrichment.ts`, which only ever touches ride days) could
+    // never reach it again, so the OFF/transfer day was stuck showing
+    // whatever was known at structure-application time. `resolveOffLocation`/
+    // `resolveTransferLocations` already resolve the same neighbouring-ride
+    // fallback chain live, on every read — so leaving these `null` here is
+    // strictly more correct, not merely simpler.
     if (slot.kind === 'off') {
-      // Deterministic prefill (stability/UX hardening 2026-08-04): the
-      // previous ride's arrival is the default anchor, but an OFF day with
-      // no previous ride at all (e.g. it opens the trip) falls back to the
-      // next ride's departure instead of an immediate placeholder — never
-      // invented, always taken from an adjacent ride day.
-      const offLocation = previousEndLocationName ?? nextRideStart ?? 'Lieu à préciser'
       newDays.push({
         id: tripDayId(idFactory()),
         index,
@@ -88,8 +79,8 @@ export function applyDayStructure(bundle: TripBundle, slots: readonly DayStructu
         date,
         type: 'off',
         stageId: null,
-        startLocationName: offLocation,
-        endLocationName: offLocation,
+        startLocationName: null,
+        endLocationName: null,
         accommodationId: null,
         notes: slot.notes ?? null,
         enrichmentStatus: 'not-started',
@@ -98,8 +89,6 @@ export function applyDayStructure(bundle: TripBundle, slots: readonly DayStructu
     }
 
     // transfer
-    const fallbackLocation = previousEndLocationName ?? 'Lieu à préciser'
-    const endLocationName = nextRideStart ?? 'Destination à préciser'
     newDays.push({
       id: tripDayId(idFactory()),
       index,
@@ -107,14 +96,13 @@ export function applyDayStructure(bundle: TripBundle, slots: readonly DayStructu
       date,
       type: 'transfer',
       stageId: null,
-      startLocationName: fallbackLocation,
-      endLocationName,
+      startLocationName: null,
+      endLocationName: null,
       accommodationId: null,
       notes: slot.notes ?? null,
       enrichmentStatus: 'not-started',
       transferTiming: slot.transferTiming,
     })
-    previousEndLocationName = endLocationName
   })
 
   const endDate = dated && startDate !== null && newDays.length > 0 ? asIsoDate(addCivilDays(startDate, newDays.length - 1)) : null

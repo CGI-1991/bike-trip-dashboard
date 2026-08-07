@@ -86,26 +86,25 @@ test('inserting an OFF day shifts every subsequent date by one day', () => {
   assert.deepEqual(result.days.map((d) => d.displayNumber), [1, 2, 3])
 })
 
-test('an OFF day keeps the location reached the day before (annexe section 8)', () => {
+test('a brand-new OFF day starts with no manual override at all — never a baked-in snapshot (bug 5-9 closeout)', () => {
+  // `resolveOffLocation`/`resolveTransferLocations` (`analysis/day-location-fill.ts`)
+  // own the previous-ride/next-ride fallback chain now, resolved live on
+  // every read from the *current* `RideStage` records — never baked into
+  // `TripDay.startLocationName`/`endLocationName` at structure-application
+  // time. Baking a snapshot here made it permanent and immune to a later
+  // geocoding update on the neighbouring stage (see
+  // `tests/analysis/day-location-fill.test.mjs` for the actual fallback
+  // chain's coverage, including the start-of-trip fallback). `null` is the
+  // only value that means "no manual override yet".
   const days = [rideDay('d1', 0, 1, '2027-06-01', 'A', 'Somewhere'), rideDay('d2', 1, 2, '2027-06-02', 'Somewhere', 'C')]
   const bundle = minimalBundle(days)
   const structure = [{ kind: 'ride' }, { kind: 'off' }, { kind: 'ride' }]
   const result = applyDayStructure(bundle, structure, idFactory())
   const offDay = result.days[1]
-  assert.equal(offDay.startLocationName, 'Somewhere')
-  assert.equal(offDay.endLocationName, 'Somewhere')
+  assert.equal(offDay.startLocationName, null)
+  assert.equal(offDay.endLocationName, null)
   assert.equal(offDay.stageId, null)
   assert.equal(offDay.notes, null)
-})
-
-test('an OFF day opening the trip (no previous ride yet) falls back to the next ride’s departure, never a placeholder', () => {
-  const days = [rideDay('d1', 0, 1, '2027-06-01', 'Departure Town', 'C')]
-  const bundle = minimalBundle(days)
-  const structure = [{ kind: 'off' }, { kind: 'ride' }]
-  const result = applyDayStructure(bundle, structure, idFactory())
-  const offDay = result.days[0]
-  assert.equal(offDay.startLocationName, 'Departure Town')
-  assert.equal(offDay.endLocationName, 'Departure Town')
 })
 
 test('an OFF day carries its notes through unchanged', () => {
@@ -116,25 +115,26 @@ test('an OFF day carries its notes through unchanged', () => {
   assert.equal(result.days[1].notes, 'Journée libre à Bourg')
 })
 
-test('a transfer connects the previous end to the next ride’s start, never a fabricated locality', () => {
+test('a brand-new transfer also starts with no manual override — resolved live via resolveTransferLocations, never baked (bug 5-9 closeout)', () => {
   const days = [rideDay('d1', 0, 1, '2027-06-01', 'A', 'Gare X'), rideDay('d2', 1, 2, '2027-06-02', 'Gare Y', 'C')]
   const bundle = minimalBundle(days)
   const structure = [{ kind: 'ride' }, { kind: 'transfer', notes: 'Train' }, { kind: 'ride' }]
   const result = applyDayStructure(bundle, structure, idFactory())
   const transfer = result.days[1]
   assert.equal(transfer.type, 'transfer')
-  assert.equal(transfer.startLocationName, 'Gare X')
-  assert.equal(transfer.endLocationName, 'Gare Y')
+  assert.equal(transfer.startLocationName, null)
+  assert.equal(transfer.endLocationName, null)
   assert.equal(transfer.stageId, null)
   assert.equal(transfer.notes, 'Train')
 })
 
-test('a transfer at the very end of the trip falls back to a clear placeholder, never an invented destination', () => {
+test('a transfer at the very end of the trip also stores null, never a placeholder string — the "unknown" display text is a UI concern, not persisted data', () => {
   const days = [rideDay('d1', 0, 1, '2027-06-01', 'A', 'B')]
   const bundle = minimalBundle(days)
   const structure = [{ kind: 'ride' }, { kind: 'transfer' }]
   const result = applyDayStructure(bundle, structure, idFactory())
-  assert.equal(result.days[1].endLocationName, 'Destination à préciser')
+  assert.equal(result.days[1].startLocationName, null)
+  assert.equal(result.days[1].endLocationName, null)
 })
 
 test('the calendar/metadata endDate is recomputed to match the new total day count', () => {

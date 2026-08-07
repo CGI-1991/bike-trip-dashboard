@@ -51,6 +51,8 @@ import type { GpxShareTarget } from './ui/gpx-share.ts'
 import { openImageViewer } from './ui/image-viewer.ts'
 import { initializeTripsManager } from './ui/trips/trips-manager.ts'
 import type { TripsManagerHandle } from './ui/trips/trips-manager.ts'
+import { GENERIC_APP_HEADER_NO_ACTIVE_TRIP, GENERIC_APP_TITLE } from './ui/trips/app-header.ts'
+import type { GenericAppHeaderState } from './ui/trips/app-header.ts'
 import { createNominatimGeocodingProvider } from './geocoding/nominatim-provider.ts'
 import { createPostpassRouteEnrichmentProvider } from './route-enrichment/postpass-provider.ts'
 import { openBikeTripDatabase } from './storage/indexeddb/open-database.ts'
@@ -145,6 +147,14 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
 
 const saveStatus = getRequiredElement<HTMLElement>('#save-status')
 const dayIndicator = getRequiredElement<HTMLElement>('[data-day-indicator]')
+const appHeaderTitle = getRequiredElement<HTMLElement>('.brand h1')
+const appHeaderSubtitle = getRequiredElement<HTMLElement>('.brand p')
+// Bug 48B closeout: `render.ts`'s static markup still ships the RGA-only
+// literal ("RGA 2026" / "Route des Grandes Alpes" / "J1 sur 12") as its
+// initial paint — replaced here, synchronously and before the IndexedDB
+// database even opens, so a real user never sees that flash before
+// `trips-manager.ts` reports the actual active trip's header state.
+applyGenericAppHeader(GENERIC_APP_HEADER_NO_ACTIVE_TRIP)
 const todayPanel = getRequiredElement<HTMLElement>('[data-today-panel]')
 const dayHeaderContainer = getRequiredElement<HTMLElement>('[data-day-header]')
 const tripPlanContainer = getRequiredElement<HTMLElement>('[data-trip-plan]')
@@ -224,6 +234,23 @@ function showView(view: AppView): void {
     else link.removeAttribute('aria-current')
   }
   window.scrollTo({ top: 0 })
+}
+
+/**
+ * Applies the generic app-shell header (bug 48B closeout) — the only place
+ * that writes to `.brand h1`/`.brand p`/`[data-day-indicator]` for the
+ * generic multi-trip runtime. `trips-manager.ts` reports a
+ * `GenericAppHeaderState` on every full render of Mes voyages/Aperçu/Voyage/
+ * Étape (see its `onHeaderChange` dep); this just applies it to the DOM.
+ * `tripName: null` (Mes voyages/wizard/editor/confirmation) falls back to
+ * the generic app title — never the last active trip's name.
+ */
+function applyGenericAppHeader(state: GenericAppHeaderState): void {
+  appHeaderTitle.textContent = state.tripName ?? GENERIC_APP_TITLE
+  appHeaderSubtitle.textContent = ''
+  appHeaderSubtitle.hidden = true
+  dayIndicator.textContent = state.subtitle ?? ''
+  dayIndicator.hidden = state.subtitle === null
 }
 
 /** Drives "Mes voyages" to the active trip's Aperçu/Voyage whenever the bottom nav lands there — a no-op while the database hasn't opened yet (the container's own loading placeholder shows instead); re-applied once it has, see `openBikeTripDatabase().then(...)` below. */
@@ -1041,6 +1068,7 @@ void openBikeTripDatabase()
         ? (diagnostic) => console.debug('[postpass-structural-client]', diagnostic)
         : undefined,
       onNavigateToView: navigateGenericTripView,
+      onHeaderChange: applyGenericAppHeader,
       renderMap: renderGenericRouteMap,
       closeMap: closeExpandedRouteMap,
     })

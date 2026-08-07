@@ -2,8 +2,10 @@
  * Pure "most relevant trip" selection (annexe fonctionnelle section 15.1,
  * CDC phase 6C1 section 25). The current date is always injected — never
  * `Date.now()`/`new Date()` here — so this stays deterministic and
- * testable. Not wired into the historical RGA bootstrap (CDC section 25:
- * "ne branche pas encore... si cela crée une régression").
+ * testable. Deliberately never wired into the historical RGA bootstrap
+ * (`main.ts`'s `rga2026TripPlan` pipeline stays hardcoded, by design) — only
+ * `resolvePreferredActiveTripId` below feeds the generic multi-trip runtime
+ * (`trips-manager.ts::resolveActiveTripId`).
  */
 
 import type { IsoDate, TripId } from '../trip-core/index.ts'

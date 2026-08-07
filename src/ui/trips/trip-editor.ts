@@ -4,7 +4,7 @@ import type { GpxImportFile } from '../../import/gpx/types.ts'
 import { checkChainContinuity, detectStrictDuplicates, editGpxTrip, loadTripEditDraft, preAnalyzeGpxFiles } from '../../trips-manager/index.ts'
 import type { GpxPreAnalysis, TripEditSlot } from '../../trips-manager/index.ts'
 import { createTripRepository } from '../../storage/indexeddb/trip-repository.ts'
-import { nearestNextRideStage, nearestPreviousRideStage } from '../../analysis/day-location-fill.ts'
+import { resolveOffLocation, resolveTransferLocations } from '../../analysis/day-location-fill.ts'
 import type { SourceFileId, TransferTiming, TripBundle, TripDayId, TripId } from '../../trip-core/index.ts'
 import type { TripsManagerDeps } from './trips-manager.ts'
 
@@ -229,16 +229,17 @@ export function createTripEditor(
     if (originalBundle === null || item.existingDayId === null) return ''
     const day = originalBundle.days.find((candidate) => candidate.id === item.existingDayId)
     if (day === undefined) return ''
+    // Bug 5-9 closeout: this used to reimplement the previous/next-ride
+    // fallback chain by hand instead of calling the shared resolver — a
+    // second place the rule would need to change if it ever did. Calling
+    // `resolveOffLocation`/`resolveTransferLocations` here keeps this
+    // preview byte-for-byte consistent with the Voyage card and Journée
+    // detail shell, which already call the same functions.
     if (item.kind === 'off') {
-      const previous = nearestPreviousRideStage(originalBundle, day.index)
-      const next = nearestNextRideStage(originalBundle, day.index)
-      const location = day.startLocationName ?? previous?.endLocationName ?? next?.startLocationName ?? null
-      return location === null ? '' : `<p class='wizard-structure__autofill'>Lieu (auto) : ${escapeHtml(location)}</p>`
+      const location = resolveOffLocation(originalBundle, day)
+      return location.name === null ? '' : `<p class='wizard-structure__autofill'>Lieu (auto) : ${escapeHtml(location.name)}</p>`
     }
-    const previous = nearestPreviousRideStage(originalBundle, day.index)
-    const next = nearestNextRideStage(originalBundle, day.index)
-    const origin = day.startLocationName ?? previous?.endLocationName ?? null
-    const destination = day.endLocationName ?? next?.startLocationName ?? null
+    const { origin, destination } = resolveTransferLocations(originalBundle, day)
     if (origin === null && destination === null) return ''
     return `<p class='wizard-structure__autofill'>${escapeHtml(origin ?? '—')} → ${escapeHtml(destination ?? '—')} (auto)</p>`
   }

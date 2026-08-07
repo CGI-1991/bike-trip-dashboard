@@ -2839,7 +2839,11 @@ body.map-scroll-locked { position: fixed; top: var(--map-scroll-lock-y, 0); inse
 @media (min-width: 620px) {
   .overview-stats__grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
-.app-nav { position: fixed; z-index: 20; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: repeat(4, 1fr); min-height: 64px; padding: 5px max(8px, env(safe-area-inset-right)) max(5px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); background: rgba(255,255,255,.97); border-top: 1px solid var(--line); box-shadow: 0 -4px 18px rgb(16 45 40 / 9%); }
+/* Bug 12/46 closeout: the nav used to carry a 4th "Réglages" link — now only
+   Aperçu/Voyage/Mes voyages remain (`render.ts`), but this grid still split
+   into 4 equal 25% tracks, leaving a phantom empty 4th slot instead of 3 even
+   thirds. `repeat(3, 1fr)` matches the actual button count. */
+.app-nav { position: fixed; z-index: 20; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: repeat(3, 1fr); min-height: 64px; padding: 5px max(8px, env(safe-area-inset-right)) max(5px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); background: rgba(255,255,255,.97); border-top: 1px solid var(--line); box-shadow: 0 -4px 18px rgb(16 45 40 / 9%); }
 .app-nav a { min-height: 50px; display: grid; place-items: center; padding: 6px; color: var(--ink-soft); border-radius: 9px; font-size: .8rem; font-weight: 800; text-decoration: none; }
 .app-nav a.is-active { color: #fff; background: var(--forest-800); }
 .technical-details > summary, .roadbook-detail__disclosure > summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font-weight: 800; }
@@ -3013,6 +3017,13 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .day-detail__stats dt { color: var(--ink-soft); font-size: .72rem; }
 .day-detail__stats dd { margin-top: 2px; font-weight: 800; }
 .day-detail__profile-eyebrow { margin-top: 14px; }
+/* Sections 13-17 closeout: per-day departure time, editable right from the
+   Étape stats — a compact inline trigger inside the "Départ" stat's own
+   `<dd>`, and a small collapsed-by-default panel (never a second full
+   Réglages screen) for the actual `<input type="time">` edit. */
+.day-detail__departure-edit-trigger { min-height: auto; padding: 2px 8px; font-size: .72rem; }
+.day-detail__departure-editor { display: grid; gap: 10px; padding: 10px; background: var(--surface-muted); border-radius: 8px; }
+.day-detail__departure-editor-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .day-detail__pauses { display: grid; gap: 10px; }
 
 .day-detail__timeline { display: grid; gap: 8px; margin: 12px 0; }
@@ -3029,14 +3040,25 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .day-detail__climb-card { grid-template-columns: minmax(0, 1fr); padding: 0; overflow: hidden; }
 .day-detail__climb-toggle { width: 100%; min-height: 44px; padding: 10px; display: grid; gap: 4px; text-align: left; color: inherit; background: none; border: 0; cursor: pointer; }
 .day-detail__climb-toggle-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
-.day-detail__climb-toggle-row--stats { color: var(--ink-soft); font-size: .82rem; font-variant-numeric: tabular-nums; }
+/* Sections 35-38/47 closeout: the closed toggle now carries only "Type ·
+   Distance" (renamed from the old `--stats` modifier, which used to hold
+   Longueur/D+/Pente moyenne — those moved into the expanded profile panel,
+   see `.day-detail__climb-profile-stats` below). */
+.day-detail__climb-toggle-row--meta { color: var(--ink-soft); font-size: .82rem; }
 .day-detail__climb-profile { padding: 0 10px 12px; }
 /* CDC Jalon B4.4 sections 30-31: tall enough to actually read the climb's
    shape (not a flat strip), with a real pointer/touch/keyboard tooltip —
    `.elevation-profile__stage`/`.profile-tooltip`/`.profile-cursor` above are
    the exact same classes the main elevation profile already uses. */
 .day-detail__climb-profile-shape { display: block; width: 100%; height: clamp(110px, 22vw, 160px); touch-action: pan-y; cursor: crosshair; outline-offset: 4px; }
-.day-detail__climb-profile-scale { display: flex; justify-content: space-between; margin-top: 4px; color: var(--ink-soft); font-size: .72rem; }
+/* Section 36: Longueur/D+/Pente moyenne, full-width under the profile —
+   same three-column stat-tile pattern as `.day-detail__stats` above, not a
+   second, divergent grid. */
+.day-detail__climb-profile-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; margin-top: 8px; }
+.day-detail__climb-profile-stats div { padding: 8px; background: var(--surface); border-radius: 8px; }
+.day-detail__climb-profile-stats dt { color: var(--ink-soft); font-size: .68rem; }
+.day-detail__climb-profile-stats dd { margin-top: 2px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.day-detail__climb-profile-scale { display: flex; justify-content: space-between; margin-top: 8px; color: var(--ink-soft); font-size: .72rem; }
 .day-detail__climb-profile-caption { margin-top: 4px; color: var(--ink-faint); font-size: .72rem; }
 .day-detail__climb-profile-empty { color: var(--ink-soft); font-size: .82rem; }
 
@@ -3055,6 +3077,14 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 @media (max-width: 430px) {
   .day-detail__timeline-row { grid-template-columns: auto minmax(0, 1fr); }
   .day-detail__timeline-time { grid-column: 2; justify-self: start; }
+  /* Bug 48A: `.day-detail__climb-card` carries `.day-detail__timeline-row`
+     too (same `<li>`), so without this override the rule above silently won
+     back the two-column `auto | 1fr` template on phones — squeezing the
+     climb toggle into a narrow "auto" cell and pushing the altimetric
+     profile into the remaining sliver instead of its own full-width row.
+     Re-assert the single-column template here so it stays the last (and
+     therefore winning) declaration at this breakpoint too. */
+  .day-detail__climb-card { grid-template-columns: minmax(0, 1fr); }
 }
 .wizard-validation-reasons { color: var(--ink-soft); font-size: .8rem; display: grid; gap: 3px; }
 
@@ -3209,6 +3239,33 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .weather-synthesis__line { font-weight: 700; }
 .weather-synthesis__code, .weather-synthesis__meta { color: var(--ink-soft); font-size: .78rem; }
 .weather-message { color: var(--ink-soft); }
+
+/* Sections 20-27/29 closeout: the weather decision card — a real, visible
+   red/orange banner (section 23, never a small badge lost among values), the
+   one-sentence recommendation + apply/modify actions (sections 20-21/25),
+   the compact non-native confirmation panel (section 26), and the repliable
+   "Comparer les horaires" comparison (section 24). Sits right after the
+   eyebrow, before the plain synthesis (section 22's ordering). */
+.weather-decision { display: grid; gap: 10px; margin-bottom: 10px; }
+.weather-decision__banner { padding: 11px; border-radius: 9px; font-weight: 700; }
+.weather-decision__banner--orange { color: var(--warning-text); background: var(--warning-bg); border: 1px solid var(--warning-border); }
+.weather-decision__banner--red { color: var(--danger-text); background: var(--danger-bg); border: 1px solid var(--danger-border); }
+.weather-decision__banner-title { text-transform: uppercase; letter-spacing: .02em; font-size: .82rem; }
+.weather-decision__banner-detail { margin-top: 4px; font-weight: 400; }
+.weather-decision__note { color: var(--ink-soft); }
+.weather-decision__recommendation { display: grid; gap: 8px; padding: 10px; background: var(--surface-muted); border-radius: 9px; }
+.weather-decision__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.weather-decision__compare summary { cursor: pointer; font-weight: 800; padding: 6px 0; }
+.weather-decision__scenarios { display: grid; gap: 8px; margin-top: 8px; padding: 0; list-style: none; }
+.weather-decision__scenario { padding: 9px; display: grid; gap: 3px; background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--line-strong); border-radius: 9px; }
+.weather-decision__scenario--orange { border-left-color: var(--warning-border); }
+.weather-decision__scenario--red { border-left-color: var(--danger-border); }
+.weather-decision__scenario-header { display: flex; align-items: baseline; gap: 8px; }
+.weather-decision__scenario-times, .weather-decision__scenario-risk { color: var(--ink-soft); font-size: .82rem; font-variant-numeric: tabular-nums; }
+.weather-decision__confirm { display: grid; gap: 6px; padding: 10px; background: var(--surface-muted); border-radius: 9px; }
+.weather-decision__confirm-times { font-weight: 800; font-variant-numeric: tabular-nums; }
+.weather-decision__confirm-note { color: var(--ink-soft); font-size: .82rem; }
+.weather-decision__confirm-actions { display: flex; gap: 8px; }
 
 .weather-points-block { margin-top: 14px; }
 .weather-points-list { display: grid; gap: 8px; margin-top: 8px; padding: 0; list-style: none; }
