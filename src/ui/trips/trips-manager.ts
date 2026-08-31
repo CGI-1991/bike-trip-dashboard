@@ -44,7 +44,9 @@ import { createTripDetailAutoScrollSession, scrollTripDayCardIntoView } from '..
 import { createOpenMeteoProvider } from '../../weather/open-meteo.ts'
 import type { WeatherProvider } from '../../weather/types.ts'
 import { GenericWeatherCoordinator } from '../../weather/generic/coordinator.ts'
-import { renderGenericDayCardWeatherLine, renderGenericOverviewWeatherBlock, renderGenericStageWeatherPanel } from '../weather-view.ts'
+import { renderGenericDayCardWeatherLine, renderGenericOverviewWeatherBlock, renderGenericStageWeatherPanel, renderInlineWaypointWeather } from '../weather-view.ts'
+import type { GenericDayWeatherViewModel } from '../../weather/generic/view-model.ts'
+import type { GenericTransferWeatherViewModel } from '../../weather/generic/coordinator.ts'
 import { GENERIC_APP_HEADER_NO_ACTIVE_TRIP, buildGenericAppHeader } from './app-header.ts'
 import type { GenericAppHeaderState } from './app-header.ts'
 
@@ -101,7 +103,7 @@ export interface TripsManagerDeps {
    * so these are never actually invoked) doesn't have to load Leaflet + its
    * CSS just to import this file.
    */
-  readonly renderMap: (container: HTMLElement, dialog: HTMLDialogElement, model: RouteMapModel | null, layers?: readonly MapLayerDefinition[]) => void
+  readonly renderMap: (container: HTMLElement, dialog: HTMLDialogElement, model: RouteMapModel | null, layers?: readonly MapLayerDefinition[], options?: { readonly directLayerToggle?: boolean }) => void
   readonly closeMap: (dialog: HTMLDialogElement) => void
   /**
    * Same injection seam as `renderMap`/`closeMap` above, for the profile→map
@@ -252,7 +254,16 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       const { dayId } = mode
       const panel = container.querySelector<HTMLElement>('[data-day-detail-weather]')
       const day = bundle.days.find((candidate) => candidate.id === dayId)
-      if (panel !== null && day !== undefined) renderGenericStageWeatherPanel(panel, weatherCoordinator.getDayWeatherViewModel(day), false)
+      if (panel !== null && day !== undefined) {
+        const model = weatherCoordinator.getDayWeatherViewModel(day)
+        // CDC D1.2 section 24: a ride day's own "Points significatifs" list
+        // is dropped from this mount — every significant point already
+        // carries its own inline weather line in the Parcours timeline
+        // below (`mountTimelineWaypointWeather`). OFF/transfer days have no
+        // Parcours timeline to fold into (section 29) and keep the list.
+        renderGenericStageWeatherPanel(panel, model, false, { includePointsList: day.type !== 'ride' })
+        if (day.type === 'ride') mountTimelineWaypointWeather(model)
+      }
     }
     const overviewMount = container.querySelector<HTMLElement>('[data-trip-overview-weather-mount]')
     if (overviewMount !== null) {
@@ -262,6 +273,24 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     for (const mount of container.querySelectorAll<HTMLElement>('[data-trip-day-weather-mount]')) {
       const day = bundle.days.find((candidate) => candidate.id === mount.dataset.dayId)
       if (day !== undefined) mount.innerHTML = renderGenericDayCardWeatherLine(weatherCoordinator.getDayWeatherViewModel(day))
+    }
+  }
+
+  /**
+   * CDC D1.2 sections 18-22/26: fills every Parcours row's own
+   * `[data-waypoint-weather]` mount point — matched to the view-model's own
+   * points by id (`weather/generic/sample-points.ts::toSamplePoint` sets
+   * `id: waypoint.id`, the exact same id `day-detail-view.ts` already
+   * stamps every row/climb-card with — a join that already existed, never a
+   * new lookup table). Never a fresh weather fetch: `model` is whatever the
+   * coordinator already has cached/computed for this day.
+   */
+  function mountTimelineWaypointWeather(model: GenericDayWeatherViewModel | GenericTransferWeatherViewModel | null): void {
+    const points = model !== null && !('origin' in model) ? model.points : []
+    const byId = new Map(points.map((point) => [point.id, point]))
+    for (const mount of container.querySelectorAll<HTMLElement>('[data-waypoint-weather]')) {
+      const waypointId = mount.dataset.waypointId
+      mount.innerHTML = waypointId === undefined ? '' : renderInlineWaypointWeather(waypointId, byId.get(waypointId))
     }
   }
 
@@ -315,9 +344,9 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       await renderList()
       return
     }
-    deps.onHeaderChange?.(buildGenericAppHeader(bundle, null))
-    const enrichmentBusy = geocodingInFlight.has(tripId) || automaticEnrichmentGuard.isInFlight(tripId)
     const now = deps.now()
+    deps.onHeaderChange?.(buildGenericAppHeader(bundle, { view: 'trip', now }))
+    const enrichmentBusy = geocodingInFlight.has(tripId) || automaticEnrichmentGuard.isInFlight(tripId)
     container.innerHTML = renderTripDetail(bundle, {
       now,
       canEnrichEndpoints: !enrichmentBusy && deps.geocodingProvider !== undefined && tripNeedsEndpointGeocoding(bundle),
@@ -382,10 +411,11 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       return null
     }
     const day = bundle.days.find((candidate) => candidate.id === dayId) ?? null
-    deps.onHeaderChange?.(buildGenericAppHeader(bundle, day))
+    deps.onHeaderChange?.(day === null ? buildGenericAppHeader(bundle, { view: 'trip', now: deps.now() }) : buildGenericAppHeader(bundle, { view: 'day', day }))
     teardownStickyHeaderObserver()
     container.innerHTML = detail.html
     mountMapAndProfile(detail, dayId)
+    wireDepartureTimeInput(bundle.metadata.id, dayId)
     refreshWeather(bundle, dayId)
     const stickyHeader = container.querySelector<HTMLElement>('[data-day-detail-sticky-header]')
     if (stickyHeader !== null) stickyHeaderObserver = observeStickyHeaderHeight(stickyHeader, container, '--day-sticky-header-h')
@@ -461,9 +491,11 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     const detail = buildDayDetail(bundle, dayId, { filters: getDayFilters(dayId) })
     if (detail === null) return
     const statsEl = container.querySelector('[data-day-detail-stats]')
+    // The fresh `statsHtml` is always the Départ cell's display state
+    // (CDC D1.2 section 11) — replacing it here is what collapses an
+    // in-progress inline edit back to plain text after a successful save.
     if (statsEl !== null) statsEl.outerHTML = detail.statsHtml
-    const departureEditorEl = container.querySelector('[data-day-departure-editor]')
-    if (departureEditorEl !== null && detail.departureEditorHtml !== '') departureEditorEl.outerHTML = detail.departureEditorHtml
+    wireDepartureTimeInput(bundle.metadata.id, dayId)
     const pausesEl = container.querySelector('[data-day-detail-pauses]')
     if (pausesEl !== null) pausesEl.outerHTML = detail.pausesHtml
     const timelineEl = container.querySelector('[data-day-detail-timeline]')
@@ -474,6 +506,57 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     // significant points changed, so this is cheap (see
     // `GenericWeatherCoordinator.setTripBundle`'s own doc comment).
     refreshWeather(bundle, dayId)
+  }
+
+  /** One `AbortController` per departure-time `<input>` (CDC D1.2 section 11) — aborted and replaced on every full mount/patch, exactly like `profileSyncControllers`, so its keydown/blur listeners never accumulate across `patchDayDetail` calls. */
+  const departureInputControllers = new WeakMap<HTMLElement, AbortController>()
+
+  /**
+   * CDC D1.2 section 11: the Départ stat cell is itself the editing surface
+   * — both the plain display button and the (initially hidden) `<input
+   * type="time">` are always rendered side by side in `statsHtml`; this
+   * only wires the input's keydown/blur behaviour, exactly the same "pure
+   * `hidden` toggle, no dynamically created element" shape
+   * `renderInfosPanel`'s own read/edit split already uses elsewhere in this
+   * file (never `document.createElement`, which the plain-Node test harness
+   * for this module has no polyfill for — and real browsers don't need it
+   * here either). Enter commits, Escape reverts, blur commits if the value
+   * actually changed and is valid (an unchanged value just reverts —
+   * nothing to persist). A successful save goes through `patchDayDetail`,
+   * which already recalculates ETA/timing/waypoints/météo/profil/scénarios
+   * from the single `computeStageWaypoints`/`computeStageTimingCurve`/
+   * weather-coordinator pipeline (sections 12/17/26) — never a second
+   * engine — and its fresh `statsHtml` has the input hidden again, so
+   * there's nothing left to restore manually on success.
+   */
+  function wireDepartureTimeInput(tripId: TripId, dayId: TripDayId): void {
+    const input = container.querySelector<HTMLInputElement>('[data-day-departure-input]')
+    const displayButton = container.querySelector<HTMLButtonElement>('[data-day-departure-value]')
+    if (input === null || displayButton === null) return
+    departureInputControllers.get(input)?.abort()
+    const controller = new AbortController()
+    departureInputControllers.set(input, controller)
+    const originalValue = input.value
+
+    const cancel = (): void => {
+      input.value = originalValue
+      input.hidden = true
+      displayButton.hidden = false
+    }
+    const commit = (): void => {
+      const value = input.value
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(value) || value === originalValue) { cancel(); return }
+      void (async () => {
+        const updated = await saveDayDepartureTime(tripId, dayId, value)
+        if (updated !== null) patchDayDetail(updated, dayId)
+        else cancel()
+      })()
+    }
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') { event.preventDefault(); commit() }
+      else if (event.key === 'Escape') { event.preventDefault(); cancel() }
+    }, { signal: controller.signal })
+    input.addEventListener('blur', commit, { signal: controller.signal })
   }
 
   /**
@@ -512,7 +595,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     const model = buildGenericOverviewRouteMapModel(overview.mapStages)
     const detailMarkers = buildGenericOverviewDetailMarkers(overview.mapDetailStages)
     const layers: MapLayerDefinition[] = detailMarkers.length === 0 ? [] : [{ id: 'detail', label: 'Détail', markers: detailMarkers, defaultVisible: false }]
-    deps.renderMap(mapContainer, mapDialog, model, layers)
+    deps.renderMap(mapContainer, mapDialog, model, layers, { directLayerToggle: true })
     const close = mapDialog.querySelector<HTMLButtonElement>('[data-close-map]')
     if (close !== null) close.onclick = () => deps.closeMap(mapDialog)
   }
@@ -527,7 +610,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       await renderList()
       return
     }
-    deps.onHeaderChange?.(buildGenericAppHeader(bundle, null))
+    deps.onHeaderChange?.(buildGenericAppHeader(bundle, { view: 'overview' }))
     const overview = buildTripOverview(bundle, deps.now())
     container.innerHTML = overview.html
     mountOverviewMap(overview)
@@ -901,6 +984,20 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       }
       return
     }
+    // CDC D1.2 sections 19-21: an alert-level waypoint's own inline weather
+    // line becomes a real expand toggle (`weather-view.ts::
+    // renderInlineWaypointWeather`) — same open/close mechanics as the climb
+    // profile toggle above, never a second pattern.
+    const weatherToggle = target.closest<HTMLButtonElement>('[data-action="toggle-waypoint-weather"]')
+    if (weatherToggle !== null) {
+      const panel = container.querySelector<HTMLElement>(`#${CSS.escape(weatherToggle.getAttribute('aria-controls') ?? '')}`)
+      if (panel !== null) {
+        const nextExpanded = panel.hidden
+        panel.hidden = !nextExpanded
+        weatherToggle.setAttribute('aria-expanded', String(nextExpanded))
+      }
+      return
+    }
     if (target.closest('[data-action="edit-day-infos"]') !== null) {
       const readView = container.querySelector<HTMLElement>('[data-day-infos-read]')
       const editView = container.querySelector<HTMLElement>('[data-day-infos-edit]')
@@ -1022,37 +1119,16 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
         }
       })()
     } else if (action === 'edit-day-departure-time' && mode.kind === 'day') {
-      // Sections 15-16 closeout: a pure client-side reveal, exactly like
-      // `edit-day-infos` above — never a full re-render just to show the
-      // editor.
-      const editor = container.querySelector<HTMLElement>('[data-day-departure-editor]')
-      if (editor !== null) editor.hidden = false
-    } else if (action === 'cancel-edit-day-departure-time' && mode.kind === 'day') {
-      const editor = container.querySelector<HTMLElement>('[data-day-departure-editor]')
-      if (editor !== null) editor.hidden = true
-    } else if (action === 'save-day-departure-time' && mode.kind === 'day') {
-      const { tripId, dayId } = mode
-      const input = container.querySelector<HTMLInputElement>('[data-field="day-departure-time"]')
-      const value = input?.value ?? ''
-      const status = container.querySelector<HTMLElement>('[data-day-departure-status]')
-      // The native `<input type="time">` already constrains the picker, but
-      // a typed/pasted value could still slip through empty or malformed —
-      // never persist that silently.
-      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(value)) {
-        if (status !== null) status.textContent = 'Heure invalide.'
-        return
-      }
-      void (async () => {
-        const updated = await saveDayDepartureTime(tripId, dayId, value)
-        // `patchDayDetail` rebuilds the stats/departure-editor/pauses/
-        // timeline subtrees from the just-saved bundle (section 16: never a
-        // full app reload) — the editor's own fresh markup is collapsed by
-        // default, so the panel closes itself; `refreshWeather` inside it
-        // recalculates the weather sample points against the new ETAs
-        // (section 17), all from the exact same `computeStageWaypoints` call
-        // the Parcours timeline already uses — never a second recomputation.
-        if (updated !== null) patchDayDetail(updated, dayId)
-      })()
+      // The reveal itself is a pure `hidden` toggle (CDC D1.2 section 11) —
+      // `wireDepartureTimeInput` (called once per mount/patch) already
+      // wired this same `<input>`'s keydown/blur commit/cancel behaviour.
+      const displayButton = container.querySelector<HTMLButtonElement>('[data-day-departure-value]')
+      const input = container.querySelector<HTMLInputElement>('[data-day-departure-input]')
+      if (displayButton === null || input === null) return
+      displayButton.hidden = true
+      input.hidden = false
+      input.focus()
+      try { input.showPicker?.() } catch { /* not eligible here — focus() still opens the native control on most mobile platforms */ }
     } else if (action === 'apply-weather-departure-time' && mode.kind === 'day') {
       // Sections 25-26 closeout: "Appliquer"/"Choisir" never persists
       // directly — it only reveals the shared compact confirmation panel,

@@ -38,11 +38,12 @@ test('returns null when the stage route has no usable geometry', () => {
   assert.deepEqual(detail.waypoints, [])
 })
 
-test('builds a compact header (date before locations, no GPX/roadbook name), stats, and a pauses section for a resolvable ride day', () => {
+test('builds a real identity bandeau (Jx/short date left, départ → arrivée large/bold right, no GPX/roadbook name), stats, and a pauses section for a resolvable ride day', () => {
   const bundle = createGenericTripBundle()
   const detail = buildDayDetail(bundle, 'day-alpha')
   assert.ok(detail !== null)
-  assert.match(detail.html, /J1 · 10\.05\.27 · Riverside → Hilltown/)
+  assert.match(detail.html, /<span class="day-detail__identity-number"><strong>J1<\/strong><time datetime="2027-05-10">10 mai<\/time><\/span>/)
+  assert.match(detail.html, /<span class="day-detail__identity-route">Riverside → Hilltown<\/span>/)
   assert.doesNotMatch(detail.html, /Riverside to Hilltown/)
   assert.match(detail.html, /62,4 km/)
   assert.match(detail.html, /\+780 m/)
@@ -65,40 +66,43 @@ test('the arrival time, when known, is shown as the estimated arrival stat', () 
   assert.match(detail.html, new RegExp(`Arrivée estimée</dt><dd>${arrival.clockTime}`))
 })
 
-// Sections 13-17 closeout: the per-day departure time (TripDaySettings.departureTime)
-// is now shown right in the Étape stats, with a compact inline editor —
-// never a second "weather departure" field, never the trip-wide
-// referenceSpeedKph.
-test('a ride day shows its own departure time in the stats, with a "Modifier" trigger — never a second field', () => {
+// CDC D1.2 section 11 (tests M/N/O/P/Q): the per-day departure time
+// (TripDaySettings.departureTime) is shown right in the Étape stats as its
+// own clickable value — the cell itself is the editing surface, no second
+// "Modifier" trigger opening a separate field/screen any more.
+test('a ride day shows its own departure time in the stats as a clickable, editable value — never a second field', () => {
   const bundle = createGenericTripBundle()
   const detail = buildDayDetail(bundle, 'day-alpha')
-  assert.match(detail.statsHtml, /<dt>Départ<\/dt><dd><span data-day-departure-value>08:00<\/span>.*data-action="edit-day-departure-time">Modifier<\/button><\/dd>/)
+  const departureCell = detail.statsHtml.match(/<dt>Départ<\/dt><dd>[\s\S]*?<\/dd>/)?.[0] ?? ''
+  assert.match(departureCell, /<button type="button" class="day-detail__departure-value" data-action="edit-day-departure-time" data-day-departure-value aria-label="Heure de départ 08:00, modifier">08:00<\/button>/)
+  // M: the same cell also carries the (initially hidden) inline
+  // `<input type="time">`, pre-filled — never a second block below.
+  assert.match(departureCell, /<input type="time" class="day-detail__departure-input" data-day-departure-input value="08:00" required hidden>/)
+  assert.doesNotMatch(detail.statsHtml, /Modifier/)
 })
 
-test('the departure editor is rendered pre-filled and collapsed by default — a pure client-side toggle, never a second screen', () => {
+test('Q: the estimated arrival stat is never itself editable — no data-action on it', () => {
   const bundle = createGenericTripBundle()
   const detail = buildDayDetail(bundle, 'day-alpha')
-  assert.match(detail.departureEditorHtml, /data-day-departure-editor hidden/)
-  assert.match(detail.departureEditorHtml, /<input id="day-departure-time-input" type="time" data-field="day-departure-time" value="08:00"/)
-  assert.match(detail.departureEditorHtml, /data-action="save-day-departure-time">Enregistrer/)
-  assert.match(detail.departureEditorHtml, /data-action="cancel-edit-day-departure-time">Annuler/)
+  const arrivalCell = detail.statsHtml.match(/<dt>Arrivée estimée<\/dt><dd>[^<]*<\/dd>/)?.[0] ?? ''
+  assert.doesNotMatch(arrivalCell, /data-action/)
 })
 
 test('a day with no departure-time override falls back to 08:00, the same default computeStageWaypoints already uses', () => {
   const bundle = createGenericTripBundle()
   // day-delta (a second ride day in the fixture) has no entry in settings.days at all.
   const detail = buildDayDetail(bundle, 'day-delta')
-  assert.match(detail.statsHtml, /<span data-day-departure-value>08:00<\/span>/)
+  assert.match(detail.statsHtml, /data-day-departure-value aria-label="Heure de départ 08:00, modifier">08:00<\/button>/)
 })
 
-test('OFF/transfer days never show a departure-time editor — a departure time only applies to a ride day\'s own stage', () => {
+test('OFF/transfer days carry no departure-time stat at all — a departure time only applies to a ride day\'s own stage', () => {
   const bundle = createGenericTripBundle()
   const offDetail = buildDayDetail(bundle, 'day-bravo')
   const transferDetail = buildDayDetail(bundle, 'day-charlie')
-  assert.equal(offDetail.departureEditorHtml, '')
-  assert.equal(transferDetail.departureEditorHtml, '')
-  assert.doesNotMatch(offDetail.html, /data-day-departure-editor/)
-  assert.doesNotMatch(transferDetail.html, /data-day-departure-editor/)
+  assert.equal(offDetail.statsHtml, '')
+  assert.equal(transferDetail.statsHtml, '')
+  assert.doesNotMatch(offDetail.html, /data-day-departure-value/)
+  assert.doesNotMatch(transferDetail.html, /data-day-departure-value/)
 })
 
 test('villageWaypoints exposes villages separately for the fullscreen map layer, even though the compact map/profile never see them', () => {
@@ -369,6 +373,40 @@ test('AC: the tabbar is a real CSS position:sticky element, pinned at the identi
   assert.match(css, /\.day-detail__sticky-header \{ position: sticky; top: 0;/)
 })
 
+// --- CDC D1.2 section 9 (tests K/L): the identity bandeau ------------------
+
+test('T: no unnecessary overflow on the Détails card breaks the tabbar\'s own sticky positioning (CDC D1.2 section 13 real bug)', () => {
+  const css = readFileSync(new URL('../../src/style.css', import.meta.url), 'utf8')
+  // `overflow` (any non-`visible` value) on an ancestor makes THAT box the
+  // sticky element's scrolling container, per spec — even a card that never
+  // actually scrolls. `.day-detail__details-card` is a direct ancestor of
+  // the sticky tabbar and must carry no `overflow` at all.
+  const cardRule = css.match(/\.day-detail__details-card \{[^}]*\}/)?.[0] ?? ''
+  assert.ok(cardRule.length > 0, 'the rule must exist')
+  assert.doesNotMatch(cardRule, /overflow/, 'no overflow value on the tabbar\'s sticky-containing ancestor')
+})
+
+test('the generic Détail tabbar lays out its (2) tabs in 2 equal columns — never RGA\'s own 3-column rule leaking a dead empty column', () => {
+  const css = readFileSync(new URL('../../src/style.css', import.meta.url), 'utf8')
+  assert.match(css, /\.day-tabs\[data-day-detail-tabs\] \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/)
+})
+
+test('K: the identity bandeau carries Jx, a short date, and départ → arrivée — nothing else', () => {
+  const bundle = createGenericTripBundle()
+  const detail = buildDayDetail(bundle, 'day-alpha')
+  const identityBlock = detail.html.match(/<header class="day-detail__sticky-identity"[\s\S]*?<\/header>/)?.[0] ?? ''
+  assert.match(identityBlock, /<strong>J1<\/strong>/)
+  assert.match(identityBlock, /<time datetime="2027-05-10">10 mai<\/time>/)
+  assert.match(identityBlock, /Riverside → Hilltown/)
+})
+
+test('L: the bandeau never duplicates distance/D+/départ-heure/ETA/météo — those stay in the Stats/Météo blocks only', () => {
+  const bundle = createGenericTripBundle()
+  const detail = buildDayDetail(bundle, 'day-alpha')
+  const identityBlock = detail.html.match(/<header class="day-detail__sticky-identity"[\s\S]*?<\/header>/)?.[0] ?? ''
+  assert.doesNotMatch(identityBlock, /km|D\+|D−|°C|Départ|ETA/)
+})
+
 // --- Météo mount point (CDC Jalon B4.2 section 22, CDC Jalon C1 section 19) -
 // `buildDayDetail` only ever produces the empty mount point + a loading
 // placeholder — never a fake temperature/rain/alert value baked into the
@@ -434,31 +472,35 @@ function pushClimb(bundle) {
   return bundle
 }
 
-test('a climb renders as a tappable mini-card — closed: picto/name/ETA-at-summit + "Type · Distance-at-summit" only; expanded: Longueur/D+/Pente moyenne + its own gradient-coloured profile panel (sections 35-38/47 closeout)', () => {
+test('AA/AB/AC: a climb renders as a tappable mini-card, same skeleton as a plain row — closed: time-left, marker-prefixed name, "Longueur · D+ · Pente" meta, weather mount; expanded: its own gradient-coloured profile panel (CDC D1.2 sections 17/22)', () => {
   const bundle = pushClimb(createGenericTripBundle())
   const detail = buildDayDetail(bundle, 'day-alpha')
   assert.match(detail.html, /data-action="toggle-climb-profile" data-climb-id="climb-test-1" aria-expanded="false"/)
   assert.match(detail.html, /Col du Test/)
   const waypoint = detail.waypoints.find((candidate) => candidate.climbId === 'climb-test-1')
   assert.ok(waypoint !== undefined)
-  // Closed toggle: ETA at the summit (the waypoint's own clockTime, never a
-  // second timing computation) and "Type · Distance", Distance being the
-  // SUMMIT's own position on the stage (`Climb.endDistanceKm` = 15), never
-  // the climb's length (5 km) — that only ever shows once expanded.
   const toggleMatch = /<button class="day-detail__climb-toggle"[^]*?<\/button>/.exec(detail.html)
   assert.ok(toggleMatch !== null)
   const toggleHtml = toggleMatch[0]
+  // AA: time leads (left), the marker-prefixed name is never centered —
+  // it's the first line of the same `.day-detail__timeline-body` a plain
+  // row uses (AB: the common skeleton).
   if (waypoint.clockTime !== null) assert.match(toggleHtml, new RegExp(`day-detail__timeline-time">${waypoint.clockTime}<`))
-  assert.match(toggleHtml, /day-detail__climb-toggle-row--meta">Montée · 15,0 km</)
-  assert.doesNotMatch(toggleHtml, /Longueur|Pente moyenne|\+450 m/, 'the closed toggle must never show longueur/D+/pente — those only appear once expanded')
-  // Expanded profile panel: Longueur (climb length, 15 - 10 km)/D+/Pente moyenne.
+  assert.match(toggleHtml, /<strong><span class="day-detail__timeline-marker" aria-hidden="true">[^<]+<\/span>Col du Test<\/strong>/)
+  // AC: the compact meta line is now "Longueur · D+ · Pente" (climb length
+  // 15 - 10 = 5 km — never the summit's own trackDistanceKm/15 km, which
+  // only a plain row would show).
+  assert.match(toggleHtml, /day-detail__timeline-meta">5,0 km · \+450 m · 9,0 %</)
+  // AE: an (empty, until weather arrives) weather mount sits in the same body.
+  assert.match(toggleHtml, /data-waypoint-weather data-waypoint-id="climb-test-1"/)
+  // Expanded profile panel: still Longueur (climb length, 15 - 10 km)/D+/Pente moyenne.
   const profileMatch = /<div class="day-detail__climb-profile" id="climb-profile-climb-test-1"[^]*?<\/div>\s*<\/li>/.exec(detail.html)
   assert.ok(profileMatch !== null)
   const profileHtml = profileMatch[0]
   assert.match(profileHtml, /<dt>Longueur<\/dt><dd>5,0 km<\/dd>/)
   assert.match(profileHtml, /<dt>D\+<\/dt><dd>\+450 m<\/dd>/)
   assert.match(profileHtml, /<dt>Pente moyenne<\/dt><dd>9,0 %<\/dd>/)
-  assert.match(detail.html, /data-climb-profile hidden/, 'collapsed by default')
+  assert.match(detail.html, /data-climb-profile hidden/, 'AD: collapsed by default, still developable')
   // CDC Jalon C1 closeout: the gradient colouring lives only on the
   // altimetric silhouette's `<polygon>` bands now — the redundant flat
   // horizontal colour strip (`day-detail__climb-profile-bar`) was removed
@@ -477,7 +519,7 @@ test('a climb renders as a tappable mini-card — closed: picto/name/ETA-at-summ
 // `auto | 1fr` grid template inside the mobile breakpoint, splitting the
 // climb card's two children (toggle button, profile panel) across two
 // narrow columns instead of stacking them full-width.
-test('the climb card stays a single full-width column, and its profile SVG stays fully responsive, even inside the mobile timeline-row breakpoint', () => {
+test('the climb card stays a single full-width column, and its profile SVG stays fully responsive — one stable template at every viewport width (CDC D1.2 section 17: no more mobile-only override needed once the row itself is a uniform 2-column [time|body] template everywhere)', () => {
   const bundle = pushClimb(createGenericTripBundle())
   const detail = buildDayDetail(bundle, 'day-alpha')
   // Structural check: profile is its own block below the toggle, never a
@@ -488,24 +530,13 @@ test('the climb card stays a single full-width column, and its profile SVG stays
     'the profile panel must come after the whole toggle header, not beside it',
   )
   const css = readFileSync(new URL('../../src/style.css', import.meta.url), 'utf8')
-  // `.day-detail__climb-card` must resolve to a single flexible column…
-  assert.match(css, /\.day-detail__climb-card \{ grid-template-columns: minmax\(0, 1fr\);/, 'desktop/tablet: climb card is a single full-width column')
-  // …and that override must still be the LAST word inside the mobile
-  // breakpoint too — not silently undone by `.day-detail__timeline-row`'s
-  // own two-column reset there, which is what caused the reported squeeze.
-  // Anchored on the exact row-reset rule rather than "the first `@media
-  // (max-width: 430px)` block in the file" — style.css has more than one
-  // such breakpoint block for unrelated components (day-tabs, pause-editor),
-  // so a naive first-match regex can silently grab the wrong one.
-  const rowResetRule = '.day-detail__timeline-row { grid-template-columns: auto minmax(0, 1fr); }'
-  const rowResetIndex = css.indexOf(rowResetRule)
-  assert.ok(rowResetIndex >= 0, 'the mobile row-reset rule must exist')
-  const blockEnd = css.indexOf('\n}', rowResetIndex)
-  assert.ok(blockEnd > rowResetIndex, 'the row-reset rule must sit inside a closed block')
-  const enclosingBlock = css.slice(rowResetIndex, blockEnd)
-  const climbCardOverrideIndex = enclosingBlock.indexOf('.day-detail__climb-card {')
-  assert.ok(climbCardOverrideIndex >= 0, 'the SAME mobile breakpoint block that resets .day-detail__timeline-row must also re-assert a single-column template for .day-detail__climb-card')
-  assert.match(enclosingBlock.slice(climbCardOverrideIndex), /^\.day-detail__climb-card \{ grid-template-columns: minmax\(0, 1fr\); \}/)
+  // `.day-detail__climb-card` resolves to a single flexible column — a real
+  // override of `.day-detail__timeline-row`'s own base 2-column template
+  // (time | body), which now applies uniformly at every width, so there is
+  // no separate mobile-only re-assertion left to go stale (the D1.1-era
+  // "Bug 48A" fix this test used to also verify).
+  assert.match(css, /\.day-detail__climb-card \{ grid-template-columns: minmax\(0, 1fr\);/, 'the climb card is a single full-width column')
+  assert.match(css, /\.day-detail__timeline-row \{[^}]*grid-template-columns: auto minmax\(0, 1fr\);/, 'the base row template itself is only ever 2 columns (time | body) now — nothing left for the climb card to fight at a breakpoint')
   // The SVG silhouette itself must stay viewBox-driven and CSS-sized to
   // 100% width — never a fixed pixel width that would force a horizontal
   // squeeze/scroll regardless of the parent's column layout.
@@ -554,11 +585,10 @@ test('a mountain-pass landmark merged with its detected climb still gets the cli
   assert.match(detail.timelineHtml, /day-detail__climb-card" data-waypoint-id="col-landmark-1" data-waypoint-kind="mountain-pass"/)
   assert.match(detail.timelineHtml, /data-action="toggle-climb-profile" data-climb-id="climb-col-1"/)
   assert.match(detail.timelineHtml, /Col de Test/)
-  // Sections 35/47 closeout: the closed toggle shows "Type · Distance" (the
-  // summit's own position, `Climb.endDistanceKm` = 15) — no altitude any
-  // more; Longueur/D+/Pente moyenne (climb length, 5 km) live in the
-  // expanded profile panel instead.
-  assert.match(detail.timelineHtml, /day-detail__climb-toggle-row--meta">Col · 15,0 km</)
+  // CDC D1.2 sections 17/22: the closed toggle now shows "Longueur · D+ ·
+  // Pente" directly (climb length 5 km) — the same compact meta an
+  // expanded-only summit stat used to be.
+  assert.match(detail.timelineHtml, /day-detail__timeline-meta">5,0 km · \+450 m · 9,0 %</)
   assert.match(detail.timelineHtml, /<dt>Longueur<\/dt><dd>5,0 km<\/dd>/)
   assert.match(detail.timelineHtml, /◆/, 'the col marker/icon is preserved, not swapped for the generic climb marker')
 })
@@ -601,7 +631,7 @@ test('an OFF day now builds a real detail shell — Résumé + Météo/Infos, no
   assert.doesNotMatch(detail.html, /data-day-detail-map/, 'never a fake cycling map for a day with no route')
   assert.doesNotMatch(detail.html, /data-day-detail-profile/, 'never a fake elevation profile')
   assert.doesNotMatch(detail.html, /data-day-tab="route"/, 'no Parcours tab at all')
-  assert.match(detail.html, /Journée OFF/)
+  assert.match(detail.html, /<span class="day-detail__identity-route">OFF — Hilltown<\/span>/, 'the identity bandeau carries a short type badge + the known location')
   assert.match(detail.html, /Hilltown/, 'the OFF day\'s known/auto-filled location shows in the Résumé')
   assert.match(detail.html, /data-day-detail-weather/, 'the same Météo mount point as a ride day — real weather is mounted by trips-manager.ts')
   assert.match(detail.html, /data-action="edit-day-infos">Modifier/, 'Infos is the same read/edit component as a ride day')

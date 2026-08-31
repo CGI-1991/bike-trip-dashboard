@@ -80,24 +80,26 @@ test('Mes voyages (the initial list) reports no active-trip context', async () =
   }
 })
 
-test('opening a trip (Voyage/detail) reports its own name, no subtitle', async () => {
+test('opening a trip (Voyage/detail) reports its own name plus the priority-day subtitle (CDC D1.2 section 1)', async () => {
   const db = await openTestDatabase()
   try {
     const bundle = createGenericTripBundle()
     await createTripRepository(db).saveTripBundle(bundle)
     const headerStates = []
     const container = createFakeContainer()
+    // `noopDeps`'s fixed `now` (2027-05-10T08:00:00.000Z) is before the
+    // fixture's own day-alpha ETA, so day 1 is still the priority day.
     const handle = initializeTripsManager(container, noopDeps(db, { onHeaderChange: (state) => headerStates.push(state) }))
     await flush()
     await handle.goToDetailForActiveTrip()
     await flush()
-    assert.deepEqual(headerStates.at(-1), { tripName: 'Sample Loop 01', subtitle: null })
+    assert.deepEqual(headerStates.at(-1), { tripName: 'Sample Loop 01', subtitle: 'J1 sur 4 · 3 jours à venir' })
   } finally {
     db.close()
   }
 })
 
-test('opening Aperçu for the trip reports its own name, no subtitle', async () => {
+test('opening Aperçu for the trip reports its own name plus its date span/day count', async () => {
   const db = await openTestDatabase()
   try {
     const bundle = createGenericTripBundle()
@@ -108,7 +110,7 @@ test('opening Aperçu for the trip reports its own name, no subtitle', async () 
     await flush()
     await handle.goToOverviewForActiveTrip()
     await flush()
-    assert.deepEqual(headerStates.at(-1), { tripName: 'Sample Loop 01', subtitle: null })
+    assert.deepEqual(headerStates.at(-1), { tripName: 'Sample Loop 01', subtitle: '10 mai → 13 mai · 4 jours' })
   } finally {
     db.close()
   }

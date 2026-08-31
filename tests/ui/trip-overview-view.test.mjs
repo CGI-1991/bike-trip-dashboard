@@ -34,21 +34,27 @@ test('an undated trip defaults to day 1', () => {
   assert.equal(computeHighlightedDayId(bundle, null), 'day-alpha')
 })
 
-test('Aperçu order: title → stats → map → highlighted day (CDC Jalon B4.3 section 5)', () => {
+test('Aperçu order: eyebrow → stats → map → highlighted day (CDC Jalon B4.3 section 5)', () => {
   const bundle = createGenericTripBundle()
   const overview = buildTripOverview(bundle, '2027-05-01')
-  const titleIndex = overview.html.indexOf('<h2>Sample Loop 01</h2>')
+  const eyebrowIndex = overview.html.indexOf('<header class="view-heading">')
   const statsIndex = overview.html.indexOf('data-trip-overview-progress')
   const mapIndex = overview.html.indexOf('data-trip-overview-map')
   const dayIndex = overview.html.indexOf('trip-overview__highlighted-day')
-  assert.ok(titleIndex < statsIndex && statsIndex < mapIndex && mapIndex < dayIndex, 'stats then map then the day card, never the day card first')
+  assert.ok(eyebrowIndex >= 0 && eyebrowIndex < statsIndex && statsIndex < mapIndex && mapIndex < dayIndex, 'stats then map then the day card, never the day card first')
 })
 
-test('buildTripOverview renders the trip name and dates', () => {
+// CDC D1.2 section 2: the app-shell header (fond vert) is now the sole
+// general trip identity — Aperçu's own content never repeats the trip name
+// or its date span any more (both already live in the header's own
+// subtitle, see tests/ui/trips/app-header.test.mjs).
+test('A: buildTripOverview never repeats the trip name or its dates in its own content', () => {
   const bundle = createGenericTripBundle()
   const overview = buildTripOverview(bundle, '2027-05-01')
-  assert.match(overview.html, /Sample Loop 01/)
-  assert.match(overview.html, /2027-05-10 → 2027-05-13/)
+  assert.doesNotMatch(overview.html, /Sample Loop 01/)
+  assert.doesNotMatch(overview.html, /2027-05-10/)
+  assert.doesNotMatch(overview.html, /<h2>/)
+  assert.match(overview.html, /<header class="view-heading"><p class="eyebrow">Aperçu<\/p><\/header>/)
 })
 
 // --- visual hierarchy: Voyage vs Aujourd'hui/Prochaine étape (CDC Jalon B4.4 sections 14/34) ---
@@ -188,19 +194,36 @@ test('mapStages waypoints are pre-filtered to the compact-map default (villages 
   assert.ok(overview.mapStages[0].waypoints.every((waypoint) => waypoint.kind !== 'village'))
 })
 
-test('mapDetailStages carries significant intermediate points while the default map keeps only endpoints', () => {
+// CDC D1.2 section 6: Détail ON adds ONLY pauses + named cols — an
+// auto-detected village/town/city is explicitly excluded, durably (H: no
+// future POI layer either).
+test('mapDetailStages carries only pauses and named cols — an auto-detected village never joins them, even though the default map keeps only endpoints', () => {
   const bundle = createGenericTripBundle()
-  bundle.routePoints.push({
-    id: 'village-ui', routeId: bundle.routes[0].id, type: 'passage', name: 'Micro Village',
-    latitude: 45.2, longitude: 6.35, elevationM: 300, trackDistanceKm: 30,
-    osmFeatureType: 'village', lateralDistanceKm: 0.5,
-    provenance: { sourceType: 'osm', sourceId: 'postpass:village:1', fetchedAt: null, engineVersion: 'route-enrichment@4', confidence: 'high', manuallyOverridden: false },
-  })
-  bundle.stages[0].routePointIds.push('village-ui')
+  bundle.routePoints.push(
+    {
+      id: 'village-ui', routeId: bundle.routes[0].id, type: 'passage', name: 'Micro Village',
+      latitude: 45.2, longitude: 6.3, elevationM: 300, trackDistanceKm: 20,
+      osmFeatureType: 'village', lateralDistanceKm: 0.5,
+      provenance: { sourceType: 'osm', sourceId: 'postpass:village:1', fetchedAt: null, engineVersion: 'route-enrichment@4', confidence: 'high', manuallyOverridden: false },
+    },
+    {
+      id: 'col-ui', routeId: bundle.routes[0].id, type: 'passage', name: 'Col des Aravis',
+      latitude: 45.25, longitude: 6.35, elevationM: 1_486, trackDistanceKm: 30,
+      osmFeatureType: 'mountain-pass', lateralDistanceKm: 0,
+      provenance: { sourceType: 'osm', sourceId: 'postpass:col:1', fetchedAt: null, engineVersion: 'route-enrichment@4', confidence: 'high', manuallyOverridden: false },
+    },
+  )
+  bundle.stages[0].routePointIds.push('village-ui', 'col-ui')
+  // Custom pause mode, no pauses configured — isolates the kind-based
+  // inclusion rule from the automatic pause budget, which would otherwise
+  // anchor onto whichever candidate point it prefers (itself correctly
+  // included per the "pauses always show" rule, just not what this test is
+  // about).
+  bundle.settings.stages = [{ stageId: bundle.stages[0].id, pausePlanMode: 'custom', pauses: [] }]
   const overview = buildTripOverview(bundle, '2027-05-01')
   assert.equal(overview.mapDetailStages.length, overview.mapStages.length)
-  assert.equal(overview.mapDetailStages[0].waypoints.length, 4)
-  assert.ok(overview.mapDetailStages[0].waypoints.some((waypoint) => waypoint.name === 'Micro Village'))
+  assert.ok(overview.mapDetailStages[0].waypoints.some((waypoint) => waypoint.name === 'Col des Aravis'))
+  assert.ok(!overview.mapDetailStages[0].waypoints.some((waypoint) => waypoint.name === 'Micro Village'))
   assert.ok(overview.mapDetailStages[0].geometry.length === 0)
 })
 
@@ -223,31 +246,47 @@ test('the compact map itself is the click/tap target that opens the fullscreen �
   assert.doesNotMatch(overview.html, /Explorer la carte/)
 })
 
-test('E: the fullscreen dialog carries the "Détail" control', () => {
+test('E: the fullscreen dialog carries the "Détail" control, stateful via aria-pressed only — never "Détail ON/OFF" text', () => {
   const bundle = createGenericTripBundle()
   const overview = buildTripOverview(bundle, '2027-05-01')
   const dialogHtml = overview.html.slice(overview.html.indexOf('data-trip-overview-map-dialog'))
-  assert.match(dialogHtml, /data-map-layers-toggle[^>]*>Détail<\/button>/)
+  assert.match(dialogHtml, /data-map-layers-toggle aria-pressed="false"[^>]*>Détail<\/button>/)
+  assert.doesNotMatch(dialogHtml, /Détail ON|Détail OFF|Détail actif|Détail inactif/)
+  // The panel machinery (Calques) is gone from this dialog — a direct
+  // toggle, no picker (CDC D1.2 sections 4/7).
+  assert.doesNotMatch(dialogHtml, /data-map-layers-panel|data-map-layers-backdrop|aria-expanded|aria-controls/)
 })
 
-test('F/G: Détail OFF keeps only principal points; Détail ON adds significant intermediate waypoints — never practical POIs (H)', () => {
+test('D1.2 sections 6/H: Détail OFF keeps only principal points; Détail ON adds ONLY pauses + named cols, never a village/town or a practical POI', () => {
   const bundle = createGenericTripBundle()
-  bundle.routePoints.push({
-    id: 'village-ui', routeId: bundle.routes[0].id, type: 'passage', name: 'Micro Village',
-    latitude: 45.2, longitude: 6.35, elevationM: 300, trackDistanceKm: 30,
-    osmFeatureType: 'village', lateralDistanceKm: 0.5,
-    provenance: { sourceType: 'osm', sourceId: 'postpass:village:1', fetchedAt: null, engineVersion: 'route-enrichment@4', confidence: 'high', manuallyOverridden: false },
-  })
-  bundle.stages[0].routePointIds.push('village-ui')
+  bundle.routePoints.push(
+    {
+      id: 'village-ui', routeId: bundle.routes[0].id, type: 'passage', name: 'Micro Village',
+      latitude: 45.2, longitude: 6.3, elevationM: 300, trackDistanceKm: 20,
+      osmFeatureType: 'village', lateralDistanceKm: 0.5,
+      provenance: { sourceType: 'osm', sourceId: 'postpass:village:1', fetchedAt: null, engineVersion: 'route-enrichment@4', confidence: 'high', manuallyOverridden: false },
+    },
+    {
+      id: 'col-ui', routeId: bundle.routes[0].id, type: 'passage', name: 'Col des Aravis',
+      latitude: 45.25, longitude: 6.35, elevationM: 1_486, trackDistanceKm: 30,
+      osmFeatureType: 'mountain-pass', lateralDistanceKm: 0,
+      provenance: { sourceType: 'osm', sourceId: 'postpass:col:1', fetchedAt: null, engineVersion: 'route-enrichment@4', confidence: 'high', manuallyOverridden: false },
+    },
+  )
+  bundle.stages[0].routePointIds.push('village-ui', 'col-ui')
+  bundle.settings.stages = [{ stageId: bundle.stages[0].id, pausePlanMode: 'custom', pauses: [] }]
   const overview = buildTripOverview(bundle, '2027-05-01')
   const detailOffModel = buildGenericOverviewRouteMapModel(overview.mapStages)
   assert.ok(detailOffModel.markers.every((marker) => marker.category === 'overview-primary'), 'F: Détail OFF — only principal points')
+  assert.ok(!detailOffModel.markers.some((marker) => marker.name === 'Col des Aravis' || marker.name === 'Micro Village'))
   const detailMarkers = buildGenericOverviewDetailMarkers(overview.mapDetailStages)
-  assert.ok(detailMarkers.length > 0, 'G: Détail ON — significant intermediate waypoints exist')
+  assert.ok(detailMarkers.length > 0, 'G: Détail ON — pauses/named cols exist')
   assert.ok(detailMarkers.every((marker) => marker.category === 'overview-secondary'))
-  assert.ok(detailMarkers.some((marker) => marker.name === 'Micro Village'))
+  assert.ok(detailMarkers.some((marker) => marker.name === 'Col des Aravis'), 'a named col is included')
+  assert.ok(!detailMarkers.some((marker) => marker.name === 'Micro Village'), 'an auto-detected village is excluded even with Détail ON')
   // H: no practical-POI category ever leaks into the model (this build never
-  // computes one for the overview map to begin with).
+  // computes one for the overview map to begin with) — durable against any
+  // future POI layer.
   assert.ok(overview.mapDetailStages.flatMap((stage) => stage.waypoints).every((waypoint) => !('category' in waypoint)))
 })
 

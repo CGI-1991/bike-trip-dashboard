@@ -276,6 +276,48 @@ function installMapLayerPanel(dialog: HTMLDialogElement, map: L.Map, layers: rea
   })
 }
 
+const directToggleControllers = new WeakMap<HTMLDialogElement, { dispose(): void }>()
+
+export function disposeDirectLayerToggle(dialog: HTMLDialogElement): void {
+  directToggleControllers.get(dialog)?.dispose()
+  directToggleControllers.delete(dialog)
+}
+
+/**
+ * CDC D1.2 sections 4-7: the Aperçu global map's own "Détail" control acts
+ * directly on click — no Calques panel, no picking a layer from a list (the
+ * Étape map's own "Villages" Calques panel is untouched, `installMapLayerPanel`
+ * above). Reuses the exact same `L.layerGroup` construction for the layer's
+ * markers, just toggled by one button instead of a checkbox inside a
+ * slide-over panel. State is `aria-pressed` only — never "Détail ON/OFF"
+ * text (CDC section 5); the label always stays "Détail".
+ */
+function installDirectLayerToggle(dialog: HTMLDialogElement, map: L.Map, layers: readonly MapLayerDefinition[]): void {
+  disposeDirectLayerToggle(dialog)
+  const toggle = dialog.querySelector<HTMLButtonElement>('[data-map-layers-toggle]')
+  if (toggle === null) return
+  const markers = layers.flatMap((layer) => layer.markers)
+  toggle.hidden = markers.length === 0
+  toggle.setAttribute('aria-pressed', 'false')
+  if (markers.length === 0) return
+  const group = L.layerGroup(markers.map((marker) =>
+    L.marker(toLatLng(marker.coordinate), { icon: createRouteDivIcon(marker.category, { offRoute: marker.offRoute, pauseActive: marker.pauseActive }) })
+      .bindTooltip(markerTooltip(marker)),
+  ))
+  const handler = (): void => {
+    const active = toggle.getAttribute('aria-pressed') === 'true'
+    if (active) { group.remove(); toggle.setAttribute('aria-pressed', 'false') }
+    else { group.addTo(map); toggle.setAttribute('aria-pressed', 'true') }
+  }
+  toggle.addEventListener('click', handler)
+  directToggleControllers.set(dialog, {
+    dispose(): void {
+      group.remove()
+      toggle.removeEventListener('click', handler)
+    },
+  })
+}
+
 /**
  * `categories` omitted keeps the RGA screen's exact historical 4-entry
  * legend, unaffected; a generic caller passes only the categories actually
@@ -421,8 +463,12 @@ export function renderRouteMap(container: HTMLElement, dialog: HTMLDialogElement
  * accommodation inputs, and has no practical-places layer (out of scope for
  * this phase). Reuses the same `createRouteMap` Leaflet primitive, the same
  * fullscreen-dialog/back-button history wiring, and the same legend.
+ * `options.directLayerToggle` (CDC D1.2 sections 4-7) swaps the fullscreen
+ * "Détail"/"Calques" button from opening a layer-picker panel to acting
+ * directly on click — the Aperçu global map's own dialog only ever has one
+ * layer to offer, so a panel just to pick it is one needless step.
  */
-export function renderGenericRouteMap(container: HTMLElement, dialog: HTMLDialogElement, model: RouteMapModel | null, layers: readonly MapLayerDefinition[] = []): void {
+export function renderGenericRouteMap(container: HTMLElement, dialog: HTMLDialogElement, model: RouteMapModel | null, layers: readonly MapLayerDefinition[] = [], options: { readonly directLayerToggle?: boolean } = {}): void {
   destroy(container)
   if (dialog.open || scrollUnlocks.has(dialog) || expandedHistory.has(dialog)) {
     closeExpandedRouteMap(dialog)
@@ -430,6 +476,7 @@ export function renderGenericRouteMap(container: HTMLElement, dialog: HTMLDialog
   const practicalToggle = dialog.querySelector<HTMLButtonElement>('[data-practical-layers-toggle]')
   if (practicalToggle !== null) practicalToggle.hidden = true
   disposeMapLayerPanel(dialog)
+  disposeDirectLayerToggle(dialog)
   if (!routeMapHasContent(model)) {
     container.innerHTML = '<p class="route-map__fallback">Carte indisponible.</p>'
     return
@@ -493,7 +540,8 @@ export function renderGenericRouteMap(container: HTMLElement, dialog: HTMLDialog
         )
         map.on('popupopen', () => { popupOpen = true })
         map.on('popupclose', () => { popupOpen = false })
-        installMapLayerPanel(dialog, map, layers)
+        if (options.directLayerToggle === true) installDirectLayerToggle(dialog, map, layers)
+        else installMapLayerPanel(dialog, map, layers)
       } catch {
         closeExpandedRouteMap(dialog)
       }
@@ -533,6 +581,7 @@ export function closeExpandedRouteMap(
   try {
     disposePracticalLayerPanel(dialog)
     disposeMapLayerPanel(dialog)
+    disposeDirectLayerToggle(dialog)
     const expanded = dialog.querySelector<HTMLElement>('[data-route-map-expanded]')
     if (expanded !== null) destroy(expanded)
     if (dialog.open) dialog.close()

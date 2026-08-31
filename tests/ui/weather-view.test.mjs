@@ -5,6 +5,7 @@ import {
   renderGenericDayCardWeatherLine,
   renderGenericOverviewWeatherBlock,
   renderGenericStageWeatherPanel,
+  renderInlineWaypointWeather,
 } from '../../src/ui/weather-view.ts'
 
 function fakeElement() {
@@ -125,4 +126,50 @@ test('the Voyage compact line renders nothing at all when there is no summary ye
 
 test('the Voyage compact line never renders for a transfer\'s composite view-model directly (the card itself stays minimal per CDC section 21)', () => {
   assert.equal(renderGenericDayCardWeatherLine({ origin: baseModel(), destination: null }), '')
+})
+
+// --- CDC D1.2 sections 24 (test U/V) — the ride day's own weather panel
+// drops its "Points significatifs" list once each point already has its own
+// inline weather line in the Parcours timeline. ---------------------------
+
+test('U/V: includePointsList: false drops the points list entirely — synthesis/risk/recommendation/comparison stay, no second list of the same points', () => {
+  const container = fakeElement()
+  renderGenericStageWeatherPanel(container, baseModel(), false, { includePointsList: false })
+  assert.doesNotMatch(container.innerHTML, /weather-points-block/)
+  assert.doesNotMatch(container.innerHTML, /Points significatifs/)
+  assert.doesNotMatch(container.innerHTML, /Col du Test/, 'the point that only ever appeared in that list is gone from this mount entirely')
+  assert.match(container.innerHTML, /weather-summary-block/, 'the synthesis itself is untouched')
+})
+
+test('omitting the option (or passing true) keeps the exact historical behaviour — OFF/transfer days never lose their list', () => {
+  const container = fakeElement()
+  renderGenericStageWeatherPanel(container, baseModel(), false)
+  assert.match(container.innerHTML, /weather-points-block/)
+  assert.match(container.innerHTML, /Col du Test/)
+})
+
+// --- CDC D1.2 sections 18-21 (tests W/X/Y/Z) — the inline per-waypoint line ---
+
+test('W/Z: a normal (green) point renders one compact line, no chevron, no expand affordance', () => {
+  const html = renderInlineWaypointWeather('p1', baseModel().points[0])
+  assert.match(html, /<span class="day-detail__waypoint-weather day-detail__waypoint-weather--green">/)
+  assert.match(html, /12 °C/)
+  assert.doesNotMatch(html, /data-action="toggle-waypoint-weather"/)
+  assert.doesNotMatch(html, /chevron/)
+})
+
+test('X/Y: an orange/red point becomes a real expand toggle, highlighted, revealing the already-computed risk reasons', () => {
+  const html = renderInlineWaypointWeather('p2', baseModel().points[1])
+  assert.match(html, /<button type="button" class="day-detail__waypoint-weather day-detail__waypoint-weather--red day-detail__waypoint-weather-toggle" data-action="toggle-waypoint-weather" aria-expanded="false" aria-controls="waypoint-weather-detail-p2">/)
+  assert.match(html, /<div class="day-detail__waypoint-weather-detail" id="waypoint-weather-detail-p2" hidden>/)
+  assert.match(html, /Rafales fortes en altitude/, 'the alert engine\'s own riskReasons, never a second computation')
+})
+
+test('no data for this waypoint yet (still loading, or not a significant point) renders nothing at all — never a placeholder block per row', () => {
+  assert.equal(renderInlineWaypointWeather('unknown-id', undefined), '')
+})
+
+test('an unavailable sample point (no real data reached it) renders nothing rather than a fabricated line', () => {
+  const point = { ...baseModel().points[0], available: false, temperatureC: null, precipitationProbabilityPct: null, windSpeedKph: null }
+  assert.equal(renderInlineWaypointWeather('p1', point), '')
 })

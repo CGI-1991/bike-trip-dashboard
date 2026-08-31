@@ -92,6 +92,45 @@ function renderPointRow(point: GenericWeatherPointViewModel): string {
   </li>`
 }
 
+/**
+ * CDC D1.2 sections 18-22/26: the compact weather line injected straight
+ * into a single Parcours waypoint row (`day-detail-view.ts`'s own
+ * `[data-waypoint-weather]` mount point, filled by `trips-manager.ts` once
+ * weather arrives) — never a second, separate list repeating the same
+ * names/times (section 24: only the scenario comparison, a genuinely
+ * different question, stays its own section). A normal point stays one
+ * sober line, no chevron (section 21); an orange/red point gets a visible
+ * highlight and an expand toggle revealing the reasons already computed by
+ * the alert engine (`GenericWeatherPointViewModel.riskReasons`) — never a
+ * second scoring, never a fresh fetch per point (`point` is read straight
+ * from the already-fetched/interpolated view-model).
+ */
+export function renderInlineWaypointWeather(waypointId: string, point: GenericWeatherPointViewModel | undefined): string {
+  if (point === undefined || !point.available) return ''
+  const parts = [
+    formatTemperatureRange(point.temperatureC, null),
+    formatPrecipitation(point.precipitationProbabilityPct, point.precipitationMm),
+    formatWind(point.windSpeedKph, point.windGustsKph),
+  ].filter((value): value is string => value !== null)
+  if (parts.length === 0) return ''
+  const line = escapeHtml(parts.join(' · '))
+  const isAlert = point.riskLevel === 'orange' || point.riskLevel === 'red'
+  if (!isAlert) {
+    return `<span class="day-detail__waypoint-weather day-detail__waypoint-weather--${point.riskLevel}">${line}</span>`
+  }
+  const detailId = `waypoint-weather-detail-${escapeHtml(waypointId)}`
+  const reasons = point.riskReasons.length === 0
+    ? ''
+    : `<ul class="day-detail__waypoint-weather-reasons">${point.riskReasons.map((reason) => `<li>${escapeHtml(reason)}</li>`).join('')}</ul>`
+  return `<button type="button" class="day-detail__waypoint-weather day-detail__waypoint-weather--${point.riskLevel} day-detail__waypoint-weather-toggle" data-action="toggle-waypoint-weather" aria-expanded="false" aria-controls="${detailId}">
+      <span>${line}</span><span class="day-detail__waypoint-weather-chevron" aria-hidden="true">›</span>
+    </button>
+    <div class="day-detail__waypoint-weather-detail" id="${detailId}" hidden>
+      <p>Risque ${RISK_LABELS[point.riskLevel].toLowerCase()}${point.etaLabel === null ? '' : ` · ${escapeHtml(point.etaLabel)}`}</p>
+      ${reasons}
+    </div>`
+}
+
 /** Section 23: a red/orange risk gets a real, visible callout — never a small badge lost among 15 values. Green/unknown stay sober (a plain sentence, already carried by `renderSynthesis`). */
 function renderRiskBanner(model: GenericDayWeatherViewModel): string {
   if (model.riskLevel !== 'red' && model.riskLevel !== 'orange') return ''
@@ -213,9 +252,17 @@ function renderDecisionCard(model: GenericDayWeatherViewModel): string {
   return `<section class="weather-decision" data-weather-decision>${banner}${recommendation}${comparison}${comparison === '' ? '' : renderApplyConfirm()}</section>`
 }
 
-function renderDaySection(label: string, model: GenericDayWeatherViewModel): string {
+function renderDaySection(label: string, model: GenericDayWeatherViewModel, includePointsList: boolean): string {
   const message = availabilityMessage(model)
-  const points = model.points.length === 0 ? '' : `<section class="weather-points-block" data-weather-points>
+  // CDC D1.2 section 24: once each significant point already carries its
+  // own inline weather line in the Parcours timeline
+  // (`renderInlineWaypointWeather`, wired by `trips-manager.ts`), this
+  // "Points significatifs" list would just repeat the exact same names/
+  // times/values a second time — `includePointsList: false` (ride days
+  // only; OFF/transfer have no Parcours timeline to fold into, section 29)
+  // drops it. The scenario comparison above answers a genuinely different
+  // question ("at what time to depart") and is never affected by this flag.
+  const points = !includePointsList || model.points.length === 0 ? '' : `<section class="weather-points-block" data-weather-points>
     <p class="eyebrow">Points significatifs</p>
     <ol class="weather-points-list">${model.points.map(renderPointRow).join('')}</ol>
   </section>`
@@ -225,25 +272,32 @@ function renderDaySection(label: string, model: GenericDayWeatherViewModel): str
   </section>${points}`
 }
 
+export interface RenderStageWeatherPanelOptions {
+  /** `false` for a ride day's inline Parcours mount (CDC D1.2 section 24) — every significant point already gets its own inline line there, so the panel's own "Points significatifs" list would just duplicate it. Defaults to `true` (OFF/transfer's own Météo tab, and any other caller). */
+  readonly includePointsList?: boolean
+}
+
 /**
- * The Étape/Journée Météo tab (CDC Jalon C1 section 19, inspired by
+ * The Étape/Journée weather block (CDC Jalon C1 section 19, inspired by
  * `docs/ux-reference/rga/08_rga_stage_weather.png`): a synthesis then the
  * significant points in chronological order (already the order
  * `sample-points.ts` produced them in, itself the same order Parcours
- * shows). A transfer day renders its origin/destination as two independent
- * sections (CDC section 13: minimal, no invented waypoint along the way).
+ * shows) — unless `includePointsList: false`. A transfer day renders its
+ * origin/destination as two independent sections (CDC section 13: minimal,
+ * no invented waypoint along the way).
  */
-export function renderGenericStageWeatherPanel(container: HTMLElement, model: GenericDayWeatherViewModel | GenericTransferWeatherViewModel | null, isLoading: boolean): void {
+export function renderGenericStageWeatherPanel(container: HTMLElement, model: GenericDayWeatherViewModel | GenericTransferWeatherViewModel | null, isLoading: boolean, options: RenderStageWeatherPanelOptions = {}): void {
+  const includePointsList = options.includePointsList ?? true
   if (isLoading) { container.innerHTML = '<p role="status">Chargement des prévisions…</p>'; return }
   if (model === null) { container.innerHTML = '<p>Météo non disponible pour le moment.</p>'; return }
   if ('origin' in model) {
     const side = (label: string, side: GenericDayWeatherViewModel | null): string => side === null
       ? `<section class="weather-summary-block" data-weather-summary><p class="eyebrow">${escapeHtml(label)}</p><p class="weather-message">Météo non disponible pour le moment.</p></section>`
-      : renderDaySection(label, side)
+      : renderDaySection(label, side, includePointsList)
     container.innerHTML = `${side('Origine', model.origin)}${side('Destination', model.destination)}`
     return
   }
-  container.innerHTML = renderDaySection('Synthèse', model)
+  container.innerHTML = renderDaySection('Synthèse', model, includePointsList)
 }
 
 /**

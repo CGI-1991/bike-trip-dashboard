@@ -30,11 +30,24 @@ function formatKilometers(value: number): string {
   return `${value.toFixed(1).replace('.', ',')} km`
 }
 
-/** Kinds the Aperçu global map's "Détail" toggle reveals (CDC D1 section 7: "villes importantes; pauses; cols / reliefs principaux") — the structural place kinds `isSignificantWaypoint` otherwise hides in the normal Parcours view (that policy is deliberately narrower: it never surfaces a plain city/town/village unless it carries a pause). Combined with `isSignificantWaypoint` itself so pauses and principal climbs still come through. */
-const OVERVIEW_DETAIL_STRUCTURAL_KINDS: ReadonlySet<CanonicalWaypoint['kind']> = new Set(['city', 'town', 'village', 'mountain-pass', 'saddle'])
-
+/**
+ * Kinds the Aperçu global map's "Détail" toggle reveals (CDC D1.2 section 6:
+ * "avec Détail actif, la carte peut montrer: tracé, départ général, arrivée
+ * générale, étapes, pauses, cols nommés — RIEN D'AUTRE"). Deliberately
+ * narrower than D1's own `isSignificantWaypoint` (which also lets through
+ * bare, possibly-unnamed climbs, "Montée" in this app's own vocabulary,
+ * never "Col") — an auto-detected city/town/village is EXCLUDED here even
+ * though it would otherwise count as significant elsewhere, and this
+ * exclusion must hold durably against any future POI layer (section 6: "les
+ * futurs POI C2 ne devront JAMAIS apparaître sur la carte Aperçu"). A pause
+ * is checked first, unconditionally — the same absolute-priority rule
+ * `isSignificantWaypoint` itself uses — since it can be anchored on any
+ * kind of point (`day-detail-view.ts::PAUSE_ANCHOR_KINDS`) or stand alone
+ * as a synthetic waypoint.
+ */
 function isOverviewDetailWaypoint(waypoint: CanonicalWaypoint): boolean {
-  return isSignificantWaypoint(waypoint) || OVERVIEW_DETAIL_STRUCTURAL_KINDS.has(waypoint.kind)
+  if (waypoint.pauseDurationMinutes !== null) return true
+  return waypoint.kind === 'mountain-pass' || waypoint.kind === 'saddle'
 }
 
 /**
@@ -239,9 +252,13 @@ export function buildTripOverview(bundle: TripBundle, now: Date | string | null)
   const nextZoneLabel = highlightedState?.current === true ? 'Aujourd’hui' : highlightedDay?.type === 'ride' ? 'Prochaine étape' : 'À suivre'
   const highlightedDayHtml = renderHighlightedDay(bundle, highlightedDayId, now)
 
+  // CDC D1.2 section 2: the app-shell header (fond vert) is now the sole
+  // general trip identity — its own subtitle already carries the date
+  // span/day count (`app-header.ts::overviewSubtitle`), so this screen no
+  // longer repeats the trip name or its dates. A minimal eyebrow keeps just
+  // enough "you are here" context without duplicating anything.
   const html = `<div class="trip-overview" data-trip-overview>
-    <header class="view-heading"><p class="eyebrow">Aperçu</p><h2>${escapeHtml(bundle.metadata.name)}</h2></header>
-    <p class="trip-overview__dates">${bundle.metadata.startDate ?? 'Non daté'}${bundle.metadata.endDate ? ` → ${bundle.metadata.endDate}` : ''}</p>
+    <header class="view-heading"><p class="eyebrow">Aperçu</p></header>
     <section class="trip-overview__zone trip-overview__zone--trip" data-trip-overview-zone="trip">
       <p class="eyebrow trip-overview__zone-eyebrow">Voyage</p>
       ${renderProgressStats(progress)}
@@ -250,8 +267,8 @@ export function buildTripOverview(bundle: TripBundle, now: Date | string | null)
         <div class="route-map route-map--action" data-trip-overview-map data-explore-map role="button" tabindex="0" aria-label="Ouvrir la carte du voyage en plein écran"></div>
       </section>
       <dialog class="route-map-dialog" data-trip-overview-map-dialog aria-labelledby="trip-overview-expanded-map-title">
-        <header><h2 id="trip-overview-expanded-map-title">Carte du voyage</h2><div class="route-map-dialog__actions"><button class="button button--quiet" type="button" data-map-layers-toggle aria-expanded="false" aria-controls="trip-overview-map-layers-panel" hidden>Détail</button><button class="button button--quiet" type="button" data-close-map>Fermer</button></div></header>
-        <div class="route-map-dialog__map-wrap"><div class="route-map route-map--expanded" data-route-map-expanded></div><p class="route-map__fallback route-map__fallback--expanded" data-expanded-route-map-fallback hidden>Fond de carte indisponible.</p><button class="practical-layers-backdrop" type="button" data-map-layers-backdrop aria-label="Fermer les calques" tabindex="-1" hidden></button><section class="practical-layers-panel" id="trip-overview-map-layers-panel" data-map-layers-panel role="dialog" aria-labelledby="trip-overview-map-layers-title" hidden><header><div><p class="eyebrow">Villes, pauses, cols et sommets</p><h3 id="trip-overview-map-layers-title">Détail</h3></div><button class="button button--quiet" type="button" data-map-layers-close>Fermer</button></header><div class="practical-layers-list" data-map-layers-list></div></section></div>
+        <header><h2 id="trip-overview-expanded-map-title">Carte du voyage</h2><div class="route-map-dialog__actions"><button class="button button--quiet" type="button" data-map-layers-toggle aria-pressed="false" aria-label="Afficher les pauses et cols nommés sur la carte" hidden>Détail</button><button class="button button--quiet" type="button" data-close-map>Fermer</button></div></header>
+        <div class="route-map-dialog__map-wrap"><div class="route-map route-map--expanded" data-route-map-expanded></div><p class="route-map__fallback route-map__fallback--expanded" data-expanded-route-map-fallback hidden>Fond de carte indisponible.</p></div>
       </dialog>
     </section>
     ${highlightedDayHtml === '' ? '' : `<section class="trip-overview__zone trip-overview__zone--next" data-trip-overview-zone="next">

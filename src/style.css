@@ -1645,6 +1645,11 @@ body.map-scroll-locked { position: fixed; top: var(--map-scroll-lock-y, 0); inse
 .route-map-dialog > header { position: relative; z-index: 1200; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin: 0; padding-block: max(8px, env(safe-area-inset-top)) 8px; padding-inline: max(10px, env(safe-area-inset-left)) max(10px, env(safe-area-inset-right)); background: var(--surface); border-bottom: 1px solid var(--line); }
 .route-map-dialog > header h2 { min-width: 0; margin: 0; font-size: clamp(1rem, 4vw, 1.35rem); }
 .route-map-dialog__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
+/* CDC D1.2 section 5: the Aperçu map's "Détail" toggle stays labelled
+ * "Détail" always — only this visual (filled/accent) signals the active
+ * state, same accent-fill language `.point-filters button[aria-pressed]`
+ * already uses for the Montées secondaires filter. */
+.route-map-dialog__actions [data-map-layers-toggle][aria-pressed='true'] { color: #fff; background: var(--forest-800); border-color: var(--forest-800); }
 .route-map-dialog__map-wrap { position: relative; width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden; padding-inline: env(safe-area-inset-left) env(safe-area-inset-right); padding-bottom: env(safe-area-inset-bottom); background: #e5e7eb; }
 .route-map-dialog__map-wrap > .route-map--expanded { width: 100%; height: 100%; min-width: 0; min-height: 0; max-height: none; border-radius: 0; }
 .route-map-dialog__map-wrap > .route-map--expanded.leaflet-container { width: 100%; height: 100%; min-height: 0; max-height: none; }
@@ -3038,18 +3043,30 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .day-detail__stats div { padding: 9px; background: var(--surface-muted); border-radius: 8px; }
 .day-detail__stats dt { color: var(--ink-soft); font-size: .72rem; }
 .day-detail__stats dd { margin-top: 2px; font-weight: 800; }
-/* Sections 13-17 closeout: per-day departure time, editable right from the
-   Étape stats — a compact inline trigger inside the "Départ" stat's own
-   `<dd>`, and a small collapsed-by-default panel (never a second full
-   Réglages screen) for the actual `<input type="time">` edit. */
-.day-detail__departure-edit-trigger { min-height: auto; padding: 2px 8px; font-size: .72rem; }
-.day-detail__departure-editor { display: grid; gap: 10px; padding: 10px; background: var(--surface-muted); border-radius: 8px; }
-.day-detail__departure-editor-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/*
+ * CDC D1.2 section 11: the Départ stat's own `<dd>` IS the editing surface
+ * — no separate trigger/panel below any more. `.day-detail__departure-value`
+ * covers both states (the plain display `<button>` and the `<input
+ * type="time">` that replaces it in place) so neither ever visually jumps
+ * within the stat tile.
+ */
+.day-detail__departure-value { min-height: auto; padding: 1px 4px; color: inherit; background: none; border: 1px dashed transparent; border-radius: 4px; font: inherit; font-weight: 800; }
+.day-detail__departure-value:hover, .day-detail__departure-value:focus-visible { border-color: var(--forest-700); }
+.day-detail__departure-input { padding: 0 4px; }
 .day-detail__pauses { display: grid; gap: 10px; }
 
+/*
+ * CDC D1.2 sections 14-18: time leads on the left (ZONE GAUCHE), a single
+ * body column carries name/meta/inline météo (ZONE CENTRALE) — the same
+ * skeleton for every point kind, climbs included (`.day-detail__climb-card`
+ * below reuses these exact classes inside its own toggle button). The
+ * marker glyph is now an inline prefix inside the name itself rather than
+ * its own grid column — one stable 2-column template at every viewport
+ * width, no separate mobile override needed any more.
+ */
 .day-detail__timeline { display: grid; gap: 8px; margin: 12px 0; }
-.day-detail__timeline-row { padding: 10px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 10px; align-items: start; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
-.day-detail__timeline-marker { min-width: 22px; text-align: center; color: var(--forest-800); font-weight: 800; }
+.day-detail__timeline-row { padding: 10px; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 10px; align-items: start; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+.day-detail__timeline-marker { display: inline-block; min-width: 16px; margin-right: 3px; text-align: center; color: var(--forest-800); font-weight: 800; }
 .day-detail__timeline-row--major .day-detail__timeline-marker { color: var(--forest-950); }
 .day-detail__timeline-row--minor .day-detail__timeline-marker { color: var(--ink-faint); }
 .day-detail__timeline-body { min-width: 0; display: grid; gap: 2px; }
@@ -3057,15 +3074,19 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .day-detail__timeline-meta { color: var(--ink-soft); font-size: .78rem; }
 .day-detail__timeline-time { color: var(--ink-soft); font-size: .78rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .tag--pause { justify-self: start; color: var(--forest-800); background: var(--forest-50); }
+/* CDC D1.2 sections 18-21: a normal point's inline weather stays one sober
+ * line; an alert-level point (orange/red) becomes a real button revealing
+ * its reasons — never a chevron on a point with nothing to expand. */
+.day-detail__waypoint-weather { display: block; margin-top: 2px; color: var(--ink-soft); font-size: .78rem; }
+.day-detail__waypoint-weather--orange { color: var(--warning-text); font-weight: 700; }
+.day-detail__waypoint-weather--red { color: var(--danger-text); font-weight: 700; }
+.day-detail__waypoint-weather-toggle { width: 100%; padding: 2px 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; background: none; border: 0; font: inherit; text-align: left; cursor: pointer; }
+.day-detail__waypoint-weather-chevron { color: var(--ink-soft); }
+.day-detail__waypoint-weather-detail { margin-top: 6px; padding: 8px 10px; background: var(--surface-muted); border-radius: 8px; font-size: .8rem; }
+.day-detail__waypoint-weather-reasons { margin: 4px 0 0; padding-left: 18px; }
 
 .day-detail__climb-card { grid-template-columns: minmax(0, 1fr); padding: 0; overflow: hidden; }
-.day-detail__climb-toggle { width: 100%; min-height: 44px; padding: 10px; display: grid; gap: 4px; text-align: left; color: inherit; background: none; border: 0; cursor: pointer; }
-.day-detail__climb-toggle-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
-/* Sections 35-38/47 closeout: the closed toggle now carries only "Type ·
-   Distance" (renamed from the old `--stats` modifier, which used to hold
-   Longueur/D+/Pente moyenne — those moved into the expanded profile panel,
-   see `.day-detail__climb-profile-stats` below). */
-.day-detail__climb-toggle-row--meta { color: var(--ink-soft); font-size: .82rem; }
+.day-detail__climb-toggle { width: 100%; min-height: 44px; padding: 10px; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 10px; align-items: start; text-align: left; color: inherit; background: none; border: 0; cursor: pointer; }
 .day-detail__climb-profile { padding: 0 10px 12px; }
 /* CDC Jalon B4.4 sections 30-31: tall enough to actually read the climb's
    shape (not a flat strip), with a real pointer/touch/keyboard tooltip —
@@ -3095,18 +3116,6 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .trip-settings__section { display: grid; gap: 8px; }
 .trip-settings__toggle { display: flex; align-items: center; gap: 8px; min-height: 44px; font-weight: 700; }
 
-@media (max-width: 430px) {
-  .day-detail__timeline-row { grid-template-columns: auto minmax(0, 1fr); }
-  .day-detail__timeline-time { grid-column: 2; justify-self: start; }
-  /* Bug 48A: `.day-detail__climb-card` carries `.day-detail__timeline-row`
-     too (same `<li>`), so without this override the rule above silently won
-     back the two-column `auto | 1fr` template on phones — squeezing the
-     climb toggle into a narrow "auto" cell and pushing the altimetric
-     profile into the remaining sliver instead of its own full-width row.
-     Re-assert the single-column template here so it stays the last (and
-     therefore winning) declaration at this breakpoint too. */
-  .day-detail__climb-card { grid-template-columns: minmax(0, 1fr); }
-}
 .wizard-validation-reasons { color: var(--ink-soft); font-size: .8rem; display: grid; gap: 3px; }
 
 /*
@@ -3202,8 +3211,18 @@ button:disabled { cursor: not-allowed; opacity: .55; }
  * mount time regardless of `ResizeObserver` availability.
  */
 .day-detail__sticky-header { position: sticky; top: 0; z-index: 5; padding-top: max(4px, env(safe-area-inset-top)); background: var(--surface); border-bottom: 1px solid var(--line); }
-.day-detail__sticky-identity { min-width: 0; padding: 4px 6px; overflow: hidden; }
-.day-detail__sticky-identity strong { display: block; overflow: hidden; font-size: .84rem; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
+/*
+ * CDC D1.2 section 9: a real identity bandeau — same left-column visual
+ * language as the Voyage day card's own `Jx`/date block (D1.1 section 5:
+ * `.trip-day-card__number-group`), départ → arrivée large/bold on the
+ * right, single line with ellipsis rather than wrapping into the sticky
+ * header's own height.
+ */
+.day-detail__sticky-identity { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px; padding: 6px 10px; overflow: hidden; }
+.day-detail__identity-number { min-width: 0; display: grid; justify-items: center; gap: 2px; }
+.day-detail__identity-number strong { width: 40px; height: 36px; display: grid; place-items: center; color: #fff; background: var(--forest-800); border-radius: 8px; font-size: .8rem; font-variant-numeric: tabular-nums; }
+.day-detail__identity-number time { color: var(--ink-soft); font-size: .62rem; white-space: nowrap; }
+.day-detail__identity-route { min-width: 0; overflow: hidden; color: var(--ink); font-size: 1.05rem; font-weight: 800; line-height: 1.25; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 .day-detail__stats-card, .day-detail__map-profile-card { display: grid; gap: 10px; }
 /* Base tabbar look — shared by the ride shell's Détails card AND the
  * OFF/transfer shell (which keeps its tabs inside the top sticky header,
@@ -3212,13 +3231,35 @@ button:disabled { cursor: not-allowed; opacity: .55; }
  * transfer case (already visually stuck, nested inside its own sticky
  * parent); the ride shell's Détails card overrides it to a real contextual
  * `position: sticky` below. */
-.day-tabs[data-day-detail-tabs] { padding: 3px; border-bottom: 0; }
+/* `.day-tabs` alone is still shared with RGA's own 3-tab bar
+ * (`src/ui/render.ts`, Parcours/Météo/Infos, untouched) — a later, higher-
+ * source-order rule (`.day-tabs { grid-template-columns: repeat(3, ...) }`)
+ * forces 3 equal columns for it. The generic screens' own bar now only ever
+ * has 2 tabs (Parcours|Infos or Météo|Infos), so it needs its own 2-column
+ * override, scoped by `[data-day-detail-tabs]` — otherwise 2 buttons stretch
+ * across 3 grid tracks, leaving a dead empty column on the right. */
+.day-tabs[data-day-detail-tabs] { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 3px; border-bottom: 0; }
 .day-tabs[data-day-detail-tabs] button { min-height: 38px; }
-/* The one visual card for Bloc 3 — its own padding stays 0 so the sticky
+/*
+ * The one visual card for Bloc 3 — its own padding stays 0 so the sticky
  * tabbar can sit flush at the top and its background can cover the content
- * scrolling underneath it; each tabpanel restores its own padding below. */
-.day-detail__details-card { padding: 0; overflow: hidden; }
-.day-detail__details-card > [data-day-detail-tabs] { position: sticky; top: var(--day-sticky-header-h, 0px); z-index: 3; background: var(--surface); border-bottom: 1px solid var(--line); }
+ * scrolling underneath it; each tabpanel restores its own padding below.
+ *
+ * CDC D1.2 section 13, the actual sticky bug: `overflow: hidden` here (used
+ * only to clip the tabbar/tabpanels to the card's own rounded corners) is
+ * itself an ancestor of the sticky tabbar below — ANY non-`visible`
+ * `overflow` on an ancestor makes THAT box the sticky element's scrolling
+ * container, per spec, even though this card never actually scrolls on its
+ * own (no fixed/max height). The tabs then stick relative to the card's own
+ * box instead of the page, i.e. they never visibly detach from their
+ * starting position while scrolling — exactly the reported bug. Fixed by
+ * dropping `overflow` entirely (`border-radius` still clips the tabbar's
+ * flush top corners on its own; a tabpanel's content bleeding past the
+ * bottom corners by a few background pixels is a fully acceptable trade for
+ * a sticky tabbar that actually works).
+ */
+.day-detail__details-card { padding: 0; }
+.day-detail__details-card > [data-day-detail-tabs] { position: sticky; top: var(--day-sticky-header-h, 0px); z-index: 3; background: var(--surface); border-bottom: 1px solid var(--line); border-radius: 14px 14px 0 0; }
 /* A tabpanel is content INSIDE the one Détails card, not a second nested
  * card of its own — `renderInfosPanel`/`renderWeatherPanel` still return
  * `class="card"` unchanged for the OFF/transfer shell, which has no

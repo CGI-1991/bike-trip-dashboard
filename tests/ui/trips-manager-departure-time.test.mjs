@@ -10,23 +10,35 @@ import { createGenericTripBundle } from '../trip-core/support/generic-trip-fixtu
 import { initializeTripsManager } from '../../src/ui/trips/trips-manager.ts'
 import { buildDayDetail } from '../../src/ui/trips/day-detail-view.ts'
 
-// Sections 13-17/41 closeout: per-day departure time — display, inline
-// editor, `saveDayDepartureTime`-equivalent persistence, ETA recalculation,
-// and multi-day independence (J1's own departure time must never move J2's).
+// CDC D1.2 section 11 (tests M/N/O/P/Q): the Départ stat cell is the
+// editing surface itself — a plain display button and an (initially
+// hidden) `<input type="time">` toggle in place, no separate "Modifier"
+// trigger/panel any more.
 
-function fakeSubElement() {
-  let hiddenValue = false
-  let valueValue = ''
-  let textContentValue = ''
-  return {
-    get hidden() { return hiddenValue },
-    set hidden(value) { hiddenValue = value },
-    get value() { return valueValue },
-    set value(value) { valueValue = value },
-    get textContent() { return textContentValue },
-    set textContent(value) { textContentValue = value },
-    set outerHTML(_value) { /* tracked only via the assertions below reading fresh bundle state */ },
+class FakeElement {
+  constructor() {
+    this.listeners = new Map()
+    this._hidden = false
+    this._value = ''
+    this._textContent = ''
+    this.focusCalls = 0
   }
+  get hidden() { return this._hidden }
+  set hidden(value) { this._hidden = value }
+  get value() { return this._value }
+  set value(value) { this._value = value }
+  get textContent() { return this._textContent }
+  set textContent(value) { this._textContent = value }
+  set outerHTML(_value) { /* tracked only via the assertions below reading fresh bundle state */ }
+  focus() { this.focusCalls += 1 }
+  showPicker() {}
+  addEventListener(type, listener, options = {}) {
+    const set = this.listeners.get(type) ?? new Set()
+    set.add(listener)
+    this.listeners.set(type, set)
+    options.signal?.addEventListener('abort', () => set.delete(listener), { once: true })
+  }
+  emit(type, event = {}) { for (const listener of [...(this.listeners.get(type) ?? [])]) listener(event) }
 }
 
 function createFakeContainer() {
@@ -82,44 +94,68 @@ async function openDayAlpha(db) {
   const bundle = createGenericTripBundle()
   await createTripRepository(db).saveTripBundle(bundle)
   const container = createFakeContainer()
-  const editor = fakeSubElement()
-  const timeInput = fakeSubElement()
-  const status = fakeSubElement()
-  container.register('[data-day-departure-editor]', editor)
-  container.register('[data-field="day-departure-time"]', timeInput)
-  container.register('[data-day-departure-status]', status)
+  const displayButton = new FakeElement()
+  displayButton.textContent = '08:00'
+  const timeInput = new FakeElement()
+  timeInput.value = '08:00'
+  timeInput.hidden = true
+  container.register('[data-day-departure-value]', displayButton)
+  container.register('[data-day-departure-input]', timeInput)
   const handle = initializeTripsManager(container, noopDeps(db))
   await flush()
   container.dispatch('click', { target: fakeActionElement({ action: 'open-trip', tripId: bundle.metadata.id }) })
   await flush()
   container.dispatch('click', { target: fakeActionElement({ action: 'open-day-detail', dayId: bundle.days[0].id }) })
   await flush()
-  return { bundle, container, editor, timeInput, status, handle }
+  return { bundle, container, displayButton, timeInput, handle }
 }
 
-test('"Modifier" reveals the editor; "Annuler" hides it again — pure client-side toggles, no persistence', async () => {
+test('M: a click on the Départ value reveals the inline input, focused, and hides the display button', async () => {
   const db = await openTestDatabase()
   try {
-    const { container, editor } = await openDayAlpha(db)
-    assert.equal(editor.hidden, false, 'the fake starts unhidden — asserting the toggle actually runs, not a false positive')
+    const { container, displayButton, timeInput } = await openDayAlpha(db)
+    assert.equal(timeInput.hidden, true, 'sanity check: the input starts hidden')
     container.dispatch('click', { target: fakeActionElement({ action: 'edit-day-departure-time' }) })
-    assert.equal(editor.hidden, false)
-    container.dispatch('click', { target: fakeActionElement({ action: 'cancel-edit-day-departure-time' }) })
-    assert.equal(editor.hidden, true)
+    assert.equal(displayButton.hidden, true)
+    assert.equal(timeInput.hidden, false)
+    assert.equal(timeInput.focusCalls, 1)
   } finally {
     db.close()
   }
 })
 
-test('saving a valid time persists TripDaySettings.departureTime for that day only, and every waypoint\'s ETA shifts by exactly the offset', async () => {
+test('O: Escape reverts the input to the original value and hides it again — no persistence', async () => {
+  const db = await openTestDatabase()
+  try {
+    const { bundle, container, displayButton, timeInput } = await openDayAlpha(db)
+    container.dispatch('click', { target: fakeActionElement({ action: 'edit-day-departure-time' }) })
+    timeInput.value = '06:00'
+    let prevented = false
+    timeInput.emit('keydown', { key: 'Escape', preventDefault: () => { prevented = true } })
+    assert.equal(prevented, true)
+    assert.equal(timeInput.value, '08:00', 'reverted to the original value')
+    assert.equal(timeInput.hidden, true)
+    assert.equal(displayButton.hidden, false)
+
+    const updated = await createTripRepository(db).loadTripBundle(bundle.metadata.id)
+    assert.deepEqual(updated.settings.days, bundle.settings.days, 'Escape must never persist')
+  } finally {
+    db.close()
+  }
+})
+
+test('N/P: Enter commits a valid new time — persists it and recalculates every waypoint\'s ETA', async () => {
   const db = await openTestDatabase()
   try {
     const { bundle, container, timeInput } = await openDayAlpha(db)
     const before = buildDayDetail(bundle, bundle.days[0].id)
     const arrivalBefore = before.waypoints.at(-1).clockTime
 
+    container.dispatch('click', { target: fakeActionElement({ action: 'edit-day-departure-time' }) })
     timeInput.value = '06:00' // 2h earlier than the fixture's 08:00 default
-    container.dispatch('click', { target: fakeActionElement({ action: 'save-day-departure-time' }) })
+    let prevented = false
+    timeInput.emit('keydown', { key: 'Enter', preventDefault: () => { prevented = true } })
+    assert.equal(prevented, true)
     await flush()
 
     const tripRepository = createTripRepository(db)
@@ -129,8 +165,60 @@ test('saving a valid time persists TripDaySettings.departureTime for that day on
 
     const after = buildDayDetail(updated, bundle.days[0].id)
     const arrivalAfter = after.waypoints.at(-1).clockTime
-    assert.notEqual(arrivalBefore, arrivalAfter)
-    assert.match(after.statsHtml, /<span data-day-departure-value>06:00<\/span>/)
+    assert.notEqual(arrivalBefore, arrivalAfter, 'P: ETA recalculated')
+    assert.match(after.statsHtml, /data-day-departure-value aria-label="Heure de départ 06:00, modifier">06:00<\/button>/)
+  } finally {
+    db.close()
+  }
+})
+
+test('blur commits a valid, changed value exactly like Enter', async () => {
+  const db = await openTestDatabase()
+  try {
+    const { bundle, container, timeInput } = await openDayAlpha(db)
+    container.dispatch('click', { target: fakeActionElement({ action: 'edit-day-departure-time' }) })
+    timeInput.value = '07:15'
+    timeInput.emit('blur')
+    await flush()
+
+    const updated = await createTripRepository(db).loadTripBundle(bundle.metadata.id)
+    const daySettings = updated.settings.days.find((entry) => entry.dayId === bundle.days[0].id)
+    assert.equal(daySettings.departureTime, '07:15')
+  } finally {
+    db.close()
+  }
+})
+
+test('blur with an unchanged value just reverts — never a needless save', async () => {
+  const db = await openTestDatabase()
+  try {
+    const { bundle, container, timeInput, displayButton } = await openDayAlpha(db)
+    container.dispatch('click', { target: fakeActionElement({ action: 'edit-day-departure-time' }) })
+    // No edit at all — value stays 08:00.
+    timeInput.emit('blur')
+    await flush()
+
+    assert.equal(timeInput.hidden, true)
+    assert.equal(displayButton.hidden, false)
+    const updated = await createTripRepository(db).loadTripBundle(bundle.metadata.id)
+    assert.deepEqual(updated.settings.days, bundle.settings.days)
+  } finally {
+    db.close()
+  }
+})
+
+test('an invalid/empty time typed then blurred is never persisted — reverts instead', async () => {
+  const db = await openTestDatabase()
+  try {
+    const { bundle, container, timeInput } = await openDayAlpha(db)
+    container.dispatch('click', { target: fakeActionElement({ action: 'edit-day-departure-time' }) })
+    timeInput.value = ''
+    timeInput.emit('blur')
+    await flush()
+
+    const updated = await createTripRepository(db).loadTripBundle(bundle.metadata.id)
+    assert.deepEqual(updated.settings.days, bundle.settings.days, 'an invalid time must never reach saveTripBundle')
+    assert.equal(timeInput.value, '08:00', 'reverted to the original value')
   } finally {
     db.close()
   }
@@ -147,8 +235,9 @@ test('changing day-alpha\'s departure time never touches day-delta\'s own entry,
     }
     await createTripRepository(db).saveTripBundle(withDeltaSettings)
 
+    container.dispatch('click', { target: fakeActionElement({ action: 'edit-day-departure-time' }) })
     timeInput.value = '06:30'
-    container.dispatch('click', { target: fakeActionElement({ action: 'save-day-departure-time' }) })
+    timeInput.emit('keydown', { key: 'Enter', preventDefault: () => {} })
     await flush()
 
     const updated = await createTripRepository(db).loadTripBundle(bundle.metadata.id)
@@ -161,30 +250,19 @@ test('changing day-alpha\'s departure time never touches day-delta\'s own entry,
   }
 })
 
-test('an invalid/empty time is never persisted — the bundle stays untouched and a status message is shown', async () => {
-  const db = await openTestDatabase()
-  try {
-    const { bundle, container, timeInput, status } = await openDayAlpha(db)
-    timeInput.value = ''
-    container.dispatch('click', { target: fakeActionElement({ action: 'save-day-departure-time' }) })
-    await flush()
-
-    const updated = await createTripRepository(db).loadTripBundle(bundle.metadata.id)
-    assert.deepEqual(updated.settings.days, bundle.settings.days, 'an invalid time must never reach saveTripBundle')
-    assert.match(status.textContent, /invalide/i)
-  } finally {
-    db.close()
-  }
-})
-
 test('saving preserves the day\'s existing totalBreakSeconds — only departureTime changes', async () => {
   const db = await openTestDatabase()
   try {
     const bundle = createGenericTripBundle()
     // The fixture's day-alpha entry already carries totalBreakSeconds: 1_800.
     const container = createFakeContainer()
-    const timeInput = fakeSubElement()
-    container.register('[data-field="day-departure-time"]', timeInput)
+    const displayButton = new FakeElement()
+    displayButton.textContent = '08:00'
+    const timeInput = new FakeElement()
+    timeInput.value = '08:00'
+    timeInput.hidden = true
+    container.register('[data-day-departure-value]', displayButton)
+    container.register('[data-day-departure-input]', timeInput)
     await createTripRepository(db).saveTripBundle(bundle)
     initializeTripsManager(container, noopDeps(db))
     await flush()
@@ -193,14 +271,34 @@ test('saving preserves the day\'s existing totalBreakSeconds — only departureT
     container.dispatch('click', { target: fakeActionElement({ action: 'open-day-detail', dayId: bundle.days[0].id }) })
     await flush()
 
+    container.dispatch('click', { target: fakeActionElement({ action: 'edit-day-departure-time' }) })
     timeInput.value = '07:15'
-    container.dispatch('click', { target: fakeActionElement({ action: 'save-day-departure-time' }) })
+    timeInput.emit('keydown', { key: 'Enter', preventDefault: () => {} })
     await flush()
 
     const updated = await createTripRepository(db).loadTripBundle(bundle.metadata.id)
     const daySettings = updated.settings.days.find((entry) => entry.dayId === bundle.days[0].id)
     assert.equal(daySettings.departureTime, '07:15')
     assert.equal(daySettings.totalBreakSeconds, 1_800)
+  } finally {
+    db.close()
+  }
+})
+
+test('re-opening the edit after a save never accumulates a second keydown/blur listener on the input', async () => {
+  const db = await openTestDatabase()
+  try {
+    const { bundle, container, timeInput } = await openDayAlpha(db)
+    container.dispatch('click', { target: fakeActionElement({ action: 'edit-day-departure-time' }) })
+    timeInput.value = '06:00'
+    timeInput.emit('keydown', { key: 'Enter', preventDefault: () => {} })
+    await flush()
+    // patchDayDetail re-wires a *fresh* stats subtree/input — since this
+    // fake container keeps returning the SAME registered fake element,
+    // this proves the second wiring aborted the first rather than piling
+    // a second listener onto it.
+    assert.equal(timeInput.listeners.get('keydown')?.size ?? 0, 1)
+    assert.equal(timeInput.listeners.get('blur')?.size ?? 0, 1)
   } finally {
     db.close()
   }
