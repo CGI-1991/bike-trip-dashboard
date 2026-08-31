@@ -13,6 +13,7 @@ import { routeGeometry } from '../../route-enrichment/route-fingerprint.ts'
 import { isSignificantWaypoint } from '../../analysis/canonical-waypoints.ts'
 import type { CanonicalWaypoint } from '../../analysis/canonical-waypoints.ts'
 import { resolveOffLocation, resolveTransferLocations } from '../../analysis/day-location-fill.ts'
+import { deriveTripTemporalState, getTripDayTemporalState } from '../../trips-manager/trip-day-temporal-state.ts'
 import { formatSimpleDate } from '../date-format.ts'
 import type { TripBundle, TripDayId } from '../../trip-core/index.ts'
 
@@ -29,24 +30,21 @@ function formatKilometers(value: number): string {
   return `${value.toFixed(1).replace('.', ',')} km`
 }
 
+/** Kinds the Aperçu global map's "Détail" toggle reveals (CDC D1 section 7: "villes importantes; pauses; cols / reliefs principaux") — the structural place kinds `isSignificantWaypoint` otherwise hides in the normal Parcours view (that policy is deliberately narrower: it never surfaces a plain city/town/village unless it carries a pause). Combined with `isSignificantWaypoint` itself so pauses and principal climbs still come through. */
+const OVERVIEW_DETAIL_STRUCTURAL_KINDS: ReadonlySet<CanonicalWaypoint['kind']> = new Set(['city', 'town', 'village', 'mountain-pass', 'saddle'])
+
+function isOverviewDetailWaypoint(waypoint: CanonicalWaypoint): boolean {
+  return isSignificantWaypoint(waypoint) || OVERVIEW_DETAIL_STRUCTURAL_KINDS.has(waypoint.kind)
+}
+
 /**
  * Which day to highlight, given `today` (CDC section 9). Returns `null`
  * only when the trip is undated, or when `today` is strictly after every
  * day's date (the "after the trip" case) — a calendar gap during the trip
  * falls forward to the next future day rather than showing nothing.
  */
-export function computeHighlightedDayId(bundle: TripBundle, todayIso: string | null): TripDayId | null {
-  const datedDays = bundle.days.filter((day): day is TripBundle['days'][number] & { readonly date: string } => day.date !== null)
-  if (todayIso === null || datedDays.length === 0) return bundle.days[0]?.id ?? null
-  const firstDay = datedDays[0]
-  const lastDay = datedDays[datedDays.length - 1]
-  if (firstDay === undefined || lastDay === undefined) return null
-  if (todayIso < firstDay.date) return bundle.days[0]?.id ?? null
-  if (todayIso > lastDay.date) return null
-  const exact = datedDays.find((day) => day.date === todayIso)
-  if (exact !== undefined) return exact.id
-  const nextFuture = datedDays.find((day) => day.date > todayIso)
-  return nextFuture?.id ?? null
+export function computeHighlightedDayId(bundle: TripBundle, now: Date | string | null): TripDayId | null {
+  return deriveTripTemporalState(bundle, now).priorityDayId
 }
 
 export interface TripOverviewMapStage {
@@ -58,7 +56,7 @@ export interface TripOverview {
   readonly html: string
   readonly mapStages: readonly TripOverviewMapStage[]
   /** Villages only, per stage, same indexing as `mapStages` (CDC Jalon B4 section 9): the Aperçu global map's opt-in Villages layer. */
-  readonly mapVillageStages: readonly TripOverviewMapStage[]
+  readonly mapDetailStages: readonly TripOverviewMapStage[]
   readonly highlightedDayId: TripDayId | null
   /** The highlighted day's own compact map (CDC Jalon B4.3 section 8) — `null` when there is no highlighted ride day, or its route has no usable geometry. */
   readonly highlightedDayMap: TripOverviewMapStage | null
@@ -71,12 +69,8 @@ interface TripProgress {
   readonly elevationGainTotalM: number
   readonly elevationGainDoneM: number
   readonly elevationGainRemainingM: number
-  readonly elevationLossTotalM: number
-  readonly elevationLossDoneM: number
-  readonly elevationLossRemainingM: number
   readonly ridesCompleted: number
-  readonly ridesRemaining: number
-  readonly offDays: number
+  readonly daysRemaining: number
 }
 
 /**
@@ -86,15 +80,14 @@ interface TripProgress {
  * "before the trip starts". Every value comes from `TripBundle`/`bundle.stages`
  * directly — never a second, UI-only total.
  */
-function computeTripProgress(bundle: TripBundle, todayIso: string | null): TripProgress {
+function computeTripProgress(bundle: TripBundle, now: Date | string | null): TripProgress {
+  const temporal = deriveTripTemporalState(bundle, now)
   const stagesByDayId = new Map(bundle.stages.map((stage) => [stage.dayId, stage]))
   const rideDays = bundle.days.filter((day) => day.type === 'ride')
   let distanceTotalKm = 0
   let distanceDoneKm = 0
   let elevationGainTotalM = 0
   let elevationGainDoneM = 0
-  let elevationLossTotalM = 0
-  let elevationLossDoneM = 0
   let ridesCompleted = 0
 
   for (const day of rideDays) {
@@ -102,40 +95,31 @@ function computeTripProgress(bundle: TripBundle, todayIso: string | null): TripP
     if (stage === undefined) continue
     distanceTotalKm += stage.distanceKm ?? 0
     elevationGainTotalM += stage.elevationGainM ?? 0
-    elevationLossTotalM += stage.elevationLossM ?? 0
-    const done = todayIso !== null && day.date !== null && day.date < todayIso
+    const done = getTripDayTemporalState(temporal, day.id)?.completed ?? false
     if (done) {
       ridesCompleted++
       distanceDoneKm += stage.distanceKm ?? 0
       elevationGainDoneM += stage.elevationGainM ?? 0
-      elevationLossDoneM += stage.elevationLossM ?? 0
     }
   }
 
   return {
     distanceTotalKm, distanceDoneKm, distanceRemainingKm: distanceTotalKm - distanceDoneKm,
     elevationGainTotalM, elevationGainDoneM, elevationGainRemainingM: elevationGainTotalM - elevationGainDoneM,
-    elevationLossTotalM, elevationLossDoneM, elevationLossRemainingM: elevationLossTotalM - elevationLossDoneM,
-    ridesCompleted, ridesRemaining: rideDays.length - ridesCompleted,
-    offDays: bundle.days.filter((day) => day.type === 'off').length,
+    ridesCompleted,
+    daysRemaining: temporal.days.filter((day) => !day.completed).length,
   }
 }
 
-/** The 12 metrics (CDC Jalon B4.3 section 6), in the exact order requested, 2-column mobile grid. */
+/** The six field-facing D1 metrics, in the requested order. */
 function renderProgressStats(progress: TripProgress): string {
   const rows: ReadonlyArray<readonly [string, string]> = [
     ['Distance totale', formatKilometers(progress.distanceTotalKm)],
-    ['Distance parcourue', formatKilometers(progress.distanceDoneKm)],
     ['Distance restante', formatKilometers(progress.distanceRemainingKm)],
     ['D+ total', `${Math.round(progress.elevationGainTotalM)} m`],
-    ['D+ parcouru', `${Math.round(progress.elevationGainDoneM)} m`],
     ['D+ restant', `${Math.round(progress.elevationGainRemainingM)} m`],
-    ['D− total', `${Math.round(progress.elevationLossTotalM)} m`],
-    ['D− parcouru', `${Math.round(progress.elevationLossDoneM)} m`],
-    ['D− restant', `${Math.round(progress.elevationLossRemainingM)} m`],
-    ['Étapes roulées terminées', String(progress.ridesCompleted)],
-    ['Étapes roulées restantes', String(progress.ridesRemaining)],
-    ['Journées OFF', String(progress.offDays)],
+    ['Étapes terminées', String(progress.ridesCompleted)],
+    ['Journées restantes', String(progress.daysRemaining)],
   ]
   const cells = rows.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join('')
   return `<section class="card trip-overview__progress" data-trip-overview-progress>
@@ -144,7 +128,7 @@ function renderProgressStats(progress: TripProgress): string {
   </section>`
 }
 
-function renderHighlightedDay(bundle: TripBundle, highlightedDayId: TripDayId | null): string {
+function renderHighlightedDay(bundle: TripBundle, highlightedDayId: TripDayId | null, now: Date | string | null): string {
   if (highlightedDayId === null) return ''
   const day = bundle.days.find((candidate) => candidate.id === highlightedDayId)
   if (day === undefined) return ''
@@ -180,21 +164,7 @@ function renderHighlightedDay(bundle: TripBundle, highlightedDayId: TripDayId | 
   const headerParts = [`J${day.displayNumber}`, locations].filter((part): part is string => part !== null)
   const daySettings = bundle.settings.days.find((candidate) => candidate.dayId === day.id)
   const departureTime = daySettings?.departureTime ?? null
-  let eta: string | null = null
-  if (stage !== undefined) {
-    const route = bundle.routes.find((candidate) => candidate.id === stage.sourceRouteId)
-    if (route !== undefined && routeGeometry(route) !== null) {
-      const settings = { referenceSpeedKph: bundle.settings.global.referenceSpeedKph, departureTime: departureTime ?? '08:00' }
-      const stageSettings = bundle.settings.stages.find((candidate) => candidate.stageId === stage.id)
-      const pauseResolution = resolveStagePauseSettings(bundle.settings.global.pausePlanMode, stageSettings)
-      const waypoints = computeStageWaypoints({
-        stage, route, routePoints: bundle.routePoints, climbs: bundle.climbs, settings,
-        manualPauses: pauseResolution.mode === 'custom' ? pauseResolution.manualPauses : undefined,
-        mountainMode: bundle.settings.global.mountainMode ?? false,
-      })
-      eta = waypoints.length === 0 ? null : waypoints[waypoints.length - 1]?.clockTime ?? null
-    }
-  }
+  const eta = getTripDayTemporalState(deriveTripTemporalState(bundle, now), day.id)?.arrivalEta?.label ?? null
 
   // CDC section 4: the whole card navigates to the Étape — no separate
   // "Voir l'étape" button when the card itself already carries the action.
@@ -214,14 +184,20 @@ function renderHighlightedDay(bundle: TripBundle, highlightedDayId: TripDayId | 
   </article>`
 }
 
-export function buildTripOverview(bundle: TripBundle, todayIso: string | null): TripOverview {
-  const progress = computeTripProgress(bundle, todayIso)
+export function buildTripOverview(bundle: TripBundle, now: Date | string | null): TripOverview {
+  const temporal = deriveTripTemporalState(bundle, now)
+  const progress = computeTripProgress(bundle, now)
 
-  const mapVillageStages: TripOverviewMapStage[] = []
+  const mapDetailStages: TripOverviewMapStage[] = []
+  const fullMapStages: TripOverviewMapStage[] = []
   const mapStages: TripOverviewMapStage[] = bundle.stages.map((stage) => {
     const route = bundle.routes.find((candidate) => candidate.id === stage.sourceRouteId)
     const geometry = route === undefined ? null : routeGeometry(route)
-    if (geometry === null) { mapVillageStages.push({ waypoints: [], geometry: [] }); return { waypoints: [], geometry: [] } }
+    if (geometry === null) {
+      mapDetailStages.push({ waypoints: [], geometry: [] })
+      fullMapStages.push({ waypoints: [], geometry: [] })
+      return { waypoints: [], geometry: [] }
+    }
     const daySettings = bundle.settings.days.find((candidate) => candidate.dayId === stage.dayId)
     const settings = { referenceSpeedKph: bundle.settings.global.referenceSpeedKph, departureTime: daySettings?.departureTime ?? '08:00' }
     const stageSettings = bundle.settings.stages.find((candidate) => candidate.stageId === stage.id)
@@ -232,20 +208,21 @@ export function buildTripOverview(bundle: TripBundle, todayIso: string | null): 
       mountainMode: bundle.settings.global.mountainMode ?? false,
     })
     const geometryTuples = geometry.map((point) => [point.latitude, point.longitude] as const)
-    mapVillageStages.push({ waypoints: waypoints.filter((waypoint) => waypoint.kind === 'village'), geometry: geometryTuples })
-    // A city/town/village or secondary climb carrying a pause still shows
-    // on the compact map (CDC Jalon B4.3 section 27) — never just
-    // `visibleByDefault`.
-    return { waypoints: waypoints.filter((waypoint) => isSignificantWaypoint(waypoint)), geometry: geometryTuples }
+    fullMapStages.push({ waypoints: waypoints.filter((waypoint) => isSignificantWaypoint(waypoint)), geometry: geometryTuples })
+    mapDetailStages.push({
+      waypoints: waypoints.filter((waypoint) => waypoint.kind !== 'start' && waypoint.kind !== 'end' && isOverviewDetailWaypoint(waypoint)),
+      geometry: [],
+    })
+    return { waypoints: waypoints.filter((waypoint) => waypoint.kind === 'start' || waypoint.kind === 'end'), geometry: [] }
   })
 
-  const highlightedDayId = computeHighlightedDayId(bundle, todayIso)
+  const highlightedDayId = temporal.priorityDayId
   const highlightedDay = highlightedDayId === null ? undefined : bundle.days.find((candidate) => candidate.id === highlightedDayId)
   const highlightedStage = highlightedDay?.stageId === null || highlightedDay?.stageId === undefined
     ? undefined
     : bundle.stages.find((candidate) => candidate.id === highlightedDay.stageId)
   const highlightedStageIndex = highlightedStage === undefined ? -1 : bundle.stages.indexOf(highlightedStage)
-  const highlightedDayMap = highlightedStageIndex === -1 ? null : mapStages[highlightedStageIndex] ?? null
+  const highlightedDayMap = highlightedStageIndex === -1 ? null : fullMapStages[highlightedStageIndex] ?? null
 
   // CDC Jalon B4.4 sections 14/34: two visually hierarchised zones — VOYAGE
   // (progress + global map) then AUJOURD'HUI/PROCHAINE ÉTAPE (the
@@ -254,8 +231,9 @@ export function buildTripOverview(bundle: TripBundle, todayIso: string | null): 
   // sober). The highlighted day's own zone is only rendered at all when
   // there is something to highlight — an empty "Prochaine étape" eyebrow
   // over nothing would be worse than omitting the zone entirely.
-  const nextZoneLabel = highlightedDay?.date !== null && highlightedDay?.date === todayIso ? 'Aujourd’hui' : 'Prochaine étape'
-  const highlightedDayHtml = renderHighlightedDay(bundle, highlightedDayId)
+  const highlightedState = highlightedDayId === null ? null : getTripDayTemporalState(temporal, highlightedDayId)
+  const nextZoneLabel = highlightedState?.current === true ? 'Aujourd’hui' : highlightedDay?.type === 'ride' ? 'Prochaine étape' : 'À suivre'
+  const highlightedDayHtml = renderHighlightedDay(bundle, highlightedDayId, now)
 
   const html = `<div class="trip-overview" data-trip-overview>
     <header class="view-heading"><p class="eyebrow">Aperçu</p><h2>${escapeHtml(bundle.metadata.name)}</h2></header>
@@ -264,7 +242,7 @@ export function buildTripOverview(bundle: TripBundle, todayIso: string | null): 
       <p class="eyebrow trip-overview__zone-eyebrow">Voyage</p>
       ${renderProgressStats(progress)}
       <section class="card route-map-card" data-route-visuals>
-        <div class="section-heading"><div><p class="eyebrow">Vue d’ensemble</p><h3>Carte du voyage</h3></div><button class="button button--quiet" type="button" data-explore-map>Explorer la carte</button></div>
+        <div class="section-heading"><div><p class="eyebrow">Vue d’ensemble</p><h3>Carte du voyage</h3></div><div class="route-map-card__actions"><button class="button button--quiet" type="button" data-action="toggle-overview-map-detail" aria-pressed="false">Détail</button><button class="button button--quiet" type="button" data-explore-map>Grand écran</button></div></div>
         <div class="route-map" data-trip-overview-map></div>
       </section>
       <dialog class="route-map-dialog" data-trip-overview-map-dialog aria-labelledby="trip-overview-expanded-map-title">
@@ -278,5 +256,5 @@ export function buildTripOverview(bundle: TripBundle, todayIso: string | null): 
     </section>`}
   </div>`
 
-  return { html, mapStages, mapVillageStages, highlightedDayId, highlightedDayMap }
+  return { html, mapStages, mapDetailStages, highlightedDayId, highlightedDayMap }
 }

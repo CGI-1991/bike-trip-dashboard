@@ -79,33 +79,30 @@ test('Aperçu renders no "next step" zone at all once the trip is entirely in th
   assert.doesNotMatch(overview.html, /data-trip-overview-zone="next"/)
 })
 
-test('buildTripOverview shows all 12 requested progress metrics (CDC Jalon B4.3 section 6)', () => {
+test('buildTripOverview shows exactly the six D1 progress metrics', () => {
   const bundle = createGenericTripBundle()
   const overview = buildTripOverview(bundle, '2027-05-01')
   for (const label of [
-    'Distance totale', 'Distance parcourue', 'Distance restante',
-    'D+ total', 'D+ parcouru', 'D+ restant',
-    'D− total', 'D− parcouru', 'D− restant',
-    'Étapes roulées terminées', 'Étapes roulées restantes', 'Journées OFF',
+    'Distance totale', 'Distance restante', 'D+ total', 'D+ restant',
+    'Étapes terminées', 'Journées restantes',
   ]) {
-    // `label` can contain regex-special characters ("D+ total") — escaped
-    // here (pre-existing bug fixed incidentally: an unescaped "+" is a
-    // quantifier, not a literal plus, so this assertion silently never
-    // matched the D+/D− metrics at all).
     assert.match(overview.html, new RegExp(`<dt>${label.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&')}</dt>`), `missing metric: ${label}`)
   }
-  // Before the trip starts (today before every ride day), nothing is done yet.
-  assert.match(overview.html, /<dt>Distance parcourue<\/dt><dd>0,0 km<\/dd>/)
-  assert.match(overview.html, /<dt>Étapes roulées terminées<\/dt><dd>0<\/dd>/)
-  assert.match(overview.html, /<dt>Étapes roulées restantes<\/dt><dd>2<\/dd>/)
-  assert.match(overview.html, /<dt>Journées OFF<\/dt><dd>1<\/dd>/)
+  // Scoped to the progress grid itself — the highlighted-day mini-card
+  // below it carries its own unrelated <dt>s (Distance/D+/Départ/ETA),
+  // never a duplicate of these six.
+  const progressBlock = overview.html.match(/<section class="card trip-overview__progress"[\s\S]*?<\/section>/)?.[0] ?? ''
+  assert.equal((progressBlock.match(/<dt>/g) ?? []).length, 6)
+  assert.match(overview.html, /<dt>Étapes terminées<\/dt><dd>0<\/dd>/)
+  assert.match(overview.html, /<dt>Journées restantes<\/dt><dd>4<\/dd>/)
 })
 
-test('a ride day already in the past counts as done — distance/D+/D− parcouru reflect it', () => {
+test('a ride day already in the past is removed from remaining distance and D+', () => {
   const bundle = createGenericTripBundle()
   const overview = buildTripOverview(bundle, '2027-05-12')
-  assert.match(overview.html, /<dt>Étapes roulées terminées<\/dt><dd>1<\/dd>/)
-  assert.match(overview.html, /<dt>Distance parcourue<\/dt><dd>62,4 km<\/dd>/)
+  assert.match(overview.html, /<dt>Étapes terminées<\/dt><dd>1<\/dd>/)
+  assert.match(overview.html, /<dt>Distance restante<\/dt><dd>0,0 km<\/dd>/)
+  assert.match(overview.html, /<dt>D\+ restant<\/dt><dd>0 m<\/dd>/)
 })
 
 test('buildTripOverview shows the highlighted ride day with a clickable card and a weather mount point, no fabricated weather baked into the static markup', () => {
@@ -138,12 +135,12 @@ test('after the trip, no highlighted-day section renders at all', () => {
   assert.doesNotMatch(overview.html, /trip-overview__highlighted-day/)
 })
 
-test('mapStages carries one entry per stage, geometry-less stages resolve to an empty segment', () => {
+test('the overview map is marker-only by default and keeps one entry per stage', () => {
   const bundle = createGenericTripBundle()
   const overview = buildTripOverview(bundle, '2027-05-01')
   assert.equal(overview.mapStages.length, 2)
-  assert.ok(overview.mapStages[0].geometry.length > 1)
-  assert.deepEqual(overview.mapStages[1].geometry, [])
+  assert.ok(overview.mapStages.every((stage) => stage.geometry.length === 0))
+  assert.deepEqual(overview.mapStages[0].waypoints.map((waypoint) => waypoint.kind), ['start', 'end'])
 })
 
 test('mapStages waypoints are pre-filtered to the compact-map default (villages excluded)', () => {
@@ -159,7 +156,7 @@ test('mapStages waypoints are pre-filtered to the compact-map default (villages 
   assert.ok(overview.mapStages[0].waypoints.every((waypoint) => waypoint.kind !== 'village'))
 })
 
-test('mapVillageStages carries the same villages that mapStages hides — the fullscreen map Villages layer (CDC Jalon B4 section 9)', () => {
+test('mapDetailStages carries significant intermediate points while the default map keeps only endpoints', () => {
   const bundle = createGenericTripBundle()
   bundle.routePoints.push({
     id: 'village-ui', routeId: bundle.routes[0].id, type: 'passage', name: 'Micro Village',
@@ -169,22 +166,25 @@ test('mapVillageStages carries the same villages that mapStages hides — the fu
   })
   bundle.stages[0].routePointIds.push('village-ui')
   const overview = buildTripOverview(bundle, '2027-05-01')
-  assert.equal(overview.mapVillageStages.length, overview.mapStages.length)
-  assert.equal(overview.mapVillageStages[0].waypoints.length, 1)
-  assert.equal(overview.mapVillageStages[0].waypoints[0].name, 'Micro Village')
+  assert.equal(overview.mapDetailStages.length, overview.mapStages.length)
+  assert.equal(overview.mapDetailStages[0].waypoints.length, 4)
+  assert.ok(overview.mapDetailStages[0].waypoints.some((waypoint) => waypoint.name === 'Micro Village'))
+  assert.ok(overview.mapDetailStages[0].geometry.length === 0)
 })
 
-test('a trip with no village at all yields empty mapVillageStages entries, never an error', () => {
+test('the Détail control is present and practical POIs are not part of its model', () => {
   const bundle = createGenericTripBundle()
   const overview = buildTripOverview(bundle, '2027-05-01')
-  assert.ok(overview.mapVillageStages.every((stage) => stage.waypoints.length === 0))
+  assert.match(overview.html, /data-action="toggle-overview-map-detail"[^>]*>Détail<\/button>/)
+  assert.ok(overview.mapDetailStages.flatMap((stage) => stage.waypoints).every((waypoint) => !('category' in waypoint)))
 })
 
-test('highlightedDayMap points at the highlighted ride day\'s own stage map entry', () => {
+test('highlightedDayMap keeps the highlighted ride geometry although the global map is marker-only', () => {
   const bundle = createGenericTripBundle()
   const overview = buildTripOverview(bundle, '2027-05-01')
   assert.equal(overview.highlightedDayId, 'day-alpha')
-  assert.deepEqual(overview.highlightedDayMap, overview.mapStages[0])
+  assert.ok(overview.highlightedDayMap.geometry.length > 1)
+  assert.ok(overview.highlightedDayMap.waypoints.length >= overview.mapStages[0].waypoints.length)
 })
 
 test('highlightedDayMap is null when the highlighted day is OFF/transfer (no stage) or nothing is highlighted', () => {

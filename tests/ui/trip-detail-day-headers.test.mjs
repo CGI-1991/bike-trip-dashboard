@@ -16,11 +16,18 @@ test('the Voyage screen has no global stats — title then straight into the day
 test('a ride day card is a single clickable button — compact date, no GPX/roadbook stage name, no separate "Voir le détail" (CDC Jalon B4.3 sections 4/10)', () => {
   const bundle = createGenericTripBundle()
   const html = renderTripDetail(bundle)
-  assert.match(html, /<button class="trip-day-card trip-day-card--ride" type="button" data-action="open-day-detail" data-day-id="day-alpha">/)
-  assert.match(html, /J1 · 10 Mai/)
+  assert.match(html, /<button class="trip-day-card trip-day-card--ride[^"]*" type="button" data-action="open-day-detail" data-day-id="day-alpha"/)
+  assert.match(html, /<strong>J1<\/strong><time datetime="2027-05-10">10 Mai<\/time>/)
   assert.match(html, /Riverside → Hilltown/)
   assert.doesNotMatch(html, /Riverside to Hilltown/)
   assert.doesNotMatch(html, /Voir le détail/)
+})
+
+test('a ride day card carries the compact "Étape" badge (CDC D1 section 3: replaces the old "Roulé" wording)', () => {
+  const bundle = createGenericTripBundle()
+  const html = renderTripDetail(bundle)
+  assert.match(html, /<span class="tag tag--ride">Étape<\/span>/)
+  assert.doesNotMatch(html, />Roulé</)
 })
 
 test('an OFF day card shows the OFF badge and its auto-filled/known location, no "Voir le détail"', () => {
@@ -28,8 +35,9 @@ test('an OFF day card shows the OFF badge and its auto-filled/known location, no
   const html = renderTripDetail(bundle)
   assert.match(html, /trip-day-card--off/)
   assert.match(html, /<span class="tag tag--off">OFF<\/span>/)
-  assert.match(html, /J2 · 11 Mai/)
+  assert.match(html, /<strong>J2<\/strong><time datetime="2027-05-11">11 Mai<\/time>/)
   assert.match(html, /Hilltown/)
+  assert.doesNotMatch(html, /Voir le détail/)
 })
 
 test('a transfer day card shows the Transfert badge and origin → destination', () => {
@@ -37,15 +45,15 @@ test('a transfer day card shows the Transfert badge and origin → destination',
   const html = renderTripDetail(bundle)
   assert.match(html, /trip-day-card--transfer/)
   assert.match(html, /<span class="tag tag--transfer">Transfert<\/span>/)
-  assert.match(html, /J3 · 12 Mai/)
+  assert.match(html, /<strong>J3<\/strong><time datetime="2027-05-12">12 Mai<\/time>/)
   assert.match(html, /Hilltown → Lakeside/)
 })
 
 test('an undated day header omits the date segment entirely rather than showing a placeholder', () => {
   const bundle = createGenericTripBundle({ dated: false })
   const html = renderTripDetail(bundle)
-  assert.match(html, /J1<\/span>/)
-  assert.doesNotMatch(html, /J1 · \d/)
+  assert.match(html, /<strong>J1<\/strong>/)
+  assert.doesNotMatch(html, /<time /)
 })
 
 test('the Voyage screen never lists structural points (Ville/Villages/Relief) or hamlet/peak — those live only in the Étape view', () => {
@@ -81,17 +89,19 @@ test('the Voyage screen carries no per-screen "Retour à Mes voyages" button —
 test('a ride day card shows distance, D+, departure time and estimated arrival', () => {
   const bundle = createGenericTripBundle()
   const html = renderTripDetail(bundle)
-  assert.match(html, /<dt>Distance<\/dt><dd>62,4 km<\/dd>/)
-  assert.match(html, /<dt>D\+<\/dt><dd>\+780 m<\/dd>/)
-  assert.match(html, /<dt>Départ<\/dt><dd>08:00<\/dd>/)
-  assert.match(html, /<dt>Arrivée estimée<\/dt><dd>\d{2}:\d{2}<\/dd>/)
+  assert.match(html, /<span class="trip-day-card__metrics"><span>62,4 km<\/span><span>\+780 m<\/span><\/span>/)
+  assert.match(html, /<span class="visually-hidden">Départ <\/span>08:00/)
+  assert.match(html, /<span class="visually-hidden">ETA <\/span>\d{2}:\d{2}<\/strong>/)
 })
 
 test('a ride day with no route geometry shows an em dash for departure/arrival rather than a fabricated time', () => {
   const bundle = createGenericTripBundle()
   const html = renderTripDetail(bundle)
-  const deltaCard = html.split('data-day-id="day-delta"')[1] ?? ''
-  assert.match(deltaCard, /<dt>Arrivée estimée<\/dt><dd>—<\/dd>/)
+  // `data-day-id="day-delta"` appears twice in the card (the button itself,
+  // and the weather-mount span) — grab the whole <li>…</li> block, not just
+  // the text between the first two occurrences.
+  const deltaCard = html.match(/<li>\s*<button[^>]*data-day-id="day-delta"[\s\S]*?<\/button>\s*<\/li>/)?.[0] ?? ''
+  assert.match(deltaCard, /<span class="visually-hidden">ETA <\/span>—<\/strong>/)
 })
 
 test('a stage switched to manual pause mode changes the Voyage screen\'s estimated arrival time (CDC Jalon B4 section 15/16)', () => {
@@ -101,8 +111,9 @@ test('a stage switched to manual pause mode changes the Voyage screen\'s estimat
     stageId: manualBundle.stages[0].id, pausePlanMode: 'custom',
     pauses: [{ id: 'pause-manual-1', active: true, routePointId: manualBundle.routePoints[0].id, durationSeconds: 3_600, order: 0, origin: 'custom' }],
   }
-  const automaticArrival = renderTripDetail(automaticBundle).match(/<dt>Arrivée estimée<\/dt><dd>(\d{2}:\d{2})<\/dd>/)[1]
-  const manualArrival = renderTripDetail(manualBundle).match(/<dt>Arrivée estimée<\/dt><dd>(\d{2}:\d{2})<\/dd>/)[1]
+  const etaOf = (html) => html.match(/<span class="visually-hidden">ETA <\/span>(\d{2}:\d{2})<\/strong>/)[1]
+  const automaticArrival = etaOf(renderTripDetail(automaticBundle))
+  const manualArrival = etaOf(renderTripDetail(manualBundle))
   assert.notEqual(automaticArrival, manualArrival)
 })
 
@@ -121,4 +132,22 @@ test('a single "Télécharger les GPX" action is offered once the trip has at le
   const html = renderTripDetail(bundle)
   assert.match(html, /data-action="download-trip-gpx"/)
   assert.match(html, /Télécharger les GPX/)
+})
+
+// --- D1 section 3/10: the priority day (per deriveTripTemporalState) gets a
+// distinct visual marker on the Voyage list, and a completed ride day shows
+// the compact "Terminé" status instead of "Étape" -----------------------
+
+test('the priority day (first non-completed day) is visually marked on its card', () => {
+  const bundle = createGenericTripBundle()
+  const html = renderTripDetail(bundle, { now: '2027-05-01T00:00:00.000Z' })
+  assert.match(html, /<button class="trip-day-card trip-day-card--ride is-priority" type="button" data-action="open-day-detail" data-day-id="day-alpha" data-trip-priority-day>/)
+})
+
+test('a completed ride day (its date is in the past) shows "Terminé" instead of "Étape"', () => {
+  const bundle = createGenericTripBundle()
+  const html = renderTripDetail(bundle, { now: '2027-05-13T00:00:00.000Z' })
+  const alphaCard = html.split('data-day-id="day-alpha"')[1]?.split('</li>')[0] ?? ''
+  assert.match(alphaCard, /<span class="tag tag--completed">Terminé<\/span>/)
+  assert.doesNotMatch(alphaCard, /tag--ride">Étape</)
 })

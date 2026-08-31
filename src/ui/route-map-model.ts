@@ -40,6 +40,14 @@ export interface RouteMapModel {
   readonly extraLines?: readonly (readonly LatLngTuple[])[]
 }
 
+export function routeMapHasContent(model: RouteMapModel | null): model is RouteMapModel {
+  return model !== null && (
+    model.markers.length > 0 ||
+    model.coordinates.length > 1 ||
+    (model.extraLines ?? []).some((line) => line.length > 1)
+  )
+}
+
 function pointCoordinate(point: RoadbookPointMatch): LatLngTuple | null {
   const latitude = point.sourceLatitude ?? point.matchedLatitude
   const longitude = point.sourceLongitude ?? point.matchedLongitude
@@ -136,6 +144,12 @@ export function buildGenericRouteMapModel(waypoints: readonly CanonicalWaypoint[
 export function buildGenericOverviewRouteMapModel(stages: readonly { readonly waypoints: readonly CanonicalWaypoint[]; readonly geometry: readonly LatLngTuple[] }[]): RouteMapModel {
   const withGeometry = stages.filter((stage) => stage.geometry.length > 1)
   const [first, ...rest] = withGeometry
-  const markers = stages.flatMap((stage) => buildGenericRouteMapModel(stage.waypoints, stage.geometry).markers)
+  const seen = new Set<string>()
+  const markers = stages.flatMap((stage) => buildGenericRouteMapModel(stage.waypoints, stage.geometry).markers).filter((marker) => {
+    const locationKey = `${marker.name.trim().toLocaleLowerCase()}|${marker.coordinate[0].toFixed(4)}|${marker.coordinate[1].toFixed(4)}`
+    if (seen.has(locationKey)) return false
+    seen.add(locationKey)
+    return true
+  })
   return { coordinates: first?.geometry ?? [], markers, extraLines: rest.map((stage) => stage.geometry) }
 }

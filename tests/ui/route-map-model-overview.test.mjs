@@ -33,9 +33,21 @@ test('a stage with no usable geometry (e.g. no GPX yet) is skipped entirely, not
 test('markers from every stage are merged into one flat list, in stage order', () => {
   const model = buildGenericOverviewRouteMapModel([
     { waypoints: [waypoint({ id: 'a' })], geometry: [[45, 6], [45.1, 6.1]] },
-    { waypoints: [waypoint({ id: 'b' })], geometry: [[48, 2], [48.1, 2.1]] },
+    // Distinct name/coordinates — same-location markers across stages are
+    // deliberately deduplicated (CDC D1 section 7), so this fixture must
+    // not accidentally collide with the first stage's marker to prove
+    // ordinary cross-stage merging.
+    { waypoints: [waypoint({ id: 'b', name: 'Autre Ville', latitude: 48, longitude: 2 })], geometry: [[48, 2], [48.1, 2.1]] },
   ])
   assert.deepEqual(model.markers.map((marker) => marker.id), ['a', 'b'])
+})
+
+test('two markers at the same place (e.g. day N arrival == day N+1 departure) collapse into one, keeping the first', () => {
+  const model = buildGenericOverviewRouteMapModel([
+    { waypoints: [waypoint({ id: 'a', name: 'Shared Town' })], geometry: [[45, 6], [45.1, 6.1]] },
+    { waypoints: [waypoint({ id: 'b', name: 'Shared Town' })], geometry: [[48, 2], [48.1, 2.1]] },
+  ])
+  assert.deepEqual(model.markers.map((marker) => marker.id), ['a'])
 })
 
 test('no stages at all produces an empty, still-valid model', () => {

@@ -10,13 +10,15 @@
  * carries no redundant "Retour" button of its own (CDC hardening section 14).
  */
 
-import { computeStageWaypoints, resolveStagePauseSettings } from '../../analysis/waypoint-timeline.ts'
-import { routeGeometry } from '../../route-enrichment/route-fingerprint.ts'
 import { resolveOffLocation, resolveTransferLocations } from '../../analysis/day-location-fill.ts'
+import { deriveTripTemporalState, getTripDayTemporalState } from '../../trips-manager/trip-day-temporal-state.ts'
+import type { TripDayTemporalState } from '../../trips-manager/trip-day-temporal-state.ts'
 import { formatSimpleDate } from '../date-format.ts'
-import type { EnrichmentProviderStatus, PracticalPlaceCategory, TripBundle, TripDayId } from '../../trip-core/index.ts'
+import { compactPlaceName } from '../compact-place-name.ts'
+import type { EnrichmentProviderStatus, PracticalPlaceCategory, TripBundle } from '../../trip-core/index.ts'
 
 export interface TripDetailRenderOptions {
+  readonly now?: Date | string | null
   readonly canEnrichEndpoints?: boolean
   readonly geocodingPending?: boolean
   readonly geocodingError?: string | null
@@ -50,39 +52,23 @@ function formatKilometers(value: number): string {
   return `${value.toFixed(1).replace('.', ',')} km`
 }
 
-function computeDayEta(bundle: TripBundle, stage: TripBundle['stages'][number], dayId: TripDayId): string | null {
-  const route = bundle.routes.find((candidate) => candidate.id === stage.sourceRouteId)
-  if (route === undefined || routeGeometry(route) === null) return null
-  const daySettings = bundle.settings.days.find((candidate) => candidate.dayId === dayId)
-  const settings = { referenceSpeedKph: bundle.settings.global.referenceSpeedKph, departureTime: daySettings?.departureTime ?? '08:00' }
-  const stageSettings = bundle.settings.stages.find((candidate) => candidate.stageId === stage.id)
-  const pauseResolution = resolveStagePauseSettings(bundle.settings.global.pausePlanMode, stageSettings)
-  const waypoints = computeStageWaypoints({
-    stage, route, routePoints: bundle.routePoints, climbs: bundle.climbs, settings,
-    manualPauses: pauseResolution.mode === 'custom' ? pauseResolution.manualPauses : undefined,
-    mountainMode: bundle.settings.global.mountainMode ?? false,
-  })
-  return waypoints.length === 0 ? null : waypoints[waypoints.length - 1]?.clockTime ?? null
-}
-
-function renderRideDayCard(bundle: TripBundle, day: TripBundle['days'][number], stage: TripBundle['stages'][number]): string {
+function renderRideDayCard(bundle: TripBundle, day: TripBundle['days'][number], stage: TripBundle['stages'][number], temporal: TripDayTemporalState, isPriority: boolean): string {
   const dateLabel = day.date === null ? null : formatSimpleDate(day.date)
-  const locations = `${escapeHtml(stage.startLocationName ?? '—')} → ${escapeHtml(stage.endLocationName ?? '—')}`
-  const headerParts = [`J${day.displayNumber}`, dateLabel].filter((part): part is string => part !== null)
+  const fullRoute = `${stage.startLocationName ?? '—'} → ${stage.endLocationName ?? '—'}`
+  const locations = `${escapeHtml(compactPlaceName(stage.startLocationName ?? '—'))} → ${escapeHtml(compactPlaceName(stage.endLocationName ?? '—'))}`
   const daySettings = bundle.settings.days.find((candidate) => candidate.dayId === day.id)
   const departureTime = daySettings?.departureTime ?? null
-  const eta = computeDayEta(bundle, stage, day.id)
+  const eta = temporal.arrivalEta?.label ?? null
+  const status = temporal.completed ? '<span class="tag tag--completed">Terminé</span>' : '<span class="tag tag--ride">Étape</span>'
   return `<li>
-    <button class="trip-day-card trip-day-card--ride" type="button" data-action="open-day-detail" data-day-id="${escapeHtml(day.id)}">
-      <div class="trip-day-card__header"><span class="tag tag--ride">Roulé</span><span class="trip-day-card__label">${headerParts.join(' · ')}</span></div>
-      <p class="trip-day-card__route">${locations}</p>
-      <dl class="trip-day-card__stats">
-        <div><dt>Distance</dt><dd>${stage.distanceKm === null ? '—' : formatKilometers(stage.distanceKm)}</dd></div>
-        <div><dt>D+</dt><dd>${stage.elevationGainM === null ? '—' : `+${Math.round(stage.elevationGainM)} m`}</dd></div>
-        <div><dt>Départ</dt><dd>${departureTime ?? '—'}</dd></div>
-        <div><dt>Arrivée estimée</dt><dd>${eta ?? '—'}</dd></div>
-      </dl>
-      <span class="trip-day-card__weather-mount" data-trip-day-weather-mount data-day-id="${escapeHtml(day.id)}"></span>
+    <button class="trip-day-card trip-day-card--ride${isPriority ? ' is-priority' : ''}" type="button" data-action="open-day-detail" data-day-id="${escapeHtml(day.id)}"${isPriority ? ' data-trip-priority-day' : ''}>
+      <span class="trip-day-card__number-group"><strong>J${day.displayNumber}</strong>${day.date === null ? '' : `<time datetime="${day.date}">${escapeHtml(dateLabel ?? '')}</time>`}</span>
+      <span class="trip-day-card__content">
+        <span class="trip-day-card__heading"><span class="trip-day-card__route" title="${escapeHtml(fullRoute)}" aria-label="${escapeHtml(fullRoute)}">${locations}</span>${status}</span>
+        <span class="trip-day-card__metrics"><span>${stage.distanceKm === null ? '—' : formatKilometers(stage.distanceKm)}</span><span>${stage.elevationGainM === null ? '—' : `+${Math.round(stage.elevationGainM)} m`}</span></span>
+        <span class="trip-day-card__weather-mount" data-trip-day-weather-mount data-day-id="${escapeHtml(day.id)}"></span>
+      </span>
+      <span class="trip-day-card__schedule"><small><span class="visually-hidden">Départ </span>${departureTime ?? '—'}</small><strong><span class="visually-hidden">ETA </span>${eta ?? '—'}</strong></span>
     </button>
   </li>`
 }
@@ -91,37 +77,37 @@ function renderRideDayCard(bundle: TripBundle, day: TripBundle['days'][number], 
 // targets now that `day-detail-view.ts` has a shell to open them into — a
 // `<button data-action="open-day-detail">`, exactly like a ride day card,
 // not the plain non-interactive `<div>` these used to be.
-function renderOffDayCard(bundle: TripBundle, day: TripBundle['days'][number]): string {
+function renderOffDayCard(bundle: TripBundle, day: TripBundle['days'][number], isPriority: boolean): string {
   const dateLabel = day.date === null ? null : formatSimpleDate(day.date)
-  const headerParts = [`J${day.displayNumber}`, dateLabel].filter((part): part is string => part !== null)
   const location = resolveOffLocation(bundle, day)
+  const fullLocation = location.name ?? 'Lieu à préciser'
   return `<li>
-    <button class="trip-day-card trip-day-card--off" type="button" data-action="open-day-detail" data-day-id="${escapeHtml(day.id)}">
-      <div class="trip-day-card__header"><span class="tag tag--off">OFF</span><span class="trip-day-card__label">${headerParts.join(' · ')}</span></div>
-      ${location.name === null ? '' : `<p class="trip-day-card__route">${escapeHtml(location.name)}</p>`}
-      <span class="trip-day-card__weather-mount" data-trip-day-weather-mount data-day-id="${escapeHtml(day.id)}"></span>
+    <button class="trip-day-card trip-day-card--off${isPriority ? ' is-priority' : ''}" type="button" data-action="open-day-detail" data-day-id="${escapeHtml(day.id)}"${isPriority ? ' data-trip-priority-day' : ''}>
+      <span class="trip-day-card__number-group"><strong>J${day.displayNumber}</strong>${day.date === null ? '' : `<time datetime="${day.date}">${escapeHtml(dateLabel ?? '')}</time>`}</span>
+      <span class="trip-day-card__content"><span class="trip-day-card__heading"><span class="trip-day-card__route" title="${escapeHtml(fullLocation)}" aria-label="${escapeHtml(fullLocation)}">${escapeHtml(compactPlaceName(fullLocation))}</span><span class="tag tag--off">OFF</span></span><span class="trip-day-card__weather-mount" data-trip-day-weather-mount data-day-id="${escapeHtml(day.id)}"></span></span>
     </button>
   </li>`
 }
 
-function renderTransferDayCard(bundle: TripBundle, day: TripBundle['days'][number]): string {
+function renderTransferDayCard(bundle: TripBundle, day: TripBundle['days'][number], isPriority: boolean): string {
   const dateLabel = day.date === null ? null : formatSimpleDate(day.date)
-  const headerParts = [`J${day.displayNumber}`, dateLabel].filter((part): part is string => part !== null)
   const { origin, destination } = resolveTransferLocations(bundle, day)
-  const route = origin === null && destination === null ? null : `${escapeHtml(origin ?? '—')} → ${escapeHtml(destination ?? '—')}`
+  const fullRoute = origin === null && destination === null ? 'Trajet à préciser' : `${origin ?? '—'} → ${destination ?? '—'}`
+  const route = origin === null && destination === null ? fullRoute : `${compactPlaceName(origin ?? '—')} → ${compactPlaceName(destination ?? '—')}`
   return `<li>
-    <button class="trip-day-card trip-day-card--transfer" type="button" data-action="open-day-detail" data-day-id="${escapeHtml(day.id)}">
-      <div class="trip-day-card__header"><span class="tag tag--transfer">Transfert</span><span class="trip-day-card__label">${headerParts.join(' · ')}</span></div>
-      ${route === null ? '' : `<p class="trip-day-card__route">${route}</p>`}
+    <button class="trip-day-card trip-day-card--transfer${isPriority ? ' is-priority' : ''}" type="button" data-action="open-day-detail" data-day-id="${escapeHtml(day.id)}"${isPriority ? ' data-trip-priority-day' : ''}>
+      <span class="trip-day-card__number-group"><strong>J${day.displayNumber}</strong>${day.date === null ? '' : `<time datetime="${day.date}">${escapeHtml(dateLabel ?? '')}</time>`}</span>
+      <span class="trip-day-card__content"><span class="trip-day-card__heading"><span class="trip-day-card__route" title="${escapeHtml(fullRoute)}" aria-label="${escapeHtml(fullRoute)}">${escapeHtml(route)}</span><span class="tag tag--transfer">Transfert</span></span></span>
     </button>
   </li>`
 }
 
-function renderDayCard(bundle: TripBundle, day: TripBundle['days'][number]): string {
+function renderDayCard(bundle: TripBundle, day: TripBundle['days'][number], temporal: TripDayTemporalState, priorityDayId: string | null): string {
+  const isPriority = day.id === priorityDayId
   const stage = day.stageId === null ? null : bundle.stages.find((candidate) => candidate.id === day.stageId) ?? null
-  if (stage !== null) return renderRideDayCard(bundle, day, stage)
-  if (day.type === 'off') return renderOffDayCard(bundle, day)
-  return renderTransferDayCard(bundle, day)
+  if (stage !== null) return renderRideDayCard(bundle, day, stage, temporal, isPriority)
+  if (day.type === 'off') return renderOffDayCard(bundle, day, isPriority)
+  return renderTransferDayCard(bundle, day, isPriority)
 }
 
 function renderPracticalPlaces(bundle: TripBundle, searchStatus: EnrichmentProviderStatus | null): string {
@@ -149,6 +135,7 @@ function renderPracticalPlaces(bundle: TripBundle, searchStatus: EnrichmentProvi
 }
 
 export function renderTripDetail(bundle: TripBundle, options: TripDetailRenderOptions = {}): string {
+  const temporal = deriveTripTemporalState(bundle, options.now ?? null)
   const hasOsmEndpoints = bundle.routePoints.some((point) =>
     (point.type === 'start' || point.type === 'end') && point.provenance.sourceType === 'osm',
   )
@@ -183,7 +170,7 @@ export function renderTripDetail(bundle: TripBundle, options: TripDetailRenderOp
   return `
     <div class="trip-detail" data-trip-detail>
       <header class="view-heading"><p class="eyebrow">Voyage</p><h2>${escapeHtml(bundle.metadata.name)}</h2></header>
-      <ol class="trip-day-list">${bundle.days.map((day) => renderDayCard(bundle, day)).join('')}</ol>
+      <ol class="trip-day-list">${bundle.days.map((day) => renderDayCard(bundle, day, getTripDayTemporalState(temporal, day.id) as TripDayTemporalState, temporal.priorityDayId)).join('')}</ol>
       ${hasRideStages ? '<button class="button button--quiet button--full" type="button" data-action="download-trip-gpx">Télécharger les GPX</button>' : ''}
       ${automaticStatus}
       ${geocodingStatus}

@@ -19,6 +19,7 @@ import type {
 } from '../../trip-core/index.ts'
 import { getActiveTripId } from '../../storage/indexeddb/active-trip.ts'
 import { resolvePreferredActiveTripId } from '../../trips-manager/active-trip-selection.ts'
+import { deriveTripTemporalState, resolveAdjacentTripDayId } from '../../trips-manager/trip-day-temporal-state.ts'
 import { deleteTripCompletely, listTripSummaries, setActiveTrip } from '../../trips-manager/trip-manager-actions.ts'
 import type { TripListEntry } from '../../trips-manager/trip-summary.ts'
 import type { MapLayerDefinition } from '../route-map.ts'
@@ -38,6 +39,8 @@ import type { ImportWizardResult } from './import-wizard.ts'
 import { createTripEditor } from './trip-editor.ts'
 import { renderTripDetail } from './trip-detail-view.ts'
 import { buildTripOverview } from './trip-overview-view.ts'
+import type { TripOverview } from './trip-overview-view.ts'
+import { createTripDetailAutoScrollSession, scrollTripDayCardIntoView } from '../trip-detail-auto-scroll.ts'
 import { createOpenMeteoProvider } from '../../weather/open-meteo.ts'
 import type { WeatherProvider } from '../../weather/types.ts'
 import { GenericWeatherCoordinator } from '../../weather/generic/coordinator.ts'
@@ -204,6 +207,9 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   const automaticEnrichmentErrors = new Map<TripId, string>()
   /** Montées secondaires toggle (CDC Jalon B4.3 section 29) — local UI state, per day, never persisted; resets to off on reload, same as any other transient view preference in this file. No Villages toggle any more (section 26/28/29). */
   const dayFilters = new Map<TripDayId, { showSecondaryClimbs: boolean }>()
+  const detailAutoScrollSession = createTripDetailAutoScrollSession()
+  const overviewMapDetailVisible = new Map<TripId, boolean>()
+  let currentOverview: { readonly tripId: TripId; readonly value: TripOverview } | null = null
 
   function getDayFilters(dayId: TripDayId): WaypointVisibilityFilters {
     return dayFilters.get(dayId) ?? { showSecondaryClimbs: false }
@@ -302,7 +308,9 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     }
     deps.onHeaderChange?.(buildGenericAppHeader(bundle, null))
     const enrichmentBusy = geocodingInFlight.has(tripId) || automaticEnrichmentGuard.isInFlight(tripId)
+    const now = deps.now()
     container.innerHTML = renderTripDetail(bundle, {
+      now,
       canEnrichEndpoints: !enrichmentBusy && deps.geocodingProvider !== undefined && tripNeedsEndpointGeocoding(bundle),
       geocodingPending: geocodingInFlight.has(tripId),
       geocodingError: geocodingErrors.get(tripId) ?? null,
@@ -311,6 +319,11 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       automaticEnrichmentError: automaticEnrichmentErrors.get(tripId) ?? null,
     })
     refreshWeather(bundle, tripId)
+    const priorityDayId = deriveTripTemporalState(bundle, now).priorityDayId
+    const shouldAutoScroll = detailAutoScrollSession.consume(tripId)
+    if (priorityDayId !== null && shouldAutoScroll) {
+      queueMicrotask(() => scrollTripDayCardIntoView(container, priorityDayId))
+    }
   }
 
   async function renderDay(tripId: TripId, dayId: TripDayId): Promise<void> {
@@ -453,6 +466,18 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     if (replaced !== null) replaced.hidden = wasHidden
   }
 
+  function mountOverviewMap(overview: TripOverview, detailVisible: boolean): void {
+    const mapContainer = container.querySelector<HTMLElement>('[data-trip-overview-map]')
+    const mapDialog = container.querySelector<HTMLDialogElement>('[data-trip-overview-map-dialog]')
+    if (mapContainer === null || mapDialog === null) return
+    const baseModel = buildGenericOverviewRouteMapModel(overview.mapStages)
+    const detailModel = buildGenericOverviewRouteMapModel(overview.mapDetailStages)
+    const model = detailVisible ? { ...baseModel, markers: [...baseModel.markers, ...detailModel.markers] } : baseModel
+    deps.renderMap(mapContainer, mapDialog, model, [])
+    const close = mapDialog.querySelector<HTMLButtonElement>('[data-close-map]')
+    if (close !== null) close.onclick = () => deps.closeMap(mapDialog)
+  }
+
   async function renderOverview(tripId: TripId): Promise<void> {
     teardownSubComponent()
     container.innerHTML = '<p role="status">Chargement du voyage…</p>'
@@ -464,16 +489,12 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       return
     }
     deps.onHeaderChange?.(buildGenericAppHeader(bundle, null))
-    const overview = buildTripOverview(bundle, deps.now().slice(0, 10))
+    const overview = buildTripOverview(bundle, deps.now())
+    currentOverview = { tripId, value: overview }
     container.innerHTML = overview.html
-    const mapContainer = container.querySelector<HTMLElement>('[data-trip-overview-map]')
-    const mapDialog = container.querySelector<HTMLDialogElement>('[data-trip-overview-map-dialog]')
-    if (mapContainer !== null && mapDialog !== null) {
-      const model = buildGenericOverviewRouteMapModel(overview.mapStages)
-      const villageWaypoints = overview.mapVillageStages.flatMap((stage) => stage.waypoints)
-      deps.renderMap(mapContainer, mapDialog, model, villagesLayer(villageWaypoints))
-      mapDialog.querySelector<HTMLButtonElement>('[data-close-map]')?.addEventListener('click', () => deps.closeMap(mapDialog))
-    }
+    const detailVisible = overviewMapDetailVisible.get(tripId) ?? false
+    container.querySelector<HTMLButtonElement>('[data-action=toggle-overview-map-detail]')?.setAttribute('aria-pressed', String(detailVisible))
+    mountOverviewMap(overview, detailVisible)
     // The highlighted day's own compact map (CDC Jalon B4.3 section 8) — a
     // second, independent, non-interactive preview; no fullscreen dialog of
     // its own (that's what "Voir cette étape" / the card's own navigation
@@ -602,6 +623,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   }
 
   async function openDetail(tripId: TripId): Promise<void> {
+    detailAutoScrollSession.enter(tripId)
     mode = { kind: 'detail', tripId }
     await renderDetail(tripId)
   }
@@ -854,6 +876,11 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
 
     if (action === 'create-trip') {
       openWizard()
+    } else if (action === 'toggle-overview-map-detail' && mode.kind === 'overview' && currentOverview?.tripId === mode.tripId) {
+      const nextVisible = !(overviewMapDetailVisible.get(mode.tripId) ?? false)
+      overviewMapDetailVisible.set(mode.tripId, nextVisible)
+      button.setAttribute('aria-pressed', String(nextVisible))
+      mountOverviewMap(currentOverview.value, nextVisible)
     } else if (action === 'edit-trip' && tripId !== undefined) {
       openEditor(tripId as TripId)
     } else if (action === 'open-trip' && tripId !== undefined) {
@@ -881,17 +908,15 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       void (async () => {
         const bundle = await createTripRepository(deps.database).loadTripBundle(mode.tripId)
         if (bundle === null) return
-        const openableIds = openableDayIds(bundle)
-        const previousId = openableIds[openableIds.indexOf(mode.dayId) - 1]
-        if (previousId !== undefined) await openDay(mode.tripId, previousId, mode.origin)
+        const previousId = resolveAdjacentTripDayId(bundle, mode.dayId, -1)
+        if (previousId !== null) await openDay(mode.tripId, previousId, mode.origin)
       })()
     } else if (action === 'next-day' && mode.kind === 'day') {
       void (async () => {
         const bundle = await createTripRepository(deps.database).loadTripBundle(mode.tripId)
         if (bundle === null) return
-        const openableIds = openableDayIds(bundle)
-        const nextId = openableIds[openableIds.indexOf(mode.dayId) + 1]
-        if (nextId !== undefined) await openDay(mode.tripId, nextId, mode.origin)
+        const nextId = resolveAdjacentTripDayId(bundle, mode.dayId, 1)
+        if (nextId !== null) await openDay(mode.tripId, nextId, mode.origin)
       })()
     } else if (action === 'back-to-list') {
       goToList()

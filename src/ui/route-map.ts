@@ -8,7 +8,7 @@ import type { RideDayTimeline } from '../trip/types.ts'
 import { lockDocumentScroll } from './document-scroll-lock.ts'
 import { createMapOverlayHistory } from './map-overlay-history.ts'
 import type { MapOverlayHistoryController } from './map-overlay-history.ts'
-import { buildRouteMapModel } from './route-map-model.ts'
+import { buildRouteMapModel, routeMapHasContent } from './route-map-model.ts'
 import type { RouteMapMarkerModel, RouteMapModel } from './route-map-model.ts'
 import {
   PAUSE_ACCENT_COLOR_HEX,
@@ -26,8 +26,8 @@ export { buildGenericRouteMapModel, buildRouteMapModel } from './route-map-model
 export type { RouteMapMarkerModel, RouteMapModel } from './route-map-model.ts'
 
 const mapInstances = new WeakMap<HTMLElement, L.Map>()
-const openHandlers = new WeakMap<HTMLButtonElement, EventListener>()
-const expandedOpeners = new WeakMap<HTMLDialogElement, HTMLButtonElement>()
+const openHandlers = new WeakMap<HTMLElement, { readonly click: EventListener; readonly keydown: EventListener }>()
+const expandedOpeners = new WeakMap<HTMLDialogElement, HTMLElement>()
 const expandedHistory = new WeakMap<HTMLDialogElement, MapOverlayHistoryController>()
 const scrollUnlocks = new WeakMap<HTMLDialogElement, () => void>()
 const pendingFrames = new WeakMap<HTMLDialogElement, number>()
@@ -95,6 +95,7 @@ export function createRouteMap(container: HTMLElement, model: RouteMapModel, opt
     bounds.extend(L.polyline(segment.map(toLatLng), { color: '#0f766e', weight: 4 }).addTo(map).getBounds())
   }
   for (const marker of model.markers) {
+    bounds.extend(toLatLng(marker.coordinate))
     L.marker(toLatLng(marker.coordinate), { icon: createRouteDivIcon(marker.category, { offRoute: marker.offRoute, pauseActive: marker.pauseActive }) })
       .bindTooltip(markerTooltip(marker))
       .addTo(map)
@@ -231,7 +232,7 @@ function renderLegend(container: HTMLElement): void {
 
 export function renderCompactRouteMapModel(container: HTMLElement, model: RouteMapModel | null): void {
   destroy(container)
-  if (model === null || model.coordinates.length < 2) {
+  if (!routeMapHasContent(model)) {
     container.innerHTML = '<p class="route-map__fallback">Carte temporairement indisponible.</p>'
     return
   }
@@ -259,10 +260,13 @@ export function renderRouteMap(container: HTMLElement, dialog: HTMLDialogElement
   createRouteMap(canvas, model, { interactive: false, fitPadding: [12, 12] }, () => { fallback.hidden = false })
   renderLegend(container)
   const expanded = dialog.querySelector<HTMLElement>('[data-route-map-expanded]') as HTMLElement
-  const open = dialog.previousElementSibling?.querySelector<HTMLButtonElement>('[data-explore-map]')
+  const open = dialog.previousElementSibling?.querySelector<HTMLElement>('[data-explore-map]')
   if (open !== null && open !== undefined) {
-    const previousHandler = openHandlers.get(open)
-    if (previousHandler !== undefined) open.removeEventListener('click', previousHandler)
+    const previousHandlers = openHandlers.get(open)
+    if (previousHandlers !== undefined) {
+      open.removeEventListener('click', previousHandlers.click)
+      open.removeEventListener('keydown', previousHandlers.keydown)
+    }
     const handler: EventListener = () => {
       if (dialog.open || scrollUnlocks.has(dialog) || expandedHistory.has(dialog)) {
         closeExpandedRouteMap(dialog)
@@ -329,8 +333,14 @@ export function renderRouteMap(container: HTMLElement, dialog: HTMLDialogElement
       })
       pendingFrames.set(dialog, frame)
     }
-    openHandlers.set(open, handler)
+    const keydown: EventListener = (event) => {
+      if (!(event instanceof KeyboardEvent) || (event.key !== 'Enter' && event.key !== ' ')) return
+      event.preventDefault()
+      handler(event)
+    }
+    openHandlers.set(open, { click: handler, keydown })
     open.addEventListener('click', handler)
+    open.addEventListener('keydown', keydown)
   }
 }
 
@@ -350,7 +360,7 @@ export function renderGenericRouteMap(container: HTMLElement, dialog: HTMLDialog
   const practicalToggle = dialog.querySelector<HTMLButtonElement>('[data-practical-layers-toggle]')
   if (practicalToggle !== null) practicalToggle.hidden = true
   disposeMapLayerPanel(dialog)
-  if (model === null || model.coordinates.length < 2) {
+  if (!routeMapHasContent(model)) {
     container.innerHTML = '<p class="route-map__fallback">Carte indisponible.</p>'
     return
   }
@@ -360,10 +370,13 @@ export function renderGenericRouteMap(container: HTMLElement, dialog: HTMLDialog
   createRouteMap(canvas, model, { interactive: false, fitPadding: [12, 12] }, () => { fallback.hidden = false })
   renderLegend(container)
   const expanded = dialog.querySelector<HTMLElement>('[data-route-map-expanded]') as HTMLElement
-  const open = dialog.previousElementSibling?.querySelector<HTMLButtonElement>('[data-explore-map]')
+  const open = dialog.previousElementSibling?.querySelector<HTMLElement>('[data-explore-map]')
   if (open === null || open === undefined) return
-  const previousHandler = openHandlers.get(open)
-  if (previousHandler !== undefined) open.removeEventListener('click', previousHandler)
+  const previousHandlers = openHandlers.get(open)
+  if (previousHandlers !== undefined) {
+    open.removeEventListener('click', previousHandlers.click)
+    open.removeEventListener('keydown', previousHandlers.keydown)
+  }
   const handler: EventListener = () => {
     if (dialog.open || scrollUnlocks.has(dialog) || expandedHistory.has(dialog)) {
       closeExpandedRouteMap(dialog)
@@ -417,8 +430,14 @@ export function renderGenericRouteMap(container: HTMLElement, dialog: HTMLDialog
     })
     pendingFrames.set(dialog, frame)
   }
-  openHandlers.set(open, handler)
+  const keydown: EventListener = (event) => {
+    if (!(event instanceof KeyboardEvent) || (event.key !== 'Enter' && event.key !== ' ')) return
+    event.preventDefault()
+    handler(event)
+  }
+  openHandlers.set(open, { click: handler, keydown })
   open.addEventListener('click', handler)
+  open.addEventListener('keydown', keydown)
 }
 
 type ExpandedMapCloseReason = 'normal' | 'history'

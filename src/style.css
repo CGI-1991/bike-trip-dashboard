@@ -1610,6 +1610,7 @@ ul {
 .accommodation-card__actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .secondary-sheet, .technical-details { overflow: visible; }
 .route-map-card, .elevation-profile-card { display: grid; gap: 10px; }
+.route-map-card__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
 /*
  * Leaflet's own panes (tiles/markers/tooltips/popups) carry internal
  * z-index values up to 700, which — without a local stacking context here —
@@ -1621,6 +1622,8 @@ ul {
  */
 .route-map { position: relative; isolation: isolate; z-index: 0; min-height: 280px; overflow: hidden; border-radius: 10px; background: #e5e7eb; }
 .route-map__canvas { height: 280px; }
+.route-map--action { cursor: zoom-in; }
+.route-map--action:focus-visible { outline: 3px solid var(--forest-700); outline-offset: 3px; }
 .route-map .leaflet-container { font-family: inherit; }
 .route-map__fallback { position: absolute; z-index: 500; inset: auto 8px 8px; margin: 0; padding: 7px 9px; border-radius: 7px; background: rgb(255 255 255 / 92%); font-size: .78rem; }
 .route-map__legend { margin: 6px 0 0; color: var(--ink-soft); font-size: .74rem; }
@@ -3011,7 +3014,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
  * sober generic Réglages screen. `.day-tabs`/`.point-filters`/`.card`/
  * `.eyebrow`/`.tag` are all reused as-is, not redefined here.
  */
-.day-detail { display: grid; gap: 14px; padding: 14px max(14px, env(safe-area-inset-right)) 90px max(14px, env(safe-area-inset-left)); }
+.day-detail { display: grid; gap: 10px; padding: 10px max(14px, env(safe-area-inset-right)) calc(142px + env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left)); }
 .day-detail__stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
 .day-detail__stats div { padding: 9px; background: var(--surface-muted); border-radius: 8px; }
 .day-detail__stats dt { color: var(--ink-soft); font-size: .72rem; }
@@ -3132,11 +3135,20 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .trip-overview__weather-placeholder { color: var(--ink-faint); font-size: .82rem; }
 
 /* Voyage (sections 9-11): compact cards, colour-coded by day type. */
-.trip-day-list { display: grid; gap: 8px; padding: 14px max(14px, env(safe-area-inset-right)) 90px max(14px, env(safe-area-inset-left)); }
-.trip-day-card { width: 100%; padding: 12px; display: grid; gap: 8px; text-align: left; color: inherit; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); font: inherit; }
-.trip-day-card__header { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
-.trip-day-card__label { font-weight: 800; }
-.trip-day-card__route { color: var(--ink-soft); }
+.trip-day-list { display: grid; gap: 6px; padding: 0; }
+.trip-day-card { width: 100%; min-height: 64px; padding: 7px 8px; display: grid; grid-template-columns: 46px minmax(0, 1fr) auto; align-items: center; gap: 8px; text-align: left; color: inherit; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: none; font: inherit; scroll-margin-top: 86px; }
+.trip-day-card:hover, .trip-day-card.is-priority { background: var(--forest-50); border-color: #79a99b; }
+.trip-day-card.is-priority { box-shadow: inset 3px 0 0 var(--forest-700); }
+.trip-day-card__number-group { min-width: 0; display: grid; justify-items: center; gap: 2px; }
+.trip-day-card__number-group strong { width: 38px; height: 34px; display: grid; place-items: center; color: #fff; background: var(--forest-800); border-radius: 8px; font-size: .72rem; font-variant-numeric: tabular-nums; }
+.trip-day-card__number-group time { color: var(--ink-soft); font-size: .6rem; white-space: nowrap; }
+.trip-day-card__content { min-width: 0; display: grid; gap: 3px; }
+.trip-day-card__heading { min-width: 0; display: flex; align-items: center; gap: 5px; }
+.trip-day-card__route { min-width: 0; flex: 1; overflow: hidden; color: var(--ink); font-size: .75rem; font-weight: 800; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
+.trip-day-card__metrics { display: flex; flex-wrap: wrap; gap: 2px 8px; color: var(--ink-soft); font-size: .67rem; font-variant-numeric: tabular-nums; }
+.trip-day-card__schedule { min-width: 45px; display: grid; justify-items: end; gap: 1px; font-variant-numeric: tabular-nums; }
+.trip-day-card__schedule small { color: var(--ink-soft); font-size: .62rem; }
+.trip-day-card__schedule strong { color: var(--forest-800); font-size: .78rem; white-space: nowrap; }
 .trip-day-card__stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
 .trip-day-card__stats div { padding: 7px; background: var(--surface-muted); border-radius: 7px; }
 .trip-day-card__stats dt { color: var(--ink-soft); font-size: .68rem; }
@@ -3145,6 +3157,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .trip-day-card--off { background: #eef1f6; border-left: 4px solid #6b7fa3; }
 .trip-day-card--transfer { background: #f5efe6; border-left: 4px solid #a3794f; }
 .tag--transfer { color: #6a4c2e; background: #f0e2d1; }
+.tag--completed { color: #fff; background: var(--forest-800); }
 
 /*
  * Étape/Journée sticky composition (CDC Jalon B4.4 sections 12-13):
@@ -3161,12 +3174,14 @@ button:disabled { cursor: not-allowed; opacity: .55; }
  * itself is always set at mount time regardless of `ResizeObserver`
  * availability.
  */
-.day-detail__sticky-header { position: sticky; top: 0; z-index: 5; background: var(--surface); }
-.day-detail__sticky-identity { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; padding: 6px max(10px, env(safe-area-inset-right)) 6px max(10px, env(safe-area-inset-left)); border-bottom: 1px solid var(--line); }
-.day-detail__sticky-identity .eyebrow { margin: 0; }
-.day-detail__sticky-nav { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; background: var(--surface-muted, #edf1ec); }
-.day-detail__sticky-nav > div { display: flex; gap: 6px; }
-.day-tabs[data-day-detail-tabs] { position: sticky; top: var(--day-sticky-header-h, 0px); z-index: 3; }
+.day-detail__sticky-header { position: sticky; top: 0; z-index: 5; display: grid; gap: 4px; padding-top: max(4px, env(safe-area-inset-top)); background: var(--surface); border-bottom: 1px solid var(--line); }
+.day-detail__sticky-identity { min-width: 0; padding: 4px 6px; overflow: hidden; }
+.day-detail__sticky-identity strong { display: block; overflow: hidden; font-size: .84rem; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
+.day-tabs[data-day-detail-tabs] { position: static; z-index: auto; padding: 3px; border-bottom: 0; }
+.day-tabs[data-day-detail-tabs] button { min-height: 38px; }
+.day-detail__floating-nav { position: fixed; z-index: 15; right: max(14px, env(safe-area-inset-right)); bottom: calc(72px + env(safe-area-inset-bottom)); left: max(14px, env(safe-area-inset-left)); display: flex; justify-content: space-between; pointer-events: none; }
+.day-detail__floating-nav .button { width: 48px; height: 48px; min-height: 48px; padding: 0; pointer-events: auto; color: #fff; background: rgb(23 59 53 / 94%); border: 1px solid rgb(255 255 255 / 72%); border-radius: 50%; box-shadow: 0 5px 18px rgb(16 45 40 / 24%); font-size: 1.45rem; }
+.day-detail__floating-nav .button:disabled { visibility: hidden; }
 
 .day-detail__summary { display: grid; gap: 4px; }
 .day-detail__summary-timing { color: var(--ink-soft); font-size: .85rem; }

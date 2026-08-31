@@ -30,6 +30,7 @@ import type { ClimbGradeClass, ClimbProfileSegment } from '../../analysis/climb-
 import { routeGeometry } from '../../route-enrichment/route-fingerprint.ts'
 import { resolveOffLocation, resolveTransferLocations } from '../../analysis/day-location-fill.ts'
 import { formatCompactDate } from '../date-format.ts'
+import { compactPlaceName } from '../compact-place-name.ts'
 import type { Accommodation, Climb, RideStageSettings, RouteGeometryPoint, RoutePointId, SourceFileId, TransferTiming, TripBundle, TripDay, TripDayId } from '../../trip-core/index.ts'
 
 /** Kinds that can anchor a pause (CDC Jalon B4 section 15): the same set `pause-placement.ts` already restricts automatic anchors to. Also the manual pause editor's full candidate list (CDC Jalon B4.3 section 31) — a separate, wider need from `isSignificantWaypoint`'s normal-view policy (CDC section 40: never conflate the two). Exported so `trips-manager.ts` can build/validate pause mutations against the same set. */
@@ -496,20 +497,16 @@ function buildOffOrTransferDayDetail(bundle: TripBundle, day: TripDay): DayDetai
 
   const html = `<div class="day-detail" data-day-detail>
     <div class="day-detail__sticky-header" data-day-detail-sticky-header>
-      <header class="day-detail__sticky-identity" data-day-detail-identity><span class="eyebrow">Détail de la journée</span><strong>${identityParts.join(' · ')}</strong></header>
-      <nav class="day-detail__sticky-nav" data-day-detail-nav aria-label="Navigation de la journée">
-        <button class="button button--quiet" type="button" data-action="back-to-trip-detail">← Retour</button>
-        <button class="button button--quiet" type="button" data-action="previous-day" aria-label="Journée précédente">‹</button>
-        <button class="button button--quiet" type="button" data-action="next-day" aria-label="Journée suivante">›</button>
+      <header class="day-detail__sticky-identity" data-day-detail-identity><strong>${identityParts.join(' · ')}</strong></header>
+      <nav class="day-tabs" role="tablist" aria-label="Sections de la journée" data-day-detail-tabs>
+        <button id="day-tab-weather" type="button" role="tab" data-day-tab="weather" aria-controls="day-panel-weather" aria-selected="true" tabindex="0">Météo</button>
+        <button id="day-tab-infos" type="button" role="tab" data-day-tab="infos" aria-controls="day-panel-infos" aria-selected="false" tabindex="-1">Infos</button>
       </nav>
     </div>
     ${summaryHtml}
-    <nav class="day-tabs" role="tablist" aria-label="Sections de la journée" data-day-detail-tabs>
-      <button id="day-tab-weather" type="button" role="tab" data-day-tab="weather" aria-controls="day-panel-weather" aria-selected="true" tabindex="0">Météo</button>
-      <button id="day-tab-infos" type="button" role="tab" data-day-tab="infos" aria-controls="day-panel-infos" aria-selected="false" tabindex="-1">Infos</button>
-    </nav>
     ${renderWeatherPanel(true)}
     ${infosHtml}
+    <nav class="day-detail__floating-nav" aria-label="Journées voisines"><button class="button button--quiet" type="button" data-action="previous-day" aria-label="Journée précédente">‹</button><button class="button button--quiet" type="button" data-action="next-day" aria-label="Journée suivante">›</button></nav>
   </div>`
 
   return {
@@ -559,7 +556,8 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
   const anchorCandidates = waypoints.filter((waypoint) => PAUSE_ANCHOR_KINDS.has(waypoint.kind))
 
   const dateLabel = day.date === null ? null : formatCompactDate(day.date)
-  const locations = `${escapeHtml(stage.startLocationName ?? '—')} → ${escapeHtml(stage.endLocationName ?? '—')}`
+  const fullLocations = `${stage.startLocationName ?? '—'} → ${stage.endLocationName ?? '—'}`
+  const locations = `${escapeHtml(compactPlaceName(stage.startLocationName ?? '—'))} → ${escapeHtml(compactPlaceName(stage.endLocationName ?? '—'))}`
   const stageLabel = `J${day.displayNumber} — ${stage.startLocationName ?? '—'} → ${stage.endLocationName ?? '—'}`
   // Compact sticky identity (CDC Jalon B4.3 section 24): one line, date
   // before locations — "J9 · 20.08.26 · Briançon → Faucon-de-Barcelonnette".
@@ -568,6 +566,12 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
   const identityParts = [`J${day.displayNumber}`, dateLabel, locations].filter((part): part is string => part !== null)
 
   const arrival = waypoints.length === 0 ? null : waypoints[waypoints.length - 1]
+  const totalDurationSeconds = arrival?.elapsedMinutes === null || arrival?.elapsedMinutes === undefined
+    ? stage.totalDurationSeconds
+    : Math.round(arrival.elapsedMinutes * 60)
+  const primaryClimbCount = new Set(
+    waypoints.filter((waypoint) => waypoint.climbId !== null && isSignificantWaypoint(waypoint, DEFAULT_FILTERS)).map((waypoint) => waypoint.climbId),
+  ).size
   // In manual mode, the displayed total reflects the actually-placed pauses
   // (which the user controls directly) rather than the imported automatic
   // budget estimate — the two only ever match by coincidence once edited.
@@ -583,13 +587,13 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
   // (pre-filling the inline editor's `<input type="time">`).
   const statsHtml = `<dl class="day-detail__stats" data-day-detail-stats>
     <div><dt>Départ</dt><dd><span data-day-departure-value>${escapeHtml(settings.departureTime)}</span> <button class="button button--quiet day-detail__departure-edit-trigger" type="button" data-action="edit-day-departure-time">Modifier</button></dd></div>
+    <div><dt>Arrivée estimée</dt><dd>${arrival?.clockTime ?? '—'}</dd></div>
     <div><dt>Distance</dt><dd>${stage.distanceKm === null ? '—' : formatKilometers(stage.distanceKm)}</dd></div>
+    <div><dt>Durée</dt><dd>${formatDuration(totalDurationSeconds)}</dd></div>
     <div><dt>D+</dt><dd>${stage.elevationGainM === null ? '—' : `+${Math.round(stage.elevationGainM)} m`}</dd></div>
     <div><dt>D−</dt><dd>${stage.elevationLossM === null ? '—' : `−${Math.round(stage.elevationLossM)} m`}</dd></div>
-    <div><dt>Roulage</dt><dd>${formatDuration(stage.movingDurationSeconds)}</dd></div>
+    <div><dt>Montées</dt><dd>${primaryClimbCount}</dd></div>
     <div><dt>Pauses</dt><dd>${totalPauseMinutes === null ? '—' : `${totalPauseMinutes} min`}</dd></div>
-    <div><dt>Montées</dt><dd>${stage.climbIds.length}</dd></div>
-    <div><dt>Arrivée estimée</dt><dd>${arrival?.clockTime ?? '—'}</dd></div>
   </dl>`
 
   // Always rendered, always collapsed by default (`hidden`) — a pure
@@ -614,23 +618,18 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
 
   const html = `<div class="day-detail" data-day-detail>
     <div class="day-detail__sticky-header" data-day-detail-sticky-header>
-      <header class="day-detail__sticky-identity" data-day-detail-identity><span class="eyebrow">Détail de l’étape</span><strong>${identityParts.join(' · ')}</strong></header>
-      <nav class="day-detail__sticky-nav" data-day-detail-nav aria-label="Navigation de l’étape">
-        <button class="button button--quiet" type="button" data-action="back-to-trip-detail">← Retour</button>
-        <button class="button button--quiet" type="button" data-action="previous-day" aria-label="Étape précédente">‹</button>
-        <button class="button button--quiet" type="button" data-action="next-day" aria-label="Étape suivante">›</button>
+      <header class="day-detail__sticky-identity" data-day-detail-identity title="${escapeHtml(fullLocations)}" aria-label="${escapeHtml(fullLocations)}"><strong>${identityParts.join(' · ')}</strong></header>
+      <nav class="day-tabs" role="tablist" aria-label="Sections de l’étape" data-day-detail-tabs>
+        <button id="day-tab-route" type="button" role="tab" data-day-tab="route" aria-controls="day-panel-route" aria-selected="true" tabindex="0">Parcours</button>
+        <button id="day-tab-weather" type="button" role="tab" data-day-tab="weather" aria-controls="day-panel-weather" aria-selected="false" tabindex="-1">Météo</button>
+        <button id="day-tab-infos" type="button" role="tab" data-day-tab="infos" aria-controls="day-panel-infos" aria-selected="false" tabindex="-1">Infos</button>
       </nav>
     </div>
     ${statsHtml}
     ${departureEditorHtml}
-    <nav class="day-tabs" role="tablist" aria-label="Sections de l’étape" data-day-detail-tabs>
-      <button id="day-tab-route" type="button" role="tab" data-day-tab="route" aria-controls="day-panel-route" aria-selected="true" tabindex="0">Parcours</button>
-      <button id="day-tab-weather" type="button" role="tab" data-day-tab="weather" aria-controls="day-panel-weather" aria-selected="false" tabindex="-1">Météo</button>
-      <button id="day-tab-infos" type="button" role="tab" data-day-tab="infos" aria-controls="day-panel-infos" aria-selected="false" tabindex="-1">Infos</button>
-    </nav>
     <section id="day-panel-route" class="card" role="tabpanel" aria-labelledby="day-tab-route" data-day-panel="route">
-      <div class="section-heading"><div><p class="eyebrow">Trace GPX</p><h3>Carte de l’étape</h3></div><button class="button button--quiet" type="button" data-explore-map>Explorer la carte</button></div>
-      <div class="route-map" data-day-detail-map></div>
+      <div class="section-heading"><div><p class="eyebrow">Trace GPX</p><h3>Carte de l’étape</h3></div></div>
+      <div class="route-map route-map--action" data-day-detail-map data-explore-map role="button" tabindex="0" aria-label="Ouvrir la carte de l’étape en plein écran"></div>
       <p class="eyebrow day-detail__profile-eyebrow">Relief</p>
       <div data-day-detail-profile></div>
       ${renderFilters(filters)}
@@ -644,6 +643,7 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
     </dialog>
     ${renderWeatherPanel()}
     ${infosHtml}
+    <nav class="day-detail__floating-nav" aria-label="Journées voisines"><button class="button button--quiet" type="button" data-action="previous-day" aria-label="Journée précédente">‹</button><button class="button button--quiet" type="button" data-action="next-day" aria-label="Journée suivante">›</button></nav>
   </div>`
 
   return {
