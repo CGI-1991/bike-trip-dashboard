@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { buildTripOverview, computeHighlightedDayId } from '../../src/ui/trips/trip-overview-view.ts'
+import { buildGenericOverviewDetailMarkers, buildGenericOverviewRouteMapModel } from '../../src/ui/route-map-model.ts'
 import { createGenericTripBundle } from '../trip-core/support/generic-trip-fixture.mjs'
 
 // Fixture dates: day-alpha 2027-05-10 (ride), day-bravo 2027-05-11 (off),
@@ -135,12 +136,43 @@ test('after the trip, no highlighted-day section renders at all', () => {
   assert.doesNotMatch(overview.html, /trip-overview__highlighted-day/)
 })
 
-test('the overview map is marker-only by default and keeps one entry per stage', () => {
+// --- A/B/C: the Aperçu map keeps the FULL ridden trace (CDC D1.1 section 1) ---
+
+test('A: the overview model carries the full ridden GPX trace for every ride stage — never marker-only', () => {
   const bundle = createGenericTripBundle()
   const overview = buildTripOverview(bundle, '2027-05-01')
   assert.equal(overview.mapStages.length, 2)
-  assert.ok(overview.mapStages.every((stage) => stage.geometry.length === 0))
-  assert.deepEqual(overview.mapStages[0].waypoints.map((waypoint) => waypoint.kind), ['start', 'end'])
+  assert.ok(overview.mapStages[0].geometry.length > 1, 'day-alpha has real geometry — must be kept, not stripped to []')
+  assert.deepEqual(overview.mapStages[0].waypoints.map((waypoint) => waypoint.kind), ['start', 'end'], 'markers stay trimmed to principal points, only the geometry changed')
+})
+
+test('B: two distinct GPX stages stay two disjoint segments — never a fabricated straight line between them', () => {
+  const bundle = createGenericTripBundle()
+  const overview = buildTripOverview(bundle, '2027-05-01')
+  const model = buildGenericOverviewRouteMapModel(overview.mapStages)
+  // day-alpha has real geometry; day-delta (stage-delta) has none in this
+  // fixture, so `extraLines` stays empty here — the meaningful assertion is
+  // that `coordinates` is exactly day-alpha's own trace, not a merge.
+  assert.deepEqual(model.coordinates, overview.mapStages[0].geometry)
+  assert.deepEqual(model.extraLines, [])
+})
+
+test('C: adjacent stages sharing an endpoint location (arrival Jx == departure Jx+1) collapse into one marker', () => {
+  const bundle = createGenericTripBundle()
+  bundle.routes[1].geometry = { full: null, simplified: [{ latitude: 45.3, longitude: 6.5, altitudeM: 640 }, { latitude: 45.6, longitude: 6.9, altitudeM: 900 }] }
+  bundle.stages[1].startLocationName = 'Hilltown'
+  const overview = buildTripOverview(bundle, '2027-05-01')
+  const model = buildGenericOverviewRouteMapModel(overview.mapStages)
+  const hilltownMarkers = model.markers.filter((marker) => marker.name === 'Hilltown')
+  assert.equal(hilltownMarkers.length, 1, 'day-alpha\'s arrival and day-delta\'s departure are the same place — one logical point')
+})
+
+test('the overview map\'s principal markers are the simple, un-iconified "overview-primary" category — no Départ/Arrivée symbol imposed', () => {
+  const bundle = createGenericTripBundle()
+  const overview = buildTripOverview(bundle, '2027-05-01')
+  const model = buildGenericOverviewRouteMapModel(overview.mapStages)
+  assert.ok(model.markers.length > 0)
+  assert.ok(model.markers.every((marker) => marker.category === 'overview-primary'))
 })
 
 test('mapStages waypoints are pre-filtered to the compact-map default (villages excluded)', () => {
@@ -172,11 +204,59 @@ test('mapDetailStages carries significant intermediate points while the default 
   assert.ok(overview.mapDetailStages[0].geometry.length === 0)
 })
 
-test('the Détail control is present and practical POIs are not part of its model', () => {
+// --- D/E/F/G/H: the compact card has no Détail control at all; it lives
+// only inside the fullscreen dialog (CDC D1.1 sections 2-3) ---------------
+
+test('D: the compact map card carries no "Détail" toggle/button of its own — only the fullscreen dialog does', () => {
   const bundle = createGenericTripBundle()
   const overview = buildTripOverview(bundle, '2027-05-01')
-  assert.match(overview.html, /data-action="toggle-overview-map-detail"[^>]*>Détail<\/button>/)
+  const compactCardHtml = overview.html.slice(overview.html.indexOf('data-route-visuals'), overview.html.indexOf('data-trip-overview-map-dialog'))
+  assert.doesNotMatch(compactCardHtml, /Détail/)
+  assert.doesNotMatch(compactCardHtml, /data-action="toggle-overview-map-detail"/, 'the D1 toggle action is gone entirely')
+})
+
+test('the compact map itself is the click/tap target that opens the fullscreen — no separate "Grand écran"/"Explorer la carte" button', () => {
+  const bundle = createGenericTripBundle()
+  const overview = buildTripOverview(bundle, '2027-05-01')
+  assert.match(overview.html, /<div class="route-map route-map--action" data-trip-overview-map data-explore-map role="button" tabindex="0" aria-label="[^"]+"><\/div>/)
+  assert.doesNotMatch(overview.html, /Grand écran/)
+  assert.doesNotMatch(overview.html, /Explorer la carte/)
+})
+
+test('E: the fullscreen dialog carries the "Détail" control', () => {
+  const bundle = createGenericTripBundle()
+  const overview = buildTripOverview(bundle, '2027-05-01')
+  const dialogHtml = overview.html.slice(overview.html.indexOf('data-trip-overview-map-dialog'))
+  assert.match(dialogHtml, /data-map-layers-toggle[^>]*>Détail<\/button>/)
+})
+
+test('F/G: Détail OFF keeps only principal points; Détail ON adds significant intermediate waypoints — never practical POIs (H)', () => {
+  const bundle = createGenericTripBundle()
+  bundle.routePoints.push({
+    id: 'village-ui', routeId: bundle.routes[0].id, type: 'passage', name: 'Micro Village',
+    latitude: 45.2, longitude: 6.35, elevationM: 300, trackDistanceKm: 30,
+    osmFeatureType: 'village', lateralDistanceKm: 0.5,
+    provenance: { sourceType: 'osm', sourceId: 'postpass:village:1', fetchedAt: null, engineVersion: 'route-enrichment@4', confidence: 'high', manuallyOverridden: false },
+  })
+  bundle.stages[0].routePointIds.push('village-ui')
+  const overview = buildTripOverview(bundle, '2027-05-01')
+  const detailOffModel = buildGenericOverviewRouteMapModel(overview.mapStages)
+  assert.ok(detailOffModel.markers.every((marker) => marker.category === 'overview-primary'), 'F: Détail OFF — only principal points')
+  const detailMarkers = buildGenericOverviewDetailMarkers(overview.mapDetailStages)
+  assert.ok(detailMarkers.length > 0, 'G: Détail ON — significant intermediate waypoints exist')
+  assert.ok(detailMarkers.every((marker) => marker.category === 'overview-secondary'))
+  assert.ok(detailMarkers.some((marker) => marker.name === 'Micro Village'))
+  // H: no practical-POI category ever leaks into the model (this build never
+  // computes one for the overview map to begin with).
   assert.ok(overview.mapDetailStages.flatMap((stage) => stage.waypoints).every((waypoint) => !('category' in waypoint)))
+})
+
+// --- I: the Aperçu "GPX" action targets the whole trip, not just the highlighted stage ---
+
+test('I: the Aperçu screen offers a "GPX" action wired to the whole-trip export, not a per-stage one', () => {
+  const bundle = createGenericTripBundle()
+  const overview = buildTripOverview(bundle, '2027-05-01')
+  assert.match(overview.html, /<button class="button button--quiet" type="button" data-action="download-trip-gpx">GPX<\/button>/)
 })
 
 test('highlightedDayMap keeps the highlighted ride geometry although the global map is marker-only', () => {

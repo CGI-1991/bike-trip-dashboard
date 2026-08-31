@@ -24,6 +24,7 @@ import { applyPausesToWaypoints, placeAutomaticPauses } from './pause-placement.
 import type { PlacedPause } from './pause-placement.ts'
 import type { PauseAnchor } from './pauses.ts'
 import { buildTimeline, parseClockToMinutes } from './timing.ts'
+import type { TimelinePoint } from './timing.ts'
 
 export interface WaypointTimelineSettings {
   readonly referenceSpeedKph: number
@@ -150,4 +151,82 @@ export function computeStageWaypoints(input: ComputeStageWaypointsInput): readon
     if (timelinePoint === undefined) return waypoint
     return { ...waypoint, elapsedMinutes: timelinePoint.elapsedMinutes, clockTime: formatRouteClockTime(timelinePoint.clockTime) }
   })
+}
+
+export interface StageTimingCurve {
+  /** Elapsed minutes since departure at an arbitrary distance along the stage — moving time plus any pause already completed before it, the exact composition every waypoint's own `elapsedMinutes` uses. */
+  elapsedMinutesAt(distanceKm: number): number
+  clockTimeAt(distanceKm: number): string
+}
+
+/**
+ * The stage's own continuous distance→time mapping (CDC D1.1 section 17) —
+ * for the elevation profile's interactive cursor, never a naive `distance /
+ * average speed`. Reuses the exact same grade-aware pacing
+ * (`movingElapsedMinutesAt`/`createTerrainTiming`) and pause composition
+ * (`timing.ts::buildTimeline`) `computeStageWaypoints` itself uses, evaluated
+ * at one arbitrary point at a time instead of only at waypoint breakpoints —
+ * so the curve agrees with every waypoint's own `clockTime` and the stage's
+ * final arrival by construction (`clockTimeAt(waypoint.trackDistanceKm) ===
+ * waypoint.clockTime` for every waypoint `computeStageWaypoints` timed).
+ *
+ * Deliberately re-derives its own setup (canonical waypoints, placed pauses,
+ * the pacing function) rather than being threaded through
+ * `computeStageWaypoints` itself — that function's early-return shape (untimed
+ * waypoints when there is no geometry, or no valid reference speed/distance)
+ * doesn't have a single matching "give me the curve instead" branch to hook
+ * into safely; recomputing the same cheap setup here keeps that already-
+ * tested function completely untouched. `null` under the same degenerate
+ * conditions `computeStageWaypoints` itself treats as "untimed".
+ */
+export function computeStageTimingCurve(input: ComputeStageWaypointsInput): StageTimingCurve | null {
+  const { stage, route, routePoints, climbs, settings, mountainMode } = input
+  const baseWaypoints = buildCanonicalWaypoints({ stage, route, routePoints, climbs, mountainMode })
+  if (baseWaypoints.length === 0) return null
+
+  const geometryWithDistances = routeGeometryWithDistances(route)
+  if (geometryWithDistances === null) return null
+  const { geometry, distances } = geometryWithDistances
+  const totalDistanceKm = distances.at(-1) ?? 0
+  if (!(settings.referenceSpeedKph > 0) || !(totalDistanceKm > 0)) return null
+
+  const totalBreakMinutes = (stage.pauseDurationSeconds ?? 0) / 60
+  const placedPauses: readonly PlacedPause[] = input.manualPauses === undefined
+    ? placeAutomaticPauses(totalBreakMinutes, totalDistanceKm, baseWaypoints)
+    : input.manualPauses
+        .map((pause): PlacedPause | null => {
+          const anchor = baseWaypoints.find((waypoint) => waypoint.id === pause.routePointId)
+          if (anchor === undefined) return null
+          return { id: pause.id, name: anchor.name, distanceKm: anchor.trackDistanceKm, durationMinutes: pause.durationMinutes, waypointId: anchor.id }
+        })
+        .filter((pause): pause is PlacedPause => pause !== null)
+
+  const source: RouteProfilePosition[] = geometry.map((point, index) => ({
+    latitude: point.latitude,
+    longitude: point.longitude,
+    sourceFileNumber: 1,
+    sourceFileName: 'route.gpx',
+    distanceKm: distances[index] ?? 0,
+    elevationGainM: 0,
+    elevationLossM: 0,
+    altitudeM: point.altitudeM,
+    localSlopePercent: 0,
+    speedMultiplier: 1,
+    weightedDistanceKm: distances[index] ?? 0,
+  }))
+  const movingElapsedAt = movingElapsedMinutesAt(source, totalDistanceKm, settings.referenceSpeedKph)
+  const departureMinutes = parseClockToMinutes(settings.departureTime)
+  const pauseAnchors: readonly PauseAnchor[] = placedPauses.map((pause) => ({ id: pause.id, name: pause.name, distanceKm: pause.distanceKm, durationMinutes: pause.durationMinutes }))
+
+  const clamp = (distanceKm: number) => Math.min(totalDistanceKm, Math.max(0, distanceKm))
+  const pointAt = (distanceKm: number): TimelinePoint => {
+    const clamped = clamp(distanceKm)
+    const [point] = buildTimeline([{ distanceKm: clamped, elevationM: null, movingElapsedMinutes: movingElapsedAt(clamped) }], pauseAnchors, departureMinutes)
+    return point as TimelinePoint
+  }
+
+  return {
+    elapsedMinutesAt: (distanceKm) => pointAt(distanceKm).elapsedMinutes,
+    clockTimeAt: (distanceKm) => formatRouteClockTime(pointAt(distanceKm).clockTime),
+  }
 }

@@ -292,16 +292,81 @@ test('village + pause visibility is the same policy on the map/profile waypoint 
 
 // --- tabs (CDC Jalon B4.2 section 7) ----------------------------------------
 
-test('the Étape screen is a real ARIA tablist with Parcours/Météo/Infos panels', () => {
+test('Q/R: the Étape screen is a real ARIA tablist with EXACTLY two panels — Parcours/Infos, no Météo tab any more', () => {
   const bundle = createGenericTripBundle()
   const detail = buildDayDetail(bundle, 'day-alpha')
   assert.match(detail.html, /role="tablist"/)
   assert.match(detail.html, /role="tab" data-day-tab="route" aria-controls="day-panel-route" aria-selected="true"/)
-  assert.match(detail.html, /role="tab" data-day-tab="weather" aria-controls="day-panel-weather" aria-selected="false"/)
   assert.match(detail.html, /role="tab" data-day-tab="infos" aria-controls="day-panel-infos" aria-selected="false"/)
+  assert.equal((detail.html.match(/role="tab"/g) ?? []).length, 2, 'exactly two tabs')
+  assert.doesNotMatch(detail.html, /data-day-tab="weather"/, 'R: no Météo tab at all any more')
   assert.match(detail.html, /id="day-panel-route" class="card" role="tabpanel"/)
-  assert.match(detail.html, /id="day-panel-weather"[^>]*role="tabpanel"[^>]*hidden/)
   assert.match(detail.html, /id="day-panel-infos"[^>]*role="tabpanel"[^>]*hidden/)
+})
+
+// --- CDC D1.1 sections 6-10: three independent blocks — Stats, Map+Profil,
+// and the tabbed Détails card — Stats/Map+Profil are never part of a tab and
+// stay visible no matter which of the two tabs is active. ------------------
+
+test('M/O: Stats and Map+Profil render as their own top-level cards, structurally BEFORE the tabbed Détails card — never inside a tabpanel', () => {
+  const bundle = createGenericTripBundle()
+  const detail = buildDayDetail(bundle, 'day-alpha')
+  const statsCardIndex = detail.html.indexOf('data-day-detail-stats-card')
+  const mapProfileCardIndex = detail.html.indexOf('data-day-detail-map-profile-card')
+  const detailsCardIndex = detail.html.indexOf('data-day-detail-details-card')
+  const tabsIndex = detail.html.indexOf('data-day-detail-tabs')
+  const routePanelIndex = detail.html.indexOf('id="day-panel-route"')
+  assert.ok(statsCardIndex >= 0 && mapProfileCardIndex >= 0 && detailsCardIndex >= 0)
+  assert.ok(statsCardIndex < mapProfileCardIndex && mapProfileCardIndex < detailsCardIndex, 'Stats, then Map+Profil, then Détails')
+  assert.ok(detailsCardIndex < tabsIndex && tabsIndex < routePanelIndex, 'the tabbar sits at the top of the Détails card, before its panels')
+  // Neither Stats nor Map+Profil is itself inside a tabpanel.
+  const statsCardBlock = detail.html.slice(statsCardIndex, mapProfileCardIndex)
+  assert.doesNotMatch(statsCardBlock, /role="tabpanel"/)
+  const mapProfileCardBlock = detail.html.slice(mapProfileCardIndex, detailsCardIndex)
+  assert.doesNotMatch(mapProfileCardBlock, /role="tabpanel"/)
+})
+
+test('the stats stay present regardless of which tab a caller would select — they are not conditionally rendered per tab (M/N)', () => {
+  const bundle = createGenericTripBundle()
+  const detail = buildDayDetail(bundle, 'day-alpha')
+  // The stats/map/profile markup is emitted exactly once, unconditionally —
+  // switching tabs in the real DOM only ever toggles `[data-day-panel]`
+  // visibility (trips-manager.ts), which this static HTML doesn't simulate,
+  // but the key invariant it CAN prove is that stats/map/profile carry no
+  // `hidden`/tabpanel gating of their own.
+  assert.doesNotMatch(detail.html, /data-day-detail-stats-card"[^>]*hidden/)
+  assert.doesNotMatch(detail.html, /data-day-detail-map-profile-card"[^>]*hidden/)
+})
+
+test('P: the compact map card is click/keyboard-openable — no separate "Explorer la carte" button any more', () => {
+  const bundle = createGenericTripBundle()
+  const detail = buildDayDetail(bundle, 'day-alpha')
+  assert.match(detail.html, /<div class="route-map route-map--action" data-day-detail-map data-explore-map role="button" tabindex="0" aria-label="[^"]+"><\/div>/)
+  assert.doesNotMatch(detail.html, /Explorer la carte/)
+})
+
+test('the sticky header carries only the identity — the tabbar lives inside the Détails card, not the top sticky wrapper (CDC D1.1 section 10)', () => {
+  const bundle = createGenericTripBundle()
+  const detail = buildDayDetail(bundle, 'day-alpha')
+  const stickyHeaderBlock = detail.html.match(/<div class="day-detail__sticky-header"[\s\S]*?<\/div>/)?.[0] ?? ''
+  assert.doesNotMatch(stickyHeaderBlock, /data-day-detail-tabs/, 'AB: the tabbar is not part of the top sticky header any more')
+  assert.match(stickyHeaderBlock, /day-detail__sticky-identity/)
+})
+
+test('AC: the tabbar is a real CSS position:sticky element, pinned at the identity header\'s own live-measured height — not a JS scroll listener, not stuck from the very top', () => {
+  const bundle = createGenericTripBundle()
+  const detail = buildDayDetail(bundle, 'day-alpha')
+  // Stats/Map+Profil are never sticky at all.
+  assert.doesNotMatch(detail.html, /data-day-detail-stats-card[^>]*sticky/)
+  const css = readFileSync(new URL('../../src/style.css', import.meta.url), 'utf8')
+  assert.match(
+    css,
+    /\.day-detail__details-card > \[data-day-detail-tabs\] \{[^}]*position: sticky;[^}]*top: var\(--day-sticky-header-h, 0px\);/,
+    'the tabbar sticks at exactly the identity header\'s live-measured height',
+  )
+  // The identity header itself keeps its own, separate sticky rule at the
+  // true top (`top: 0`) — the two stack, they are not the same element.
+  assert.match(css, /\.day-detail__sticky-header \{ position: sticky; top: 0;/)
 })
 
 // --- Météo mount point (CDC Jalon B4.2 section 22, CDC Jalon C1 section 19) -

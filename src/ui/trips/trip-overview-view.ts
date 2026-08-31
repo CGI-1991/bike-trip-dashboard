@@ -55,7 +55,7 @@ export interface TripOverviewMapStage {
 export interface TripOverview {
   readonly html: string
   readonly mapStages: readonly TripOverviewMapStage[]
-  /** Villages only, per stage, same indexing as `mapStages` (CDC Jalon B4 section 9): the Aperçu global map's opt-in Villages layer. */
+  /** Significant intermediate waypoints only, per stage, same indexing as `mapStages` (CDC D1.1 section 3) — the Aperçu global map's fullscreen-only "Détail" layer, never merged into the always-visible base model. */
   readonly mapDetailStages: readonly TripOverviewMapStage[]
   readonly highlightedDayId: TripDayId | null
   /** The highlighted day's own compact map (CDC Jalon B4.3 section 8) — `null` when there is no highlighted ride day, or its route has no usable geometry. */
@@ -213,7 +213,11 @@ export function buildTripOverview(bundle: TripBundle, now: Date | string | null)
       waypoints: waypoints.filter((waypoint) => waypoint.kind !== 'start' && waypoint.kind !== 'end' && isOverviewDetailWaypoint(waypoint)),
       geometry: [],
     })
-    return { waypoints: waypoints.filter((waypoint) => waypoint.kind === 'start' || waypoint.kind === 'end'), geometry: [] }
+    // CDC D1.1 section 1: the Aperçu map keeps the FULL ridden trace — only
+    // the marker set is trimmed to the two principal (start/end) points;
+    // `geometryTuples` (never `[]`) is what makes `buildGenericOverviewRouteMapModel`
+    // draw this stage's real GPX line instead of a marker-only stub.
+    return { waypoints: waypoints.filter((waypoint) => waypoint.kind === 'start' || waypoint.kind === 'end'), geometry: geometryTuples }
   })
 
   const highlightedDayId = temporal.priorityDayId
@@ -242,12 +246,12 @@ export function buildTripOverview(bundle: TripBundle, now: Date | string | null)
       <p class="eyebrow trip-overview__zone-eyebrow">Voyage</p>
       ${renderProgressStats(progress)}
       <section class="card route-map-card" data-route-visuals>
-        <div class="section-heading"><div><p class="eyebrow">Vue d’ensemble</p><h3>Carte du voyage</h3></div><div class="route-map-card__actions"><button class="button button--quiet" type="button" data-action="toggle-overview-map-detail" aria-pressed="false">Détail</button><button class="button button--quiet" type="button" data-explore-map>Grand écran</button></div></div>
-        <div class="route-map" data-trip-overview-map></div>
+        <div class="section-heading"><div><p class="eyebrow">Vue d’ensemble</p><h3>Carte du voyage</h3></div><div class="route-map-card__actions"><button class="button button--quiet" type="button" data-action="download-trip-gpx">GPX</button></div></div>
+        <div class="route-map route-map--action" data-trip-overview-map data-explore-map role="button" tabindex="0" aria-label="Ouvrir la carte du voyage en plein écran"></div>
       </section>
       <dialog class="route-map-dialog" data-trip-overview-map-dialog aria-labelledby="trip-overview-expanded-map-title">
-        <header><h2 id="trip-overview-expanded-map-title">Carte du voyage</h2><div class="route-map-dialog__actions"><button class="button button--quiet" type="button" data-map-layers-toggle aria-expanded="false" aria-controls="trip-overview-map-layers-panel" hidden>Calques</button><button class="button button--quiet" type="button" data-close-map>Fermer</button></div></header>
-        <div class="route-map-dialog__map-wrap"><div class="route-map route-map--expanded" data-route-map-expanded></div><p class="route-map__fallback route-map__fallback--expanded" data-expanded-route-map-fallback hidden>Fond de carte indisponible.</p><button class="practical-layers-backdrop" type="button" data-map-layers-backdrop aria-label="Fermer les calques" tabindex="-1" hidden></button><section class="practical-layers-panel" id="trip-overview-map-layers-panel" data-map-layers-panel role="dialog" aria-labelledby="trip-overview-map-layers-title" hidden><header><div><p class="eyebrow">Points principaux toujours visibles</p><h3 id="trip-overview-map-layers-title">Calques</h3></div><button class="button button--quiet" type="button" data-map-layers-close>Fermer</button></header><div class="practical-layers-list" data-map-layers-list></div></section></div>
+        <header><h2 id="trip-overview-expanded-map-title">Carte du voyage</h2><div class="route-map-dialog__actions"><button class="button button--quiet" type="button" data-map-layers-toggle aria-expanded="false" aria-controls="trip-overview-map-layers-panel" hidden>Détail</button><button class="button button--quiet" type="button" data-close-map>Fermer</button></div></header>
+        <div class="route-map-dialog__map-wrap"><div class="route-map route-map--expanded" data-route-map-expanded></div><p class="route-map__fallback route-map__fallback--expanded" data-expanded-route-map-fallback hidden>Fond de carte indisponible.</p><button class="practical-layers-backdrop" type="button" data-map-layers-backdrop aria-label="Fermer les calques" tabindex="-1" hidden></button><section class="practical-layers-panel" id="trip-overview-map-layers-panel" data-map-layers-panel role="dialog" aria-labelledby="trip-overview-map-layers-title" hidden><header><div><p class="eyebrow">Villes, pauses, cols et sommets</p><h3 id="trip-overview-map-layers-title">Détail</h3></div><button class="button button--quiet" type="button" data-map-layers-close>Fermer</button></header><div class="practical-layers-list" data-map-layers-list></div></section></div>
       </dialog>
     </section>
     ${highlightedDayHtml === '' ? '' : `<section class="trip-overview__zone trip-overview__zone--next" data-trip-overview-zone="next">

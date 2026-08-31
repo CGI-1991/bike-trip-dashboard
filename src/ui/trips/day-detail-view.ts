@@ -22,7 +22,8 @@
  * resolved, or (ride only) its stage/route can't be resolved either.
  */
 
-import { computeStageWaypoints, resolveStagePauseSettings } from '../../analysis/waypoint-timeline.ts'
+import { computeStageTimingCurve, computeStageWaypoints, resolveStagePauseSettings } from '../../analysis/waypoint-timeline.ts'
+import type { StageTimingCurve } from '../../analysis/waypoint-timeline.ts'
 import { isSignificantWaypoint } from '../../analysis/canonical-waypoints.ts'
 import type { CanonicalWaypoint, CanonicalWaypointKind, WaypointVisibilityFilters } from '../../analysis/canonical-waypoints.ts'
 import { buildClimbProfile } from '../../analysis/climb-profile.ts'
@@ -457,6 +458,8 @@ export interface DayDetail {
   readonly pausesHtml: string
   readonly timelineHtml: string
   readonly infosHtml: string
+  /** CDC D1.1 sections 16-17 — the profile's distance→time mapping (`waypoint-timeline.ts::computeStageTimingCurve`), threaded through to `renderGenericElevationProfile`'s ETA band. `null` for OFF/transfer days (no profile at all) or an untimed ride stage. */
+  readonly timingCurve: StageTimingCurve | null
 }
 
 /**
@@ -511,7 +514,7 @@ function buildOffOrTransferDayDetail(bundle: TripBundle, day: TripDay): DayDetai
 
   return {
     html, waypoints: [], geometry: null, stageLabel, villageWaypoints: [], sourceFileId: null,
-    statsHtml: '', departureEditorHtml: '', pausesHtml: '', timelineHtml: '', infosHtml,
+    statsHtml: '', departureEditorHtml: '', pausesHtml: '', timelineHtml: '', infosHtml, timingCurve: null,
   }
 }
 
@@ -615,34 +618,52 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
   const timelineHtml = renderTimelineList(waypoints, bundle.climbs, filters, geometry)
   const accommodation = day.accommodationId === null ? undefined : bundle.accommodations.find((candidate) => candidate.id === day.accommodationId)
   const infosHtml = renderInfosPanel(day, accommodation)
+  const timingCurve = computeStageTimingCurve({
+    stage, route, routePoints: bundle.routePoints, climbs: bundle.climbs, settings,
+    manualPauses: pauseResolution.mode === 'custom' ? pauseResolution.manualPauses : undefined,
+    mountainMode: bundle.settings.global.mountainMode ?? false,
+  })
 
+  // CDC D1.1 sections 6-10: three independent blocks, always all three
+  // visible regardless of the selected tab — Stats, Map+Profil, and the
+  // tabbed Détails card (Parcours|Infos, météo opérationnelle folded into
+  // Parcours, section 11). The sticky header now carries ONLY the identity
+  // — the tabbar moved into the Détails card itself and sticks contextually
+  // there (`--day-sticky-header-h`, `sticky-header-offset.ts`), not from the
+  // very top of the screen (section 10).
   const html = `<div class="day-detail" data-day-detail>
     <div class="day-detail__sticky-header" data-day-detail-sticky-header>
       <header class="day-detail__sticky-identity" data-day-detail-identity title="${escapeHtml(fullLocations)}" aria-label="${escapeHtml(fullLocations)}"><strong>${identityParts.join(' · ')}</strong></header>
-      <nav class="day-tabs" role="tablist" aria-label="Sections de l’étape" data-day-detail-tabs>
-        <button id="day-tab-route" type="button" role="tab" data-day-tab="route" aria-controls="day-panel-route" aria-selected="true" tabindex="0">Parcours</button>
-        <button id="day-tab-weather" type="button" role="tab" data-day-tab="weather" aria-controls="day-panel-weather" aria-selected="false" tabindex="-1">Météo</button>
-        <button id="day-tab-infos" type="button" role="tab" data-day-tab="infos" aria-controls="day-panel-infos" aria-selected="false" tabindex="-1">Infos</button>
-      </nav>
     </div>
-    ${statsHtml}
-    ${departureEditorHtml}
-    <section id="day-panel-route" class="card" role="tabpanel" aria-labelledby="day-tab-route" data-day-panel="route">
-      <div class="section-heading"><div><p class="eyebrow">Trace GPX</p><h3>Carte de l’étape</h3></div></div>
+    <section class="card day-detail__stats-card" data-day-detail-stats-card>
+      ${statsHtml}
+      ${departureEditorHtml}
+    </section>
+    <section class="card day-detail__map-profile-card" data-day-detail-map-profile-card>
       <div class="route-map route-map--action" data-day-detail-map data-explore-map role="button" tabindex="0" aria-label="Ouvrir la carte de l’étape en plein écran"></div>
-      <p class="eyebrow day-detail__profile-eyebrow">Relief</p>
       <div data-day-detail-profile></div>
-      ${renderFilters(filters)}
-      <div data-day-detail-timeline>${timelineHtml}</div>
-      ${pausesHtml}
-      <button class="button button--quiet button--full" type="button" data-action="download-stage-gpx">GPX</button>
     </section>
     <dialog class="route-map-dialog" data-day-detail-map-dialog aria-labelledby="day-detail-expanded-map-title">
       <header><h2 id="day-detail-expanded-map-title">Carte de l’étape</h2><div class="route-map-dialog__actions"><button class="button button--quiet" type="button" data-map-layers-toggle aria-expanded="false" aria-controls="day-detail-map-layers-panel" hidden>Calques</button><button class="button button--quiet" type="button" data-close-map>Fermer</button></div></header>
       <div class="route-map-dialog__map-wrap"><div class="route-map route-map--expanded" data-route-map-expanded></div><p class="route-map__fallback route-map__fallback--expanded" data-expanded-route-map-fallback hidden>Fond de carte indisponible. Le tracé reste accessible dans le profil.</p><button class="practical-layers-backdrop" type="button" data-map-layers-backdrop aria-label="Fermer les calques" tabindex="-1" hidden></button><section class="practical-layers-panel" id="day-detail-map-layers-panel" data-map-layers-panel role="dialog" aria-labelledby="day-detail-map-layers-title" hidden><header><div><p class="eyebrow">Points principaux toujours visibles</p><h3 id="day-detail-map-layers-title">Calques</h3></div><button class="button button--quiet" type="button" data-map-layers-close>Fermer</button></header><div class="practical-layers-list" data-map-layers-list></div></section></div>
     </dialog>
-    ${renderWeatherPanel()}
-    ${infosHtml}
+    <section class="card day-detail__details-card" data-day-detail-details-card>
+      <nav class="day-tabs" role="tablist" aria-label="Sections de l’étape" data-day-detail-tabs>
+        <button id="day-tab-route" type="button" role="tab" data-day-tab="route" aria-controls="day-panel-route" aria-selected="true" tabindex="0">Parcours</button>
+        <button id="day-tab-infos" type="button" role="tab" data-day-tab="infos" aria-controls="day-panel-infos" aria-selected="false" tabindex="-1">Infos</button>
+      </nav>
+      <section id="day-panel-route" class="card" role="tabpanel" aria-labelledby="day-tab-route" data-day-panel="route">
+        ${renderFilters(filters)}
+        <div data-day-detail-timeline>${timelineHtml}</div>
+        ${pausesHtml}
+        <section class="day-detail__weather-inline" data-day-detail-weather-section>
+          <p class="eyebrow">Météo opérationnelle</p>
+          <div data-day-detail-weather><p role="status">Chargement des prévisions…</p></div>
+        </section>
+        <button class="button button--quiet button--full" type="button" data-action="download-stage-gpx">GPX</button>
+      </section>
+      ${infosHtml}
+    </section>
     <nav class="day-detail__floating-nav" aria-label="Journées voisines"><button class="button button--quiet" type="button" data-action="previous-day" aria-label="Journée précédente">‹</button><button class="button button--quiet" type="button" data-action="next-day" aria-label="Journée suivante">›</button></nav>
   </div>`
 
@@ -650,6 +671,6 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
     html, waypoints, geometry, stageLabel,
     villageWaypoints: waypoints.filter((waypoint) => waypoint.kind === 'village'),
     sourceFileId: route.sourceFileId,
-    statsHtml, departureEditorHtml, pausesHtml, timelineHtml, infosHtml,
+    statsHtml, departureEditorHtml, pausesHtml, timelineHtml, infosHtml, timingCurve,
   }
 }

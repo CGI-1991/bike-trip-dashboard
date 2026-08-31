@@ -12,6 +12,7 @@ import { buildRouteMapModel, routeMapHasContent } from './route-map-model.ts'
 import type { RouteMapMarkerModel, RouteMapModel } from './route-map-model.ts'
 import {
   PAUSE_ACCENT_COLOR_HEX,
+  allRouteMarkerCategories,
   getRouteMarkerLegendEntries,
   getRouteMarkerStyle,
 } from './route-marker-style.ts'
@@ -32,9 +33,64 @@ const expandedHistory = new WeakMap<HTMLDialogElement, MapOverlayHistoryControll
 const scrollUnlocks = new WeakMap<HTMLDialogElement, () => void>()
 const pendingFrames = new WeakMap<HTMLDialogElement, number>()
 const mapLayerControllers = new WeakMap<HTMLDialogElement, { dispose(): void }>()
+const temporaryMarkers = new WeakMap<HTMLElement, L.CircleMarker>()
 /** Exported so other map screens (e.g. the trip-wide overview map) can destroy their own Leaflet instances the same way. */
-export function destroyRouteMap(container: HTMLElement): void { const map = mapInstances.get(container); if (map !== undefined) { map.remove(); mapInstances.delete(container) } }
+export function destroyRouteMap(container: HTMLElement): void {
+  const map = mapInstances.get(container)
+  if (map !== undefined) { map.remove(); mapInstances.delete(container) }
+  // A stale reference to a marker whose own map instance was just torn down
+  // would otherwise survive into the next render (CDC D1.1 section 19) —
+  // `setTemporaryMarker` must never resurrect/reuse it.
+  temporaryMarkers.delete(container)
+}
 function destroy(container: HTMLElement): void { destroyRouteMap(container) }
+
+/**
+ * The smallest generic seam the profile↔map sync (CDC D1.1 sections 18-19)
+ * needs: a transient, non-persistent marker the caller moves with
+ * `setTemporaryMarker` — never `map.panTo`/`fitBounds`/any other view
+ * change, and never confused with the map's own permanent markers (a
+ * distinct visual, added/removed independently of `createRouteMap`'s own
+ * marker loop).
+ */
+export interface RouteMapInteractionHandle {
+  setTemporaryMarker(latitude: number, longitude: number): void
+  clearTemporaryMarker(): void
+}
+
+/**
+ * Returns a handle for the Leaflet map currently mounted in `container` —
+ * the compact map only (CDC D1.1 section 18: "placer... un marker temporaire
+ * sur la carte compacte"), resolved the same way `renderGenericRouteMap`
+ * itself locates its canvas (`[data-route-map-canvas]`) whether `container`
+ * is the outer mount point (`trips-manager.ts`'s own reference) or that
+ * canvas directly. `null` when no map is mounted (e.g. no usable geometry,
+ * or before the first render). No global Leaflet access, no DOM reach-in
+ * from `elevation-profile.ts` — that module only ever dispatches a plain
+ * `CustomEvent` on its own container; `trips-manager.ts` is the one place
+ * that owns both this handle and the profile's events, and connects the two.
+ */
+export function getRouteMapInteractionHandle(container: HTMLElement): RouteMapInteractionHandle | null {
+  const canvas = container.querySelector<HTMLElement>('[data-route-map-canvas]') ?? container
+  const map = mapInstances.get(canvas)
+  if (map === undefined) return null
+  return {
+    setTemporaryMarker(latitude, longitude): void {
+      const existing = temporaryMarkers.get(canvas)
+      if (existing !== undefined) { existing.setLatLng([latitude, longitude]); return }
+      const marker = L.circleMarker([latitude, longitude], {
+        radius: 7, weight: 2, color: '#ffffff', fillColor: '#dc2626', fillOpacity: 1, interactive: false, className: 'route-map__temporary-marker',
+      }).addTo(map)
+      temporaryMarkers.set(canvas, marker)
+    },
+    clearTemporaryMarker(): void {
+      const existing = temporaryMarkers.get(canvas)
+      if (existing === undefined) return
+      existing.remove()
+      temporaryMarkers.delete(canvas)
+    },
+  }
+}
 
 function shapeStyle(shape: RouteMarkerShape): string {
   if (shape === 'circle') return 'border-radius: 50%;'
@@ -220,14 +276,28 @@ function installMapLayerPanel(dialog: HTMLDialogElement, map: L.Map, layers: rea
   })
 }
 
-function renderLegend(container: HTMLElement): void {
+/**
+ * `categories` omitted keeps the RGA screen's exact historical 4-entry
+ * legend, unaffected; a generic caller passes only the categories actually
+ * present in its own model, so e.g. the Aperçu map's two `overview-*`
+ * categories never show alongside irrelevant Étape-only entries.
+ */
+function renderLegend(container: HTMLElement, categories?: readonly RouteMarkerCategory[]): void {
+  const entries = getRouteMarkerLegendEntries(categories)
+  if (entries.length === 0) return
   const legend = document.createElement('p')
   legend.className = 'route-map__legend'
   legend.setAttribute('aria-label', 'Légende des marqueurs de parcours')
-  legend.innerHTML = getRouteMarkerLegendEntries()
+  legend.innerHTML = entries
     .map(({ symbol, label }) => `<span class="route-map__legend-item"><strong aria-hidden="true">${symbol}</strong> ${label}</span>`)
     .join(' · ')
   container.appendChild(legend)
+}
+
+/** The distinct categories actually present in `model.markers`, in `allRouteMarkerCategories`' stable order — the generic map's own dynamic legend input. */
+function presentCategories(model: RouteMapModel): readonly RouteMarkerCategory[] {
+  const present = new Set(model.markers.map((marker) => marker.category))
+  return allRouteMarkerCategories.filter((category) => present.has(category))
 }
 
 export function renderCompactRouteMapModel(container: HTMLElement, model: RouteMapModel | null): void {
@@ -368,7 +438,7 @@ export function renderGenericRouteMap(container: HTMLElement, dialog: HTMLDialog
   const canvas = container.querySelector<HTMLElement>('[data-route-map-canvas]') as HTMLElement
   const fallback = container.querySelector<HTMLElement>('[data-route-map-fallback]') as HTMLElement
   createRouteMap(canvas, model, { interactive: false, fitPadding: [12, 12] }, () => { fallback.hidden = false })
-  renderLegend(container)
+  renderLegend(container, presentCategories(model))
   const expanded = dialog.querySelector<HTMLElement>('[data-route-map-expanded]') as HTMLElement
   const open = dialog.previousElementSibling?.querySelector<HTMLElement>('[data-explore-map]')
   if (open === null || open === undefined) return

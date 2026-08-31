@@ -320,6 +320,15 @@ ul {
   border-color: #a9c9c0;
 }
 
+/* D1.1 section 15: marks the ranking's pick within the chronological
+ * scenario list — independent of position, so it can land on any offset row
+ * (e.g. +1h) without that row being moved to the front. */
+.tag--suggested {
+  color: #6a4c2e;
+  background: #f0e2d1;
+  border-color: #d8b98d;
+}
+
 .tag--variant {
   color: var(--warning-text);
   background: var(--warning-bg);
@@ -1680,6 +1689,16 @@ body.map-scroll-locked { position: fixed; top: var(--map-scroll-lock-y, 0); inse
 .profile-cursor circle { fill: #fff; stroke: #153f38; stroke-width: 3; vector-effect: non-scaling-stroke; }
 .profile-tooltip { position: absolute; z-index: 2; top: 8px; width: min(190px, calc(100% - 16px)); padding: 8px 10px; display: grid; gap: 2px; transform: translateX(-50%); color: #fff; background: rgb(15 52 46 / 94%); border-radius: 8px; pointer-events: none; font-size: .78rem; }
 .profile-tooltip[hidden] { display: none; }
+/*
+ * CDC D1.1 section 16: the generic TripBundle profile's fixed info band —
+ * `32,6 km | 1 486 m | Pente 6,2 % | ETA 12:41` — replaces the floating
+ * tooltip above (which stays exactly as-is for RGA/the climb mini-profile,
+ * `.profile-tooltip` unaffected). Always visible, at a fixed position below
+ * the track, so it never overlaps it; only the four values change during
+ * interaction — never a box appearing/disappearing over the profile itself.
+ */
+.profile-band { margin-top: 8px; padding: 8px 10px; display: flex; flex-wrap: wrap; gap: 4px 10px; justify-content: space-between; color: var(--ink); background: var(--surface-muted); border-radius: 8px; font-size: .78rem; font-variant-numeric: tabular-nums; }
+.profile-band span:last-child { font-weight: 800; color: var(--forest-800); }
 .day-infos { display: grid; gap: 14px; }
 .day-infos__section { display: grid; gap: 7px; }
 .day-infos__section + .day-infos__section { padding-top: 14px; border-top: 1px solid var(--line); }
@@ -3019,7 +3038,6 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .day-detail__stats div { padding: 9px; background: var(--surface-muted); border-radius: 8px; }
 .day-detail__stats dt { color: var(--ink-soft); font-size: .72rem; }
 .day-detail__stats dd { margin-top: 2px; font-weight: 800; }
-.day-detail__profile-eyebrow { margin-top: 14px; }
 /* Sections 13-17 closeout: per-day departure time, editable right from the
    Étape stats — a compact inline trigger inside the "Départ" stat's own
    `<dd>`, and a small collapsed-by-default panel (never a second full
@@ -3143,10 +3161,16 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .trip-day-card__number-group strong { width: 38px; height: 34px; display: grid; place-items: center; color: #fff; background: var(--forest-800); border-radius: 8px; font-size: .72rem; font-variant-numeric: tabular-nums; }
 .trip-day-card__number-group time { color: var(--ink-soft); font-size: .6rem; white-space: nowrap; }
 .trip-day-card__content { min-width: 0; display: grid; gap: 3px; }
-.trip-day-card__heading { min-width: 0; display: flex; align-items: center; gap: 5px; }
-.trip-day-card__route { min-width: 0; flex: 1; overflow: hidden; color: var(--ink); font-size: .75rem; font-weight: 800; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
+/* Section 5D: a single line, ellipsis-truncated — never pushed around by the
+ * status badge any more, since that now lives in its own column (`__status`
+ * below) instead of sharing this line. */
+.trip-day-card__route { min-width: 0; display: block; overflow: hidden; color: var(--ink); font-size: .75rem; font-weight: 800; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
 .trip-day-card__metrics { display: flex; flex-wrap: wrap; gap: 2px 8px; color: var(--ink-soft); font-size: .67rem; font-variant-numeric: tabular-nums; }
-.trip-day-card__schedule { min-width: 45px; display: grid; justify-items: end; gap: 1px; font-variant-numeric: tabular-nums; }
+/* Section 5B/5C: a fixed-width column, three stacked rows — status always
+ * first/top-right, then Départ (secondary), then ETA (bolder) — so neither
+ * ever conflicts with, or reflows because of, the other. */
+.trip-day-card__schedule { min-width: 62px; display: grid; justify-items: end; gap: 3px; font-variant-numeric: tabular-nums; }
+.trip-day-card__status { line-height: 1; }
 .trip-day-card__schedule small { color: var(--ink-soft); font-size: .62rem; }
 .trip-day-card__schedule strong { color: var(--forest-800); font-size: .78rem; white-space: nowrap; }
 .trip-day-card__stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
@@ -3160,25 +3184,48 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .tag--completed { color: #fff; background: var(--forest-800); }
 
 /*
- * Étape/Journée sticky composition (CDC Jalon B4.4 sections 12-13):
- * identity+nav share ONE real sticky wrapper (`.day-detail__sticky-header`)
- * — its height is whatever it naturally needs (a one- or two-line identity,
- * any locale/font), never guessed. The tabbar sticks right under it, at
- * `--day-sticky-header-h`: a CSS custom property kept in sync with that
- * wrapper's real, live-measured height by `sticky-header-offset.ts`
- * (`ResizeObserver`-based) — replaces the previous fixed-px
- * `--day-sticky-identity-h: 40px`/`--day-sticky-nav-h: 48px` guesses, which
- * broke as soon as the identity line wrapped to two rows. The `0px` fallback
- * only matters before the observer's first synchronous measurement, or in
- * an environment with no real layout (tests) — `--day-sticky-header-h`
- * itself is always set at mount time regardless of `ResizeObserver`
- * availability.
+ * Étape/Journée sticky composition (CDC D1.1 section 10, restoring the
+ * intent of CDC Jalon B4.4 sections 12-13 that D1 had accidentally
+ * regressed by nesting the tabbar inside the top sticky header): the top
+ * sticky wrapper (`.day-detail__sticky-header`) now carries ONLY the
+ * identity — its height is whatever it naturally needs (a one- or two-line
+ * identity, any locale/font), never guessed. The tabbar lives inside the
+ * Détails card itself (`.day-detail__details-card`) and sticks CONTEXTUALLY
+ * there, at `--day-sticky-header-h`: a CSS custom property kept in sync with
+ * the identity header's real, live-measured height by
+ * `sticky-header-offset.ts` (`ResizeObserver`-based) — plain CSS
+ * `position: sticky`, no scroll listener. Stats and Map+Profil, above the
+ * Détails card, are never sticky at all — they scroll away normally, exactly
+ * as CDC D1.1 section 10 describes. The `0px` fallback only matters before
+ * the observer's first synchronous measurement, or in an environment with
+ * no real layout (tests) — `--day-sticky-header-h` itself is always set at
+ * mount time regardless of `ResizeObserver` availability.
  */
-.day-detail__sticky-header { position: sticky; top: 0; z-index: 5; display: grid; gap: 4px; padding-top: max(4px, env(safe-area-inset-top)); background: var(--surface); border-bottom: 1px solid var(--line); }
+.day-detail__sticky-header { position: sticky; top: 0; z-index: 5; padding-top: max(4px, env(safe-area-inset-top)); background: var(--surface); border-bottom: 1px solid var(--line); }
 .day-detail__sticky-identity { min-width: 0; padding: 4px 6px; overflow: hidden; }
 .day-detail__sticky-identity strong { display: block; overflow: hidden; font-size: .84rem; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
-.day-tabs[data-day-detail-tabs] { position: static; z-index: auto; padding: 3px; border-bottom: 0; }
+.day-detail__stats-card, .day-detail__map-profile-card { display: grid; gap: 10px; }
+/* Base tabbar look — shared by the ride shell's Détails card AND the
+ * OFF/transfer shell (which keeps its tabs inside the top sticky header,
+ * unchanged by D1.1: it never had a Stats/Map+Profil/Détails split to begin
+ * with). `position: static` here is the harmless default for the OFF/
+ * transfer case (already visually stuck, nested inside its own sticky
+ * parent); the ride shell's Détails card overrides it to a real contextual
+ * `position: sticky` below. */
+.day-tabs[data-day-detail-tabs] { padding: 3px; border-bottom: 0; }
 .day-tabs[data-day-detail-tabs] button { min-height: 38px; }
+/* The one visual card for Bloc 3 — its own padding stays 0 so the sticky
+ * tabbar can sit flush at the top and its background can cover the content
+ * scrolling underneath it; each tabpanel restores its own padding below. */
+.day-detail__details-card { padding: 0; overflow: hidden; }
+.day-detail__details-card > [data-day-detail-tabs] { position: sticky; top: var(--day-sticky-header-h, 0px); z-index: 3; background: var(--surface); border-bottom: 1px solid var(--line); }
+/* A tabpanel is content INSIDE the one Détails card, not a second nested
+ * card of its own — `renderInfosPanel`/`renderWeatherPanel` still return
+ * `class="card"` unchanged for the OFF/transfer shell, which has no
+ * wrapping Détails card at all; this override only ever applies once truly
+ * nested here. */
+.day-detail__details-card > [role="tabpanel"] { padding: 15px; background: none; border: 0; box-shadow: none; border-radius: 0; }
+.day-detail__weather-inline { margin-top: 14px; }
 .day-detail__floating-nav { position: fixed; z-index: 15; right: max(14px, env(safe-area-inset-right)); bottom: calc(72px + env(safe-area-inset-bottom)); left: max(14px, env(safe-area-inset-left)); display: flex; justify-content: space-between; pointer-events: none; }
 .day-detail__floating-nav .button { width: 48px; height: 48px; min-height: 48px; padding: 0; pointer-events: auto; color: #fff; background: rgb(23 59 53 / 94%); border: 1px solid rgb(255 255 255 / 72%); border-radius: 50%; box-shadow: 0 5px 18px rgb(16 45 40 / 24%); font-size: 1.45rem; }
 .day-detail__floating-nav .button:disabled { visibility: hidden; }

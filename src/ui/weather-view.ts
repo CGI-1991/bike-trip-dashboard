@@ -127,28 +127,53 @@ function renderRecommendation(model: GenericDayWeatherViewModel): string {
   </div>`
 }
 
-/** One row of the "Comparer les horaires" comparison (section 24) — offset label, departure/arrival, risk, and (for any other coherent scenario) its own "Choisir HH:MM" (section 25). */
-function renderScenarioRow(scenario: DepartureWeatherScenario, currentClock: string): string {
+/**
+ * One row of the "Comparer les horaires" comparison (section 24) — offset
+ * label, departure/arrival, risk, and (for any other coherent scenario) its
+ * own "Choisir HH:MM" (section 25). `isRecommended` (CDC D1.1 section 15) is
+ * a plain boolean flag, independent of this row's own position in the
+ * list — the badge marks whichever scenario the ranking picked, wherever
+ * it happens to sit chronologically, never by moving it.
+ */
+function renderScenarioRow(scenario: DepartureWeatherScenario, currentClock: string, isRecommended: boolean): string {
   const label = OFFSET_LABELS[scenario.offsetMinutes] ?? `${scenario.offsetMinutes > 0 ? '+' : ''}${scenario.offsetMinutes} min`
   const departureClock = formatClock(scenario.departureTimeLocal)
   const arrivalClock = formatClock(scenario.arrivalTimeLocal)
   const applyButton = scenario.isCurrent || !scenario.isCoherent
     ? ''
     : `<button class="button button--quiet" type="button" data-action="apply-weather-departure-time" data-departure-time="${escapeHtml(departureClock)}" data-current-departure-time="${escapeHtml(currentClock)}">Choisir ${escapeHtml(departureClock)}</button>`
+  const badges = [
+    scenario.isCurrent ? '<span class="tag tag--data">Actuel</span>' : '',
+    isRecommended ? '<span class="tag tag--suggested">Suggéré</span>' : '',
+  ].join('')
   return `<li class="weather-decision__scenario weather-decision__scenario--${scenario.risk.level}">
-    <div class="weather-decision__scenario-header"><strong>${escapeHtml(label)}</strong>${scenario.isCurrent ? '<span class="tag tag--data">Actuel</span>' : ''}</div>
+    <div class="weather-decision__scenario-header"><strong>${escapeHtml(label)}</strong>${badges}</div>
     <p class="weather-decision__scenario-times">Départ ${escapeHtml(departureClock)} · Arrivée ${escapeHtml(arrivalClock)}</p>
     <p class="weather-decision__scenario-risk">${RISK_LABELS[scenario.risk.level]} · ${scenario.risk.redCount} rouge · ${scenario.risk.orangeCount} orange${scenario.isCoherent ? '' : ' · écarté (départ avant le début de la journée)'}</p>
     ${applyButton}
   </li>`
 }
 
-/** Section 24: a repliable "Comparer les horaires" section carrying all 5 scenarios — collapsed by default (`<details>`, no JS needed to open/close it), exactly the historical RGA shape. */
+/**
+ * Section 24: a repliable "Comparer les horaires" section carrying all 5
+ * scenarios — collapsed by default (`<details>`, no JS needed to open/close
+ * it), exactly the historical RGA shape. CDC D1.1 section 15: always
+ * presented in `model.departureScenarios`' own chronological order
+ * (-2h/-1h/actuel/+1h/+2h — that array is never re-sorted, see
+ * `view-model.ts`), whichever one `model.recommendation` marks as
+ * recommended — the "Suggéré" badge moves to that row, the row itself never
+ * does.
+ */
 function renderScenarioComparison(model: GenericDayWeatherViewModel): string {
   if (model.departureScenarios.length === 0) return ''
   const current = model.departureScenarios.find((scenario) => scenario.isCurrent) ?? null
   const currentClock = formatClock(current?.departureTimeLocal ?? null)
-  const rows = model.departureScenarios.map((scenario) => renderScenarioRow(scenario, currentClock)).join('')
+  const recommendedOffsetMinutes = model.recommendation?.status === 'recommended-change'
+    ? model.recommendation.recommendedScenario?.offsetMinutes ?? null
+    : null
+  const rows = model.departureScenarios
+    .map((scenario) => renderScenarioRow(scenario, currentClock, recommendedOffsetMinutes !== null && scenario.offsetMinutes === recommendedOffsetMinutes))
+    .join('')
   return `<details class="weather-decision__compare" data-weather-compare>
     <summary>Comparer les horaires</summary>
     <ul class="weather-decision__scenarios">${rows}</ul>

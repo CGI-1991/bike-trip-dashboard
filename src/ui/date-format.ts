@@ -12,6 +12,11 @@ const FRENCH_MONTHS: readonly string[] = [
   'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre',
 ]
 
+const FRENCH_MONTH_ABBREVIATIONS: readonly string[] = [
+  'janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin',
+  'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.',
+]
+
 function parseIsoDate(iso: string): { readonly year: string; readonly month: string; readonly day: string } | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
   if (match === null) return null
@@ -40,5 +45,20 @@ export function formatSimpleDate(iso: string): string {
   if (parsed === null) return iso
   const monthIndex = Number(parsed.month) - 1
   const monthName = FRENCH_MONTHS[monthIndex] ?? parsed.month
+  return `${parsed.day} ${monthName}`
+}
+
+/**
+ * Ultra-compact date — `dd mmm.` (e.g. `03 sept.`), abbreviated lowercase
+ * French month (CDC D1.1 section 5A). Used in the Voyage day card's fixed
+ * left column — even `formatSimpleDate`'s full month name risks wrapping
+ * under "Jx" in that column's narrow width; never `dd/mm` (harder to read
+ * at a glance) and never the full month name there.
+ */
+export function formatShortDate(iso: string): string {
+  const parsed = parseIsoDate(iso)
+  if (parsed === null) return iso
+  const monthIndex = Number(parsed.month) - 1
+  const monthName = FRENCH_MONTH_ABBREVIATIONS[monthIndex] ?? parsed.month
   return `${parsed.day} ${monthName}`
 }

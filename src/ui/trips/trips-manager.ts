@@ -22,8 +22,8 @@ import { resolvePreferredActiveTripId } from '../../trips-manager/active-trip-se
 import { deriveTripTemporalState, resolveAdjacentTripDayId } from '../../trips-manager/trip-day-temporal-state.ts'
 import { deleteTripCompletely, listTripSummaries, setActiveTrip } from '../../trips-manager/trip-manager-actions.ts'
 import type { TripListEntry } from '../../trips-manager/trip-summary.ts'
-import type { MapLayerDefinition } from '../route-map.ts'
-import { buildGenericOverviewRouteMapModel, buildGenericRouteMapModel } from '../route-map-model.ts'
+import type { MapLayerDefinition, RouteMapInteractionHandle } from '../route-map.ts'
+import { buildGenericOverviewDetailMarkers, buildGenericOverviewRouteMapModel, buildGenericRouteMapModel } from '../route-map-model.ts'
 import type { RouteMapModel } from '../route-map-model.ts'
 import { mountClimbProfileInteraction, renderGenericElevationProfile } from '../elevation-profile.ts'
 import { downloadBlob } from '../gpx-share.ts'
@@ -103,6 +103,14 @@ export interface TripsManagerDeps {
    */
   readonly renderMap: (container: HTMLElement, dialog: HTMLDialogElement, model: RouteMapModel | null, layers?: readonly MapLayerDefinition[]) => void
   readonly closeMap: (dialog: HTMLDialogElement) => void
+  /**
+   * Same injection seam as `renderMap`/`closeMap` above, for the profile→map
+   * temporary-marker sync (CDC D1.1 sections 18-19) — always the real
+   * `route-map.ts::getRouteMapInteractionHandle` in production. Optional
+   * (defaults to always returning `null`, i.e. no sync) so existing tests
+   * that never register a real map keep working unchanged.
+   */
+  readonly getMapInteractionHandle?: (container: HTMLElement) => RouteMapInteractionHandle | null
   /**
    * Weather provider (CDC Jalon C1 section 14) — defaults to the real,
    * unmodified `createOpenMeteoProvider()` when omitted. Injectable purely
@@ -208,8 +216,9 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   /** Montées secondaires toggle (CDC Jalon B4.3 section 29) — local UI state, per day, never persisted; resets to off on reload, same as any other transient view preference in this file. No Villages toggle any more (section 26/28/29). */
   const dayFilters = new Map<TripDayId, { showSecondaryClimbs: boolean }>()
   const detailAutoScrollSession = createTripDetailAutoScrollSession()
-  const overviewMapDetailVisible = new Map<TripId, boolean>()
-  let currentOverview: { readonly tripId: TripId; readonly value: TripOverview } | null = null
+  /** One `AbortController` per profile container (CDC D1.1 section 18) — aborted and replaced on every `mountMapAndProfile` call so the profile→map sync listener never accumulates across a full render + `patchDayDetail` patches. */
+  const profileSyncControllers = new WeakMap<HTMLElement, AbortController>()
+  const getMapInteractionHandle = deps.getMapInteractionHandle ?? (() => null)
 
   function getDayFilters(dayId: TripDayId): WaypointVisibilityFilters {
     return dayFilters.get(dayId) ?? { showSecondaryClimbs: false }
@@ -406,7 +415,28 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     }
     const profileContainer = container.querySelector<HTMLElement>('[data-day-detail-profile]')
     if (profileContainer !== null) {
-      renderGenericElevationProfile(profileContainer, detail.geometry, visibleWaypoints, detail.stageLabel)
+      renderGenericElevationProfile(profileContainer, detail.geometry, visibleWaypoints, detail.stageLabel, detail.timingCurve)
+    }
+    // Profile→map sync (CDC D1.1 sections 18-19): re-wired on every call —
+    // `mountMapAndProfile` runs on every full mount AND every
+    // `patchDayDetail` patch, and `renderGenericElevationProfile` just
+    // replaced `profileContainer`'s own children, but never the container
+    // element itself, so a listener attached directly to it (as opposed to
+    // its children) would otherwise accumulate across renders — aborted and
+    // re-attached here exactly like `elevation-profile.ts`'s own internal
+    // pointer/keyboard listeners are.
+    if (profileContainer !== null && mapContainer !== null) {
+      profileSyncControllers.get(profileContainer)?.abort()
+      const controller = new AbortController()
+      profileSyncControllers.set(profileContainer, controller)
+      const mapHandle = getMapInteractionHandle(mapContainer)
+      if (mapHandle !== null) {
+        profileContainer.addEventListener('profile-sample-active', (event) => {
+          const detail = (event as CustomEvent<{ readonly latitude: number; readonly longitude: number }>).detail
+          mapHandle.setTemporaryMarker(detail.latitude, detail.longitude)
+        }, { signal: controller.signal })
+        profileContainer.addEventListener('profile-sample-cleared', () => mapHandle.clearTemporaryMarker(), { signal: controller.signal })
+      }
     }
     // Real pointer/touch/keyboard tooltip for every climb mini-profile in
     // the timeline (CDC Jalon B4.4 section 30) — `mountMapAndProfile` runs
@@ -466,14 +496,23 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     if (replaced !== null) replaced.hidden = wasHidden
   }
 
-  function mountOverviewMap(overview: TripOverview, detailVisible: boolean): void {
+  /**
+   * The Aperçu global map (CDC D1.1 sections 1-3): the base model — full
+   * ridden trace, principal points only — is always what both the compact
+   * card and the fullscreen dialog start from; the fullscreen-only "Détail"
+   * layer (villes/pauses/cols/sommets significatifs) is a togglable
+   * `MapLayerDefinition`, exactly like the historical Villages layer, never
+   * a second model swapped in on the compact card itself (that toggle is
+   * gone — D1.1 section 2).
+   */
+  function mountOverviewMap(overview: TripOverview): void {
     const mapContainer = container.querySelector<HTMLElement>('[data-trip-overview-map]')
     const mapDialog = container.querySelector<HTMLDialogElement>('[data-trip-overview-map-dialog]')
     if (mapContainer === null || mapDialog === null) return
-    const baseModel = buildGenericOverviewRouteMapModel(overview.mapStages)
-    const detailModel = buildGenericOverviewRouteMapModel(overview.mapDetailStages)
-    const model = detailVisible ? { ...baseModel, markers: [...baseModel.markers, ...detailModel.markers] } : baseModel
-    deps.renderMap(mapContainer, mapDialog, model, [])
+    const model = buildGenericOverviewRouteMapModel(overview.mapStages)
+    const detailMarkers = buildGenericOverviewDetailMarkers(overview.mapDetailStages)
+    const layers: MapLayerDefinition[] = detailMarkers.length === 0 ? [] : [{ id: 'detail', label: 'Détail', markers: detailMarkers, defaultVisible: false }]
+    deps.renderMap(mapContainer, mapDialog, model, layers)
     const close = mapDialog.querySelector<HTMLButtonElement>('[data-close-map]')
     if (close !== null) close.onclick = () => deps.closeMap(mapDialog)
   }
@@ -490,11 +529,8 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     }
     deps.onHeaderChange?.(buildGenericAppHeader(bundle, null))
     const overview = buildTripOverview(bundle, deps.now())
-    currentOverview = { tripId, value: overview }
     container.innerHTML = overview.html
-    const detailVisible = overviewMapDetailVisible.get(tripId) ?? false
-    container.querySelector<HTMLButtonElement>('[data-action=toggle-overview-map-detail]')?.setAttribute('aria-pressed', String(detailVisible))
-    mountOverviewMap(overview, detailVisible)
+    mountOverviewMap(overview)
     // The highlighted day's own compact map (CDC Jalon B4.3 section 8) — a
     // second, independent, non-interactive preview; no fullscreen dialog of
     // its own (that's what "Voir cette étape" / the card's own navigation
@@ -804,13 +840,25 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     downloadBlob(payloadToBlob(payload.content, 'application/gpx+xml'), sourceFile.originalName)
   }
 
-  /** One archive of every ride day's original GPX (CDC Jalon B4.3 section 15) — the stored originals, never a re-serialization of the analysed geometry; OFF/transfer days (no GPX) are naturally excluded since they have no route/source file to begin with. */
+  /**
+   * One archive of every ride day's original GPX, in chronological order
+   * (CDC D1.1 section 4) — the stored originals, never a re-serialization of
+   * the analysed geometry; OFF/transfer days (no GPX) are naturally excluded
+   * since they have no route/source file to begin with. Iterates
+   * `bundle.days` (sorted by `index`, the same structural order every other
+   * day-traversal in this file uses — see `openableDayIds`) rather than
+   * `bundle.stages` directly, so this stays chronologically correct even if
+   * a future edit ever changes `stages`' own array order.
+   */
   async function downloadTripGpxArchive(tripId: TripId, tripName: string): Promise<void> {
     const bundle = await createTripRepository(deps.database).loadTripBundle(tripId)
     if (bundle === null) return
     const sourceFileRepository = createSourceFileRepository(deps.database)
     const entries: ZipEntryInput[] = []
-    for (const stage of bundle.stages) {
+    const orderedStages = openableDayIds(bundle)
+      .map((dayId) => bundle.stages.find((stage) => stage.dayId === dayId))
+      .filter((stage): stage is (typeof bundle.stages)[number] => stage !== undefined)
+    for (const stage of orderedStages) {
       const route = bundle.routes.find((candidate) => candidate.id === stage.sourceRouteId)
       const sourceFile = route?.sourceFileId === null || route?.sourceFileId === undefined
         ? undefined
@@ -876,11 +924,6 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
 
     if (action === 'create-trip') {
       openWizard()
-    } else if (action === 'toggle-overview-map-detail' && mode.kind === 'overview' && currentOverview?.tripId === mode.tripId) {
-      const nextVisible = !(overviewMapDetailVisible.get(mode.tripId) ?? false)
-      overviewMapDetailVisible.set(mode.tripId, nextVisible)
-      button.setAttribute('aria-pressed', String(nextVisible))
-      mountOverviewMap(currentOverview.value, nextVisible)
     } else if (action === 'edit-trip' && tripId !== undefined) {
       openEditor(tripId as TripId)
     } else if (action === 'open-trip' && tripId !== undefined) {

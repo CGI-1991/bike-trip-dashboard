@@ -53,7 +53,7 @@ test('start and finish markers are sized larger than a plain passage', () => {
 })
 
 test('allRouteMarkerCategories covers every category with no duplicate and every one has a distinct-enough style — hamlet/peak are gone (V1 final scope)', () => {
-  const categories = ['start', 'finish', 'col-summit', 'passage', 'locality-major', 'locality-minor']
+  const categories = ['start', 'finish', 'col-summit', 'passage', 'locality-major', 'locality-minor', 'overview-primary', 'overview-secondary']
   assert.equal(allRouteMarkerCategories.length, categories.length)
   assert.deepEqual([...allRouteMarkerCategories].sort(), [...categories].sort())
   assert.equal(new Set(allRouteMarkerCategories).size, allRouteMarkerCategories.length)
@@ -69,7 +69,7 @@ test('a village is smaller than a city/town — visual hierarchy matches importa
   assert.ok(getRouteMarkerStyle('locality-minor').sizePx < getRouteMarkerStyle('locality-major').sizePx)
 })
 
-test('the compact legend covers exactly the four historical RGA categories, unaffected by the generic map extension', () => {
+test('the compact legend covers exactly the four historical RGA categories by default, unaffected by the generic map extension', () => {
   const entries = getRouteMarkerLegendEntries()
   assert.equal(entries.length, 4)
   assert.deepEqual(entries.map(({ symbol }) => symbol), ['D', 'A', '◆', '●'])
@@ -77,4 +77,24 @@ test('the compact legend covers exactly the four historical RGA categories, unaf
   assert.equal(getRouteMarkerLegendSymbol('finish'), 'A')
   assert.equal(getRouteMarkerLegendSymbol('col-summit'), '◆')
   assert.equal(getRouteMarkerLegendSymbol('passage'), '●')
+})
+
+test('a caller can request the legend scoped to only the categories it actually uses (the generic map)', () => {
+  const entries = getRouteMarkerLegendEntries(['overview-primary', 'overview-secondary'])
+  assert.equal(entries.length, 2)
+  assert.deepEqual(entries.map(({ symbol }) => symbol), ['●', '●'])
+})
+
+// CDC D1.1 section 1: the Aperçu global map keeps "au maximum deux styles
+// simples" of its own — no Départ/Arrivée symbol, no shape borrowed from the
+// Étape's own richer graphic language.
+test('the Aperçu map\'s two categories are plain, un-iconified circles, visually distinct from each other by size/colour only', () => {
+  const primary = getRouteMarkerStyle('overview-primary')
+  const secondary = getRouteMarkerStyle('overview-secondary')
+  for (const style of [primary, secondary]) {
+    assert.equal(style.shape, 'circle')
+    assert.equal(style.symbol, '', `${style.category} must carry no D/A/letter symbol`)
+  }
+  assert.notEqual(primary.colorHex, secondary.colorHex)
+  assert.ok(primary.sizePx > secondary.sizePx, 'the principal stage point stays visually dominant over a detail point')
 })

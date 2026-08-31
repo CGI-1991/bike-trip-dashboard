@@ -132,24 +132,56 @@ export function buildGenericRouteMapModel(waypoints: readonly CanonicalWaypoint[
 }
 
 /**
- * The Aperçu screen's global map (CDC Jalon B2 section 9): every stage's own
- * geometry drawn as its own disjoint line segment — an OFF/transfer day's
- * gap between two stages is simply not drawn, never a fabricated straight
- * line connecting them — with every stage's waypoints merged into one marker
- * list. Callers are expected to have already filtered each stage's
- * waypoints down to the compact-map default set (start/end/city/town/
- * mountain-pass/saddle — no villages), exactly like the single-stage Étape
- * map (CDC hardening section 19/21).
+ * Same-location dedup (CDC D1.1 section 1): when a stage's arrival and the
+ * next stage's departure share the same name/coordinates (within ~11 m —
+ * four decimal degrees), only the first drawn marker survives. Applied
+ * within one bucket of markers at a time (principal vs. detail) — never
+ * across the two, which stay visually and semantically distinct layers.
  */
-export function buildGenericOverviewRouteMapModel(stages: readonly { readonly waypoints: readonly CanonicalWaypoint[]; readonly geometry: readonly LatLngTuple[] }[]): RouteMapModel {
-  const withGeometry = stages.filter((stage) => stage.geometry.length > 1)
-  const [first, ...rest] = withGeometry
+function dedupeMarkersByLocation(markers: readonly RouteMapMarkerModel[]): RouteMapMarkerModel[] {
   const seen = new Set<string>()
-  const markers = stages.flatMap((stage) => buildGenericRouteMapModel(stage.waypoints, stage.geometry).markers).filter((marker) => {
+  return markers.filter((marker) => {
     const locationKey = `${marker.name.trim().toLocaleLowerCase()}|${marker.coordinate[0].toFixed(4)}|${marker.coordinate[1].toFixed(4)}`
     if (seen.has(locationKey)) return false
     seen.add(locationKey)
     return true
   })
+}
+
+/**
+ * The Aperçu screen's global map (CDC D1.1 section 1): the FULL ridden GPX
+ * trace for every stage, each drawn as its own disjoint line segment — an
+ * OFF/transfer day's gap between two stages is simply not drawn, never a
+ * fabricated straight line connecting them. Markers stay deliberately
+ * separate from the Étape map's own richer graphic language: every waypoint
+ * passed in becomes a plain, un-iconified `overview-primary` point (no
+ * Départ/Arrivée symbol) — callers are expected to have already filtered
+ * each stage's waypoints down to just its principal points (start/end).
+ */
+export function buildGenericOverviewRouteMapModel(stages: readonly { readonly waypoints: readonly CanonicalWaypoint[]; readonly geometry: readonly LatLngTuple[] }[]): RouteMapModel {
+  const withGeometry = stages.filter((stage) => stage.geometry.length > 1)
+  const [first, ...rest] = withGeometry
+  const markers = dedupeMarkersByLocation(
+    stages
+      .flatMap((stage) => buildGenericRouteMapModel(stage.waypoints, stage.geometry).markers)
+      .map((marker) => ({ ...marker, category: 'overview-primary' as const })),
+  )
   return { coordinates: first?.geometry ?? [], markers, extraLines: rest.map((stage) => stage.geometry) }
+}
+
+/**
+ * The Aperçu global map's fullscreen-only "Détail" layer (CDC D1.1 section
+ * 3): significant intermediate waypoints (villes/localités pertinentes,
+ * pauses, cols/montées principales/sommets — already computed by the
+ * caller, see `trip-overview-view.ts::isOverviewDetailWaypoint`), rendered
+ * as the overview map's one other simple style, `overview-secondary` — one
+ * step down from the principal stage markers, never the Étape map's own
+ * shapes/colours.
+ */
+export function buildGenericOverviewDetailMarkers(stages: readonly { readonly waypoints: readonly CanonicalWaypoint[] }[]): readonly RouteMapMarkerModel[] {
+  return dedupeMarkersByLocation(
+    stages
+      .flatMap((stage) => buildGenericRouteMapModel(stage.waypoints, []).markers)
+      .map((marker) => ({ ...marker, category: 'overview-secondary' as const })),
+  )
 }

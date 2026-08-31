@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { computeStageWaypoints, resolveStagePauseSettings } from '../../src/analysis/waypoint-timeline.ts'
+import { computeStageTimingCurve, computeStageWaypoints, resolveStagePauseSettings } from '../../src/analysis/waypoint-timeline.ts'
 
 function route(overrides = {}) {
   return {
@@ -177,4 +177,54 @@ test('resolveStagePauseSettings: only active pauses with a real routePointId bec
     { id: 'p1', routePointId: 'city1', durationMinutes: 15, order: 0 },
     { id: 'p2', routePointId: 'city2', durationMinutes: 5, order: 1 },
   ])
+})
+
+// --- computeStageTimingCurve (CDC D1.1 section 17, test W) — the profile
+// cursor's distance→time mapping must agree with the real waypoint timeline
+// at the start, middle, and end of the stage. ------------------------------
+
+test('W: elapsedMinutesAt(0)/clockTimeAt(0) matches the start waypoint exactly', () => {
+  const curve = computeStageTimingCurve({ stage: stage(), route: route(), routePoints: [], climbs: [], settings })
+  assert.equal(curve.elapsedMinutesAt(0), 0)
+  assert.equal(curve.clockTimeAt(0), '08:00')
+})
+
+test('W: clockTimeAt at the stage\'s own end distance matches the end waypoint\'s own clockTime exactly', () => {
+  const waypoints = computeStageWaypoints({ stage: stage(), route: route(), routePoints: [], climbs: [], settings })
+  const end = waypoints.find((waypoint) => waypoint.kind === 'end')
+  const curve = computeStageTimingCurve({ stage: stage(), route: route(), routePoints: [], climbs: [], settings })
+  assert.equal(curve.clockTimeAt(end.trackDistanceKm), end.clockTime)
+  assert.equal(curve.elapsedMinutesAt(end.trackDistanceKm), end.elapsedMinutes)
+})
+
+test('W: a mid-route sample sits strictly between the start and end elapsed times, and agrees with a documented mid-route waypoint at the same distance', () => {
+  const midPoint = point({ id: 'mid', trackDistanceKm: 10, name: 'Mi-parcours' })
+  const waypoints = computeStageWaypoints({ stage: stage({ routePointIds: ['mid'] }), route: route(), routePoints: [midPoint], climbs: [], settings })
+  const mid = waypoints.find((waypoint) => waypoint.id === 'mid')
+  const curve = computeStageTimingCurve({ stage: stage({ routePointIds: ['mid'] }), route: route(), routePoints: [midPoint], climbs: [], settings })
+  assert.equal(curve.elapsedMinutesAt(10), mid.elapsedMinutes)
+  assert.ok(curve.elapsedMinutesAt(10) > curve.elapsedMinutesAt(0))
+  assert.ok(curve.elapsedMinutesAt(10) < curve.elapsedMinutesAt(20))
+})
+
+test('a manual pause shifts the curve exactly where computeStageWaypoints places it — same engine, no divergence', () => {
+  const midPoint = point({ id: 'mid', trackDistanceKm: 10, name: 'Pause' })
+  const manualPauses = [{ id: 'pause-1', routePointId: 'mid', durationMinutes: 20, order: 0 }]
+  const input = { stage: stage({ routePointIds: ['mid'] }), route: route(), routePoints: [midPoint], climbs: [], settings, manualPauses }
+  const waypoints = computeStageWaypoints(input)
+  const end = waypoints.find((waypoint) => waypoint.kind === 'end')
+  const curve = computeStageTimingCurve(input)
+  assert.equal(curve.elapsedMinutesAt(end.trackDistanceKm), end.elapsedMinutes)
+  assert.equal(curve.clockTimeAt(end.trackDistanceKm), end.clockTime)
+})
+
+test('returns null under the same degenerate conditions computeStageWaypoints treats as untimed (no positive reference speed)', () => {
+  const curve = computeStageTimingCurve({ stage: stage(), route: route(), routePoints: [], climbs: [], settings: { referenceSpeedKph: 0, departureTime: '08:00' } })
+  assert.equal(curve, null)
+})
+
+test('clamps out-of-range distances to the stage bounds rather than extrapolating nonsense', () => {
+  const curve = computeStageTimingCurve({ stage: stage(), route: route(), routePoints: [], climbs: [], settings })
+  assert.equal(curve.elapsedMinutesAt(-5), curve.elapsedMinutesAt(0))
+  assert.equal(curve.elapsedMinutesAt(9_999), curve.elapsedMinutesAt(20))
 })

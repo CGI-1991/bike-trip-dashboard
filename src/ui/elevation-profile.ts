@@ -102,7 +102,14 @@ export function clampCenteredOffsetPercent(targetCenterPercent: number, containe
   return Math.min(max, Math.max(min, targetCenterPercent))
 }
 
-function installProfileInteraction(container: HTMLElement, samples: readonly ProfileSample[], min: number, max: number, total: number): void {
+/**
+ * RGA's own profile interaction — floating, clamped tooltip. Completely
+ * unchanged by CDC D1.1 section 16 (that only concerns the generic
+ * TripBundle profile, `installBandProfileInteraction` below) — RGA is the
+ * historical reference this whole initiative reuses, never a screen it
+ * modifies incidentally through a shared primitive.
+ */
+function installTooltipProfileInteraction(container: HTMLElement, samples: readonly ProfileSample[], min: number, max: number, total: number): void {
   if (typeof container.querySelector !== 'function') return
   profileControllers.get(container)?.abort()
   const controller = new AbortController()
@@ -158,6 +165,97 @@ function installProfileInteraction(container: HTMLElement, samples: readonly Pro
   }, { signal: controller.signal })
 }
 
+export interface BandProfileInteractionOptions {
+  /** Reuses `waypoint-timeline.ts::computeStageTimingCurve` — `null`/omitted when the stage has no valid timing (no geometry, no reference speed). */
+  readonly timingCurve?: { readonly clockTimeAt: (distanceKm: number) => string } | null
+}
+
+/**
+ * The generic TripBundle profile's own interaction (CDC D1.1 sections 16-19/
+ * 21): a fixed info band instead of a floating tooltip (never overlaps the
+ * track), and — on every sample change, pointer or keyboard alike, since
+ * both paths funnel through the same `show()` — a plain `CustomEvent`
+ * dispatched on `container` so `trips-manager.ts` can move the compact
+ * map's temporary marker. No DOM/Leaflet reach-in from this module: it only
+ * ever touches its own elements and dispatches events on itself.
+ */
+function installBandProfileInteraction(container: HTMLElement, samples: readonly ProfileSample[], min: number, max: number, total: number, options: BandProfileInteractionOptions = {}): void {
+  if (typeof container.querySelector !== 'function') return
+  profileControllers.get(container)?.abort()
+  const controller = new AbortController()
+  profileControllers.set(container, controller)
+  const svg = container.querySelector<SVGSVGElement>('[data-profile-interactive]')
+  const cursor = container.querySelector<SVGGElement>('[data-profile-cursor]')
+  const line = container.querySelector<SVGLineElement>('[data-profile-cursor-line]')
+  const dot = container.querySelector<SVGCircleElement>('[data-profile-cursor-dot]')
+  const bandDistance = container.querySelector<HTMLElement>('[data-profile-band-distance]')
+  const bandAltitude = container.querySelector<HTMLElement>('[data-profile-band-altitude]')
+  const bandGrade = container.querySelector<HTMLElement>('[data-profile-band-grade]')
+  const bandEta = container.querySelector<HTMLElement>('[data-profile-band-eta]')
+  const live = container.querySelector<HTMLElement>('[data-profile-live]')
+  if (svg === null || cursor === null || line === null || dot === null || bandDistance === null || bandAltitude === null || bandGrade === null || bandEta === null || live === null) return
+
+  const dispatch = (type: string, detail?: { readonly latitude: number; readonly longitude: number }): void => {
+    if (typeof container.dispatchEvent !== 'function') return
+    container.dispatchEvent(detail === undefined ? new CustomEvent(type) : new CustomEvent(type, { detail }))
+  }
+  // Neutral state (CDC section 16: "un état neutre propre... ou tirets
+  // sobres") both on mount and once the interaction ends.
+  const clearBand = (): void => {
+    bandDistance.textContent = '—'; bandAltitude.textContent = '—'; bandGrade.textContent = '—'; bandEta.textContent = '—'
+  }
+  clearBand()
+
+  let selectedIndex = 0
+  const show = (distanceKm: number) => {
+    const sample = interpolateProfileSample(samples, Math.min(total, Math.max(0, distanceKm)))
+    selectedIndex = Math.max(0, samples.findIndex((candidate) => candidate.distanceKm >= sample.distanceKm))
+    const x = 20 + 760 * sample.distanceKm / Math.max(total, 0.1)
+    const y = 210 - 180 * (sample.altitudeM - min) / Math.max(max - min, 1)
+    line.setAttribute('x1', x.toFixed(1)); line.setAttribute('x2', x.toFixed(1))
+    dot.setAttribute('cx', x.toFixed(1)); dot.setAttribute('cy', y.toFixed(1))
+    cursor.removeAttribute('hidden')
+    const etaLabel = options.timingCurve?.clockTimeAt(sample.distanceKm) ?? null
+    bandDistance.textContent = `${sample.distanceKm.toFixed(1)} km`
+    bandAltitude.textContent = `${Math.round(sample.altitudeM)} m`
+    bandGrade.textContent = `Pente ${sample.smoothedGradePercent.toFixed(1)} %`
+    bandEta.textContent = etaLabel === null ? '—' : `ETA ${etaLabel}`
+    live.textContent = etaLabel === null
+      ? `${sample.distanceKm.toFixed(1)} km · ${Math.round(sample.altitudeM)} m · Pente moyenne : ${sample.smoothedGradePercent.toFixed(1)} %`
+      : `${sample.distanceKm.toFixed(1)} km · ${Math.round(sample.altitudeM)} m · Pente moyenne : ${sample.smoothedGradePercent.toFixed(1)} % · ETA ${etaLabel}`
+    dispatch('profile-sample-active', { latitude: sample.latitude, longitude: sample.longitude })
+  }
+  const clear = (): void => {
+    cursor.setAttribute('hidden', '')
+    clearBand()
+    live.textContent = ''
+    dispatch('profile-sample-cleared')
+  }
+  const fromPointer = (event: PointerEvent) => {
+    const rect = svg.getBoundingClientRect()
+    show(((event.clientX - rect.left) / Math.max(rect.width, 1)) * total)
+  }
+  svg.addEventListener('pointerdown', (event) => { svg.setPointerCapture?.(event.pointerId); fromPointer(event) }, { signal: controller.signal })
+  svg.addEventListener('pointermove', fromPointer, { signal: controller.signal })
+  // Touch has no hover — `pointerleave` still fires once the finger drags
+  // off the element/is cancelled, the same natural trigger the tooltip used
+  // before (CDC section 18: never disappear "too fast" on a plain tap —
+  // a tap alone never fires `pointerleave`, so the band/marker persist
+  // exactly as the old tooltip did until a real leave/cancel).
+  svg.addEventListener('pointerleave', clear, { signal: controller.signal })
+  svg.addEventListener('pointercancel', clear, { signal: controller.signal })
+  svg.addEventListener('pointerup', (event) => { svg.releasePointerCapture?.(event.pointerId) }, { signal: controller.signal })
+  // Keyboard focus leaving the profile (section 21) clears it too — an
+  // ArrowLeft/Right keypress itself must never clear mid-navigation.
+  svg.addEventListener('blur', clear, { signal: controller.signal })
+  svg.addEventListener('keydown', (event) => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+    event.preventDefault()
+    selectedIndex = Math.min(samples.length - 1, Math.max(0, selectedIndex + (event.key === 'ArrowRight' ? 1 : -1)))
+    show((samples[selectedIndex] as ProfileSample).distanceKm)
+  }, { signal: controller.signal })
+}
+
 function escapeHtml(value: string): string { return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;') }
 
 /** Structural shape `renderProfileMarker` actually needs — decoupled from the RGA-specific `RoadbookPointMatch`, so a generic caller can build one directly from a `CanonicalWaypoint`. */
@@ -199,17 +297,36 @@ function renderProfileMarker(spec: ProfileMarkerSpec, label: string, x: (distanc
   return `<g class="profile-marker profile-marker--${spec.category}${spec.offRoute ? ' profile-marker--off-route' : ''}${spec.pauseDurationMinutes === undefined ? '' : ' profile-marker--pause'}" transform="translate(${cx} ${cy})" style="fill:${fill};stroke:${stroke};stroke-width:${strokeWidth};"><title>${escapeHtml(label)} · ${spec.distanceKm.toFixed(1)} km${titleSuffix}</title>${pauseRing}${shape}${symbol}</g>`
 }
 
-/** Shared SVG shell (path, axis labels, cursor, tooltip) for both the RGA and generic profiles — only the markers markup and title differ. */
+/**
+ * Shared SVG shell (path, axis labels, cursor) for both the RGA and generic
+ * profiles — only the markers markup, title, and info surface differ.
+ * `presentation: 'tooltip'` (default, RGA — CDC D1.1 section 16 never
+ * touches it) keeps the floating, clamped tooltip exactly as before;
+ * `'band'` (the generic TripBundle profile only) renders the fixed info
+ * band underneath instead — never both, never a floating box that can
+ * overlap the track.
+ */
 function renderProfileSvgMarkup(
   samples: readonly ProfileSample[],
   markersHtml: string,
   bounds: { readonly min: number; readonly max: number; readonly total: number; readonly x: (distance: number) => number; readonly y: (altitude: number) => number },
   titleId: string,
   titleLabel: string,
+  presentation: 'tooltip' | 'band' = 'tooltip',
 ): string {
   const { min, max, total, x, y } = bounds
   const line = samples.map((point, index) => `${index === 0 ? 'M' : 'L'}${x(point.distanceKm).toFixed(1)},${y(point.altitudeM).toFixed(1)}`).join(' ')
-  return `<figure class="elevation-profile"><div class="elevation-profile__stage"><svg data-profile-interactive tabindex="0" viewBox="0 0 800 240" role="group" aria-labelledby="profile-title-${titleId}" aria-describedby="profile-live-${titleId}" preserveAspectRatio="none"><title id="profile-title-${titleId}">${escapeHtml(titleLabel)}</title><path class="profile-area" d="${line} L780,214 L20,214 Z"/><path class="profile-line" d="${line}"/>${markersHtml}<g class="profile-cursor" data-profile-cursor hidden><line data-profile-cursor-line y1="25" y2="214"/><circle data-profile-cursor-dot r="6"/></g><text x="20" y="20">${Math.round(max)} m</text><text x="20" y="230">${Math.round(min)} m</text><text x="700" y="230">${total.toFixed(1)} km</text></svg><div class="profile-tooltip" data-profile-tooltip hidden></div></div><p class="visually-hidden" id="profile-live-${titleId}" data-profile-live aria-live="polite"></p><figcaption>Survolez, touchez ou utilisez les flèches pour lire distance, altitude et pente moyenne.</figcaption></figure>`
+  const infoSurface = presentation === 'tooltip'
+    ? '<div class="profile-tooltip" data-profile-tooltip hidden></div>'
+    : ''
+  // CDC D1.1 section 16: `32,6 km | 1 486 m | Pente 6,2 % | ETA 12:41` — a
+  // fixed band, always visible, below the stage rather than floating over
+  // it. Neutral dashes until the first interaction (`installBandProfileInteraction`
+  // fills them in immediately on mount too).
+  const band = presentation === 'band'
+    ? `<div class="profile-band" data-profile-band><span data-profile-band-distance>—</span><span data-profile-band-altitude>—</span><span data-profile-band-grade>—</span><span data-profile-band-eta>—</span></div>`
+    : ''
+  return `<figure class="elevation-profile"><div class="elevation-profile__stage"><svg data-profile-interactive tabindex="0" viewBox="0 0 800 240" role="group" aria-labelledby="profile-title-${titleId}" aria-describedby="profile-live-${titleId}" preserveAspectRatio="none"><title id="profile-title-${titleId}">${escapeHtml(titleLabel)}</title><path class="profile-area" d="${line} L780,214 L20,214 Z"/><path class="profile-line" d="${line}"/>${markersHtml}<g class="profile-cursor" data-profile-cursor hidden><line data-profile-cursor-line y1="25" y2="214"/><circle data-profile-cursor-dot r="6"/></g><text x="20" y="20">${Math.round(max)} m</text><text x="20" y="230">${Math.round(min)} m</text><text x="700" y="230">${total.toFixed(1)} km</text></svg>${infoSurface}</div>${band}<p class="visually-hidden" id="profile-live-${titleId}" data-profile-live aria-live="polite"></p><figcaption>Survolez, touchez ou utilisez les flèches pour lire distance, altitude, pente moyenne${presentation === 'band' ? ' et ETA' : ''}.</figcaption></figure>`
 }
 
 export function renderElevationProfile(
@@ -253,7 +370,7 @@ export function renderElevationProfile(
     })
     .join('')
   container.innerHTML = renderProfileSvgMarkup(samples, markers, { min, max, total, x, y }, timeline.day.id, `Profil altimétrique interactif de ${timeline.day.id}`)
-  installProfileInteraction(container, samples, min, max, total)
+  installTooltipProfileInteraction(container, samples, min, max, total)
 }
 
 /**
@@ -376,7 +493,12 @@ export function mountClimbProfileInteraction(svg: SVGSVGElement): void {
   })
 }
 
-export function renderGenericElevationProfile(container: HTMLElement, geometry: readonly RouteGeometryPoint[] | null, waypoints: readonly CanonicalWaypoint[], stageLabel = 'étape'): void {
+/**
+ * `timingCurve` (CDC D1.1 sections 16-17) — `waypoint-timeline.ts::
+ * computeStageTimingCurve(...)`'s result, or `null`/omitted for an
+ * undated/untimed stage; the band's ETA cell then simply stays "—".
+ */
+export function renderGenericElevationProfile(container: HTMLElement, geometry: readonly RouteGeometryPoint[] | null, waypoints: readonly CanonicalWaypoint[], stageLabel = 'étape', timingCurve: BandProfileInteractionOptions['timingCurve'] = null): void {
   if (geometry === null || geometry.length < 2) { container.innerHTML = '<p>Profil indisponible.</p>'; return }
   const samples = sampleElevationProfileFromGeometry(geometry)
   if (samples.length < 2) { container.innerHTML = '<p>Profil altimétrique indisponible.</p>'; return }
@@ -397,6 +519,6 @@ export function renderGenericElevationProfile(container: HTMLElement, geometry: 
       return renderProfileMarker(spec, waypoint.name, x, y)
     })
     .join('')
-  container.innerHTML = renderProfileSvgMarkup(samples, markers, { min, max, total, x, y }, 'generic', `Profil altimétrique interactif de ${stageLabel}`)
-  installProfileInteraction(container, samples, min, max, total)
+  container.innerHTML = renderProfileSvgMarkup(samples, markers, { min, max, total, x, y }, 'generic', `Profil altimétrique interactif de ${stageLabel}`, 'band')
+  installBandProfileInteraction(container, samples, min, max, total, { timingCurve })
 }

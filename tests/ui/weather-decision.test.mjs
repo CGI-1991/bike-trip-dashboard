@@ -161,3 +161,51 @@ test('an OFF day (no scenarios) never renders a decision card at all', () => {
   renderGenericStageWeatherPanel(container, baseModel({ dayType: 'off', mode: 'operational', departureScenarios: [], recommendation: null }), false)
   assert.doesNotMatch(container.innerHTML, /weather-decision/)
 })
+
+// --- CDC D1.1 section 15 — tests S/T: the scenario list is always presented
+// chronologically, whichever one the ranking recommends -------------------
+
+test('S: the 5 scenarios render −2h/−1h/Actuel/+1h/+2h in that exact chronological order — even when +1h is the recommended one', () => {
+  const container = fakeElement()
+  const scenarios = fiveScenarios()
+  const recommendation = {
+    status: 'recommended-change',
+    currentScenario: scenarios[2],
+    recommendedScenario: scenarios[3], // +60
+    title: 'Un départ vers 09:00 semble plus favorable que 08:00.',
+    explanation: [],
+  }
+  renderGenericStageWeatherPanel(container, baseModel({ recommendation, departureScenarios: scenarios }), false)
+  const offsetOrder = [...container.innerHTML.matchAll(/<strong>(−2 h|−1 h|Actuel|\+1 h|\+2 h)<\/strong>/g)].map((match) => match[1])
+  assert.deepEqual(offsetOrder, ['−2 h', '−1 h', 'Actuel', '+1 h', '+2 h'], 'chronological order — never re-sorted best-first')
+})
+
+test('T: the "Suggéré" badge lands on the recommended scenario\'s own row, independent of position — "Actuel" keeps its own badge on a different row', () => {
+  const container = fakeElement()
+  const scenarios = fiveScenarios()
+  const recommendation = {
+    status: 'recommended-change',
+    currentScenario: scenarios[2],
+    recommendedScenario: scenarios[3], // +60 — not the first, not the current
+    title: 'Un départ vers 09:00 semble plus favorable que 08:00.',
+    explanation: [],
+  }
+  renderGenericStageWeatherPanel(container, baseModel({ recommendation, departureScenarios: scenarios }), false)
+  const rows = container.innerHTML.split('<li class="weather-decision__scenario')
+  const plus1hRow = rows.find((row) => row.includes('<strong>+1 h</strong>'))
+  const currentRow = rows.find((row) => row.includes('<strong>Actuel</strong>'))
+  const minus2hRow = rows.find((row) => row.includes('<strong>−2 h</strong>'))
+  assert.match(plus1hRow, /tag--suggested">Suggéré</)
+  assert.doesNotMatch(plus1hRow, /tag--data">Actuel/, 'the +1h row is not itself the current scenario')
+  assert.match(currentRow, /tag--data">Actuel/)
+  assert.doesNotMatch(currentRow, /tag--suggested/, 'the current scenario never also claims the Suggéré badge here')
+  assert.doesNotMatch(minus2hRow, /tag--suggested/)
+})
+
+test('no "Suggéré" badge at all when the recommendation keeps the current departure time', () => {
+  const container = fakeElement()
+  const scenarios = fiveScenarios()
+  const recommendation = { status: 'keep-current', currentScenario: scenarios[2], recommendedScenario: null, title: 'Le départ actuel reste le meilleur compromis.', explanation: [] }
+  renderGenericStageWeatherPanel(container, baseModel({ recommendation, departureScenarios: scenarios }), false)
+  assert.doesNotMatch(container.innerHTML, /tag--suggested/)
+})

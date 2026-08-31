@@ -7,7 +7,7 @@
  */
 import type { CanonicalWaypointKind } from '../analysis/canonical-waypoints.ts'
 
-export type RouteMarkerCategory = 'start' | 'finish' | 'col-summit' | 'passage' | 'locality-major' | 'locality-minor'
+export type RouteMarkerCategory = 'start' | 'finish' | 'col-summit' | 'passage' | 'locality-major' | 'locality-minor' | 'overview-primary' | 'overview-secondary'
 
 export type RouteMarkerShape = 'circle' | 'rounded-square' | 'diamond'
 
@@ -76,6 +76,27 @@ const CATEGORY_STYLES: Record<RouteMarkerCategory, RouteMarkerStyle> = {
     sizePx: 10,
     label: 'Village',
   },
+  // CDC D1.1 section 1: the Aperçu global map keeps "au maximum deux styles
+  // simples" of its own — no Départ/Arrivée symbol, no shape variety
+  // borrowed from the Étape's own richer graphic language above. A stage's
+  // principal points (start/end, deduplicated) versus the fullscreen-only
+  // "Détail" layer's intermediate significant points, plain circles both.
+  'overview-primary': {
+    category: 'overview-primary',
+    shape: 'circle',
+    colorHex: '#0f766e',
+    symbol: '',
+    sizePx: 11,
+    label: 'Point d’étape',
+  },
+  'overview-secondary': {
+    category: 'overview-secondary',
+    shape: 'circle',
+    colorHex: '#7d93a1',
+    symbol: '',
+    sizePx: 8,
+    label: 'Point remarquable',
+  },
 }
 
 export function getRouteMarkerStyle(category: RouteMarkerCategory): RouteMarkerStyle {
@@ -104,6 +125,8 @@ export const allRouteMarkerCategories: readonly RouteMarkerCategory[] = [
   'locality-major',
   'locality-minor',
   'passage',
+  'overview-primary',
+  'overview-secondary',
 ]
 
 /**
@@ -156,6 +179,8 @@ const CATEGORY_LEGEND_SYMBOL: Record<RouteMarkerCategory, string> = {
   passage: '●',
   'locality-major': '●',
   'locality-minor': '●',
+  'overview-primary': '●',
+  'overview-secondary': '●',
 }
 
 /**
@@ -167,9 +192,16 @@ export function getRouteMarkerLegendSymbol(category: RouteMarkerCategory): strin
   return CATEGORY_LEGEND_SYMBOL[category]
 }
 
-/** Compact accessible legend text, one entry per category in display order. */
-export function getRouteMarkerLegendEntries(): readonly { readonly symbol: string; readonly label: string }[] {
-  return routeMarkerCategoryOrder.map((category) => ({
+/**
+ * Compact accessible legend text, one entry per category. Defaults to the
+ * fixed 4-entry RGA order (`routeMarkerCategoryOrder`); a generic caller
+ * (`route-map.ts::renderGenericRouteMap`) passes the categories actually
+ * present in its own model instead, so a map that only ever draws e.g. the
+ * Aperçu's `overview-primary`/`overview-secondary` markers never shows a
+ * legend entry for a category it has no markers of (CDC D1.1 section 1).
+ */
+export function getRouteMarkerLegendEntries(categories: readonly RouteMarkerCategory[] = routeMarkerCategoryOrder): readonly { readonly symbol: string; readonly label: string }[] {
+  return categories.map((category) => ({
     symbol: CATEGORY_LEGEND_SYMBOL[category],
     label: getRouteMarkerStyle(category).label,
   }))

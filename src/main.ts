@@ -72,7 +72,7 @@ import {
   renderTripDayRouteTimeline,
 } from './ui/route-engine.ts'
 import { renderElevationProfile } from './ui/elevation-profile.ts'
-import { closeExpandedRouteMap, renderCompactRouteMapModel, renderGenericRouteMap, renderRouteMap } from './ui/route-map.ts'
+import { closeExpandedRouteMap, getRouteMapInteractionHandle, renderCompactRouteMapModel, renderGenericRouteMap, renderRouteMap } from './ui/route-map.ts'
 import { closeExpandedOverviewMap, renderOverviewMap } from './ui/overview-map.ts'
 import { buildOverviewViewModel } from './ui/overview-view-model.ts'
 import { renderOverviewView } from './ui/overview-view.ts'
@@ -1071,6 +1071,7 @@ void openBikeTripDatabase()
       onHeaderChange: applyGenericAppHeader,
       renderMap: renderGenericRouteMap,
       closeMap: closeExpandedRouteMap,
+      getMapInteractionHandle: getRouteMapInteractionHandle,
     })
     // The database only just opened — re-apply whatever Aperçu/Voyage/Mes
     // voyages route is currently in the URL, now that there is a handle to

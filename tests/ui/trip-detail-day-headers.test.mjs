@@ -17,7 +17,7 @@ test('a ride day card is a single clickable button — compact date, no GPX/road
   const bundle = createGenericTripBundle()
   const html = renderTripDetail(bundle)
   assert.match(html, /<button class="trip-day-card trip-day-card--ride[^"]*" type="button" data-action="open-day-detail" data-day-id="day-alpha"/)
-  assert.match(html, /<strong>J1<\/strong><time datetime="2027-05-10">10 Mai<\/time>/)
+  assert.match(html, /<strong>J1<\/strong><time datetime="2027-05-10">10 mai<\/time>/)
   assert.match(html, /Riverside → Hilltown/)
   assert.doesNotMatch(html, /Riverside to Hilltown/)
   assert.doesNotMatch(html, /Voir le détail/)
@@ -35,7 +35,7 @@ test('an OFF day card shows the OFF badge and its auto-filled/known location, no
   const html = renderTripDetail(bundle)
   assert.match(html, /trip-day-card--off/)
   assert.match(html, /<span class="tag tag--off">OFF<\/span>/)
-  assert.match(html, /<strong>J2<\/strong><time datetime="2027-05-11">11 Mai<\/time>/)
+  assert.match(html, /<strong>J2<\/strong><time datetime="2027-05-11">11 mai<\/time>/)
   assert.match(html, /Hilltown/)
   assert.doesNotMatch(html, /Voir le détail/)
 })
@@ -45,7 +45,7 @@ test('a transfer day card shows the Transfert badge and origin → destination',
   const html = renderTripDetail(bundle)
   assert.match(html, /trip-day-card--transfer/)
   assert.match(html, /<span class="tag tag--transfer">Transfert<\/span>/)
-  assert.match(html, /<strong>J3<\/strong><time datetime="2027-05-12">12 Mai<\/time>/)
+  assert.match(html, /<strong>J3<\/strong><time datetime="2027-05-12">12 mai<\/time>/)
   assert.match(html, /Hilltown → Lakeside/)
 })
 
@@ -147,7 +147,37 @@ test('the priority day (first non-completed day) is visually marked on its card'
 test('a completed ride day (its date is in the past) shows "Terminé" instead of "Étape"', () => {
   const bundle = createGenericTripBundle()
   const html = renderTripDetail(bundle, { now: '2027-05-13T00:00:00.000Z' })
-  const alphaCard = html.split('data-day-id="day-alpha"')[1]?.split('</li>')[0] ?? ''
+  const alphaCard = html.match(/<li>\s*<button[^>]*data-day-id="day-alpha"[\s\S]*?<\/button>\s*<\/li>/)?.[0] ?? ''
   assert.match(alphaCard, /<span class="tag tag--completed">Terminé<\/span>/)
   assert.doesNotMatch(alphaCard, /tag--ride">Étape</)
+})
+
+// --- CDC D1.1 section 5: a stable grid — fixed left/right columns, status
+// always separate from the hours zone, long names never break it ----------
+
+test('J: the day-card date uses the short abbreviated format ("03 sept."), never the full month name', () => {
+  const bundle = createGenericTripBundle()
+  const html = renderTripDetail(bundle)
+  assert.match(html, /<time datetime="2027-05-10">10 mai<\/time>/)
+  assert.doesNotMatch(html, /10 Mai</, 'the full-month formatSimpleDate must not leak back into the Voyage list')
+})
+
+test('K: the status badge is its own grid item, physically separate from the Départ/ETA hours — never sharing a line with them or the route name', () => {
+  const bundle = createGenericTripBundle()
+  const html = renderTripDetail(bundle)
+  const alphaCard = html.match(/<li>\s*<button[^>]*data-day-id="day-alpha"[\s\S]*?<\/button>\s*<\/li>/)?.[0] ?? ''
+  assert.match(alphaCard, /<span class="trip-day-card__schedule">\s*<span class="trip-day-card__status"><span class="tag tag--ride">Étape<\/span><\/span>\s*<small>/)
+  // The route name's own <span> carries no badge markup any more.
+  assert.doesNotMatch(alphaCard, /<span class="trip-day-card__route"[^>]*>[^<]*<span class="tag/)
+})
+
+test('L: a very long place name still renders as a single ellipsis-truncated line — the grid columns (status/hours) are untouched by its length', () => {
+  const bundle = createGenericTripBundle()
+  bundle.stages[0].startLocationName = 'Saint-Jean-de-la-Très-Longue-Vallée-des-Alpes-Maritimes'
+  const html = renderTripDetail(bundle)
+  assert.match(html, /<span class="trip-day-card__route" title="Saint-Jean-de-la-Très-Longue-Vallée-des-Alpes-Maritimes → Hilltown"[^>]*>St-Jean-de-la-Très-Longue-Vallée-des-Alpes-Maritimes → Hilltown<\/span>/)
+  // The right-hand schedule column still renders its own three rows,
+  // wherever the card is measured — the grid never collapses/reflows it.
+  const alphaCard = html.match(/<li>\s*<button[^>]*data-day-id="day-alpha"[\s\S]*?<\/button>\s*<\/li>/)?.[0] ?? ''
+  assert.match(alphaCard, /<span class="trip-day-card__schedule">\s*<span class="trip-day-card__status">/)
 })

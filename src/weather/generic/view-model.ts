@@ -15,7 +15,7 @@ import type { DayRiskContext } from '../alerts/evaluate-day.ts'
 import { evaluateHourlyRisk } from '../alerts/evaluate-point.ts'
 import { getWeatherExposureContext } from '../alerts/exposure.ts'
 import { attachRiskToScenarios } from '../alerts/departure-scenarios.ts'
-import { buildDepartureRecommendation, rankDepartureScenarios } from '../alerts/recommendations.ts'
+import { buildDepartureRecommendation } from '../alerts/recommendations.ts'
 import { WEATHER_ALERT_THRESHOLDS } from '../alerts/thresholds.ts'
 import type { DepartureRecommendation, DepartureWeatherScenario, WeatherAlert, WeatherRiskLevel } from '../alerts/types.ts'
 import { weatherConfig } from '../config.ts'
@@ -89,12 +89,15 @@ export interface GenericDayWeatherViewModel {
   readonly riskLevel: WeatherRiskLevel
   readonly alerts: readonly WeatherAlert[]
   /**
-   * Sections 18-27/29 closeout: risk-attached, ranked (`rankDepartureScenarios`)
-   * departure-time comparisons — `[]` for OFF days, or whenever
-   * `WeatherCoordinator` hasn't computed any yet (`state.departureScenarios`
-   * is `null`). Always the same shared `attachRiskToScenarios`/
-   * `rankDepartureScenarios` the historical RGA runtime used, never a
-   * second, simplified scoring.
+   * Sections 18-27/29 closeout: risk-attached departure-time comparisons —
+   * `[]` for OFF days, or whenever `WeatherCoordinator` hasn't computed any
+   * yet (`state.departureScenarios` is `null`). Always the same shared
+   * `attachRiskToScenarios` the historical RGA runtime used, never a second,
+   * simplified scoring. CDC D1.1 section 15: kept in CHRONOLOGICAL offset
+   * order (-2h/-1h/actuel/+1h/+2h) — the presentation order every UI reads
+   * this in — never re-sorted best-first; only `recommendation` below
+   * (via `buildDepartureRecommendation`'s own internal ranking) says which
+   * one is suggested.
    */
   readonly departureScenarios: readonly DepartureWeatherScenario[]
   /**
@@ -224,22 +227,34 @@ export function buildGenericDayWeatherViewModel(dayId: string, state: WeatherDay
 
   // Sections 18-27 closeout: `WeatherCoordinator` already computes weather-
   // only `departureScenarios` for every ride day (`state.departureScenarios`)
-  // — this is the one place that turns them into the risk-aware, ranked,
+  // — this is the one place that turns them into the risk-aware,
   // recommendation-bearing shape the generic UI needs, reusing exactly the
-  // same `attachRiskToScenarios`/`rankDepartureScenarios`/
-  // `buildDepartureRecommendation` the historical RGA weather-detail screen
-  // uses. No second scoring, no new network call — these all reassociate
-  // against the forecast already fetched for the real departure time.
+  // same `attachRiskToScenarios`/`buildDepartureRecommendation` the
+  // historical RGA weather-detail screen uses. No second scoring, no new
+  // network call — these all reassociate against the forecast already
+  // fetched for the real departure time.
   if (state.data.type !== 'ride' || state.departureScenarios === null || state.departureScenarios.length === 0) {
     return { ...base, mode }
   }
 
+  // CDC D1.1 section 15: `departureScenarios` is what the UI presents
+  // (`weather-view.ts::renderScenarioComparison`) — it must stay in
+  // chronological offset order (-2h/-1h/actuel/+1h/+2h — the order
+  // `attachRiskToScenarios` already preserves from `state.departureScenarios`
+  // itself, built via `DEPARTURE_SCENARIO_OFFSETS_MINUTES`), never the
+  // best-first order `rankDepartureScenarios` produces. Ranking is still the
+  // one and only thing that decides the recommendation itself —
+  // `buildDepartureRecommendation` ranks internally (`rankDepartureScenarios`
+  // called again inside it) to find its own "best" candidate; it never
+  // needs a pre-ranked list, so presentation order and recommendation logic
+  // stay two genuinely separate concerns instead of secretly sharing one
+  // array's order.
   const riskContext: DayRiskContext = { fetchedAt: state.fetchedAt, now, upcomingPointIds: null }
-  const scenarios = rankDepartureScenarios(attachRiskToScenarios(dayId, state.tripDate, state.departureScenarios, riskContext))
-  const current = scenarios.find((scenario) => scenario.isCurrent) ?? null
+  const chronological = attachRiskToScenarios(dayId, state.tripDate, state.departureScenarios, riskContext)
+  const current = chronological.find((scenario) => scenario.isCurrent) ?? null
   const departureAlreadyPassed = current?.departureTimeLocal !== null && current !== null && nowLocal >= current.departureTimeLocal
   const cacheAgeMs = state.fetchedAt === null ? null : now.getTime() - new Date(state.fetchedAt).getTime()
-  const recommendation = buildDepartureRecommendation(scenarios, { mode, hasDeparted: departureAlreadyPassed, cacheAgeMs })
+  const recommendation = buildDepartureRecommendation(chronological, { mode, hasDeparted: departureAlreadyPassed, cacheAgeMs })
 
-  return { ...base, mode, departureScenarios: scenarios, recommendation, departureAlreadyPassed }
+  return { ...base, mode, departureScenarios: chronological, recommendation, departureAlreadyPassed }
 }
