@@ -7,7 +7,14 @@
  */
 import type { CanonicalWaypointKind } from '../analysis/canonical-waypoints.ts'
 
-export type RouteMarkerCategory = 'start' | 'finish' | 'col-summit' | 'passage' | 'locality-major' | 'locality-minor' | 'overview-primary' | 'overview-secondary'
+export type RouteMarkerCategory =
+  | 'start' | 'finish' | 'col-summit' | 'passage' | 'locality-major' | 'locality-minor' | 'overview-primary' | 'overview-secondary'
+  // C2 practical-POI categories (CDC section 18) — Étape fullscreen map only,
+  // never mixed into the structural categories above (never part of
+  // `allRouteMarkerCategories`'s legend either — see that constant's own
+  // comment: these live only in an opt-in `MapLayerDefinition` layer, so the
+  // base map's own dynamic legend never lists them).
+  | 'practical-bike' | 'practical-supermarket' | 'practical-bakery' | 'practical-water' | 'practical-shelter' | 'practical-toilet'
 
 export type RouteMarkerShape = 'circle' | 'rounded-square' | 'diamond'
 
@@ -97,6 +104,17 @@ const CATEGORY_STYLES: Record<RouteMarkerCategory, RouteMarkerStyle> = {
     sizePx: 8,
     label: 'Point remarquable',
   },
+  // C2 (CDC section 18): a simple, differentiable icon per category — plain
+  // circles, one distinct colour + glyph each, deliberately smaller than the
+  // structural markers above so they read as a secondary, opt-in layer
+  // rather than competing with départ/arrivée/cols. Never recoloured by
+  // opening status (CDC section 26 — that only ever shows in the popup).
+  'practical-bike': { category: 'practical-bike', shape: 'circle', colorHex: '#1d4ed8', symbol: '🚲', sizePx: 16, label: 'Vélo' },
+  'practical-supermarket': { category: 'practical-supermarket', shape: 'circle', colorHex: '#b45309', symbol: '🛒', sizePx: 16, label: 'Supermarché' },
+  'practical-bakery': { category: 'practical-bakery', shape: 'circle', colorHex: '#c2410c', symbol: '🥖', sizePx: 16, label: 'Boulangerie' },
+  'practical-water': { category: 'practical-water', shape: 'circle', colorHex: '#0891b2', symbol: '💧', sizePx: 16, label: 'Eau' },
+  'practical-shelter': { category: 'practical-shelter', shape: 'circle', colorHex: '#57534e', symbol: '⛺', sizePx: 16, label: 'Abris' },
+  'practical-toilet': { category: 'practical-toilet', shape: 'circle', colorHex: '#0e7490', symbol: '🚻', sizePx: 16, label: 'Toilette' },
 }
 
 export function getRouteMarkerStyle(category: RouteMarkerCategory): RouteMarkerStyle {
@@ -181,6 +199,12 @@ const CATEGORY_LEGEND_SYMBOL: Record<RouteMarkerCategory, string> = {
   'locality-minor': '●',
   'overview-primary': '●',
   'overview-secondary': '●',
+  'practical-bike': '🚲',
+  'practical-supermarket': '🛒',
+  'practical-bakery': '🥖',
+  'practical-water': '💧',
+  'practical-shelter': '⛺',
+  'practical-toilet': '🚻',
 }
 
 /**

@@ -1,6 +1,6 @@
 import { createSerialRateLimiter } from '../geocoding/rate-limiter.ts'
 import { expandedRouteBoundingBox, formatOverpassBoundingBox } from '../route-enrichment/overpass-bbox.ts'
-import type { PracticalPlaceCandidate, PracticalPlacesProvider, PracticalPlacesSearch } from './types.ts'
+import type { LegacyPracticalPlacesProvider, LegacyPracticalPlacesSearch, PracticalPlaceCandidate } from './types.ts'
 
 const DEFAULT_BASE_URLS = [
   'https://overpass-api.de/api/interpreter',
@@ -70,7 +70,7 @@ function nonEmptyString(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
 }
 
-export function buildOverpassPracticalPlacesQuery(search: PracticalPlacesSearch): string {
+export function buildOverpassPracticalPlacesQuery(search: LegacyPracticalPlacesSearch): string {
   const radius = Math.max(100, Math.min(500, Math.round(search.radiusMeters)))
   const bbox = formatOverpassBoundingBox(expandedRouteBoundingBox(search.geometry, radius))
   return `[out:json][timeout:10];(`
@@ -128,7 +128,7 @@ function parseCandidate(element: OverpassElement, language: string): PracticalPl
   }
 }
 
-export function createOverpassPracticalPlacesProvider(options: OverpassPracticalPlacesProviderOptions = {}): PracticalPlacesProvider {
+export function createOverpassPracticalPlacesProvider(options: OverpassPracticalPlacesProviderOptions = {}): LegacyPracticalPlacesProvider {
   const endpoints = [...new Set([
     ...(options.baseUrl === undefined ? [] : [options.baseUrl]),
     ...(options.baseUrls ?? DEFAULT_BASE_URLS),

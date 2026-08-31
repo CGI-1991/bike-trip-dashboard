@@ -78,30 +78,66 @@ test('automatic enrichment runs endpoints before route data and a network outage
   }
 })
 
-test('the normal automatic pipeline never invokes practical-place enrichment', async () => {
+/**
+ * CDC C2 section 2/15: Postpass practical-place enrichment IS now a third
+ * automatic phase, run once per trip open exactly like endpoints/route data
+ * — superseding the pre-C2 guarantee that used to live at this exact test
+ * name ("never invokes practical-place enrichment"). What C2 still forbids
+ * is Overpass ever running automatically (covered by
+ * `tests/ui/no-overpass-runtime.test.mjs` and the source-text guard above);
+ * a Postpass-shaped provider given here now runs exactly once, then never
+ * again once the trip's provider state is `success` (tests AR/AS).
+ */
+test('when supplied, the practical-places provider runs automatically exactly once per trip needing it', async () => {
   const database = await openTestDatabase()
   try {
     const repository = createTripRepository(database)
     const bundle = createGenericTripBundle()
     await repository.saveTripBundle(bundle)
     let practicalCalls = 0
+    const provider = {
+      id: 'postpass-practical-places', sourceType: 'osm', attribution: 'OSM',
+      async findCandidates() {
+        practicalCalls++
+        return { candidates: [], durationMs: 1, rawCandidateCount: 0, httpStatus: 200, payloadBytes: 10, startedAt: '2028-08-03T10:00:00.000Z', finishedAt: '2028-08-03T10:00:00.001Z' }
+      },
+    }
 
     const report = await runStoredTripAutomaticEnrichment({
-      database,
-      tripId: bundle.metadata.id,
-      practicalPlacesProvider: {
-        id: 'forbidden-practical-provider',
-        sourceType: 'osm',
-        attribution: 'OSM',
-        async findCandidates() { practicalCalls++; return [] },
-      },
-      idFactory: idFactory(),
-      now: () => '2028-08-03T10:00:00.000Z',
+      database, tripId: bundle.metadata.id, practicalPlacesProvider: provider,
+      idFactory: idFactory(), now: () => '2028-08-03T10:00:00.000Z',
+    })
+    assert.equal(report.practicalPlacesAttempted, true)
+    assert.ok(practicalCalls >= 1)
+    const afterFirst = practicalCalls
+
+    // A second automatic pass (e.g. re-opening the trip) must not repeat the
+    // search — the trip's own provider state is already `success`.
+    const second = await runStoredTripAutomaticEnrichment({
+      database, tripId: bundle.metadata.id, practicalPlacesProvider: provider,
+      idFactory: idFactory(), now: () => '2028-08-04T10:00:00.000Z',
+    })
+    assert.equal(second.practicalPlacesAttempted, false)
+    assert.equal(practicalCalls, afterFirst)
+  } finally {
+    database.close()
+  }
+})
+
+test('with no practical-places provider supplied, automatic enrichment never attempts one', async () => {
+  const database = await openTestDatabase()
+  try {
+    const repository = createTripRepository(database)
+    const bundle = createGenericTripBundle()
+    await repository.saveTripBundle(bundle)
+
+    const report = await runStoredTripAutomaticEnrichment({
+      database, tripId: bundle.metadata.id, idFactory: idFactory(), now: () => '2028-08-03T10:00:00.000Z',
     })
 
     assert.equal(report.endpointAttempted, false)
     assert.equal(report.routeAttempted, false)
-    assert.equal(practicalCalls, 0)
+    assert.equal(report.practicalPlacesAttempted, false)
     assert.ok(await repository.loadTripBundle(bundle.metadata.id))
   } finally {
     database.close()

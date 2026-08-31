@@ -289,8 +289,12 @@ export function mergeEditedTripBundle(existing: TripBundle, rebuilt: TripBundle,
     .filter((place) => {
       if (!place.dayIds.some((dayId) => keptDayIds.has(dayId))) return false
       if (isManualProvenance(place.provenance)) return true
+      // CDC C2 section 14: `practical-places-osm@` (retired chunked Overpass
+      // engine) and `practical-places-postpass@` (C2's own engine) are both
+      // "automatic, route-tied" practical places — either one survives an
+      // edit that leaves its own stage's route unchanged.
       return place.provenance.sourceType === 'osm'
-        && place.provenance.engineVersion.startsWith('practical-places-osm@')
+        && place.provenance.engineVersion.startsWith('practical-places-')
         && place.stageId !== undefined
         && place.stageId !== null
         && remaps.unchangedStageIds.has(place.stageId)

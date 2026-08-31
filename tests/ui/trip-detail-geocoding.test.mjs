@@ -34,10 +34,18 @@ test('trip detail exposes no manual Overpass climb-naming action — climbs them
   assert.doesNotMatch(html, /enrich-trip-climb-names/)
 })
 
-test('trip detail keeps stored practical places readable but exposes no practical-place search action', () => {
+/**
+ * CDC C2 section 16 (non-objectif, section 41): practical POI are visible
+ * ONLY in the Étape fullscreen map's own "Calques" panel — never here. The
+ * old "Lieux pratiques" technical-details disclosure this test used to
+ * cover predates C2 and is gone outright (not merely hidden behind a flag);
+ * re-adding any trace of it in Voyage would be the exact regression C2
+ * section 16 forbids.
+ */
+test('trip detail (Voyage) never surfaces practical places, however many are stored — C2 confines them to the Étape fullscreen map', () => {
   const bundle = createGenericTripBundle()
   bundle.practicalPlaces.push({
-    id: 'osm-practical:stage-alpha:node:42',
+    id: 'postpass-practical:stage-alpha:node:42',
     stageId: bundle.stages[0].id,
     category: 'water',
     name: null,
@@ -53,35 +61,17 @@ test('trip detail keeps stored practical places readable but exposes no practica
     dayIds: [bundle.days[0].id],
     provenance: {
       sourceType: 'osm', sourceId: 'mock:node:42', fetchedAt: '2028-08-03T10:00:00.000Z',
-      engineVersion: 'practical-places-osm@1', confidence: 'high', manuallyOverridden: false,
+      engineVersion: 'practical-places-postpass@1', confidence: 'high', manuallyOverridden: false,
     },
   })
   const html = renderTripDetail(bundle)
-  assert.doesNotMatch(html, /Rechercher les lieux utiles/)
-  assert.match(html, /Eau potable/)
-  assert.match(html, /Sans nom/)
-  assert.match(html, /≈ 12\.3 km/)
-  assert.match(html, /© OpenStreetMap contributors/)
-})
-
-test('trip detail distinguishes an unstarted, successful-empty and failed practical-place search', () => {
-  const bundle = createGenericTripBundle()
-  bundle.practicalPlaces = []
-  assert.match(renderTripDetail(bundle), /Recherche de lieux pratiques non encore effectuée/)
-
-  bundle.enrichmentMetadata.providers.push({
-    provider: 'osm-practical-places', lastAttemptedAt: '2028-08-03T10:00:00.000Z',
-    lastSuccessAt: '2028-08-03T10:00:00.000Z', status: 'success', message: null,
-  })
-  assert.match(renderTripDetail(bundle), /Recherche effectuée : aucun lieu pratique trouvé/)
-
-  bundle.enrichmentMetadata.providers[bundle.enrichmentMetadata.providers.length - 1] = {
-    provider: 'osm-practical-places', lastAttemptedAt: '2028-08-04T10:00:00.000Z',
-    lastSuccessAt: '2028-08-03T10:00:00.000Z', status: 'error', message: 'Overpass indisponible.',
-  }
-  const failedHtml = renderTripDetail(bundle)
-  assert.match(failedHtml, /dernière recherche a échoué/)
-  assert.doesNotMatch(failedHtml, /Rechercher les lieux utiles/)
+  assert.doesNotMatch(html, /Lieux pratiques/)
+  assert.doesNotMatch(html, /data-trip-detail-practical/)
+  assert.doesNotMatch(html, /Eau potable/)
+  // Endpoint/route/climb OSM data alone still earns the attribution line —
+  // practical places are simply never part of that decision any more.
+  bundle.routePoints[0].provenance.sourceType = 'osm'
+  assert.match(renderTripDetail(bundle), /© OpenStreetMap contributors/)
 })
 
 /**

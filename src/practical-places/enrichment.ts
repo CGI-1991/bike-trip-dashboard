@@ -1,40 +1,44 @@
-import { buildRouteChunks } from '../route-enrichment/chunking.ts'
+import { computeStagePracticalPlaceAnchors } from './anchors.ts'
 import { routeFingerprint, routeGeometry } from '../route-enrichment/route-fingerprint.ts'
+import { PRACTICAL_PLACES_ANCHOR_RADIUS_METERS, PRACTICAL_PLACES_CORRIDOR_RADIUS_METERS } from './postpass-provider.ts'
 import { createPracticalPlacesCacheRepository } from '../storage/indexeddb/practical-places-cache-repository.ts'
 import type { PracticalPlacesCacheRepository } from '../storage/indexeddb/practical-places-cache-repository.ts'
 import { createTripRepository } from '../storage/indexeddb/trip-repository.ts'
 import type { EnrichmentProviderState, PracticalPlace, RideStage, Route, RouteGeometryPoint, TripBundle, TripDay, TripId } from '../trip-core/index.ts'
 import { practicalPlaceId } from '../trip-core/index.ts'
-import { locateAndDeduplicatePracticalPlaces } from './route-proximity.ts'
+import { locateAndDeduplicatePostpassPracticalPlaces } from './route-proximity.ts'
 import type { LocatedPracticalPlaceCandidate } from './route-proximity.ts'
-import type { PracticalPlaceCandidate, PracticalPlacesProvider } from './types.ts'
+import type { PracticalPlaceAnchor, PracticalPlaceCandidate, PracticalPlacesProvider } from './types.ts'
 
-export const PRACTICAL_PLACES_ENGINE_VERSION = 'practical-places-osm@2'
-export const PRACTICAL_PLACES_PROVIDER_STATE = 'osm-practical-places'
-const SEARCH_RADIUS_METERS = 300
-const MAXIMUM_LATERAL_DISTANCE_METERS = 250
-const PRACTICAL_PLACES_CHUNK_LENGTH_KM = 10
+/**
+ * C2 (CDC section 14): Postpass replaces the chunked Overpass engine —
+ * bumped so a bundle enriched under `practical-places-osm@2` (chunk-cached,
+ * single-corridor, includes categories C2 no longer surfaces — fast-food,
+ * sports) is never mistaken for already-current. `isAutomaticPracticalPlace`
+ * only ever recognises `practical-places-` prefixed engine versions as
+ * "safe to replace wholesale on a fresh success" — an old `@2` entry simply
+ * stops being recognised as current and is naturally superseded the next
+ * time its stage is (re-)enriched, never migrated in place.
+ */
+export const PRACTICAL_PLACES_ENGINE_VERSION = 'practical-places-postpass@1'
+export const PRACTICAL_PLACES_PROVIDER_STATE = 'postpass-practical-places'
 
-type LookupStatus = 'success' | 'no-result' | 'partial' | 'error'
+type LookupStatus = 'success' | 'no-result' | 'error'
 
 interface StageLookup {
   readonly stage: RideStage
   readonly day: TripDay
   readonly route: Route
   readonly geometry: readonly RouteGeometryPoint[]
+  readonly anchors: readonly PracticalPlaceAnchor[]
   readonly candidates: readonly PracticalPlaceCandidate[]
   readonly status: LookupStatus
-  readonly cacheHitCount: number
-  readonly successChunkCount: number
-  readonly errorChunkCount: number
-  readonly chunkCount: number
+  readonly fromCache: boolean
 }
 
 export interface PracticalPlacesProgress {
   readonly stageIndex: number
   readonly stageCount: number
-  readonly chunkIndex: number
-  readonly chunkCount: number
   readonly fromCache: boolean
   readonly status: 'cache' | 'success' | 'error'
   readonly errorCount: number
@@ -44,7 +48,7 @@ export interface PracticalPlacesEnrichmentReport {
   readonly bundle: TripBundle
   readonly saved: boolean
   readonly stageCount: number
-  readonly chunkCount: number
+  readonly requestCount: number
   readonly placeCount: number
   readonly cacheHitCount: number
   readonly networkErrorCount: number
@@ -63,17 +67,24 @@ export interface EnrichStoredTripPracticalPlacesInput extends Omit<EnrichTripPra
   readonly tripId: TripId
 }
 
-function pendingLookups(bundle: TripBundle): readonly Omit<StageLookup, 'candidates' | 'status' | 'cacheHitCount' | 'successChunkCount' | 'errorChunkCount' | 'chunkCount'>[] {
+function pendingLookups(bundle: TripBundle): readonly Omit<StageLookup, 'candidates' | 'status' | 'fromCache'>[] {
   const routes = new Map(bundle.routes.map((route) => [route.id, route]))
   const days = new Map(bundle.days.map((day) => [day.id, day]))
   return bundle.stages.flatMap((stage) => {
     const route = routes.get(stage.sourceRouteId)
     const day = days.get(stage.dayId)
     const geometry = route === undefined ? null : routeGeometry(route)
-    return route === undefined || day === undefined || geometry === null ? [] : [{ stage, day, route, geometry }]
+    if (route === undefined || day === undefined || geometry === null) return []
+    return [{ stage, day, route, geometry, anchors: computeStagePracticalPlaceAnchors(bundle, stage, route) }]
   })
 }
 
+/**
+ * One Postpass request per stage (CDC C2 section 11 — never one per anchor,
+ * never per-chunk like the retired Overpass engine): a cache hit skips the
+ * network entirely; a network failure returns `status: 'error'` so
+ * `applyLookups` below preserves whatever this stage already had.
+ */
 async function resolveLookup(
   bundle: TripBundle,
   lookup: ReturnType<typeof pendingLookups>[number],
@@ -84,60 +95,44 @@ async function resolveLookup(
   stageCount: number,
   onProgress?: (progress: PracticalPlacesProgress) => void,
 ): Promise<StageLookup> {
-  const chunks = buildRouteChunks(lookup.geometry, PRACTICAL_PLACES_CHUNK_LENGTH_KM)
-  const candidates: PracticalPlaceCandidate[] = []
-  let cacheHitCount = 0
-  let successChunkCount = 0
-  let errorChunkCount = 0
-  for (const chunk of chunks) {
-    const identity = {
-      providerId: provider.id,
-      routeFingerprint: routeFingerprint(bundle, lookup.route),
-      enrichmentType: 'practical-places',
-      chunkKey: chunk.key,
-      engineVersion: PRACTICAL_PLACES_ENGINE_VERSION,
-    }
-    const cached = await cache.get(identity).catch(() => null)
-    if (cached !== null) {
-      candidates.push(...cached.results)
-      cacheHitCount++
-      successChunkCount++
-      onProgress?.({
-        stageIndex, stageCount, chunkIndex: chunk.index, chunkCount: chunks.length,
-        fromCache: true, status: 'cache', errorCount: errorChunkCount,
-      })
-      continue
-    }
-    try {
-      const found = await provider.findCandidates({ geometry: chunk.geometry, radiusMeters: SEARCH_RADIUS_METERS })
-      await cache.put(identity, found, attemptedAt)
-      candidates.push(...found)
-      successChunkCount++
-      onProgress?.({
-        stageIndex, stageCount, chunkIndex: chunk.index, chunkCount: chunks.length,
-        fromCache: false, status: 'success', errorCount: errorChunkCount,
-      })
-    } catch {
-      errorChunkCount++
-      onProgress?.({
-        stageIndex, stageCount, chunkIndex: chunk.index, chunkCount: chunks.length,
-        fromCache: false, status: 'error', errorCount: errorChunkCount,
-      })
-    }
+  const identity = {
+    providerId: provider.id,
+    routeFingerprint: routeFingerprint(bundle, lookup.route),
+    enrichmentType: 'practical-places',
+    engineVersion: PRACTICAL_PLACES_ENGINE_VERSION,
   }
-  const status: LookupStatus = errorChunkCount === 0
-    ? candidates.length === 0 ? 'no-result' : 'success'
-    : successChunkCount > 0 ? 'partial' : 'error'
-  return { ...lookup, candidates, status, cacheHitCount, successChunkCount, errorChunkCount, chunkCount: chunks.length }
+  const cached = await cache.get(identity).catch(() => null)
+  if (cached !== null) {
+    onProgress?.({ stageIndex, stageCount, fromCache: true, status: 'cache', errorCount: 0 })
+    return { ...lookup, candidates: cached.results, status: cached.results.length === 0 ? 'no-result' : 'success', fromCache: true }
+  }
+  try {
+    const result = await provider.findCandidates({
+      stageId: lookup.stage.id,
+      routeFingerprint: identity.routeFingerprint,
+      geometry: lookup.geometry,
+      routeLengthKm: lookup.stage.distanceKm ?? lookup.route.segments[0]?.distanceKm ?? null,
+      anchors: lookup.anchors,
+      corridorRadiusMeters: PRACTICAL_PLACES_CORRIDOR_RADIUS_METERS,
+      anchorRadiusMeters: PRACTICAL_PLACES_ANCHOR_RADIUS_METERS,
+    })
+    await cache.put(identity, result.candidates, attemptedAt)
+    onProgress?.({ stageIndex, stageCount, fromCache: false, status: 'success', errorCount: 0 })
+    return { ...lookup, candidates: result.candidates, status: result.candidates.length === 0 ? 'no-result' : 'success', fromCache: false }
+  } catch {
+    onProgress?.({ stageIndex, stageCount, fromCache: false, status: 'error', errorCount: 1 })
+    return { ...lookup, candidates: [], status: 'error', fromCache: false }
+  }
 }
 
 function isAutomaticPracticalPlace(place: PracticalPlace): boolean {
-  return place.provenance.sourceType === 'osm' && place.provenance.engineVersion.startsWith('practical-places-osm@')
+  return place.provenance.sourceType === 'osm' && place.provenance.engineVersion.startsWith('practical-places-')
 }
 
 function toPracticalPlace(candidate: LocatedPracticalPlaceCandidate, lookup: StageLookup, provider: PracticalPlacesProvider, attemptedAt: string): PracticalPlace {
+  const detourMeters = candidate.anchorDistanceMeters ?? candidate.lateralDistanceMeters
   return {
-    id: practicalPlaceId(`osm-practical:${lookup.stage.id}:${candidate.osmType}:${candidate.osmId}`),
+    id: practicalPlaceId(`postpass-practical:${lookup.stage.id}:${candidate.osmType}:${candidate.osmId}`),
     stageId: lookup.stage.id,
     category: candidate.category,
     name: candidate.name,
@@ -145,7 +140,7 @@ function toPracticalPlace(candidate: LocatedPracticalPlaceCandidate, lookup: Sta
     longitude: candidate.longitude,
     description: null,
     trackDistanceKm: candidate.trackDistanceKm,
-    detourKm: candidate.lateralDistanceMeters / 1_000,
+    detourKm: detourMeters / 1_000,
     openingHours: candidate.usefulTags.opening_hours ?? null,
     usefulTags: candidate.usefulTags,
     hidden: false,
@@ -162,28 +157,29 @@ function toPracticalPlace(candidate: LocatedPracticalPlaceCandidate, lookup: Sta
   }
 }
 
-function providerState(bundle: TripBundle, lookups: readonly StageLookup[], attemptedAt: string): EnrichmentProviderState {
-  const errors = lookups.reduce((total, lookup) => total + lookup.errorChunkCount, 0)
-  const completed = lookups.reduce((total, lookup) => total + lookup.successChunkCount, 0)
-  const existing = bundle.enrichmentMetadata.providers.find((state) => state.provider === PRACTICAL_PLACES_PROVIDER_STATE)
+function providerState(lookups: readonly StageLookup[], attemptedAt: string, existing: EnrichmentProviderState | undefined): EnrichmentProviderState {
+  const errors = lookups.filter((lookup) => lookup.status === 'error').length
+  const successes = lookups.filter((lookup) => lookup.status !== 'error').length
   return {
     provider: PRACTICAL_PLACES_PROVIDER_STATE,
     lastAttemptedAt: attemptedAt,
-    lastSuccessAt: completed > 0 ? attemptedAt : existing?.lastSuccessAt ?? null,
-    status: errors === 0 ? 'success' : completed > 0 ? 'partial' : 'error',
-    message: errors === 0 ? null : `${errors} zone(s) restent à rechercher ; les lieux acquis sont conservés.`,
+    lastSuccessAt: successes > 0 ? attemptedAt : existing?.lastSuccessAt ?? null,
+    status: errors === 0 ? 'success' : successes > 0 ? 'partial' : 'error',
+    message: errors === 0 ? null : `${errors} étape(s) restent à rechercher ; les lieux acquis sont conservés.`,
   }
 }
 
-function applyLookups(bundle: TripBundle, lookups: readonly StageLookup[], provider: PracticalPlacesProvider, attemptedAt: string): TripBundle {
+function applyLookups(bundle: TripBundle, lookups: readonly StageLookup[], geometryByStageId: Map<string, readonly RouteGeometryPoint[]>, anchorsByStageId: Map<string, readonly PracticalPlaceAnchor[]>, provider: PracticalPlacesProvider, attemptedAt: string): TripBundle {
   let practicalPlaces = [...bundle.practicalPlaces]
   for (const lookup of lookups) {
     if (lookup.status === 'error') continue
-    const generated = locateAndDeduplicatePracticalPlaces(lookup.candidates, lookup.geometry, MAXIMUM_LATERAL_DISTANCE_METERS)
-      .map((candidate) => toPracticalPlace(candidate, lookup, provider, attemptedAt))
-    if (lookup.status === 'success' || lookup.status === 'no-result') {
-      practicalPlaces = practicalPlaces.filter((place) => !isAutomaticPracticalPlace(place) || place.stageId !== lookup.stage.id)
-    }
+    const geometry = geometryByStageId.get(lookup.stage.id) ?? []
+    const anchors = anchorsByStageId.get(lookup.stage.id) ?? []
+    const generated = locateAndDeduplicatePostpassPracticalPlaces(lookup.candidates, geometry, anchors, {
+      corridorMaximumLateralDistanceMeters: PRACTICAL_PLACES_CORRIDOR_RADIUS_METERS,
+      anchorMaximumDistanceMeters: PRACTICAL_PLACES_ANCHOR_RADIUS_METERS,
+    }).map((candidate) => toPracticalPlace(candidate, lookup, provider, attemptedAt))
+    practicalPlaces = practicalPlaces.filter((place) => !isAutomaticPracticalPlace(place) || place.stageId !== lookup.stage.id)
     const byId = new Map(practicalPlaces.map((place) => [place.id, place]))
     for (const place of generated) byId.set(place.id, place)
     practicalPlaces = [...byId.values()]
@@ -193,7 +189,10 @@ function applyLookups(bundle: TripBundle, lookups: readonly StageLookup[], provi
     metadata: { ...bundle.metadata, updatedAt: attemptedAt },
     practicalPlaces,
     enrichmentMetadata: {
-      providers: [...bundle.enrichmentMetadata.providers.filter((state) => state.provider !== PRACTICAL_PLACES_PROVIDER_STATE), providerState(bundle, lookups, attemptedAt)],
+      providers: [
+        ...bundle.enrichmentMetadata.providers.filter((state) => state.provider !== PRACTICAL_PLACES_PROVIDER_STATE),
+        providerState(lookups, attemptedAt, bundle.enrichmentMetadata.providers.find((state) => state.provider === PRACTICAL_PLACES_PROVIDER_STATE)),
+      ],
     },
   }
 }
@@ -206,23 +205,31 @@ export function tripCanSearchPracticalPlaces(bundle: TripBundle): boolean {
   })
 }
 
+/** CDC C2 section 15's "needed" gate (mirrors `route-enrichment/automatic-enrichment.ts::tripNeedsRouteEnrichment`) — `true` until the whole trip's practical-places pass has fully succeeded once; a mounted Étape screen never triggers a fresh search on its own (tests AR/AS), since by the time it opens this has already resolved at trip-open time. */
+export function tripNeedsPracticalPlacesEnrichment(bundle: TripBundle): boolean {
+  if (!tripCanSearchPracticalPlaces(bundle)) return false
+  return bundle.enrichmentMetadata.providers.find((state) => state.provider === PRACTICAL_PLACES_PROVIDER_STATE)?.status !== 'success'
+}
+
 export async function enrichTripPracticalPlaces(input: EnrichTripPracticalPlacesInput): Promise<PracticalPlacesEnrichmentReport> {
   const attemptedAt = input.now()
   const lookups: StageLookup[] = []
   const pending = pendingLookups(input.bundle)
+  const geometryByStageId = new Map(pending.map((lookup) => [lookup.stage.id, lookup.geometry]))
+  const anchorsByStageId = new Map(pending.map((lookup) => [lookup.stage.id, lookup.anchors]))
   for (let index = 0; index < pending.length; index++) {
     const lookup = pending[index]
     if (lookup !== undefined) lookups.push(await resolveLookup(input.bundle, lookup, input.provider, input.cache, attemptedAt, index, pending.length, input.onProgress))
   }
-  const bundle = applyLookups(input.bundle, lookups, input.provider, attemptedAt)
+  const bundle = applyLookups(input.bundle, lookups, geometryByStageId, anchorsByStageId, input.provider, attemptedAt)
   return {
     bundle,
     saved: false,
     stageCount: lookups.length,
-    chunkCount: lookups.reduce((total, lookup) => total + lookup.chunkCount, 0),
+    requestCount: lookups.filter((lookup) => !lookup.fromCache && lookup.status !== 'error').length + lookups.filter((lookup) => lookup.status === 'error').length,
     placeCount: bundle.practicalPlaces.filter(isAutomaticPracticalPlace).length,
-    cacheHitCount: lookups.reduce((total, lookup) => total + lookup.cacheHitCount, 0),
-    networkErrorCount: lookups.reduce((total, lookup) => total + lookup.errorChunkCount, 0),
+    cacheHitCount: lookups.filter((lookup) => lookup.fromCache).length,
+    networkErrorCount: lookups.filter((lookup) => lookup.status === 'error').length,
   }
 }
 

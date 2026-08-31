@@ -22,6 +22,8 @@ export type EnrichmentProvider =
   | 'osm-practical-places'
   | 'osm-route-enrichment'
   | 'postpass-route-enrichment'
+  /** C2 (CDC C2 section 14) — the Postpass practical-places engine; `osm-practical-places` above stays only for a bundle enriched under the retired chunked Overpass engine, read-compatibility only. */
+  | 'postpass-practical-places'
 
 /** Last known state of one external enrichment provider for this trip. */
 export interface EnrichmentProviderState {

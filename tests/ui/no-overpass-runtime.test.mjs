@@ -88,3 +88,13 @@ test('the practical-places and route-enrichment Overpass provider modules may re
   assert.doesNotThrow(() => source('src/practical-places/overpass-provider.ts'))
   assert.doesNotThrow(() => source('src/route-enrichment/overpass-provider.ts'))
 })
+
+/** CDC C2 section 2: Postpass IS the automatic runtime source for practical POI — the positive counterpart of every "never Overpass" guard above. */
+test('C2: practical-place enrichment is wired to Postpass, and automatic enrichment carries the provider through', () => {
+  const main = source('src/main.ts')
+  assert.match(main, /practicalPlacesProvider:\s*createPostpassPracticalPlacesProvider\(/)
+  assert.doesNotMatch(main, /practicalPlacesProvider:\s*createOverpass/)
+  const automaticEnrichment = source('src/route-enrichment/automatic-enrichment.ts')
+  assert.match(automaticEnrichment, /practicalPlacesProvider/)
+  assert.match(automaticEnrichment, /enrichStoredTripPracticalPlaces/)
+})

@@ -23,6 +23,14 @@ export interface RouteMapMarkerModel {
   readonly offRoute: boolean
   readonly pauseActive: boolean
   readonly pauseDurationMinutes?: number
+  /**
+   * Rich popup content, opened on click — distinct from the plain hover
+   * `subLabel`/tooltip every other marker already carries. Only an opt-in
+   * layer's own marker builder sets this; every structural marker leaves it
+   * `undefined`, so `installMapLayerPanel` only ever binds a Leaflet popup
+   * for the markers that actually have one.
+   */
+  readonly popupHtml?: string
 }
 
 export interface RouteMapModel {

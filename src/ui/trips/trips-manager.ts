@@ -12,6 +12,8 @@ import { enrichStoredTripEndpoints, tripNeedsEndpointGeocoding } from '../../geo
 import type { GeocodingProvider } from '../../geocoding/types.ts'
 import type { RouteEnrichmentProgress, RouteEnrichmentProvider } from '../../route-enrichment/types.ts'
 import { runStoredTripAutomaticEnrichment, tripNeedsAutomaticEnrichment } from '../../route-enrichment/automatic-enrichment.ts'
+import { buildPracticalPlaceViewModels } from '../../practical-places/view-model.ts'
+import type { PracticalPlacesProvider } from '../../practical-places/types.ts'
 import { createSingleFlightGuard } from '../../trips-manager/single-flight.ts'
 import type { WaypointVisibilityFilters } from '../../analysis/canonical-waypoints.ts'
 import type {
@@ -25,6 +27,7 @@ import type { TripListEntry } from '../../trips-manager/trip-summary.ts'
 import type { MapLayerDefinition, RouteMapInteractionHandle } from '../route-map.ts'
 import { buildGenericOverviewDetailMarkers, buildGenericOverviewRouteMapModel, buildGenericRouteMapModel } from '../route-map-model.ts'
 import type { RouteMapModel } from '../route-map-model.ts'
+import { buildPracticalPlaceMapLayers } from '../practical-place-map-layers.ts'
 import { mountClimbProfileInteraction, renderGenericElevationProfile } from '../elevation-profile.ts'
 import { downloadBlob } from '../gpx-share.ts'
 import { buildZipArchive } from '../zip-writer.ts'
@@ -70,6 +73,14 @@ export interface TripsManagerDeps {
   readonly idFactory: () => string
   readonly geocodingProvider?: GeocodingProvider
   readonly routeEnrichmentProvider?: RouteEnrichmentProvider
+  /**
+   * C2's automatic runtime source for practical POI (CDC C2 sections 2/15)
+   * — wired into the same `startAutomaticEnrichment` pass as the other two
+   * providers, once per trip open; the Étape fullscreen map's own "Calques"
+   * panel only ever reads whatever is already persisted (`mountMapAndProfile`),
+   * it never triggers a search of its own.
+   */
+  readonly practicalPlacesProvider?: PracticalPlacesProvider
   readonly onRouteEnrichmentDiagnostic?: (progress: RouteEnrichmentProgress) => void
   /**
    * Drives the top-level app nav (URL hash + bottom-nav highlighting) when
@@ -414,7 +425,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     deps.onHeaderChange?.(day === null ? buildGenericAppHeader(bundle, { view: 'trip', now: deps.now() }) : buildGenericAppHeader(bundle, { view: 'day', day }))
     teardownStickyHeaderObserver()
     container.innerHTML = detail.html
-    mountMapAndProfile(detail, dayId)
+    mountMapAndProfile(bundle, detail, dayId)
     wireDepartureTimeInput(bundle.metadata.id, dayId)
     refreshWeather(bundle, dayId)
     const stickyHeader = container.querySelector<HTMLElement>('[data-day-detail-sticky-header]')
@@ -432,7 +443,29 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     return detail
   }
 
-  function mountMapAndProfile(detail: DayDetail, dayId: TripDayId): void {
+  /**
+   * C2 (CDC C2 sections 16-19): the Étape fullscreen map's own "Calques"
+   * panel, and ONLY that surface — never the compact Étape map, never any
+   * Aperçu map (`mountOverviewMap` never calls this). Reads whatever is
+   * already persisted in `bundle.practicalPlaces` for this stage; never
+   * triggers a search of its own (that only ever happens in
+   * `startAutomaticEnrichment`, at trip-open time — CDC section 15/tests
+   * AR-AS). `[]` for an untimed/degenerate stage or a day with no stage at
+   * all, so `villagesLayer`'s own downstream `usableLayers` filtering hides
+   * every practical layer exactly like an empty Villages layer already does.
+   */
+  function practicalPlaceLayers(bundle: TripBundle, detail: DayDetail, dayId: TripDayId): readonly MapLayerDefinition[] {
+    const day = bundle.days.find((candidate) => candidate.id === dayId)
+    if (day === undefined || day.type !== 'ride' || day.stageId === null) return []
+    const places = bundle.practicalPlaces.filter((place) => place.stageId === day.stageId)
+    if (places.length === 0) return []
+    const daySettings = bundle.settings.days.find((candidate) => candidate.dayId === day.id)
+    const departureTime = daySettings?.departureTime ?? '08:00'
+    const viewModels = buildPracticalPlaceViewModels(places, day, detail.timingCurve, departureTime)
+    return buildPracticalPlaceMapLayers(viewModels)
+  }
+
+  function mountMapAndProfile(bundle: TripBundle, detail: DayDetail, dayId: TripDayId): void {
     const mapContainer = container.querySelector<HTMLElement>('[data-day-detail-map]')
     const mapDialog = container.querySelector<HTMLDialogElement>('[data-day-detail-map-dialog]')
     const visibleWaypoints = getDisplayedStageWaypoints(detail, dayId)
@@ -440,7 +473,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       const model = detail.geometry === null
         ? null
         : buildGenericRouteMapModel(visibleWaypoints, detail.geometry.map((point) => [point.latitude, point.longitude] as const))
-      deps.renderMap(mapContainer, mapDialog, model, villagesLayer(detail.villageWaypoints))
+      deps.renderMap(mapContainer, mapDialog, model, [...villagesLayer(detail.villageWaypoints), ...practicalPlaceLayers(bundle, detail, dayId)])
       mapDialog.querySelector<HTMLButtonElement>('[data-close-map]')?.addEventListener('click', () => deps.closeMap(mapDialog))
     }
     const profileContainer = container.querySelector<HTMLElement>('[data-day-detail-profile]')
@@ -500,7 +533,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     if (pausesEl !== null) pausesEl.outerHTML = detail.pausesHtml
     const timelineEl = container.querySelector('[data-day-detail-timeline]')
     if (timelineEl !== null) timelineEl.innerHTML = detail.timelineHtml
-    mountMapAndProfile(detail, dayId)
+    mountMapAndProfile(bundle, detail, dayId)
     // A pause edit shifts every downstream eta (CDC Jalon C1 section 26) —
     // the weather request signature itself is unaffected unless the set of
     // significant points changed, so this is cheap (see
@@ -663,11 +696,12 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
           tripId,
           geocodingProvider: deps.geocodingProvider,
           routeEnrichmentProvider: deps.routeEnrichmentProvider,
+          practicalPlacesProvider: deps.practicalPlacesProvider,
           idFactory: deps.idFactory,
           now: deps.now,
           onProgress: (progress) => {
             if (progress.phase === 'endpoints') automaticEnrichmentProgress.set(tripId, 'Départs / arrivées')
-            else {
+            else if (progress.phase === 'route') {
               const detail = progress.detail
               if (import.meta.env?.DEV) {
                 console.debug('[automatic-enrichment] stage', {
@@ -679,6 +713,10 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
               const source = detail.source === 'cache' ? 'cache' : `${Math.round(detail.durationMs)} ms`
               const errors = detail.errorCount === 0 ? '' : ` · ${detail.errorCount} étape(s) en erreur`
               automaticEnrichmentProgress.set(tripId, `Points structurants — étape ${detail.stageIndex + 1}/${detail.stageCount} · ${source} · ${detail.retainedCandidateCount}/${detail.rawCandidateCount} retenus${errors}`)
+            } else {
+              const detail = progress.detail
+              const source = detail.fromCache ? 'cache' : 'réseau'
+              automaticEnrichmentProgress.set(tripId, `POI pratiques — étape ${detail.stageIndex + 1}/${detail.stageCount} · ${source}`)
             }
             void refreshIfShowing(tripId)
           },

@@ -231,10 +231,15 @@ function installMapLayerPanel(dialog: HTMLDialogElement, map: L.Map, layers: rea
     label.append(input, symbol, name, count)
     list.appendChild(label)
 
-    const group = L.layerGroup(layer.markers.map((marker) =>
-      L.marker(toLatLng(marker.coordinate), { icon: createRouteDivIcon(marker.category, { offRoute: marker.offRoute, pauseActive: marker.pauseActive }) })
-        .bindTooltip(markerTooltip(marker)),
-    ))
+    const group = L.layerGroup(layer.markers.map((marker) => {
+      const built = L.marker(toLatLng(marker.coordinate), { icon: createRouteDivIcon(marker.category, { offRoute: marker.offRoute, pauseActive: marker.pauseActive }) })
+        .bindTooltip(markerTooltip(marker))
+      // C2 (CDC section 19): a practical-POI marker carries its own rich
+      // popup, opened on click — every structural marker leaves `popupHtml`
+      // unset and keeps its plain tooltip-only behaviour, unchanged.
+      if (marker.popupHtml !== undefined) built.bindPopup(marker.popupHtml)
+      return built
+    }))
     groups.set(layer.id, group)
     if (layer.defaultVisible) group.addTo(map)
 

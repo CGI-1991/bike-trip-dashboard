@@ -55,6 +55,7 @@ import { GENERIC_APP_HEADER_NO_ACTIVE_TRIP, GENERIC_APP_TITLE } from './ui/trips
 import type { GenericAppHeaderState } from './ui/trips/app-header.ts'
 import { createNominatimGeocodingProvider } from './geocoding/nominatim-provider.ts'
 import { createPostpassRouteEnrichmentProvider } from './route-enrichment/postpass-provider.ts'
+import { createPostpassPracticalPlacesProvider } from './practical-places/postpass-provider.ts'
 import { openBikeTripDatabase } from './storage/indexeddb/open-database.ts'
 import { renderDashboard } from './ui/render.ts'
 import { renderDayHeader } from './ui/day-header.ts'
@@ -1063,6 +1064,10 @@ void openBikeTripDatabase()
       routeEnrichmentProvider: createPostpassRouteEnrichmentProvider({
         baseUrl: import.meta.env.VITE_POSTPASS_BASE_URL || undefined,
         onDiagnostic: import.meta.env.DEV ? (diagnostic) => console.debug('[postpass-structural]', diagnostic) : undefined,
+      }),
+      practicalPlacesProvider: createPostpassPracticalPlacesProvider({
+        baseUrl: import.meta.env.VITE_POSTPASS_BASE_URL || undefined,
+        onDiagnostic: import.meta.env.DEV ? (diagnostic) => console.debug('[postpass-practical-places]', diagnostic) : undefined,
       }),
       onRouteEnrichmentDiagnostic: import.meta.env.DEV
         ? (diagnostic) => console.debug('[postpass-structural-client]', diagnostic)

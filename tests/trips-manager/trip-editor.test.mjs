@@ -333,11 +333,12 @@ function practicalProvider(osmId) {
     attribution: 'Mock OSM',
     async findCandidates(search) {
       const point = search.geometry[Math.min(1, search.geometry.length - 1)]
-      return [{
+      const candidates = [{
         osmType: 'node', osmId, category: 'water', name: null,
         latitude: point.latitude, longitude: point.longitude,
         usefulTags: { amenity: 'drinking_water' },
       }]
+      return { candidates, durationMs: 1, rawCandidateCount: candidates.length, httpStatus: 200, payloadBytes: 10, startedAt: '2027-01-20T00:00:00.000Z', finishedAt: '2027-01-20T00:00:00.001Z' }
     },
   }
 }

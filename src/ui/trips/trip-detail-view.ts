@@ -15,7 +15,7 @@ import { deriveTripTemporalState, getTripDayTemporalState } from '../../trips-ma
 import type { TripDayTemporalState } from '../../trips-manager/trip-day-temporal-state.ts'
 import { formatShortDate } from '../date-format.ts'
 import { compactPlaceName } from '../compact-place-name.ts'
-import type { EnrichmentProviderStatus, PracticalPlaceCategory, TripBundle } from '../../trip-core/index.ts'
+import type { TripBundle } from '../../trip-core/index.ts'
 
 export interface TripDetailRenderOptions {
   readonly now?: Date | string | null
@@ -25,18 +25,6 @@ export interface TripDetailRenderOptions {
   readonly automaticEnrichmentPending?: boolean
   readonly automaticEnrichmentProgress?: string | null
   readonly automaticEnrichmentError?: string | null
-}
-
-const PRACTICAL_CATEGORY_LABELS: Readonly<Record<PracticalPlaceCategory, string>> = {
-  shelter: 'Abri',
-  bakery: 'Boulangerie',
-  'cafe-or-ice-cream': 'Café',
-  water: 'Eau potable',
-  'fast-food': 'Restauration',
-  'bike-service': 'Service vélo',
-  supermarket: 'Alimentation',
-  sports: 'Sport',
-  toilet: 'Toilettes',
 }
 
 function escapeHtml(value: string): string {
@@ -131,30 +119,6 @@ function renderDayCard(bundle: TripBundle, day: TripBundle['days'][number], temp
   return renderTransferDayCard(bundle, day, isPriority)
 }
 
-function renderPracticalPlaces(bundle: TripBundle, searchStatus: EnrichmentProviderStatus | null): string {
-  const groups = bundle.stages.map((stage) => {
-    const day = bundle.days.find((candidate) => candidate.id === stage.dayId)
-    const places = bundle.practicalPlaces
-      .filter((place) => place.stageId === stage.id || (place.stageId === undefined && place.dayIds.includes(stage.dayId)))
-      .filter((place) => !place.hidden)
-      .slice()
-      .sort((left, right) => (left.trackDistanceKm ?? Number.POSITIVE_INFINITY) - (right.trackDistanceKm ?? Number.POSITIVE_INFINITY))
-    if (places.length === 0) return ''
-    const label = day === undefined ? escapeHtml(stage.name ?? 'Étape') : `J${day.displayNumber}`
-    const rows = places.map((place) => {
-      const distance = place.trackDistanceKm === null ? 'km inconnu' : `≈ ${place.trackDistanceKm.toFixed(1)} km`
-      const name = place.name === null ? 'Sans nom' : escapeHtml(place.name)
-      return `<li><span class="trip-detail__place-category">${PRACTICAL_CATEGORY_LABELS[place.category]}</span><strong>${name}</strong><span>${distance}</span></li>`
-    }).join('')
-    return `<section class="trip-detail__place-stage"><h4>${label}</h4><ul>${rows}</ul></section>`
-  }).join('')
-  if (groups !== '') return `<div class="trip-detail__places">${groups}</div>`
-  if (searchStatus === 'success') return '<p>Recherche effectuée : aucun lieu pratique trouvé.</p>'
-  if (searchStatus === 'partial') return '<p>Recherche partielle : aucun lieu pratique disponible.</p>'
-  if (searchStatus === 'error') return '<p>Aucun lieu disponible : la dernière recherche a échoué.</p>'
-  return '<p>Recherche de lieux pratiques non encore effectuée.</p>'
-}
-
 export function renderTripDetail(bundle: TripBundle, options: TripDetailRenderOptions = {}): string {
   const temporal = deriveTripTemporalState(bundle, options.now ?? null)
   const hasOsmEndpoints = bundle.routePoints.some((point) =>
@@ -162,9 +126,7 @@ export function renderTripDetail(bundle: TripBundle, options: TripDetailRenderOp
   )
   const hasOsmClimbNames = bundle.climbs.some((climb) => climb.provenance.sourceType === 'osm')
   const hasOsmRouteData = bundle.routePoints.some((point) => point.provenance.sourceType === 'osm')
-  const hasOsmPracticalPlaces = bundle.practicalPlaces.some((place) => place.provenance.sourceType === 'osm')
   const osmState = bundle.enrichmentMetadata.providers.find((state) => state.provider === 'osm')
-  const practicalPlacesState = bundle.enrichmentMetadata.providers.find((state) => state.provider === 'osm-practical-places')
   const routeEnrichmentState = bundle.enrichmentMetadata.providers.find((state) => state.provider === 'postpass-route-enrichment')
   const hasRideStages = bundle.stages.length > 0
   const automaticStatus = options.automaticEnrichmentPending
@@ -186,7 +148,7 @@ export function renderTripDetail(bundle: TripBundle, options: TripDetailRenderOp
   const geocodingAction = options.canEnrichEndpoints && !options.geocodingPending
     ? '<button class="button button--quiet" type="button" data-action="enrich-trip-endpoints">Identifier les lieux de départ et d’arrivée</button>'
     : ''
-  const attribution = hasOsmEndpoints || hasOsmRouteData || hasOsmClimbNames || hasOsmPracticalPlaces ? '<p class="trip-detail__attribution">Données géographiques : © OpenStreetMap contributors.</p>' : ''
+  const attribution = hasOsmEndpoints || hasOsmRouteData || hasOsmClimbNames ? '<p class="trip-detail__attribution">Données géographiques : © OpenStreetMap contributors.</p>' : ''
 
   return `
     <div class="trip-detail" data-trip-detail>
@@ -197,6 +159,5 @@ export function renderTripDetail(bundle: TripBundle, options: TripDetailRenderOp
       ${geocodingStatus}
       ${geocodingAction}
       ${attribution}
-      <details class="technical-details" data-trip-detail-practical><summary>Lieux pratiques</summary>${renderPracticalPlaces(bundle, practicalPlacesState?.status ?? null)}</details>
     </div>`
 }

@@ -1673,9 +1673,17 @@ body.map-scroll-locked { position: fixed; top: var(--map-scroll-lock-y, 0); inse
 .practical-marker__surface { width: 28px; height: 28px; border-style: dashed; font-size: .66rem; line-height: 1; }
 .practical-popup { min-width: min(220px, 70vw); display: grid; gap: 6px; }
 .practical-popup > strong { overflow-wrap: anywhere; font-size: .94rem; }
-.practical-popup__layer { color: var(--forest-700); font-size: .7rem; font-weight: 850; letter-spacing: .05em; text-transform: uppercase; }
+.practical-popup__layer, .practical-popup__category { color: var(--forest-700); font-size: .7rem; font-weight: 850; letter-spacing: .05em; text-transform: uppercase; }
 .practical-popup p, .practical-popup small { margin: 0; color: var(--ink-soft); line-height: 1.35; }
 .practical-popup .button { margin-top: 3px; text-align: center; text-decoration: none; }
+/* C2 (CDC section 25-26): the opening-status line is the only place opening
+ * status ever gets a colour — the marker itself stays a plain category
+ * colour, whatever the status. Discreet, not a commercial/live claim. */
+.practical-popup__status { font-weight: 700; }
+.practical-popup__status--open { color: var(--forest-700); }
+.practical-popup__status--closed { color: #b91c1c; }
+.practical-popup__status--unknown { color: var(--ink-soft); font-weight: 600; }
+.practical-popup__links a { color: var(--forest-700); }
 .elevation-profile { margin: 0; }
 .elevation-profile svg { display: block; width: 100%; height: clamp(190px, 28vw, 280px); overflow: visible; }
 .profile-area { fill: rgb(15 118 110 / 15%); }
@@ -2993,11 +3001,6 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .trip-detail__stats dt { color: var(--ink-soft); font-size: .68rem; }
 .trip-detail__climbs { display: grid; gap: 6px; }
 .trip-detail__climbs li { padding: 8px 10px; background: var(--surface-muted); border-radius: 8px; }
-.trip-detail__places { display: grid; gap: 8px; }
-.trip-detail__place-stage { padding: 8px 10px; background: var(--surface-muted); border-radius: 8px; }
-.trip-detail__place-stage ul { display: grid; gap: 5px; margin-top: 6px; }
-.trip-detail__place-stage li { display: grid; grid-template-columns: minmax(90px, .8fr) minmax(120px, 1.5fr) auto; gap: 8px; align-items: baseline; }
-.trip-detail__place-category { color: var(--ink-soft); font-size: .78rem; }
 .trip-detail__enrichment { display: flex; gap: .5rem; align-items: baseline; flex-wrap: wrap; }
 .trip-detail__localities { margin: .35rem 0 0; color: var(--ink-soft); }
 .wizard-file-list { display: grid; gap: 8px; }
