@@ -1051,6 +1051,19 @@ void initializeGpxAnalysis(gpxAnalysisContainer, rga2026TripPlan.rideDays).then(
 document.querySelector<HTMLAnchorElement>('[data-nav-view="trips"]')?.addEventListener('click', () => {
   tripsManagerHandle?.goToList()
 })
+// C2.5 section 33: "Voyage"/"Aperçu" are destinations, not just section
+// indicators -- clicking "Voyage" from the Etape (day-detail) screen must
+// always land back on the day-list, even though both share the same
+// `#/trip` hash (the generic Etape screen has no hash of its own). A same-
+// hash click never fires `hashchange`, so `syncHash`/`syncGenericTripNav`
+// never run on their own -- these two listeners are the exact same fix as
+// the "trips" one above, just for the other two bottom-nav links.
+document.querySelector<HTMLAnchorElement>('[data-nav-view="trip"]')?.addEventListener('click', () => {
+  void tripsManagerHandle?.goToDetailForActiveTrip()
+})
+document.querySelector<HTMLAnchorElement>('[data-nav-view="today"]')?.addEventListener('click', () => {
+  void tripsManagerHandle?.goToOverviewForActiveTrip()
+})
 
 void openBikeTripDatabase()
   .then((database) => {

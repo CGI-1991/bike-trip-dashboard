@@ -32,7 +32,13 @@ import { routeGeometry } from '../../route-enrichment/route-fingerprint.ts'
 import { resolveOffLocation, resolveTransferLocations } from '../../analysis/day-location-fill.ts'
 import { formatShortDate } from '../date-format.ts'
 import { compactPlaceName } from '../compact-place-name.ts'
+import type { StagePreparationStatus } from '../../trips-manager/stage-preparation.ts'
 import type { Accommodation, Climb, RideStageSettings, RouteGeometryPoint, RoutePointId, SourceFileId, TransferTiming, TripBundle, TripDay, TripDayId } from '../../trip-core/index.ts'
+
+export interface DayDetailOptions {
+  /** C2.5 sections 16-17: `partial`/`error` shows a compact "Réessayer" banner in the stats card — every other status (or none supplied) renders no banner at all, exactly as before this feature existed. */
+  readonly preparationStatus?: StagePreparationStatus | null
+}
 
 /** Kinds that can anchor a pause (CDC Jalon B4 section 15): the same set `pause-placement.ts` already restricts automatic anchors to. Also the manual pause editor's full candidate list (CDC Jalon B4.3 section 31) — a separate, wider need from `isSignificantWaypoint`'s normal-view policy (CDC section 40: never conflate the two). Exported so `trips-manager.ts` can build/validate pause mutations against the same set. */
 export const PAUSE_ANCHOR_KINDS: ReadonlySet<CanonicalWaypointKind> = new Set(['city', 'town', 'village', 'mountain-pass', 'saddle'])
@@ -487,11 +493,18 @@ export interface DayDetail {
  * can't be resolved, or — ride days only — its stage/route can't be
  * resolved either; the caller falls back to the day list in those cases.
  */
-export function buildDayDetail(bundle: TripBundle, dayId: TripDayId): DayDetail | null {
+export function buildDayDetail(bundle: TripBundle, dayId: TripDayId, options: DayDetailOptions = {}): DayDetail | null {
   const day = bundle.days.find((candidate) => candidate.id === dayId)
   if (day === undefined) return null
   if (day.type !== 'ride') return buildOffOrTransferDayDetail(bundle, day)
-  return buildRideDayDetail(bundle, day)
+  return buildRideDayDetail(bundle, day, options.preparationStatus ?? null)
+}
+
+/** C2.5 sections 16-17: a compact, non-blocking banner — partial/error data is shown, never hidden, with a real retry action right there. */
+function renderPreparationBanner(bundle: TripBundle, preparationStatus: StagePreparationStatus | null): string {
+  if (preparationStatus !== 'partial' && preparationStatus !== 'error') return ''
+  const label = preparationStatus === 'partial' ? 'Préparation incomplète — certaines données seront complétées.' : 'Préparation en erreur — certaines données peuvent manquer.'
+  return `<div class="day-detail__prep-banner" role="status"><span>${escapeHtml(label)}</span><button class="button button--quiet" type="button" data-action="retry-stage-preparation" data-trip-id="${escapeHtml(bundle.metadata.id)}">Réessayer</button></div>`
 }
 
 function transferTimingLabel(timing: TransferTiming | undefined): string {
@@ -571,7 +584,7 @@ function renderTransferSummary(bundle: TripBundle, day: TripDay): string {
   </section>`
 }
 
-function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number]): DayDetail | null {
+function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number], preparationStatus: StagePreparationStatus | null): DayDetail | null {
   if (day.stageId === null) return null
   const stage = bundle.stages.find((candidate) => candidate.id === day.stageId)
   if (stage === undefined) return null
@@ -654,6 +667,7 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number])
     </div>
     <section class="card day-detail__stats-card" data-day-detail-stats-card>
       ${statsHtml}
+      ${renderPreparationBanner(bundle, preparationStatus)}
     </section>
     <section class="card day-detail__map-profile-card" data-day-detail-map-profile-card>
       <div class="route-map route-map--action" data-day-detail-map data-explore-map role="button" tabindex="0" aria-label="Ouvrir la carte de l’étape en plein écran"></div>

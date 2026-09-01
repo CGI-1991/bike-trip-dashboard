@@ -13,9 +13,10 @@
 import { resolveOffLocation, resolveTransferLocations } from '../../analysis/day-location-fill.ts'
 import { deriveTripTemporalState, getTripDayTemporalState } from '../../trips-manager/trip-day-temporal-state.ts'
 import type { TripDayTemporalState } from '../../trips-manager/trip-day-temporal-state.ts'
+import type { StagePreparationStatus } from '../../trips-manager/stage-preparation.ts'
 import { formatShortDate } from '../date-format.ts'
 import { compactPlaceName } from '../compact-place-name.ts'
-import type { TripBundle } from '../../trip-core/index.ts'
+import type { TripBundle, TripDayId } from '../../trip-core/index.ts'
 
 export interface TripDetailRenderOptions {
   readonly now?: Date | string | null
@@ -25,6 +26,38 @@ export interface TripDetailRenderOptions {
   readonly automaticEnrichmentPending?: boolean
   readonly automaticEnrichmentProgress?: string | null
   readonly automaticEnrichmentError?: string | null
+  /** C2.5 section 11/13: one status per ride day, keyed by `TripDay.id` — `undefined`/missing is treated as `null` (no indicator, e.g. an OFF/transfer day). Absent entirely, the whole indicator/summary UI is omitted (every existing caller/test keeps working unchanged). */
+  readonly stagePreparationStatuses?: ReadonlyMap<TripDayId, StagePreparationStatus | null>
+}
+
+// C2.5 section 11: compact, non-intrusive, never Postpass/HTTP/provider
+// jargon — one glyph + an accessible label, nothing else.
+const STAGE_PREP_LABELS: Readonly<Record<StagePreparationStatus, string>> = {
+  pending: 'En attente de préparation',
+  running: 'Préparation en cours',
+  ready: 'Étape prête',
+  stale: 'Mise à jour en cours',
+  partial: 'Préparation incomplète — Réessayer disponible',
+  error: 'Préparation en erreur — Réessayer disponible',
+}
+
+/**
+ * A fixed-size mount point (section 11: "zone graphique FIXE") — present or
+ * not, its own box never changes the card's height/width. `null` (no ride
+ * stage, or the caller never supplied a status map at all) renders nothing.
+ * Always a plain, non-interactive `<span>` — the whole card is already a
+ * real `<button>` (`data-action="open-day-detail"`), and nested interactive
+ * controls inside a `<button>` are invalid HTML; the "Réessayer" action for
+ * `partial`/`error` (section 17) lives on the Étape screen itself instead
+ * (`day-detail-view.ts`), never nested in this list card.
+ */
+export function renderStagePreparationIndicator(status: StagePreparationStatus | null | undefined): string {
+  if (status === null || status === undefined) return ''
+  const label = STAGE_PREP_LABELS[status]
+  const inner = status === 'running' || status === 'stale'
+    ? '<span class="trip-day-card__prep-spinner" aria-hidden="true"></span>'
+    : `<span aria-hidden="true">${status === 'ready' ? '✓' : status === 'pending' ? '○' : '⚠'}</span>`
+  return `<span class="trip-day-card__prep trip-day-card__prep--${status}" data-trip-day-prep data-status="${status}" role="img" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}">${inner}</span>`
 }
 
 function escapeHtml(value: string): string {
@@ -50,7 +83,7 @@ function renderDayNumberGroup(day: TripBundle['days'][number]): string {
   return `<span class="trip-day-card__number-group"><strong>J${day.displayNumber}</strong>${day.date === null ? '' : `<time datetime="${day.date}">${escapeHtml(dateLabel ?? '')}</time>`}</span>`
 }
 
-function renderRideDayCard(bundle: TripBundle, day: TripBundle['days'][number], stage: TripBundle['stages'][number], temporal: TripDayTemporalState, isPriority: boolean): string {
+function renderRideDayCard(bundle: TripBundle, day: TripBundle['days'][number], stage: TripBundle['stages'][number], temporal: TripDayTemporalState, isPriority: boolean, prepStatus: StagePreparationStatus | null | undefined): string {
   const fullRoute = `${stage.startLocationName ?? '—'} → ${stage.endLocationName ?? '—'}`
   const locations = `${escapeHtml(compactPlaceName(stage.startLocationName ?? '—'))} → ${escapeHtml(compactPlaceName(stage.endLocationName ?? '—'))}`
   const daySettings = bundle.settings.days.find((candidate) => candidate.dayId === day.id)
@@ -69,7 +102,7 @@ function renderRideDayCard(bundle: TripBundle, day: TripBundle['days'][number], 
         <span class="trip-day-card__weather-mount" data-trip-day-weather-mount data-day-id="${escapeHtml(day.id)}"></span>
       </span>
       <span class="trip-day-card__schedule">
-        <span class="trip-day-card__status">${status}</span>
+        <span class="trip-day-card__status">${status}${renderStagePreparationIndicator(prepStatus)}</span>
         <small><span class="visually-hidden">Départ </span>${departureTime ?? '—'}</small>
         <strong><span class="visually-hidden">ETA </span>${eta ?? '—'}</strong>
       </span>
@@ -111,12 +144,26 @@ function renderTransferDayCard(bundle: TripBundle, day: TripBundle['days'][numbe
   </li>`
 }
 
-function renderDayCard(bundle: TripBundle, day: TripBundle['days'][number], temporal: TripDayTemporalState, priorityDayId: string | null): string {
+function renderDayCard(bundle: TripBundle, day: TripBundle['days'][number], temporal: TripDayTemporalState, priorityDayId: string | null, prepStatus: StagePreparationStatus | null | undefined): string {
   const isPriority = day.id === priorityDayId
   const stage = day.stageId === null ? null : bundle.stages.find((candidate) => candidate.id === day.stageId) ?? null
-  if (stage !== null) return renderRideDayCard(bundle, day, stage, temporal, isPriority)
+  if (stage !== null) return renderRideDayCard(bundle, day, stage, temporal, isPriority, prepStatus)
   if (day.type === 'off') return renderOffDayCard(bundle, day, isPriority)
   return renderTransferDayCard(bundle, day, isPriority)
+}
+
+/** C2.5 section 4/22: recomputes exactly ONE ride day's card (same markup `renderTripDetail` itself would produce for that day) — for `trips-manager.ts` to patch a single `[data-day-id]` button's `outerHTML` when its preparation status changes, never the whole list. */
+export function renderSingleDayCard(bundle: TripBundle, dayId: TripDayId, now: Date | string | null, prepStatus: StagePreparationStatus | null | undefined): string | null {
+  const day = bundle.days.find((candidate) => candidate.id === dayId)
+  if (day === undefined) return null
+  const temporal = deriveTripTemporalState(bundle, now)
+  const dayTemporal = getTripDayTemporalState(temporal, dayId)
+  if (dayTemporal === null) return null
+  const html = renderDayCard(bundle, day, dayTemporal, temporal.priorityDayId, prepStatus)
+  // `renderDayCard` returns a full `<li>...</li>` — the patch target is the
+  // `<button data-day-id>` inside it, matching what's already in the DOM.
+  const match = /<button[^]*<\/button>/.exec(html)
+  return match?.[0] ?? null
 }
 
 export function renderTripDetail(bundle: TripBundle, options: TripDetailRenderOptions = {}): string {
@@ -154,10 +201,26 @@ export function renderTripDetail(bundle: TripBundle, options: TripDetailRenderOp
     : ''
   const attribution = hasOsmEndpoints || hasOsmRouteData || hasOsmClimbNames ? '<p class="trip-detail__attribution">Données géographiques : © OpenStreetMap contributors.</p>' : ''
 
+  // C2.5 section 13: "4/10 étapes prêtes" — a plain count, never a
+  // percentage (section 14), shown only when there's something to prepare
+  // and it isn't fully done yet. Omitted entirely when the caller supplies
+  // no status map at all (existing callers/tests keep their exact output).
+  const prepStatuses = options.stagePreparationStatuses
+  let prepSummary = ''
+  if (prepStatuses !== undefined) {
+    const rideDayIds = bundle.days.filter((day) => day.type === 'ride' && day.stageId !== null).map((day) => day.id)
+    const total = rideDayIds.length
+    const ready = rideDayIds.filter((id) => prepStatuses.get(id) === 'ready').length
+    if (total > 0 && ready < total) {
+      prepSummary = `<p class="trip-detail__prep-summary" data-trip-prep-summary role="status">${ready}/${total} étapes prêtes</p>`
+    }
+  }
+
   return `
     <div class="trip-detail" data-trip-detail>
       <header class="view-heading"><p class="eyebrow">Voyage</p><h2>${escapeHtml(bundle.metadata.name)}</h2></header>
-      <ol class="trip-day-list">${bundle.days.map((day) => renderDayCard(bundle, day, getTripDayTemporalState(temporal, day.id) as TripDayTemporalState, temporal.priorityDayId)).join('')}</ol>
+      ${prepSummary}
+      <ol class="trip-day-list">${bundle.days.map((day) => renderDayCard(bundle, day, getTripDayTemporalState(temporal, day.id) as TripDayTemporalState, temporal.priorityDayId, prepStatuses?.get(day.id))).join('')}</ol>
       ${hasRideStages ? '<button class="button button--quiet button--full" type="button" data-action="download-trip-gpx">Télécharger les GPX</button>' : ''}
       ${automaticStatus}
       ${geocodingStatus}

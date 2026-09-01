@@ -176,3 +176,65 @@ test('C2 non-objectif (section 41): a trip with no usable route geometry at all 
   for (const route of bundle.routes) route.geometry = null
   assert.equal(tripNeedsPracticalPlacesEnrichment(bundle), false)
 })
+
+// --- C2.5 sections 27-28 / AI-AL: pause duration vs position invalidation ---
+
+function withManualPause(bundle, durationSeconds) {
+  const stage = bundle.stages.find((candidate) => candidate.id === 'stage-alpha')
+  const route = bundle.routes.find((candidate) => candidate.id === stage.sourceRouteId)
+  const alreadyPushed = bundle.routePoints.some((point) => point.id === 'village-anchor-test')
+  if (!alreadyPushed) {
+    bundle.routePoints.push({
+      id: 'village-anchor-test', routeId: route.id, type: 'passage', name: 'Anchor Village',
+      latitude: 45.2, longitude: 6.35, elevationM: 400, trackDistanceKm: 30,
+      osmFeatureType: 'village', lateralDistanceKm: 0.2,
+      provenance: { sourceType: 'osm', sourceId: 'postpass:village:anchor', fetchedAt: null, engineVersion: 'route-enrichment@4', confidence: 'high', manuallyOverridden: false },
+    })
+    stage.routePointIds.push('village-anchor-test')
+  }
+  return {
+    ...bundle,
+    settings: {
+      ...bundle.settings,
+      stages: [
+        ...bundle.settings.stages.filter((entry) => entry.stageId !== 'stage-alpha'),
+        { stageId: 'stage-alpha', pausePlanMode: 'custom', pauses: [{ id: 'pause-anchor-test', active: true, routePointId: 'village-anchor-test', durationSeconds, order: 0, origin: 'custom' }] },
+      ],
+    },
+  }
+}
+
+test('AK/AL: moving a pause to a different anchor is a real cache-miss for that stage — the stale POI set is never silently reused forever', async () => {
+  const database = await openTestDatabase()
+  try {
+    const cache = createPracticalPlacesCacheRepository(database)
+    let calls = 0
+    const mock = provider(async () => { calls++; return result([candidate({ osmId: `call-${calls}` })]) })
+    // First pass: no manual pause at all — anchors are start+end only.
+    const first = await enrichTripPracticalPlaces({ bundle: createGenericTripBundle(), cache, provider: mock, now: () => '2028-08-03T10:00:00.000Z' })
+    assert.equal(calls, 1)
+    // Second pass: the SAME stage, but a pause now anchors on an extra waypoint — a genuine anchor-set change.
+    const second = await enrichTripPracticalPlaces({ bundle: withManualPause(first.bundle, 600), cache, provider: mock, now: () => '2028-08-04T10:00:00.000Z' })
+    assert.equal(calls, 2, 'the anchor change must be a real cache-miss, not silently reuse the old anchor set\'s result')
+    assert.equal(second.cacheHitCount, 0)
+  } finally {
+    database.close()
+  }
+})
+
+test('AI/AJ: changing only a pause\'s duration (same anchor position) never re-triggers a search — a pure cache hit', async () => {
+  const database = await openTestDatabase()
+  try {
+    const cache = createPracticalPlacesCacheRepository(database)
+    let calls = 0
+    const mock = provider(async () => { calls++; return result([candidate({ osmId: `call-${calls}` })]) })
+    const first = await enrichTripPracticalPlaces({ bundle: withManualPause(createGenericTripBundle(), 600), cache, provider: mock, now: () => '2028-08-03T10:00:00.000Z' })
+    assert.equal(calls, 1)
+    // Same anchor (routePointId unchanged), only the duration differs.
+    const second = await enrichTripPracticalPlaces({ bundle: withManualPause(first.bundle, 1_200), cache, provider: mock, now: () => '2028-08-04T10:00:00.000Z' })
+    assert.equal(calls, 1, 'a duration-only change must never re-trigger Postpass — the anchor set (positions) is unchanged')
+    assert.equal(second.cacheHitCount, 1)
+  } finally {
+    database.close()
+  }
+})

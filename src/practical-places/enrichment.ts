@@ -80,6 +80,26 @@ function pendingLookups(bundle: TripBundle): readonly Omit<StageLookup, 'candida
 }
 
 /**
+ * C2.5 section 28: anchors (départ/arrivée/pauses — `anchors.ts`) are
+ * derived live from the CURRENT pause state every time a lookup is built,
+ * but until now never entered the cache key at all — `routeFingerprint`
+ * alone (GPX/geometry) decided it. Moving a pause to a different waypoint
+ * silently kept serving the stale candidate set forever, with no cache-miss
+ * to ever refresh it. Folding a stable fingerprint of the anchor set into
+ * `chunkKey` (an existing, optional slot on `RouteEnrichmentCacheIdentity` —
+ * no schema/type change) makes a genuine anchor change a real cache-miss for
+ * THIS stage only; every other stage's anchors (and cache key) are
+ * unaffected. Order-independent (a stable sort) since anchors describe a
+ * SET of positions, not a sequence.
+ */
+function anchorsFingerprint(anchors: readonly PracticalPlaceAnchor[]): string {
+  return anchors
+    .map((anchor) => `${anchor.latitude.toFixed(5)},${anchor.longitude.toFixed(5)}`)
+    .sort()
+    .join(';')
+}
+
+/**
  * One Postpass request per stage (CDC C2 section 11 — never one per anchor,
  * never per-chunk like the retired Overpass engine): a cache hit skips the
  * network entirely; a network failure returns `status: 'error'` so
@@ -99,6 +119,7 @@ async function resolveLookup(
     providerId: provider.id,
     routeFingerprint: routeFingerprint(bundle, lookup.route),
     enrichmentType: 'practical-places',
+    chunkKey: `anchors:${anchorsFingerprint(lookup.anchors)}`,
     engineVersion: PRACTICAL_PLACES_ENGINE_VERSION,
   }
   const cached = await cache.get(identity).catch(() => null)

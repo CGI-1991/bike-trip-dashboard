@@ -3265,7 +3265,24 @@ button:disabled { cursor: not-allowed; opacity: .55; }
  * first/top-right, then Départ (secondary), then ETA (bolder) — so neither
  * ever conflicts with, or reflows because of, the other. */
 .trip-day-card__schedule { min-width: 62px; display: grid; justify-items: end; gap: 3px; font-variant-numeric: tabular-nums; }
-.trip-day-card__status { line-height: 1; }
+.trip-day-card__status { display: inline-flex; align-items: center; gap: 4px; line-height: 1; }
+/* C2.5 section 11-12: a small, fixed-size preparation indicator next to the
+ * existing status tag — same row, never a new row, so a status change
+ * (pending → running → ready) never changes the card's own height/width. */
+.trip-day-card__prep { width: 16px; height: 16px; flex: 0 0 auto; display: inline-grid; place-items: center; font-size: .68rem; line-height: 1; }
+.trip-day-card__prep--pending { color: var(--ink-faint); }
+.trip-day-card__prep--ready { color: var(--forest-700); font-weight: 800; }
+.trip-day-card__prep--partial, .trip-day-card__prep--error { color: var(--warning-text); }
+.trip-day-card__prep-spinner { width: 11px; height: 11px; border: 2px solid var(--line-strong); border-top-color: var(--forest-700); border-radius: 50%; animation: trip-detail-enrichment-spin .8s linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .trip-day-card__prep-spinner { animation: none; }
+}
+.trip-detail__prep-summary { margin: -6px 0 0; color: var(--ink-soft); font-size: .78rem; }
+.trip-day-card__preparation-feedback { margin: 4px 0 0; padding: 6px 8px; color: var(--ink-soft); background: var(--surface-muted); border-radius: var(--radius-sm); font-size: .78rem; }
+/* C2.5 sections 16-17: compact, non-blocking — partial/error data stays
+ * fully visible above this banner, "Réessayer" sits right next to it. */
+.day-detail__prep-banner { margin-top: 10px; padding: 9px 10px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; color: var(--warning-text); background: var(--warning-bg); border: 1px solid var(--warning-border); border-radius: var(--radius-sm); font-size: .82rem; }
+.day-detail__prep-banner .button { min-height: 36px; padding: 0 12px; }
 .trip-day-card__schedule small { color: var(--ink-soft); font-size: .62rem; }
 .trip-day-card__schedule strong { color: var(--forest-800); font-size: .78rem; white-space: nowrap; }
 .trip-day-card__stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
