@@ -1,5 +1,6 @@
 import { computeStageWaypoints, resolveStagePauseSettings } from '../analysis/waypoint-timeline.ts'
 import { parseClockToMinutes } from '../analysis/timing.ts'
+import { resolveEffectiveMountainMode } from '../analysis/terrain-context.ts'
 import { routeGeometry } from '../route-enrichment/route-fingerprint.ts'
 import type { IsoDate, TripBundle, TripDay, TripDayId } from '../trip-core/index.ts'
 
@@ -85,7 +86,7 @@ export function computeRideArrivalEta(bundle: TripBundle, day: TripDay): RideArr
     climbs: bundle.climbs,
     settings: { referenceSpeedKph: bundle.settings.global.referenceSpeedKph, departureTime },
     manualPauses: pauseResolution.mode === 'custom' ? pauseResolution.manualPauses : undefined,
-    mountainMode: bundle.settings.global.mountainMode ?? false,
+    mountainMode: resolveEffectiveMountainMode(bundle),
   })
   const arrival = waypoints.at(-1)
   if (arrival?.clockTime === null || arrival?.clockTime === undefined || arrival.elapsedMinutes === null) return null

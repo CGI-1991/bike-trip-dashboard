@@ -237,6 +237,66 @@ test('manual day data is preserved only on retained days and is not copied to a 
   }
 })
 
+test('a structural edit never forces the trip-wide pausePlanMode back to automatic (CDC D3.1 sections 2/21)', async () => {
+  const database = await openImportTestDatabase()
+  try {
+    const original = await importTrip(database, [gpxFile('one.gpx')])
+    const customGlobalBundle = { ...original, settings: { ...original.settings, global: { ...original.settings.global, pausePlanMode: 'custom' } } }
+    await createTripRepository(database).saveTripBundle(customGlobalBundle)
+
+    const draft = await loadTripEditDraft(database, 'trip-edit')
+    const added = await edit(database, [...draft.slots, { kind: 'ride', existingDayId: null, existingSourceFileId: null, file: gpxFile('two.gpx', 45.02) }], 'pause-mode-preserve')
+    assert.equal(added.ok, true)
+    assert.equal(added.bundle.settings.global.pausePlanMode, 'custom')
+  } finally {
+    database.close()
+  }
+})
+
+test('a structural edit preserves per-stage custom pause settings for a stage whose GPX did not change (CDC D3.1 sections 20/23)', async () => {
+  const database = await openImportTestDatabase()
+  try {
+    const original = await importTrip(database, [gpxFile('one.gpx')])
+    const oldStageId = original.stages[0].id
+    const customStageSettings = { stageId: oldStageId, pausePlanMode: 'custom', pauses: [{ id: 'custom-pause-1', active: true, routePointId: null, durationSeconds: 900, order: 0, origin: 'custom' }] }
+    const withCustomPause = { ...original, settings: { ...original.settings, stages: [customStageSettings] } }
+    await createTripRepository(database).saveTripBundle(withCustomPause)
+
+    const draft = await loadTripEditDraft(database, 'trip-edit')
+    // Add a second, brand-new ride day in the same edit — its own settings.stages entry must stay absent (engine defaults), never inherit or duplicate the first stage's custom plan.
+    const added = await edit(database, [...draft.slots, { kind: 'ride', existingDayId: null, existingSourceFileId: null, file: gpxFile('two.gpx', 45.02) }], 'stage-settings-preserve')
+    assert.equal(added.ok, true)
+    assert.equal(added.bundle.stages[0].id, oldStageId) // unchanged GPX keeps its old stage id
+    assert.deepEqual(added.bundle.settings.stages, [customStageSettings])
+  } finally {
+    database.close()
+  }
+})
+
+test('replacing a GPX drops that stage\'s own custom pause settings without touching any other stage\'s (CDC D3.1 sections 20/24)', async () => {
+  const database = await openImportTestDatabase()
+  try {
+    const original = await importTrip(database, [gpxFile('one.gpx'), gpxFile('two.gpx', 45.02)])
+    const [stage1, stage2] = original.stages
+    const settingsStages = [
+      { stageId: stage1.id, pausePlanMode: 'custom', pauses: [{ id: 'pause-stage1', active: true, routePointId: null, durationSeconds: 600, order: 0, origin: 'custom' }] },
+      { stageId: stage2.id, pausePlanMode: 'custom', pauses: [{ id: 'pause-stage2', active: true, routePointId: null, durationSeconds: 300, order: 0, origin: 'custom' }] },
+    ]
+    await createTripRepository(database).saveTripBundle({ ...original, settings: { ...original.settings, stages: settingsStages } })
+
+    const draft = await loadTripEditDraft(database, 'trip-edit')
+    const replacement = { ...draft.slots[0], file: gpxFile('replacement.gpx', 45.1, 250, 0.01), existingSourceFileId: null }
+    const result = await edit(database, [replacement, draft.slots[1]], 'stage-settings-replace')
+    assert.equal(result.ok, true)
+    assert.notEqual(result.bundle.stages[0].id, stage1.id) // replaced stage got a fresh id
+    assert.equal(result.bundle.stages[1].id, stage2.id) // untouched stage kept its own id
+    // Stage 1's custom plan is gone (its old id no longer exists at all); stage 2's is fully intact, unmodified.
+    assert.deepEqual(result.bundle.settings.stages, [settingsStages[1]])
+  } finally {
+    database.close()
+  }
+})
+
 test('editing an unchanged GPX stage preserves its geocoded endpoints and readable names', async () => {
   const database = await openImportTestDatabase()
   try {

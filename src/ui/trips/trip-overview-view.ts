@@ -8,6 +8,7 @@
  */
 
 import { computeStageWaypoints, resolveStagePauseSettings } from '../../analysis/waypoint-timeline.ts'
+import { resolveEffectiveMountainMode } from '../../analysis/terrain-context.ts'
 import type { LatLngTuple } from '../route-map-model.ts'
 import { routeGeometry } from '../../route-enrichment/route-fingerprint.ts'
 import { isSignificantWaypoint } from '../../analysis/canonical-waypoints.ts'
@@ -218,7 +219,7 @@ export function buildTripOverview(bundle: TripBundle, now: Date | string | null)
     const waypoints = computeStageWaypoints({
       stage, route: route as NonNullable<typeof route>, routePoints: bundle.routePoints, climbs: bundle.climbs, settings,
       manualPauses: pauseResolution.mode === 'custom' ? pauseResolution.manualPauses : undefined,
-      mountainMode: bundle.settings.global.mountainMode ?? false,
+      mountainMode: resolveEffectiveMountainMode(bundle),
     })
     const geometryTuples = geometry.map((point) => [point.latitude, point.longitude] as const)
     fullMapStages.push({ waypoints: waypoints.filter((waypoint) => isSignificantWaypoint(waypoint)), geometry: geometryTuples })

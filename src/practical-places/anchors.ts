@@ -10,6 +10,7 @@
 
 import { computeStageWaypoints, resolveStagePauseSettings } from '../analysis/waypoint-timeline.ts'
 import type { CanonicalWaypoint } from '../analysis/canonical-waypoints.ts'
+import { resolveEffectiveMountainMode } from '../analysis/terrain-context.ts'
 import type { RideStage, Route, TripBundle } from '../trip-core/index.ts'
 import type { PracticalPlaceAnchor } from './types.ts'
 
@@ -35,7 +36,7 @@ export function computeStagePracticalPlaceAnchors(bundle: TripBundle, stage: Rid
   const waypoints = computeStageWaypoints({
     stage, route, routePoints: bundle.routePoints, climbs: bundle.climbs, settings,
     manualPauses: pauseResolution.mode === 'custom' ? pauseResolution.manualPauses : undefined,
-    mountainMode: bundle.settings.global.mountainMode ?? false,
+    mountainMode: resolveEffectiveMountainMode(bundle),
   })
   return waypoints.filter(isPracticalPlaceAnchorWaypoint).map((waypoint) => ({ latitude: waypoint.latitude, longitude: waypoint.longitude }))
 }

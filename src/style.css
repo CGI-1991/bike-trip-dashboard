@@ -1442,6 +1442,30 @@ ul {
   font-size: 0.76rem;
 }
 
+/* D3.1 — the trip-editor "Informations" card's own field hints/inline
+ * validation/read-only derived labels (e.g. "Terrain"), sharing `.field`'s
+ * existing label typography rather than inventing a second one. */
+.field__hint {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.76rem;
+}
+
+.field__error {
+  color: var(--danger-text);
+  font-size: 0.76rem;
+}
+
+.field__error:empty {
+  display: none;
+}
+
+.field__label {
+  color: var(--ink);
+  font-size: 0.8rem;
+  font-weight: 750;
+}
+
 .settings-feedback {
   min-height: 1.1em;
   color: var(--danger-text);

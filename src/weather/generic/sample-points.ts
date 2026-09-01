@@ -37,6 +37,7 @@ import { isSignificantWaypoint } from '../../analysis/canonical-waypoints.ts'
 import type { CanonicalWaypoint, CanonicalWaypointKind } from '../../analysis/canonical-waypoints.ts'
 import { nearestNextRideStage, nearestPreviousRideStage, resolveOffLocation, resolveTransferLocations } from '../../analysis/day-location-fill.ts'
 import { parseClockToMinutes } from '../../analysis/timing.ts'
+import { resolveEffectiveMountainMode } from '../../analysis/terrain-context.ts'
 import { computeStageWaypoints, resolveStagePauseSettings } from '../../analysis/waypoint-timeline.ts'
 import { createRouteClockTime } from '../../route/time.ts'
 import { routeGeometry } from '../../route-enrichment/route-fingerprint.ts'
@@ -127,7 +128,7 @@ export function buildRideDayWeatherDefinition(bundle: TripBundle, day: TripDay):
   const waypoints = computeStageWaypoints({
     stage, route, routePoints: bundle.routePoints, climbs: bundle.climbs, settings,
     manualPauses: pauseResolution.mode === 'custom' ? pauseResolution.manualPauses : undefined,
-    mountainMode: bundle.settings.global.mountainMode ?? false,
+    mountainMode: resolveEffectiveMountainMode(bundle),
   })
   // Never sends a point with no computed clock time at all (defensive —
   // `computeStageWaypoints` only omits `elapsedMinutes` for a degenerate

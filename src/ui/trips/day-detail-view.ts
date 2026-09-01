@@ -32,6 +32,7 @@ import type { ClimbGradeClass, ClimbProfileSegment } from '../../analysis/climb-
 import { routeGeometry } from '../../route-enrichment/route-fingerprint.ts'
 import { resolveOffLocation, resolveTransferLocations } from '../../analysis/day-location-fill.ts'
 import { isPracticalPlaceUxCategory } from '../../practical-places/taxonomy.ts'
+import { resolveEffectiveMountainMode } from '../../analysis/terrain-context.ts'
 import { formatShortDate } from '../date-format.ts'
 import { compactPlaceName } from '../compact-place-name.ts'
 import {
@@ -656,7 +657,7 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
   const waypointsInput = {
     stage, route, routePoints: bundle.routePoints, climbs: bundle.climbs, settings,
     manualPauses: pauseResolution.mode === 'custom' ? pauseResolution.manualPauses : undefined,
-    mountainMode: bundle.settings.global.mountainMode ?? false,
+    mountainMode: resolveEffectiveMountainMode(bundle),
     automaticPauseEnrichment,
   }
   const waypoints = computeStageWaypoints(waypointsInput)

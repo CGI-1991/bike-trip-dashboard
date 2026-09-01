@@ -14,6 +14,7 @@ import { createTripRepository, TripValidationError } from '../storage/indexeddb/
 import type {
   RideStage,
   RideStageId,
+  RideStageSettings,
   Route,
   RouteId,
   RoutePoint,
@@ -304,8 +305,34 @@ export function mergeEditedTripBundle(existing: TripBundle, rebuilt: TripBundle,
   const existingDaySettings = new Map(existing.settings.days.map((settings) => [settings.dayId, settings]))
   const settingsDays = rebuilt.settings.days.map((settings) => {
     const dayId = remaps.dayIds.get(settings.dayId) ?? settings.dayId
-    return { ...settings, dayId, departureTime: existingDaySettings.get(dayId)?.departureTime ?? settings.departureTime }
+    const retained = existingDaySettings.get(dayId)
+    // CDC D3.1 section 22: every user-set field on a RETAINED day survives a
+    // structural edit — not just `departureTime` (the only field this used
+    // to preserve). `totalBreakSeconds` mirrors `RideStage.pauseDurationSeconds`
+    // and is only ever meaningful for a day whose stage still exists — a
+    // fresh `null` from `rebuilt` (a brand-new/replaced stage) is left as is.
+    return {
+      ...settings,
+      dayId,
+      departureTime: retained?.departureTime ?? settings.departureTime,
+      totalBreakSeconds: retained?.totalBreakSeconds ?? settings.totalBreakSeconds,
+    }
   })
+
+  // CDC D3.1 sections 20-24: a per-stage pause plan (`RideStageSettings`,
+  // including every custom `StagePauseSetting`) is keyed by `stageId`, and a
+  // genuinely UNCHANGED stage keeps its OLD id verbatim after this merge
+  // (`stages` above: `id: mappedId`) — so `existing.settings.stages` entries
+  // for exactly those stages are still valid, `routePointId`s included
+  // (`isRetainedRoutePoint` already keeps every OSM structural point a
+  // manual pause could possibly anchor to, for any stage whose GPX source
+  // didn't change). A REPLACED/removed stage's entry is dropped outright —
+  // its `routePointId`s may no longer exist at all — never carried over
+  // "just in case", and never contaminating any OTHER stage's own entry.
+  const existingStageSettingsByStageId = new Map(existing.settings.stages.map((entry) => [entry.stageId, entry]))
+  const settingsStages = [...remaps.unchangedStageIds]
+    .map((stageId) => existingStageSettingsByStageId.get(stageId))
+    .filter((entry): entry is RideStageSettings => entry !== undefined)
 
   const targetIds = {
     'trip-day': keptDayIds as ReadonlySet<string>,
@@ -338,7 +365,13 @@ export function mergeEditedTripBundle(existing: TripBundle, rebuilt: TripBundle,
     routePoints,
     practicalPlaces,
     accommodations,
-    settings: { global: { ...existing.settings.global, pausePlanMode: 'automatic' }, days: settingsDays, stages: [] },
+    // CDC D3.1 section 21: the trip-wide `pausePlanMode` itself never
+    // references any specific route/point — a structural edit has no
+    // reason to ever force it back to `'automatic'` and silently discard
+    // the user's own global choice. Only `settings.stages` (per-stage
+    // overrides, which DO reference route-specific data) needs the
+    // unchanged/changed distinction above.
+    settings: { global: existing.settings.global, days: settingsDays, stages: settingsStages },
     overrides,
     enrichmentMetadata: remaps.unchangedStageIds.size === rebuilt.stages.length
       ? existing.enrichmentMetadata
