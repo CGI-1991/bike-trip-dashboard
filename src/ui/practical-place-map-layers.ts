@@ -11,6 +11,7 @@
 import type { PracticalPlaceViewModel } from '../practical-places/view-model.ts'
 import { PRACTICAL_PLACE_UX_CATEGORIES, PRACTICAL_PLACE_UX_LABELS } from '../practical-places/taxonomy.ts'
 import type { PracticalPlaceUxCategory } from '../practical-places/taxonomy.ts'
+import { buildBicycleDirectionsUrl } from './bicycle-directions.ts'
 import type { MapLayerDefinition } from './route-map.ts'
 import type { RouteMapMarkerModel } from './route-map-model.ts'
 import type { RouteMarkerCategory } from './route-marker-style.ts'
@@ -73,6 +74,17 @@ function buildPopupHtml(viewModel: PracticalPlaceViewModel): string {
   }
   const linksLine = links.length === 0 ? '' : `<p class="practical-popup__links">${links.join(' · ')}</p>`
 
+  // CDC C3 sections 51-55: a static, destination-only URL (works with or
+  // without a known current position, section 53) baked in now — never
+  // disabled for lack of GPS — then upgraded in place with `&origin=` by
+  // `installMapLayerPanel`'s own `popupopen` handler using whatever
+  // position is known AT THE MOMENT the popup actually opens (section 55),
+  // never frozen at build time. `data-poi-lat`/`data-poi-lon` are what that
+  // handler reads to rebuild the URL; the plain `href` alone still works
+  // even if that patch never runs.
+  const directionsUrl = buildBicycleDirectionsUrl({ latitude: place.latitude, longitude: place.longitude })
+  const directionsLine = `<p class="practical-popup__directions"><a class="button button--quiet" href="${escapeHtml(directionsUrl)}" target="_blank" rel="noopener noreferrer" data-poi-directions data-poi-lat="${place.latitude}" data-poi-lon="${place.longitude}" aria-label="Itinéraire vélo vers ${escapeHtml(displayName)}">Itinéraire vélo</a></p>`
+
   return `<div class="practical-popup">
     <strong class="practical-popup__name">${escapeHtml(displayName)}</strong>
     <span class="practical-popup__category">${escapeHtml(categoryLabel)}</span>
@@ -81,6 +93,7 @@ function buildPopupHtml(viewModel: PracticalPlaceViewModel): string {
     ${openingStatusLine(opening)}
     ${rawHoursLine}
     ${linksLine}
+    ${directionsLine}
   </div>`
 }
 

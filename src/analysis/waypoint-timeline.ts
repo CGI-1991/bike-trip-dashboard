@@ -16,13 +16,15 @@
 import { createTerrainTiming, interpolateTerrainTiming, buildTerrainProfileSeries } from '../route/terrain-profile.ts'
 import { formatRouteClockTime } from '../route/time.ts'
 import type { RouteProfilePosition } from '../route/types.ts'
-import type { Climb, PausePlanMode, RideStage, RideStageSettings, Route, RoutePoint } from '../trip-core/index.ts'
-import { routeGeometryWithDistances } from './canonical-waypoints.ts'
+import type { Climb, PausePlanMode, RideStage, RideStageSettings, Route, RouteGeometryPoint, RoutePoint } from '../trip-core/index.ts'
+import { pointAtDistance, routeGeometryWithDistances } from './canonical-waypoints.ts'
 import type { CanonicalWaypoint } from './canonical-waypoints.ts'
 import { buildCanonicalWaypoints } from './canonical-waypoints.ts'
 import { applyPausesToWaypoints, placeAutomaticPauses } from './pause-placement.ts'
 import type { PlacedPause } from './pause-placement.ts'
 import type { PauseAnchor } from './pauses.ts'
+import { recommendAutomaticPauses } from './pause-recommendation.ts'
+import type { PauseCandidatePlace, PauseRecommendation, PauseWeatherContext } from './pause-recommendation.ts'
 import { buildTimeline, parseClockToMinutes } from './timing.ts'
 import type { TimelinePoint } from './timing.ts'
 
@@ -81,6 +83,26 @@ export interface ComputeStageWaypointsInput {
   readonly manualPauses?: readonly ManualPauseSetting[]
   /** `GlobalTripSettings.mountainMode` (Jalon B4.2 section 15) — forwarded as-is to `buildCanonicalWaypoints`; `false` when omitted. */
   readonly mountainMode?: boolean
+  /**
+   * C3 (CDC C3 section 26): when supplied, AUTOMATIC-mode placement uses
+   * `pause-recommendation.ts`'s explainable scoring (terrain + timing +
+   * POI/opening-hours + weather) instead of `pause-placement.ts`'s plain
+   * kind-priority search. Omitted — every caller that hasn't opted in —
+   * keeps the original `placeAutomaticPauses` behaviour byte-for-byte (CDC
+   * section 27: "comportement au moins aussi bon qu'avant C3", never a
+   * silent behaviour change for a caller that never asked for it).
+   * Ignored entirely in custom/manual mode (`manualPauses` set) — C3 never
+   * touches a saved manual pause (CDC section 3/32).
+   */
+  readonly automaticPauseEnrichment?: AutomaticPauseEnrichmentInput
+}
+
+/** CDC C3 section 4/8/20 — the extra, entirely optional signals `recommendAutomaticPauses` can use beyond terrain/timing. */
+export interface AutomaticPauseEnrichmentInput {
+  readonly practicalPlaces?: readonly PauseCandidatePlace[]
+  readonly weather?: PauseWeatherContext | null
+  /** 0 (Sunday) – 6 (Saturday), the day's own weekday at departure — only needed for opening-hours scoring; omit to skip that one signal, everything else still runs. */
+  readonly weekdayAtDeparture?: number
 }
 
 function movingElapsedMinutesAt(source: RouteProfilePosition[], totalDistanceKm: number, referenceSpeedKph: number): (distanceKm: number) => number {
@@ -92,6 +114,47 @@ function movingElapsedMinutesAt(source: RouteProfilePosition[], totalDistanceKm:
   }
   const timing = createTerrainTiming(terrainSeries, totalDistanceKm, referenceSpeedKph)
   return (distanceKm: number) => interpolateTerrainTiming(timing, distanceKm).movingElapsedMinutes
+}
+
+/**
+ * The one place `placeAutomaticPauses` vs `recommendAutomaticPauses` is
+ * decided (CDC C3 section 26-27) — shared by `computeStageWaypoints` and
+ * `computeStageTimingCurve` so both always agree on exactly the same
+ * automatic placement, never two divergent pause sets for the same stage.
+ * `movingElapsedAt`/`departureMinutes` being `undefined` (no valid
+ * reference speed/geometry) simply skips the engine's own opening-hours
+ * signal — everything else (terrain, spacing, edge buffer) still applies.
+ */
+function resolveAutomaticPlacedPauses(
+  totalBreakMinutes: number,
+  totalDistanceKm: number,
+  baseWaypoints: readonly CanonicalWaypoint[],
+  climbs: readonly Climb[],
+  geometry: readonly RouteGeometryPoint[],
+  distances: readonly number[],
+  enrichment: AutomaticPauseEnrichmentInput | undefined,
+  movingElapsedAt: ((distanceKm: number) => number) | undefined,
+  departureMinutes: number | undefined,
+): readonly PlacedPause[] {
+  if (enrichment === undefined) return placeAutomaticPauses(totalBreakMinutes, totalDistanceKm, baseWaypoints)
+  const recommendations = recommendAutomaticPauses(
+    {
+      totalBreakMinutes,
+      totalDistanceKm,
+      waypoints: baseWaypoints,
+      climbs,
+      places: enrichment.practicalPlaces,
+      weather: enrichment.weather,
+      movingElapsedMinutesAt: movingElapsedAt,
+      departureMinutes,
+      weekdayAtDeparture: enrichment.weekdayAtDeparture,
+    },
+    (distanceKm) => pointAtDistance(geometry, distances, distanceKm).altitudeM,
+  )
+  return recommendations.map((recommendation) => ({
+    id: recommendation.slotId, name: recommendation.name, distanceKm: recommendation.distanceKm,
+    durationMinutes: recommendation.durationMinutes, waypointId: recommendation.waypointId,
+  }))
 }
 
 /**
@@ -110,20 +173,11 @@ export function computeStageWaypoints(input: ComputeStageWaypointsInput): readon
   const totalDistanceKm = distances.at(-1) ?? 0
   const totalBreakMinutes = (stage.pauseDurationSeconds ?? 0) / 60
 
-  const placedPauses: readonly PlacedPause[] = input.manualPauses === undefined
-    ? placeAutomaticPauses(totalBreakMinutes, totalDistanceKm, baseWaypoints)
-    : input.manualPauses
-        .map((pause): PlacedPause | null => {
-          const anchor = baseWaypoints.find((waypoint) => waypoint.id === pause.routePointId)
-          if (anchor === undefined) return null
-          return { id: pause.id, name: anchor.name, distanceKm: anchor.trackDistanceKm, durationMinutes: pause.durationMinutes, waypointId: anchor.id }
-        })
-        .filter((pause): pause is PlacedPause => pause !== null)
-  const withPauses = applyPausesToWaypoints(baseWaypoints, placedPauses, route)
-
-  if (!(settings.referenceSpeedKph > 0) || !(totalDistanceKm > 0)) return withPauses
-
-  const source: RouteProfilePosition[] = geometry.map((point, index) => ({
+  // CDC C3 section 28: this "base timing" (moving time only, no pause yet
+  // placed) is computed BEFORE pause selection precisely so scoring can use
+  // an approximate ETA without depending on its own not-yet-decided output.
+  const hasValidTiming = settings.referenceSpeedKph > 0 && totalDistanceKm > 0
+  const source: RouteProfilePosition[] = !hasValidTiming ? [] : geometry.map((point, index) => ({
     latitude: point.latitude,
     longitude: point.longitude,
     sourceFileNumber: 1,
@@ -136,8 +190,22 @@ export function computeStageWaypoints(input: ComputeStageWaypointsInput): readon
     speedMultiplier: 1,
     weightedDistanceKm: distances[index] ?? 0,
   }))
-  const movingElapsedAt = movingElapsedMinutesAt(source, totalDistanceKm, settings.referenceSpeedKph)
-  const departureMinutes = parseClockToMinutes(settings.departureTime)
+  const movingElapsedAt = hasValidTiming ? movingElapsedMinutesAt(source, totalDistanceKm, settings.referenceSpeedKph) : undefined
+  const departureMinutes = hasValidTiming ? parseClockToMinutes(settings.departureTime) : undefined
+
+  const placedPauses: readonly PlacedPause[] = input.manualPauses !== undefined
+    ? input.manualPauses
+        .map((pause): PlacedPause | null => {
+          const anchor = baseWaypoints.find((waypoint) => waypoint.id === pause.routePointId)
+          if (anchor === undefined) return null
+          return { id: pause.id, name: anchor.name, distanceKm: anchor.trackDistanceKm, durationMinutes: pause.durationMinutes, waypointId: anchor.id }
+        })
+        .filter((pause): pause is PlacedPause => pause !== null)
+    : resolveAutomaticPlacedPauses(totalBreakMinutes, totalDistanceKm, baseWaypoints, climbs, geometry, distances, input.automaticPauseEnrichment, movingElapsedAt, departureMinutes)
+  const withPauses = applyPausesToWaypoints(baseWaypoints, placedPauses, route)
+
+  if (!hasValidTiming || movingElapsedAt === undefined || departureMinutes === undefined) return withPauses
+
   const pauseAnchors: readonly PauseAnchor[] = placedPauses.map((pause) => ({ id: pause.id, name: pause.name, distanceKm: pause.distanceKm, durationMinutes: pause.durationMinutes }))
 
   const timelinePoints = buildTimeline(
@@ -151,6 +219,54 @@ export function computeStageWaypoints(input: ComputeStageWaypointsInput): readon
     if (timelinePoint === undefined) return waypoint
     return { ...waypoint, elapsedMinutes: timelinePoint.elapsedMinutes, clockTime: formatRouteClockTime(timelinePoint.clockTime) }
   })
+}
+
+/**
+ * CDC C3 section 29-30: the explainable side of the exact same placement
+ * `computeStageWaypoints` performs (never a second, divergent selection) —
+ * `[]` for manual mode or when the caller never opted into
+ * `automaticPauseEnrichment` (nothing to explain: the plain
+ * `placeAutomaticPauses` fallback is running instead). Re-derives its own
+ * cheap setup like `computeStageTimingCurve` does, for the same reason.
+ */
+export function computeStagePauseRecommendations(input: ComputeStageWaypointsInput): readonly PauseRecommendation[] {
+  if (input.manualPauses !== undefined || input.automaticPauseEnrichment === undefined) return []
+  const { stage, route, routePoints, climbs, settings, mountainMode } = input
+  const baseWaypoints = buildCanonicalWaypoints({ stage, route, routePoints, climbs, mountainMode })
+  if (baseWaypoints.length === 0) return []
+
+  const geometryWithDistances = routeGeometryWithDistances(route)
+  if (geometryWithDistances === null) return []
+  const { geometry, distances } = geometryWithDistances
+  const totalDistanceKm = distances.at(-1) ?? 0
+  const totalBreakMinutes = (stage.pauseDurationSeconds ?? 0) / 60
+
+  const hasValidTiming = settings.referenceSpeedKph > 0 && totalDistanceKm > 0
+  const source: RouteProfilePosition[] = !hasValidTiming ? [] : geometry.map((point, index) => ({
+    latitude: point.latitude,
+    longitude: point.longitude,
+    sourceFileNumber: 1,
+    sourceFileName: 'route.gpx',
+    distanceKm: distances[index] ?? 0,
+    elevationGainM: 0,
+    elevationLossM: 0,
+    altitudeM: point.altitudeM,
+    localSlopePercent: 0,
+    speedMultiplier: 1,
+    weightedDistanceKm: distances[index] ?? 0,
+  }))
+  const movingElapsedAt = hasValidTiming ? movingElapsedMinutesAt(source, totalDistanceKm, settings.referenceSpeedKph) : undefined
+  const departureMinutes = hasValidTiming ? parseClockToMinutes(settings.departureTime) : undefined
+  const enrichment = input.automaticPauseEnrichment
+
+  return recommendAutomaticPauses(
+    {
+      totalBreakMinutes, totalDistanceKm, waypoints: baseWaypoints, climbs,
+      places: enrichment.practicalPlaces, weather: enrichment.weather,
+      movingElapsedMinutesAt: movingElapsedAt, departureMinutes, weekdayAtDeparture: enrichment.weekdayAtDeparture,
+    },
+    (distanceKm) => pointAtDistance(geometry, distances, distanceKm).altitudeM,
+  )
 }
 
 export interface StageTimingCurve {
@@ -191,16 +307,10 @@ export function computeStageTimingCurve(input: ComputeStageWaypointsInput): Stag
   if (!(settings.referenceSpeedKph > 0) || !(totalDistanceKm > 0)) return null
 
   const totalBreakMinutes = (stage.pauseDurationSeconds ?? 0) / 60
-  const placedPauses: readonly PlacedPause[] = input.manualPauses === undefined
-    ? placeAutomaticPauses(totalBreakMinutes, totalDistanceKm, baseWaypoints)
-    : input.manualPauses
-        .map((pause): PlacedPause | null => {
-          const anchor = baseWaypoints.find((waypoint) => waypoint.id === pause.routePointId)
-          if (anchor === undefined) return null
-          return { id: pause.id, name: anchor.name, distanceKm: anchor.trackDistanceKm, durationMinutes: pause.durationMinutes, waypointId: anchor.id }
-        })
-        .filter((pause): pause is PlacedPause => pause !== null)
 
+  // CDC C3 section 28: same "base timing before pause selection" ordering
+  // as `computeStageWaypoints` — never derived from the pauses-included
+  // timeline this function itself is about to produce.
   const source: RouteProfilePosition[] = geometry.map((point, index) => ({
     latitude: point.latitude,
     longitude: point.longitude,
@@ -216,6 +326,16 @@ export function computeStageTimingCurve(input: ComputeStageWaypointsInput): Stag
   }))
   const movingElapsedAt = movingElapsedMinutesAt(source, totalDistanceKm, settings.referenceSpeedKph)
   const departureMinutes = parseClockToMinutes(settings.departureTime)
+
+  const placedPauses: readonly PlacedPause[] = input.manualPauses !== undefined
+    ? input.manualPauses
+        .map((pause): PlacedPause | null => {
+          const anchor = baseWaypoints.find((waypoint) => waypoint.id === pause.routePointId)
+          if (anchor === undefined) return null
+          return { id: pause.id, name: anchor.name, distanceKm: anchor.trackDistanceKm, durationMinutes: pause.durationMinutes, waypointId: anchor.id }
+        })
+        .filter((pause): pause is PlacedPause => pause !== null)
+    : resolveAutomaticPlacedPauses(totalBreakMinutes, totalDistanceKm, baseWaypoints, climbs, geometry, distances, input.automaticPauseEnrichment, movingElapsedAt, departureMinutes)
   const pauseAnchors: readonly PauseAnchor[] = placedPauses.map((pause) => ({ id: pause.id, name: pause.name, distanceKm: pause.distanceKm, durationMinutes: pause.durationMinutes }))
 
   const clamp = (distanceKm: number) => Math.min(totalDistanceKm, Math.max(0, distanceKm))

@@ -1,5 +1,7 @@
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+import { buildBicycleDirectionsUrl } from './bicycle-directions.ts'
+import { sharedCurrentLocationService } from './current-location.ts'
 import type { GpxAnalysisSuccess } from '../gpx/types.ts'
 import type { PracticalData } from '../practical/model.ts'
 import type { Accommodation } from '../trip/accommodations.ts'
@@ -34,6 +36,23 @@ const scrollUnlocks = new WeakMap<HTMLDialogElement, () => void>()
 const pendingFrames = new WeakMap<HTMLDialogElement, number>()
 const mapLayerControllers = new WeakMap<HTMLDialogElement, { dispose(): void }>()
 const temporaryMarkers = new WeakMap<HTMLElement, L.CircleMarker>()
+const currentLocationMarkers = new WeakMap<HTMLElement, { readonly dot: L.CircleMarker; readonly halo: L.Circle | null }>()
+
+/**
+ * C3.B sections 34-37: dedicated panes so the profile's temporary cursor
+ * (`profileCursorPane`) always renders above every marker on the map —
+ * structural, POI, or "vous êtes ici" (`currentLocationPane`) — regardless
+ * of DOM/z-fighting order, without touching any existing marker's own pane
+ * (they all keep Leaflet's default `markerPane`, CDC section 36's
+ * hierarchy: tiles < route < structural/POI markers < current location <
+ * profile cursor). Created once per map instance, right after `L.map(...)`.
+ */
+function installCustomPanes(map: L.Map): void {
+  const currentLocationPane = map.createPane('currentLocationPane')
+  currentLocationPane.style.zIndex = '620'
+  const profileCursorPane = map.createPane('profileCursorPane')
+  profileCursorPane.style.zIndex = '650'
+}
 /** Exported so other map screens (e.g. the trip-wide overview map) can destroy their own Leaflet instances the same way. */
 export function destroyRouteMap(container: HTMLElement): void {
   const map = mapInstances.get(container)
@@ -42,6 +61,7 @@ export function destroyRouteMap(container: HTMLElement): void {
   // would otherwise survive into the next render (CDC D1.1 section 19) —
   // `setTemporaryMarker` must never resurrect/reuse it.
   temporaryMarkers.delete(container)
+  currentLocationMarkers.delete(container)
 }
 function destroy(container: HTMLElement): void { destroyRouteMap(container) }
 
@@ -56,6 +76,15 @@ function destroy(container: HTMLElement): void { destroyRouteMap(container) }
 export interface RouteMapInteractionHandle {
   setTemporaryMarker(latitude: number, longitude: number): void
   clearTemporaryMarker(): void
+  /**
+   * C3.B section 45-47: the "vous êtes ici" marker — a distinct dot/halo,
+   * never reusing the pause/col/POI/profile-cursor visuals. The caller
+   * (`trips-manager.ts`) is the only one that ever calls this, driven by
+   * `current-location.ts`'s shared watch — moving the marker never pans,
+   * zooms, or `fitBounds`s the map (section 47).
+   */
+  setCurrentLocationMarker(latitude: number, longitude: number, accuracyMeters: number | null): void
+  clearCurrentLocationMarker(): void
 }
 
 /**
@@ -79,6 +108,12 @@ export function getRouteMapInteractionHandle(container: HTMLElement): RouteMapIn
       const existing = temporaryMarkers.get(canvas)
       if (existing !== undefined) { existing.setLatLng([latitude, longitude]); return }
       const marker = L.circleMarker([latitude, longitude], {
+        // `pane: 'profileCursorPane'` (CDC C3 sections 34-37) — the actual
+        // fix: a plain `L.circleMarker` defaults to Leaflet's `overlayPane`
+        // (z-index 400), BELOW every `L.marker`-based structural/POI icon
+        // (`markerPane`, z-index 600) — this used to let a waypoint/pause/
+        // col/POI marker silently cover the temporary cursor.
+        pane: 'profileCursorPane',
         radius: 7, weight: 2, color: '#ffffff', fillColor: '#dc2626', fillOpacity: 1, interactive: false, className: 'route-map__temporary-marker',
       }).addTo(map)
       temporaryMarkers.set(canvas, marker)
@@ -88,6 +123,33 @@ export function getRouteMapInteractionHandle(container: HTMLElement): RouteMapIn
       if (existing === undefined) return
       existing.remove()
       temporaryMarkers.delete(canvas)
+    },
+    setCurrentLocationMarker(latitude, longitude, accuracyMeters): void {
+      const existing = currentLocationMarkers.get(canvas)
+      if (existing !== undefined) {
+        existing.dot.setLatLng([latitude, longitude])
+        existing.halo?.setLatLng([latitude, longitude])
+        if (existing.halo !== null && accuracyMeters !== null) existing.halo.setRadius(accuracyMeters)
+        return
+      }
+      // A soft accuracy halo only when the platform actually reports one
+      // (CDC section 45's own "éventuellement") — never a fabricated radius.
+      const halo = accuracyMeters === null ? null : L.circle([latitude, longitude], {
+        pane: 'currentLocationPane', radius: accuracyMeters, interactive: false,
+        color: '#2563eb', weight: 1, fillColor: '#2563eb', fillOpacity: 0.12, className: 'route-map__current-location-halo',
+      }).addTo(map)
+      const dot = L.circleMarker([latitude, longitude], {
+        pane: 'currentLocationPane', radius: 7, weight: 2, color: '#ffffff', fillColor: '#2563eb', fillOpacity: 1,
+        interactive: false, className: 'route-map__current-location-marker',
+      }).addTo(map)
+      currentLocationMarkers.set(canvas, { dot, halo })
+    },
+    clearCurrentLocationMarker(): void {
+      const existing = currentLocationMarkers.get(canvas)
+      if (existing === undefined) return
+      existing.dot.remove()
+      existing.halo?.remove()
+      currentLocationMarkers.delete(canvas)
     },
   }
 }
@@ -141,6 +203,7 @@ export function createRouteMap(container: HTMLElement, model: RouteMapModel, opt
   const interactive = options.interactive
   const map = L.map(container, { attributionControl: true, dragging: interactive, touchZoom: interactive, doubleClickZoom: interactive, boxZoom: interactive, keyboard: interactive, scrollWheelZoom: false, zoomControl: interactive, tapHold: interactive })
   mapInstances.set(container, map)
+  installCustomPanes(map)
   const tiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap contributors', maxZoom: 19 })
   tiles.on('tileerror', onTileError).addTo(map)
   // `extraLines` (the Aperçu global map) draws one polyline per geographically
@@ -248,7 +311,23 @@ function installMapLayerPanel(dialog: HTMLDialogElement, map: L.Map, layers: rea
       // UI-POLISH-01 section 31: explicit `maxWidth`/`autoPanPadding` so the
       // popup never renders under the fullscreen toolbar or Leaflet's own
       // zoom controls — it used to rely entirely on Leaflet's defaults.
-      if (marker.popupHtml !== undefined) built.bindPopup(marker.popupHtml, { maxWidth: 300, autoPan: true, autoPanPadding: [16, 60] })
+      if (marker.popupHtml !== undefined) {
+        built.bindPopup(marker.popupHtml, { maxWidth: 300, autoPan: true, autoPanPadding: [16, 60] })
+        // CDC C3 section 55: the directions link's `origin` is refreshed from
+        // whatever position is known AT THE MOMENT the popup actually opens —
+        // never the static one baked into `popupHtml` when it was first built
+        // (the cyclist may well have moved since the Étape screen opened).
+        built.on('popupopen', () => {
+          const element = built.getPopup()?.getElement()
+          const link = element?.querySelector<HTMLAnchorElement>('[data-poi-directions]')
+          if (link === null || link === undefined) return
+          const lat = Number(link.dataset.poiLat)
+          const lon = Number(link.dataset.poiLon)
+          if (!Number.isFinite(lat) || !Number.isFinite(lon)) return
+          const position = sharedCurrentLocationService.getState().position
+          link.href = buildBicycleDirectionsUrl({ latitude: lat, longitude: lon }, position === null ? null : { latitude: position.latitude, longitude: position.longitude })
+        })
+      }
       return built
     }))
     groups.set(layer.id, group)

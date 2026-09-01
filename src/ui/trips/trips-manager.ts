@@ -59,6 +59,7 @@ import type { GenericDayWeatherViewModel } from '../../weather/generic/view-mode
 import type { GenericTransferWeatherViewModel } from '../../weather/generic/coordinator.ts'
 import { GENERIC_APP_HEADER_NO_ACTIVE_TRIP, buildGenericAppHeader } from './app-header.ts'
 import type { GenericAppHeaderState } from './app-header.ts'
+import { sharedCurrentLocationService } from '../current-location.ts'
 
 /** One "Villages" layer entry for the fullscreen map (CDC Jalon B4 section 9) — `[]` when the stage has no village at all, so the "Calques" button stays hidden rather than showing an empty layer. */
 function villagesLayer(waypoints: readonly import('../../analysis/canonical-waypoints.ts').CanonicalWaypoint[]): readonly MapLayerDefinition[] {
@@ -241,6 +242,15 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   function teardownSubComponent(): void {
     activeSubComponent?.destroy()
     activeSubComponent = null
+    // CDC C3.B section 44: every one of the four render* entry points
+    // (list/detail/day/overview) calls this first, by which point `mode`
+    // already reflects the DESTINATION screen (each `open*` helper sets it
+    // before invoking its own render function) — stopping only when that
+    // destination isn't another day keeps the watch alive across plain
+    // Précédent/Suivant day navigation (no reacquisition flicker) while
+    // still covering every real exit ("quitter l'étape / Voyage / Aperçu /
+    // Mes voyages") without a second, divergent teardown list.
+    if (mode.kind !== 'day') stopCurrentLocationTracking()
   }
 
   const geocodingInFlight = new Set<TripId>()
@@ -493,11 +503,54 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     return buildPracticalPlaceMapLayers(viewModels)
   }
 
+  /**
+   * C3.B sections 38-50: one shared subscription drives both the compact
+   * and fullscreen maps (section 43 — never a second `watchPosition` of its
+   * own) — re-queried fresh on every position update rather than captured
+   * once, so it keeps working across `patchDayDetail`/fullscreen-open
+   * remounting either map's own Leaflet instance. Idempotent: a second call
+   * while already subscribed is a no-op (`teardownSubComponent` may run
+   * between two day screens without actually stopping tracking, section
+   * 44's own "Précédent/Suivant" exception above).
+   */
+  let currentLocationUnsubscribe: (() => void) | null = null
+
+  function stopCurrentLocationTracking(): void {
+    if (currentLocationUnsubscribe === null) return
+    currentLocationUnsubscribe()
+    currentLocationUnsubscribe = null
+    sharedCurrentLocationService.stop()
+  }
+
+  function ensureCurrentLocationTracking(): void {
+    if (currentLocationUnsubscribe !== null) return
+    currentLocationUnsubscribe = sharedCurrentLocationService.subscribe((state) => {
+      if (state.position === null) return
+      for (const selector of ['[data-day-detail-map]', '[data-route-map-expanded]'] as const) {
+        const mapContainer = container.querySelector<HTMLElement>(selector)
+        if (mapContainer === null) continue
+        getMapInteractionHandle(mapContainer)?.setCurrentLocationMarker(state.position.latitude, state.position.longitude, state.position.accuracyMeters)
+      }
+    })
+    // CDC C3.B section 41: opportunistic, silent auto-start ONLY when the
+    // browser already reports the permission as granted from a previous
+    // explicit "Me localiser" click — never a fresh prompt on every open.
+    // The Permissions API itself isn't universally available; absent or
+    // erroring, this simply stays quiet and leaves the button as the only
+    // way in, exactly section 41's own fallback.
+    void navigator.permissions?.query({ name: 'geolocation' as PermissionName })
+      .then((status) => { if (status.state === 'granted') sharedCurrentLocationService.start() })
+      .catch(() => {})
+  }
+
   function mountMapAndProfile(bundle: TripBundle, detail: DayDetail, dayId: TripDayId): void {
     const mapContainer = container.querySelector<HTMLElement>('[data-day-detail-map]')
     const mapDialog = container.querySelector<HTMLDialogElement>('[data-day-detail-map-dialog]')
     const visibleWaypoints = getDisplayedStageWaypoints(detail)
     if (mapContainer !== null && mapDialog !== null) {
+      // CDC C3.B section 49: only a ride day actually has a map to show a
+      // "vous êtes ici" marker on — OFF/transfer days never reach this branch.
+      ensureCurrentLocationTracking()
       const model = detail.geometry === null
         ? null
         : buildGenericRouteMapModel(visibleWaypoints, detail.geometry.map((point) => [point.latitude, point.longitude] as const))
@@ -1296,6 +1349,13 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       goToList()
     } else if (action === 'enrich-trip-endpoints' && mode.kind === 'detail') {
       void enrichEndpoints(mode.tripId)
+    } else if (action === 'locate-me') {
+      // CDC C3.B section 41/48: the permission prompt (if any) is only ever
+      // triggered by this explicit user action — never automatically on
+      // screen open. `start()` itself is idempotent (section 43: at most
+      // one active watch), so a repeated click while already tracking is a
+      // harmless no-op.
+      sharedCurrentLocationService.start()
     } else if (action === 'retry-stage-preparation' && tripId !== undefined) {
       retryStagePreparation(tripId as TripId)
     } else if (action === 'delete-trip' && tripId !== undefined) {

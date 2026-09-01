@@ -22,16 +22,25 @@
  * resolved, or (ride only) its stage/route can't be resolved either.
  */
 
-import { computeStageTimingCurve, computeStageWaypoints, resolveStagePauseSettings } from '../../analysis/waypoint-timeline.ts'
-import type { StageTimingCurve } from '../../analysis/waypoint-timeline.ts'
+import { computeStagePauseRecommendations, computeStageTimingCurve, computeStageWaypoints, resolveStagePauseSettings } from '../../analysis/waypoint-timeline.ts'
+import type { AutomaticPauseEnrichmentInput, StageTimingCurve } from '../../analysis/waypoint-timeline.ts'
+import type { PauseCandidatePlace } from '../../analysis/pause-recommendation.ts'
 import { isSignificantWaypoint } from '../../analysis/canonical-waypoints.ts'
 import type { CanonicalWaypoint, CanonicalWaypointKind } from '../../analysis/canonical-waypoints.ts'
 import { buildClimbProfile } from '../../analysis/climb-profile.ts'
 import type { ClimbGradeClass, ClimbProfileSegment } from '../../analysis/climb-profile.ts'
 import { routeGeometry } from '../../route-enrichment/route-fingerprint.ts'
 import { resolveOffLocation, resolveTransferLocations } from '../../analysis/day-location-fill.ts'
+import { isPracticalPlaceUxCategory } from '../../practical-places/taxonomy.ts'
 import { formatShortDate } from '../date-format.ts'
 import { compactPlaceName } from '../compact-place-name.ts'
+import {
+  buildPauseRecommendationViewModels,
+  findPauseRecommendationForWaypoint,
+  formatPauseRecommendationReasons,
+  pauseRecommendationBadgeLabel,
+} from './pause-recommendation-view.ts'
+import type { PauseRecommendationViewModel } from './pause-recommendation-view.ts'
 import type { StagePreparationStatus } from '../../trips-manager/stage-preparation.ts'
 import type { Accommodation, Climb, RideStageSettings, RouteGeometryPoint, RoutePointId, SourceFileId, TransferTiming, TripBundle, TripDay, TripDayId } from '../../trip-core/index.ts'
 
@@ -97,8 +106,23 @@ const KIND_MARKERS: Readonly<Record<CanonicalWaypointKind, string>> = {
   start: 'D', end: 'A', city: '●', town: '●', village: '●', 'mountain-pass': '◆', saddle: '◆', climb: '▲', pause: '❚❚',
 }
 
-function renderPauseBadge(waypoint: CanonicalWaypoint): string {
-  return waypoint.pauseDurationMinutes === null ? '' : `<span class="tag tag--pause">Pause ${waypoint.pauseDurationMinutes} min</span>`
+/**
+ * CDC C3 sections 24/30: the existing "Pause 21 min" badge, optionally
+ * followed by a compact "★ Recommandé"/"Bon choix" badge and a one-line
+ * reason ("Après descente · boulangerie ouverte · eau") — never a raw score
+ * (section 24), never a bigger card (section 30's own explicit "ne pas
+ * transformer chaque pause en énorme carte"). `recommendation` is
+ * `undefined` for a manual pause, a fallback slot, or when C3 never ran at
+ * all for this stage — the plain badge alone renders exactly as before C3.
+ */
+function renderPauseBadge(waypoint: CanonicalWaypoint, recommendation: PauseRecommendationViewModel | undefined): string {
+  if (waypoint.pauseDurationMinutes === null) return ''
+  const badgeLabel = recommendation === undefined ? null : pauseRecommendationBadgeLabel(recommendation.level)
+  const badge = badgeLabel === null ? '' : ` <span class="tag tag--pause-recommended">${escapeHtml(badgeLabel)}</span>`
+  const reasonLine = recommendation === undefined || recommendation.reasons.length === 0
+    ? ''
+    : `<span class="day-detail__pause-reason">${escapeHtml(formatPauseRecommendationReasons(recommendation.reasons))}</span>`
+  return `<span class="tag tag--pause">Pause ${waypoint.pauseDurationMinutes} min</span>${badge}${reasonLine}`
 }
 
 /**
@@ -123,7 +147,7 @@ function renderPauseBadge(waypoint: CanonicalWaypoint): string {
  * same waypoints (section 24 — the "Points significatifs" block dropped
  * from the mounted weather panel itself, see `trips-manager.ts`).
  */
-function renderTimelineRow(waypoint: CanonicalWaypoint): string {
+function renderTimelineRow(waypoint: CanonicalWaypoint, recommendations: readonly PauseRecommendationViewModel[]): string {
   const meta = `${KIND_LABELS[waypoint.kind]} · ${formatKilometers(waypoint.trackDistanceKm)}`
   const time = waypoint.clockTime === null ? '' : `<span class="day-detail__timeline-time">${escapeHtml(waypoint.clockTime)}</span>`
   return `<li class="day-detail__timeline-row day-detail__timeline-row--${waypoint.importance}" data-waypoint-id="${escapeHtml(waypoint.id)}" data-waypoint-kind="${waypoint.kind}">
@@ -131,7 +155,7 @@ function renderTimelineRow(waypoint: CanonicalWaypoint): string {
     <div class="day-detail__timeline-body">
       <strong><span class="day-detail__timeline-marker" aria-hidden="true">${KIND_MARKERS[waypoint.kind]}</span>${escapeHtml(waypoint.name)}</strong>
       <span class="day-detail__timeline-meta">${meta}</span>
-      ${renderPauseBadge(waypoint)}
+      ${renderPauseBadge(waypoint, findPauseRecommendationForWaypoint(recommendations, waypoint.id))}
       <span class="day-detail__timeline-weather" data-waypoint-weather data-waypoint-id="${escapeHtml(waypoint.id)}"></span>
     </div>
   </li>`
@@ -259,7 +283,7 @@ function renderClimbProfileBar(segments: readonly ClimbProfileSegment[]): string
  * whole point of the merge is that this is still the named col, just with
  * its profile attached.
  */
-function renderClimbCard(waypoint: CanonicalWaypoint, climb: Climb, routeGeometryFull: readonly RouteGeometryPoint[] | null): string {
+function renderClimbCard(waypoint: CanonicalWaypoint, climb: Climb, routeGeometryFull: readonly RouteGeometryPoint[] | null, recommendations: readonly PauseRecommendationViewModel[]): string {
   const profile = routeGeometryFull === null ? null : buildClimbProfile(routeGeometryFull, climb, climbSegmentLengthMeters(climb))
   const profileId = `climb-profile-${escapeHtml(climb.id)}`
   // CDC D1.2 sections 17/22: the SAME skeleton as a plain timeline row —
@@ -276,7 +300,7 @@ function renderClimbCard(waypoint: CanonicalWaypoint, climb: Climb, routeGeometr
       <span class="day-detail__timeline-body">
         <strong><span class="day-detail__timeline-marker" aria-hidden="true">${KIND_MARKERS[waypoint.kind]}</span>${escapeHtml(waypoint.name)}</strong>
         <span class="day-detail__timeline-meta">${meta}</span>
-        ${renderPauseBadge(waypoint)}
+        ${renderPauseBadge(waypoint, findPauseRecommendationForWaypoint(recommendations, waypoint.id))}
         <span class="day-detail__timeline-weather" data-waypoint-weather data-waypoint-id="${escapeHtml(waypoint.id)}"></span>
       </span>
     </button>
@@ -300,7 +324,7 @@ function renderClimbCard(waypoint: CanonicalWaypoint, climb: Climb, routeGeometr
 // classified internally (`classifyClimbImportance`, `climb-detection.ts`)
 // — only this display-level filter disappears; nothing here mutates the
 // underlying topographic analysis.
-function renderTimelineList(waypoints: readonly CanonicalWaypoint[], climbs: readonly Climb[], routeGeometryFull: readonly RouteGeometryPoint[] | null): string {
+function renderTimelineList(waypoints: readonly CanonicalWaypoint[], climbs: readonly Climb[], routeGeometryFull: readonly RouteGeometryPoint[] | null, recommendations: readonly PauseRecommendationViewModel[] = []): string {
   const visible = waypoints.filter((waypoint) => isSignificantWaypoint(waypoint))
   if (visible.length === 0) return '<p>Aucun point de passage disponible.</p>'
   const rows = visible.map((waypoint) => {
@@ -312,9 +336,9 @@ function renderTimelineList(waypoints: readonly CanonicalWaypoint[], climbs: rea
     // first, regardless of `kind`, is what makes that case — the single most
     // common one for a named col — actually resolve to `renderClimbCard`
     // instead of a plain row with no profile at all.
-    if (waypoint.climbId === null) return renderTimelineRow(waypoint)
+    if (waypoint.climbId === null) return renderTimelineRow(waypoint, recommendations)
     const climb = climbs.find((candidate) => candidate.id === waypoint.climbId)
-    return climb === undefined ? renderTimelineRow(waypoint) : renderClimbCard(waypoint, climb, routeGeometryFull)
+    return climb === undefined ? renderTimelineRow(waypoint, recommendations) : renderClimbCard(waypoint, climb, routeGeometryFull, recommendations)
   }).join('')
   return `<ol class="day-detail__timeline">${rows}</ol>`
 }
@@ -332,15 +356,21 @@ function pauseStatusText(mode: 'automatic' | 'custom', activeCount: number): str
  * save: every row's state is read together by the caller's single
  * "Enregistrer" action (`trips-manager.ts`).
  */
-function renderPauseCandidateRow(candidate: CanonicalWaypoint, activePause: RideStageSettings['pauses'][number] | undefined): string {
+/** CDC C3 section 31: a compact "★ Recommandé"/"Bon choix" + one reason line inside the manual editor's own candidate row — a hint only, never a value the row itself carries into `save-manual-pauses` (the checkbox/duration inputs are unaffected). `undefined` (no recommendation for this candidate, or C3 never ran) renders nothing extra, identical to before this feature existed. */
+function renderPauseCandidateRow(candidate: CanonicalWaypoint, activePause: RideStageSettings['pauses'][number] | undefined, recommendation: PauseRecommendationViewModel | undefined): string {
   const isActive = activePause !== undefined
   const durationMinutes = activePause === undefined ? 15 : Math.round(activePause.durationSeconds / 60)
+  const badgeLabel = recommendation === undefined ? null : pauseRecommendationBadgeLabel(recommendation.level)
+  const hint = badgeLabel === null
+    ? ''
+    : `<span class="day-pause-editor__row-hint"><span class="tag tag--pause-recommended">${escapeHtml(badgeLabel)}</span>${recommendation !== undefined && recommendation.reasons.length > 0 ? ` ${escapeHtml(formatPauseRecommendationReasons(recommendation.reasons, 2))}` : ''}</span>`
   return `<div class="day-pause-editor__row" data-candidate-id="${escapeHtml(candidate.id)}">
     <label class="day-pause-editor__row-check">
       <input type="checkbox" data-field="pause-active" ${isActive ? 'checked' : ''}>
       <strong>${escapeHtml(candidate.name)}</strong>
     </label>
     <span class="day-pause-editor__row-meta">${KIND_LABELS[candidate.kind]} · ${formatKilometers(candidate.trackDistanceKm)}${candidate.clockTime === null ? '' : ` · ${escapeHtml(candidate.clockTime)}`}</span>
+    ${hint}
     <label class="day-pause-editor__row-duration" ${isActive ? '' : 'hidden'}>
       <input type="number" min="0" max="120" step="5" value="${durationMinutes}" data-field="pause-duration"> min
     </label>
@@ -377,6 +407,7 @@ function renderPauseEditor(
   resolution: { readonly mode: 'automatic' | 'custom' },
   stageSettings: RideStageSettings | undefined,
   anchorCandidates: readonly CanonicalWaypoint[],
+  recommendations: readonly PauseRecommendationViewModel[] = [],
 ): string {
   const activePauses = (stageSettings?.pauses ?? []).filter((pause) => pause.active)
   const activeByRoutePointId = new Map(activePauses.map((pause) => [pause.routePointId, pause]))
@@ -384,7 +415,7 @@ function renderPauseEditor(
 
   const candidateRows = anchorCandidates.length === 0
     ? '<p>Aucun point canonique disponible pour ancrer une pause sur cette étape.</p>'
-    : anchorCandidates.map((candidate) => renderPauseCandidateRow(candidate, activeByRoutePointId.get(candidate.id as RoutePointId))).join('')
+    : anchorCandidates.map((candidate) => renderPauseCandidateRow(candidate, activeByRoutePointId.get(candidate.id as RoutePointId), findPauseRecommendationForWaypoint(recommendations, candidate.id))).join('')
 
   return `<section class="card day-detail__pauses" data-day-detail-pauses data-stage-id="${escapeHtml(stageId)}">
     <p class="eyebrow">Arrêts</p><h3>Pauses</h3>
@@ -584,6 +615,28 @@ function renderTransferSummary(bundle: TripBundle, day: TripDay): string {
   </section>`
 }
 
+/**
+ * CDC C3 sections 8/20-21/26: projects this stage's own already-persisted
+ * POI (C2 Postpass, `bundle.practicalPlaces`) and weather
+ * (`bundle.weather`) into the small, engine-owned shapes
+ * `analysis/pause-recommendation.ts` accepts — never a network call, never
+ * a second `opening_hours`/weather parser. `null` fields on the source data
+ * simply fall through as `null`/`undefined`, letting the engine skip that
+ * one signal rather than fabricating a default.
+ */
+function buildAutomaticPauseEnrichment(bundle: TripBundle, stage: TripBundle['stages'][number], day: TripDay): AutomaticPauseEnrichmentInput {
+  const places: PauseCandidatePlace[] = bundle.practicalPlaces.flatMap((place) => {
+    if (place.stageId !== stage.id || place.trackDistanceKm === null || !isPracticalPlaceUxCategory(place.category)) return []
+    return [{ id: place.id, category: place.category, name: place.name, trackDistanceKm: place.trackDistanceKm, detourKm: place.detourKm ?? 0, openingHours: place.openingHours }]
+  })
+  const weatherRecord = bundle.weather.find((record) => record.dayId === day.id)
+  const weather = weatherRecord === undefined ? undefined : {
+    precipitationMm: weatherRecord.precipitationMm, windSpeedKph: weatherRecord.windSpeedKph, temperatureMaxC: weatherRecord.temperatureMaxC,
+  }
+  const weekdayAtDeparture = day.date === null ? undefined : new Date(`${day.date}T12:00:00Z`).getUTCDay()
+  return { practicalPlaces: places, weather, weekdayAtDeparture }
+}
+
 function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number], preparationStatus: StagePreparationStatus | null): DayDetail | null {
   if (day.stageId === null) return null
   const stage = bundle.stages.find((candidate) => candidate.id === day.stageId)
@@ -596,11 +649,18 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
   const settings = { referenceSpeedKph: bundle.settings.global.referenceSpeedKph, departureTime: daySettings?.departureTime ?? '08:00' }
   const stageSettings = bundle.settings.stages.find((candidate) => candidate.stageId === stage.id)
   const pauseResolution = resolveStagePauseSettings(bundle.settings.global.pausePlanMode, stageSettings)
-  const waypoints = computeStageWaypoints({
+  // CDC C3 section 26: ignored internally whenever `manualPauses` is set
+  // (custom mode) — building it unconditionally here is harmless and keeps
+  // this call site simple; C3 never touches a saved manual pause either way.
+  const automaticPauseEnrichment = buildAutomaticPauseEnrichment(bundle, stage, day)
+  const waypointsInput = {
     stage, route, routePoints: bundle.routePoints, climbs: bundle.climbs, settings,
     manualPauses: pauseResolution.mode === 'custom' ? pauseResolution.manualPauses : undefined,
     mountainMode: bundle.settings.global.mountainMode ?? false,
-  })
+    automaticPauseEnrichment,
+  }
+  const waypoints = computeStageWaypoints(waypointsInput)
+  const pauseRecommendations = buildPauseRecommendationViewModels(computeStagePauseRecommendations(waypointsInput), waypoints)
   const anchorCandidates = waypoints.filter((waypoint) => PAUSE_ANCHOR_KINDS.has(waypoint.kind))
 
   const fullLocations = `${stage.startLocationName ?? '—'} → ${stage.endLocationName ?? '—'}`
@@ -644,15 +704,11 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
     <div><dt>Pauses</dt><dd>${totalPauseMinutes === null ? '—' : `${totalPauseMinutes} min`}</dd></div>
   </dl>`
 
-  const pausesHtml = renderPauseEditor(stage.id, pauseResolution, stageSettings, anchorCandidates)
-  const timelineHtml = renderTimelineList(waypoints, bundle.climbs, geometry)
+  const pausesHtml = renderPauseEditor(stage.id, pauseResolution, stageSettings, anchorCandidates, pauseRecommendations)
+  const timelineHtml = renderTimelineList(waypoints, bundle.climbs, geometry, pauseRecommendations)
   const accommodation = day.accommodationId === null ? undefined : bundle.accommodations.find((candidate) => candidate.id === day.accommodationId)
   const infosHtml = renderInfosPanel(day, accommodation)
-  const timingCurve = computeStageTimingCurve({
-    stage, route, routePoints: bundle.routePoints, climbs: bundle.climbs, settings,
-    manualPauses: pauseResolution.mode === 'custom' ? pauseResolution.manualPauses : undefined,
-    mountainMode: bundle.settings.global.mountainMode ?? false,
-  })
+  const timingCurve = computeStageTimingCurve(waypointsInput)
 
   // CDC D1.1 sections 6-10: three independent blocks, always all three
   // visible regardless of the selected tab — Stats, Map+Profil, and the
@@ -674,7 +730,7 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
       <div data-day-detail-profile></div>
     </section>
     <dialog class="route-map-dialog" data-day-detail-map-dialog aria-labelledby="day-detail-expanded-map-title">
-      <header><h2 id="day-detail-expanded-map-title">Carte de l’étape</h2><div class="route-map-dialog__actions"><button class="button button--quiet" type="button" data-map-layers-toggle aria-expanded="false" aria-controls="day-detail-map-layers-panel" hidden>Calques</button><button class="button button--quiet" type="button" data-close-map>Fermer</button></div></header>
+      <header><h2 id="day-detail-expanded-map-title">Carte de l’étape</h2><div class="route-map-dialog__actions"><button class="button button--quiet" type="button" data-action="locate-me" aria-label="Me localiser">📍</button><button class="button button--quiet" type="button" data-map-layers-toggle aria-expanded="false" aria-controls="day-detail-map-layers-panel" hidden>Calques</button><button class="button button--quiet" type="button" data-close-map>Fermer</button></div></header>
       <div class="route-map-dialog__map-wrap"><div class="route-map route-map--expanded" data-route-map-expanded></div><p class="route-map__fallback route-map__fallback--expanded" data-expanded-route-map-fallback hidden>Fond de carte indisponible. Le tracé reste accessible dans le profil.</p><button class="practical-layers-backdrop" type="button" data-map-layers-backdrop aria-label="Fermer les calques" tabindex="-1" hidden></button><section class="practical-layers-panel" id="day-detail-map-layers-panel" data-map-layers-panel role="dialog" aria-labelledby="day-detail-map-layers-title" hidden><header><div><h3 id="day-detail-map-layers-title">Calques</h3><p class="practical-layers-panel__note">Points principaux toujours visibles</p></div><button class="button button--quiet" type="button" data-map-layers-close>Fermer</button></header><div class="practical-layers-list" data-map-layers-list></div></section></div>
     </dialog>
     <section class="card day-detail__details-card" data-day-detail-details-card>

@@ -40,7 +40,8 @@ export interface PlacedPause {
   readonly waypointId: string | null
 }
 
-function isAnchorCandidate(waypoint: CanonicalWaypoint): boolean {
+/** C3 reuses this exact anchor-kind gate (`pause-recommendation.ts`) rather than a second, divergent "what counts as a pause anchor" rule. */
+export function isAnchorCandidate(waypoint: CanonicalWaypoint): boolean {
   return ANCHOR_KIND_PRIORITY[waypoint.kind] !== undefined
 }
 
