@@ -234,10 +234,6 @@ test('a city/town/village without a pause is never shown in the Parcours timelin
   // shared significance policy, never a second filter).
   assert.ok(!detail.waypoints.some((waypoint) => isSignificantWaypoint(waypoint) && waypoint.name === 'Micro Village'))
   assert.ok(!detail.waypoints.some((waypoint) => isSignificantWaypoint(waypoint) && waypoint.name === 'Grand Bourg'))
-  // No filter of any kind changes that — there is no Villages toggle any more.
-  const withSecondaryClimbsOn = buildDayDetail(bundle, 'day-alpha', { filters: { showSecondaryClimbs: true } })
-  assert.doesNotMatch(withSecondaryClimbsOn.timelineHtml, /Micro Village/)
-  assert.doesNotMatch(withSecondaryClimbsOn.timelineHtml, /Grand Bourg/)
   // They DO still show, unchecked, as pause candidates — a separate list
   // this policy must never suppress (CDC section 40).
   assert.match(detail.pausesHtml, /Micro Village/)
@@ -256,11 +252,21 @@ test('"Ville" is the label used for city/town — never "Localité" (CDC Jalon B
   assert.doesNotMatch(detail.html, /Localité/)
 })
 
-test('only the Montées secondaires filter control is present — no Villages toggle any more (CDC Jalon B4.3 section 29)', () => {
+// Jalon C2.5 section 61: the "Montées secondaires" filter control itself is
+// gone from the UI — Parcours always uses `isSignificantWaypoint`'s own
+// default policy now, exactly like Aperçu and the weather sampler already
+// did. The underlying engine (`classifyClimbImportance`, tested directly in
+// `tests/analysis/canonical-waypoints.test.mjs`) is untouched: a secondary
+// climb is still fully detected/classified, simply never toggleable from
+// this screen any more.
+test('no "Montées secondaires" filter control (or any other Parcours filter) renders any more (CDC Jalon C2.5 section 61)', () => {
   const bundle = createGenericTripBundle()
-  const detail = buildDayDetail(bundle, 'day-alpha', { filters: { showSecondaryClimbs: true } })
-  assert.match(detail.html, /data-filter="secondary-climbs" aria-pressed="true"/)
+  const detail = buildDayDetail(bundle, 'day-alpha')
+  assert.doesNotMatch(detail.html, /Montées secondaires/)
+  assert.doesNotMatch(detail.html, /data-filter="secondary-climbs"/)
   assert.doesNotMatch(detail.html, /data-filter="villages"/)
+  assert.doesNotMatch(detail.html, /toggle-parcours-filter/)
+  assert.doesNotMatch(detail.html, /point-filters/)
 })
 
 // --- village + pause = forced visibility (CDC Jalon B4.2 section 4) --------

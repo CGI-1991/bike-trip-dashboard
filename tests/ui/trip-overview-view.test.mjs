@@ -288,8 +288,14 @@ test('D1.2 sections 6/H: Détail OFF keeps only principal points; Détail ON add
   assert.ok(!detailOffModel.markers.some((marker) => marker.name === 'Col des Aravis' || marker.name === 'Micro Village'))
   const detailMarkers = buildGenericOverviewDetailMarkers(overview.mapDetailStages)
   assert.ok(detailMarkers.length > 0, 'G: Détail ON — pauses/named cols exist')
-  assert.ok(detailMarkers.every((marker) => marker.category === 'overview-secondary'))
-  assert.ok(detailMarkers.some((marker) => marker.name === 'Col des Aravis'), 'a named col is included')
+  // Jalon C2.5 section 58: a named col keeps the Étape map's own
+  // diamond/orange `col-summit` marker — every OTHER detail point (a plain
+  // pause, a locality) still falls back to the sober `overview-secondary`
+  // dot.
+  assert.ok(detailMarkers.every((marker) => marker.category === 'overview-secondary' || marker.category === 'col-summit'))
+  const colMarker = detailMarkers.find((marker) => marker.name === 'Col des Aravis')
+  assert.ok(colMarker !== undefined, 'a named col is included')
+  assert.equal(colMarker.category, 'col-summit', 'a named col renders as the same diamond/orange marker as on the Étape map, never the generic overview dot')
   assert.ok(!detailMarkers.some((marker) => marker.name === 'Micro Village'), 'an auto-detected village is excluded even with Détail ON')
   // H: no practical-POI category ever leaks into the model (this build never
   // computes one for the overview map to begin with) — durable against any

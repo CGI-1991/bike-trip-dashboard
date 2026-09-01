@@ -304,6 +304,7 @@ export function createTripEditor(
       <details class='wizard-advanced'><summary>Réglages avancés</summary>
         <div class='field'><label for='editor-reference-speed'>Vitesse de référence</label><div class='field__control'><input id='editor-reference-speed' type='number' min='8' max='40' step='0.5' data-editor-field='reference-speed' value='${referenceSpeedKph}'><span>km/h</span></div></div>
         <label class='trip-settings__toggle'><input type='checkbox' data-editor-field='mountain-mode' ${mountainMode ? 'checked' : ''}> Mode montagne (voyage alpin)</label>
+        <p>Suggéré automatiquement à la création selon le dénivelé du parcours ; modifiable ici.</p>
       </details>
       ${errorMessage === null ? '' : `<p class='wizard-error' role='alert'>${escapeHtml(errorMessage)}</p>`}
       ${stage === 'saving' ? `<p role='status'>Recalcul et enregistrement atomique…</p>` : ''}

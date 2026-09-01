@@ -15,7 +15,6 @@ import { runStoredTripAutomaticEnrichment, tripNeedsAutomaticEnrichment } from '
 import { buildPracticalPlaceViewModels } from '../../practical-places/view-model.ts'
 import type { PracticalPlacesProvider } from '../../practical-places/types.ts'
 import { createSingleFlightGuard } from '../../trips-manager/single-flight.ts'
-import type { WaypointVisibilityFilters } from '../../analysis/canonical-waypoints.ts'
 import type {
   AccommodationId, IsoDate, RideStageId, RideStageSettings, RoutePointId, StagePauseSetting, TripBundle, TripDayId, TripId,
 } from '../../trip-core/index.ts'
@@ -242,16 +241,10 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   const automaticEnrichmentGuard = createSingleFlightGuard<TripId>()
   const automaticEnrichmentProgress = new Map<TripId, string>()
   const automaticEnrichmentErrors = new Map<TripId, string>()
-  /** Montées secondaires toggle (CDC Jalon B4.3 section 29) — local UI state, per day, never persisted; resets to off on reload, same as any other transient view preference in this file. No Villages toggle any more (section 26/28/29). */
-  const dayFilters = new Map<TripDayId, { showSecondaryClimbs: boolean }>()
   const detailAutoScrollSession = createTripDetailAutoScrollSession()
   /** One `AbortController` per profile container (CDC D1.1 section 18) — aborted and replaced on every `mountMapAndProfile` call so the profile→map sync listener never accumulates across a full render + `patchDayDetail` patches. */
   const profileSyncControllers = new WeakMap<HTMLElement, AbortController>()
   const getMapInteractionHandle = deps.getMapInteractionHandle ?? (() => null)
-
-  function getDayFilters(dayId: TripDayId): WaypointVisibilityFilters {
-    return dayFilters.get(dayId) ?? { showSecondaryClimbs: false }
-  }
 
   /**
    * One `GenericWeatherCoordinator` for the whole component's lifetime
@@ -417,8 +410,8 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
    * a string) keeps map/profile/timeline three views of one waypoint set,
    * never three independent filters.
    */
-  function getDisplayedStageWaypoints(detail: DayDetail, dayId: TripDayId): readonly import('../../analysis/canonical-waypoints.ts').CanonicalWaypoint[] {
-    return detail.waypoints.filter((waypoint) => isSignificantWaypoint(waypoint, getDayFilters(dayId)))
+  function getDisplayedStageWaypoints(detail: DayDetail): readonly import('../../analysis/canonical-waypoints.ts').CanonicalWaypoint[] {
+    return detail.waypoints.filter((waypoint) => isSignificantWaypoint(waypoint))
   }
 
   /** Live measured offset for the Étape tabbar (CDC Jalon B4.4 sections 12-13) — replaces the previous fixed-px `--day-sticky-identity-h`/`--day-sticky-nav-h` guesses, which broke as soon as the identity line wrapped to two rows. Re-created on every full mount; the previous mount's observer (if any) is disconnected first so observers never pile up across day-to-day navigation. */
@@ -431,7 +424,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
 
   /** Builds and mounts the whole Étape screen (map + profile + everything) — the *only* place that does a full teardown/rebuild of this screen; every pause/filter mutation instead goes through `patchDayDetail` (CDC Jalon B4.2 section 3). */
   function mountDayDetail(bundle: TripBundle, dayId: TripDayId): DayDetail | null {
-    const detail = buildDayDetail(bundle, dayId, { filters: getDayFilters(dayId) })
+    const detail = buildDayDetail(bundle, dayId)
     if (detail === null) {
       mode = { kind: 'detail', tripId: bundle.metadata.id }
       void renderDetail(bundle.metadata.id)
@@ -484,7 +477,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   function mountMapAndProfile(bundle: TripBundle, detail: DayDetail, dayId: TripDayId): void {
     const mapContainer = container.querySelector<HTMLElement>('[data-day-detail-map]')
     const mapDialog = container.querySelector<HTMLDialogElement>('[data-day-detail-map-dialog]')
-    const visibleWaypoints = getDisplayedStageWaypoints(detail, dayId)
+    const visibleWaypoints = getDisplayedStageWaypoints(detail)
     if (mapContainer !== null && mapDialog !== null) {
       const model = detail.geometry === null
         ? null
@@ -537,7 +530,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
    */
   function patchDayDetail(bundle: TripBundle, dayId: TripDayId): void {
     if (mode.kind !== 'day' || mode.dayId !== dayId) return
-    const detail = buildDayDetail(bundle, dayId, { filters: getDayFilters(dayId) })
+    const detail = buildDayDetail(bundle, dayId)
     if (detail === null) return
     const statsEl = container.querySelector('[data-day-detail-stats]')
     // The fresh `statsHtml` is always the Départ cell's display state
@@ -618,7 +611,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
    */
   function patchInfosPanel(bundle: TripBundle, dayId: TripDayId): void {
     if (mode.kind !== 'day' || mode.dayId !== dayId) return
-    const detail = buildDayDetail(bundle, dayId, { filters: getDayFilters(dayId) })
+    const detail = buildDayDetail(bundle, dayId)
     if (detail === null) return
     const infosEl = container.querySelector<HTMLElement>('[data-day-panel="infos"]')
     if (infosEl === null) return
@@ -1122,14 +1115,6 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
         await deleteTripCompletely(deps.database, tripId as TripId, deps.now().slice(0, 10))
         mode = { kind: 'list' }
         await renderList()
-      })()
-    } else if (action === 'toggle-parcours-filter' && mode.kind === 'day' && button.dataset.filter === 'secondary-climbs') {
-      const { tripId, dayId } = mode
-      const current = getDayFilters(dayId)
-      dayFilters.set(dayId, { showSecondaryClimbs: !(current.showSecondaryClimbs ?? false) })
-      void (async () => {
-        const bundle = await createTripRepository(deps.database).loadTripBundle(tripId)
-        if (bundle !== null) patchDayDetail(bundle, dayId)
       })()
     } else if (action === 'pause-mode-automatic' && mode.kind === 'day') {
       const stageId = findCurrentStageId()

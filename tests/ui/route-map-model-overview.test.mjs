@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { buildGenericOverviewRouteMapModel } from '../../src/ui/route-map-model.ts'
+import { buildGenericOverviewDetailMarkers, buildGenericOverviewRouteMapModel } from '../../src/ui/route-map-model.ts'
 
 function waypoint(overrides = {}) {
   return {
@@ -55,4 +55,53 @@ test('no stages at all produces an empty, still-valid model', () => {
   assert.deepEqual(model.coordinates, [])
   assert.deepEqual(model.extraLines, [])
   assert.deepEqual(model.markers, [])
+})
+
+// --- Jalon C2.5 section 58: named cols on the Aperçu map ---
+// BA-BH: three graphic families only — green principal points, grey+mauve-
+// ring pauses, and (new) the Étape map's own diamond/orange for named cols.
+
+test('BA: a start/end waypoint keeps the plain green "overview-primary" marker — unaffected by the col fix', () => {
+  const model = buildGenericOverviewRouteMapModel([
+    { waypoints: [waypoint({ kind: 'start' })], geometry: [[45, 6], [45.1, 6.1]] },
+  ])
+  assert.equal(model.markers[0].category, 'overview-primary')
+})
+
+test('BC: a named mountain-pass/saddle waypoint in the "Détail" layer renders as the Étape map\'s own diamond/orange "col-summit" marker, never the generic overview dot', () => {
+  const markers = buildGenericOverviewDetailMarkers([
+    { waypoints: [waypoint({ id: 'col-1', kind: 'mountain-pass', name: 'Col des Aravis' })] },
+  ])
+  assert.equal(markers.length, 1)
+  assert.equal(markers[0].category, 'col-summit')
+})
+
+test('BB: an ordinary "Détail" point (e.g. a paused locality, never a named col) still gets the sober grey "overview-secondary" marker, with its pause ring intact', () => {
+  const markers = buildGenericOverviewDetailMarkers([
+    { waypoints: [waypoint({ id: 'town-1', kind: 'city', pauseDurationMinutes: 15 })] },
+  ])
+  assert.equal(markers.length, 1)
+  assert.equal(markers[0].category, 'overview-secondary')
+  assert.equal(markers[0].pauseActive, true, 'the purple pause ring is driven by pauseActive, untouched by this fix')
+})
+
+test('BE/BF: a named col that is ALSO a pause is a SINGLE marker — the col\'s own diamond/orange shape, with the pause ring added, never two overlapping markers', () => {
+  const markers = buildGenericOverviewDetailMarkers([
+    { waypoints: [waypoint({ id: 'col-pause-1', kind: 'saddle', name: 'Col Pause', pauseDurationMinutes: 20 })] },
+  ])
+  assert.equal(markers.length, 1, 'one waypoint in, one marker out — never a second, duplicate marker for the same point')
+  assert.equal(markers[0].category, 'col-summit', 'the col shape/colour always wins — never swapped out for the pause\'s own category')
+  assert.equal(markers[0].pauseActive, true, 'the pause ring is still added on top of the col marker')
+})
+
+test('BD: a bare, unnamed climb waypoint never reaches the overview map at all — `isOverviewDetailWaypoint` (trip-overview-view.ts) excludes it upstream, so this model never even sees it; confirmed here that IF one somehow did, it would not be mistaken for a named col', () => {
+  const markers = buildGenericOverviewDetailMarkers([
+    { waypoints: [waypoint({ id: 'climb-1', kind: 'climb', name: 'Montée sans nom' })] },
+  ])
+  // `climb` shares the Étape map's `col-summit` category too (a bare summit
+  // still gets a diamond there) — this is a documented, accepted trade-off:
+  // the real guarantee against anonymous/secondary climbs leaking into
+  // Aperçu lives in `isOverviewDetailWaypoint`'s own kind filter (mountain-
+  // pass/saddle/pause only), covered by `trip-overview-view.test.mjs`.
+  assert.equal(markers[0].category, 'col-summit')
 })

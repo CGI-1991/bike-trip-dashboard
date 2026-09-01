@@ -164,7 +164,10 @@ function dedupeMarkersByLocation(markers: readonly RouteMapMarkerModel[]): Route
  * separate from the Étape map's own richer graphic language: every waypoint
  * passed in becomes a plain, un-iconified `overview-primary` point (no
  * Départ/Arrivée symbol) — callers are expected to have already filtered
- * each stage's waypoints down to just its principal points (start/end).
+ * each stage's waypoints down to just its principal points (start/end), so
+ * in practice none of them ever carry `col-summit` here; the guard below
+ * exists only so this function stays correct if a caller's own filtering
+ * ever changes, matching `buildGenericOverviewDetailMarkers` below.
  */
 export function buildGenericOverviewRouteMapModel(stages: readonly { readonly waypoints: readonly CanonicalWaypoint[]; readonly geometry: readonly LatLngTuple[] }[]): RouteMapModel {
   const withGeometry = stages.filter((stage) => stage.geometry.length > 1)
@@ -172,24 +175,29 @@ export function buildGenericOverviewRouteMapModel(stages: readonly { readonly wa
   const markers = dedupeMarkersByLocation(
     stages
       .flatMap((stage) => buildGenericRouteMapModel(stage.waypoints, stage.geometry).markers)
-      .map((marker) => ({ ...marker, category: 'overview-primary' as const })),
+      .map((marker) => ({ ...marker, category: marker.category === 'col-summit' ? 'col-summit' as const : 'overview-primary' as const })),
   )
   return { coordinates: first?.geometry ?? [], markers, extraLines: rest.map((stage) => stage.geometry) }
 }
 
 /**
  * The Aperçu global map's fullscreen-only "Détail" layer (CDC D1.1 section
- * 3): significant intermediate waypoints (villes/localités pertinentes,
- * pauses, cols/montées principales/sommets — already computed by the
- * caller, see `trip-overview-view.ts::isOverviewDetailWaypoint`), rendered
- * as the overview map's one other simple style, `overview-secondary` — one
- * step down from the principal stage markers, never the Étape map's own
- * shapes/colours.
+ * 3): significant intermediate waypoints (pauses, cols nommés — already
+ * computed by the caller, see `trip-overview-view.ts::isOverviewDetailWaypoint`).
+ * Jalon C2.5 section 58: a named mountain-pass/saddle waypoint keeps the
+ * exact `col-summit` diamond/orange marker already used on the Étape map
+ * (`buildGenericRouteMapModel` already assigns it correctly — this used to
+ * unconditionally overwrite it) instead of the plain `overview-secondary`
+ * dot every other detail point (pauses, localities) still gets. A named col
+ * is by construction always genuinely named (the route-enrichment pipeline
+ * only ever creates a `mountain-pass`/`saddle` `RoutePoint` when it has an
+ * OSM name — `route-enrichment/enrichment.ts`), so no anonymous summit or
+ * secondary climb can ever reach this branch.
  */
 export function buildGenericOverviewDetailMarkers(stages: readonly { readonly waypoints: readonly CanonicalWaypoint[] }[]): readonly RouteMapMarkerModel[] {
   return dedupeMarkersByLocation(
     stages
       .flatMap((stage) => buildGenericRouteMapModel(stage.waypoints, []).markers)
-      .map((marker) => ({ ...marker, category: 'overview-secondary' as const })),
+      .map((marker) => ({ ...marker, category: marker.category === 'col-summit' ? 'col-summit' as const : 'overview-secondary' as const })),
   )
 }

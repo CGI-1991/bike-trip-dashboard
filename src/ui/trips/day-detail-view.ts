@@ -25,7 +25,7 @@
 import { computeStageTimingCurve, computeStageWaypoints, resolveStagePauseSettings } from '../../analysis/waypoint-timeline.ts'
 import type { StageTimingCurve } from '../../analysis/waypoint-timeline.ts'
 import { isSignificantWaypoint } from '../../analysis/canonical-waypoints.ts'
-import type { CanonicalWaypoint, CanonicalWaypointKind, WaypointVisibilityFilters } from '../../analysis/canonical-waypoints.ts'
+import type { CanonicalWaypoint, CanonicalWaypointKind } from '../../analysis/canonical-waypoints.ts'
 import { buildClimbProfile } from '../../analysis/climb-profile.ts'
 import type { ClimbGradeClass, ClimbProfileSegment } from '../../analysis/climb-profile.ts'
 import { routeGeometry } from '../../route-enrichment/route-fingerprint.ts'
@@ -36,13 +36,6 @@ import type { Accommodation, Climb, RideStageSettings, RouteGeometryPoint, Route
 
 /** Kinds that can anchor a pause (CDC Jalon B4 section 15): the same set `pause-placement.ts` already restricts automatic anchors to. Also the manual pause editor's full candidate list (CDC Jalon B4.3 section 31) — a separate, wider need from `isSignificantWaypoint`'s normal-view policy (CDC section 40: never conflate the two). Exported so `trips-manager.ts` can build/validate pause mutations against the same set. */
 export const PAUSE_ANCHOR_KINDS: ReadonlySet<CanonicalWaypointKind> = new Set(['city', 'town', 'village', 'mountain-pass', 'saddle'])
-
-const DEFAULT_FILTERS: WaypointVisibilityFilters = { showSecondaryClimbs: false }
-
-export interface DayDetailOptions {
-  /** Montées secondaires toggle (CDC Jalon B4.3 section 29) — local UI state owned by the caller, never persisted. Defaults to off. There is no Villages toggle any more: an ordinary city/town/village never shows in normal view regardless (CDC section 26/28) — the full list stays reachable only through the manual pause editor. */
-  readonly filters?: WaypointVisibilityFilters
-}
 
 function escapeHtml(value: string): string {
   return value
@@ -294,8 +287,15 @@ function renderClimbCard(waypoint: CanonicalWaypoint, climb: Climb, routeGeometr
  * départ/arrivée/pauses/significant relief show (`isSignificantWaypoint`) —
  * the exact same policy the map/profile use.
  */
-function renderTimelineList(waypoints: readonly CanonicalWaypoint[], climbs: readonly Climb[], filters: WaypointVisibilityFilters, routeGeometryFull: readonly RouteGeometryPoint[] | null): string {
-  const visible = waypoints.filter((waypoint) => isSignificantWaypoint(waypoint, filters))
+// Jalon C2.5 section 61: the "Montées secondaires" user toggle is gone — the
+// Parcours list now always uses `isSignificantWaypoint`'s own default
+// policy (no filters), exactly like the Aperçu screen and the generic
+// weather sampler already do. Secondary climbs stay fully detected/
+// classified internally (`classifyClimbImportance`, `climb-detection.ts`)
+// — only this display-level filter disappears; nothing here mutates the
+// underlying topographic analysis.
+function renderTimelineList(waypoints: readonly CanonicalWaypoint[], climbs: readonly Climb[], routeGeometryFull: readonly RouteGeometryPoint[] | null): string {
+  const visible = waypoints.filter((waypoint) => isSignificantWaypoint(waypoint))
   if (visible.length === 0) return '<p>Aucun point de passage disponible.</p>'
   const rows = visible.map((waypoint) => {
     // CDC Jalon B4.4 section 28: a col merged with a detected climb
@@ -311,14 +311,6 @@ function renderTimelineList(waypoints: readonly CanonicalWaypoint[], climbs: rea
     return climb === undefined ? renderTimelineRow(waypoint) : renderClimbCard(waypoint, climb, routeGeometryFull)
   }).join('')
   return `<ol class="day-detail__timeline">${rows}</ol>`
-}
-
-/** Only "Montées secondaires" remains (CDC Jalon B4.3 section 29) — no Villages toggle: an ordinary city/town/village never appears in the normal view any more, with or without a filter (the full list lives only in the manual pause editor, section 31). */
-function renderFilters(filters: WaypointVisibilityFilters): string {
-  const secondaryClimbs = filters.showSecondaryClimbs ?? false
-  return `<div class="point-filters" role="group" aria-label="Filtres du parcours" data-day-detail-filters>
-    <button class="button" type="button" data-action="toggle-parcours-filter" data-filter="secondary-climbs" aria-pressed="${secondaryClimbs}">Montées secondaires</button>
-  </div>`
 }
 
 function pauseStatusText(mode: 'automatic' | 'custom', activeCount: number): string {
@@ -495,11 +487,11 @@ export interface DayDetail {
  * can't be resolved, or — ride days only — its stage/route can't be
  * resolved either; the caller falls back to the day list in those cases.
  */
-export function buildDayDetail(bundle: TripBundle, dayId: TripDayId, options: DayDetailOptions = {}): DayDetail | null {
+export function buildDayDetail(bundle: TripBundle, dayId: TripDayId): DayDetail | null {
   const day = bundle.days.find((candidate) => candidate.id === dayId)
   if (day === undefined) return null
   if (day.type !== 'ride') return buildOffOrTransferDayDetail(bundle, day)
-  return buildRideDayDetail(bundle, day, options)
+  return buildRideDayDetail(bundle, day)
 }
 
 function transferTimingLabel(timing: TransferTiming | undefined): string {
@@ -579,14 +571,13 @@ function renderTransferSummary(bundle: TripBundle, day: TripDay): string {
   </section>`
 }
 
-function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number], options: DayDetailOptions): DayDetail | null {
+function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number]): DayDetail | null {
   if (day.stageId === null) return null
   const stage = bundle.stages.find((candidate) => candidate.id === day.stageId)
   if (stage === undefined) return null
   const route = bundle.routes.find((candidate) => candidate.id === stage.sourceRouteId)
   if (route === undefined) return null
   const geometry = routeGeometry(route)
-  const filters = options.filters ?? DEFAULT_FILTERS
 
   const daySettings = bundle.settings.days.find((candidate) => candidate.dayId === day.id)
   const settings = { referenceSpeedKph: bundle.settings.global.referenceSpeedKph, departureTime: daySettings?.departureTime ?? '08:00' }
@@ -608,7 +599,7 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
     ? stage.totalDurationSeconds
     : Math.round(arrival.elapsedMinutes * 60)
   const primaryClimbCount = new Set(
-    waypoints.filter((waypoint) => waypoint.climbId !== null && isSignificantWaypoint(waypoint, DEFAULT_FILTERS)).map((waypoint) => waypoint.climbId),
+    waypoints.filter((waypoint) => waypoint.climbId !== null && isSignificantWaypoint(waypoint)).map((waypoint) => waypoint.climbId),
   ).size
   // In manual mode, the displayed total reflects the actually-placed pauses
   // (which the user controls directly) rather than the imported automatic
@@ -641,7 +632,7 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
   </dl>`
 
   const pausesHtml = renderPauseEditor(stage.id, pauseResolution, stageSettings, anchorCandidates)
-  const timelineHtml = renderTimelineList(waypoints, bundle.climbs, filters, geometry)
+  const timelineHtml = renderTimelineList(waypoints, bundle.climbs, geometry)
   const accommodation = day.accommodationId === null ? undefined : bundle.accommodations.find((candidate) => candidate.id === day.accommodationId)
   const infosHtml = renderInfosPanel(day, accommodation)
   const timingCurve = computeStageTimingCurve({
@@ -678,7 +669,6 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
         <button id="day-tab-infos" type="button" role="tab" data-day-tab="infos" aria-controls="day-panel-infos" aria-selected="false" tabindex="-1">Infos</button>
       </nav>
       <section id="day-panel-route" class="card" role="tabpanel" aria-labelledby="day-tab-route" data-day-panel="route">
-        ${renderFilters(filters)}
         <div data-day-detail-timeline>${timelineHtml}</div>
         ${pausesHtml}
         <section class="day-detail__weather-inline" data-day-detail-weather-section>

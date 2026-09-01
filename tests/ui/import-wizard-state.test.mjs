@@ -2,10 +2,12 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  activeFiles,
   addFilesToState,
   appendNewRideSlots,
   chooseFirstStage,
   createEmptyWizardState,
+  deriveMountainModeDefault,
   insertSlot,
   moveStructureItem,
   removeFileFromState,
@@ -294,4 +296,69 @@ test('chooseFirstStage is a no-op for an unknown file id', async () => {
   chooseFirstStage(state, 'does-not-exist')
 
   assert.deepEqual(state.structure, before)
+})
+
+// --- Jalon C2.5 sections 63-66: `deriveMountainModeDefault` ---
+// A pure pre-fill heuristic (average elevation-gain-per-km across the
+// active, successfully analyzed ride files) — never a hard classification,
+// always overridable via the checkbox (`WizardState.mountainModeTouched`).
+
+/** A custom analyzer for full control over each file's distance/elevation, unlike `analysisFor`'s hardcoded 10km/100m. */
+function preAnalyzeWith(perFile) {
+  return async (files) => files.map((file) => ({
+    fileName: file.name, sha256: `sha-${file.name}`, status: 'valid', errorMessage: null,
+    elevationLossM: 0, startLatitude: 45, startLongitude: 6, endLatitude: 45, endLongitude: 6, sampledPoints: [],
+    ...perFile(file.name),
+  }))
+}
+
+test('BQ: a markedly mountainous GPX profile (high D+/km) auto-suggests Mode montagne = true', async () => {
+  const state = createEmptyWizardState()
+  await addFilesToState(state, {
+    rawFiles: [rawFile('1-alpine.gpx')],
+    idFactory: idFactory(),
+    // 900 m gain over 30 km = 30 m/km, comfortably above the threshold.
+    preAnalyzeFiles: preAnalyzeWith(() => ({ distanceKm: 30, elevationGainM: 900 })),
+  })
+  assert.equal(deriveMountainModeDefault(activeFiles(state)), true)
+})
+
+test('BR: a flat/rolling GPX profile (low D+/km) never auto-suggests Mode montagne — stays false', async () => {
+  const state = createEmptyWizardState()
+  await addFilesToState(state, {
+    rawFiles: [rawFile('1-flat.gpx')],
+    idFactory: idFactory(),
+    // 150 m gain over 50 km = 3 m/km, well below the threshold.
+    preAnalyzeFiles: preAnalyzeWith(() => ({ distanceKm: 50, elevationGainM: 150 })),
+  })
+  assert.equal(deriveMountainModeDefault(activeFiles(state)), false)
+})
+
+test('deriveMountainModeDefault aggregates across every active file — one flat day and one alpine day together, not judged file-by-file', async () => {
+  const state = createEmptyWizardState()
+  await addFilesToState(state, {
+    rawFiles: [rawFile('1-flat.gpx'), rawFile('2-alpine.gpx')],
+    idFactory: idFactory(),
+    preAnalyzeFiles: preAnalyzeWith((name) => name.includes('flat') ? { distanceKm: 40, elevationGainM: 80 } : { distanceKm: 20, elevationGainM: 800 }),
+  })
+  // Total: 60 km / 880 m ≈ 14.7 m/km — below the threshold even though one
+  // day alone is clearly alpine, since the trip as a whole is not.
+  assert.equal(deriveMountainModeDefault(activeFiles(state)), false)
+})
+
+test('deriveMountainModeDefault returns false with no files or only invalid/removed ones — never throws', async () => {
+  const empty = createEmptyWizardState()
+  assert.equal(deriveMountainModeDefault(activeFiles(empty)), false)
+
+  const state = createEmptyWizardState()
+  await addFilesToState(state, {
+    rawFiles: [rawFile('1-bad.gpx')],
+    idFactory: idFactory(),
+    preAnalyzeFiles: async (files) => files.map((file) => ({
+      fileName: file.name, sha256: `sha-${file.name}`, status: 'invalid', errorMessage: 'corrupt',
+      distanceKm: null, elevationGainM: null, elevationLossM: null,
+      startLatitude: null, startLongitude: null, endLatitude: null, endLongitude: null, sampledPoints: [],
+    })),
+  })
+  assert.equal(deriveMountainModeDefault(activeFiles(state)), false)
 })

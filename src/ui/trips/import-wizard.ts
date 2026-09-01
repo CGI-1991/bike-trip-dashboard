@@ -26,6 +26,7 @@ import {
   computeLoopPending,
   continuityWarnings,
   createEmptyWizardState,
+  deriveMountainModeDefault,
   formValidation,
   insertSlot,
   moveStructureItem,
@@ -98,6 +99,9 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
       bytes: await file.arrayBuffer(),
     })))
     await addFilesToState(state, { rawFiles: rawEntries, idFactory: deps.idFactory, preAnalyzeFiles })
+    // Jalon C2.5 sections 63-66: auto-suggest Mode montagne from the newly
+    // analyzed GPX — never once the user has touched the checkbox themselves.
+    if (!state.mountainModeTouched) state.mountainMode = deriveMountainModeDefault(activeFiles(state))
     render()
   }
 
@@ -329,6 +333,7 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
         <details class="wizard-advanced"><summary>Réglages avancés</summary>
           <div class="field"><label for="wizard-reference-speed">Vitesse de référence</label><div class="field__control"><input id="wizard-reference-speed" type="number" min="8" max="40" step="0.5" data-field="reference-speed" value="${state.referenceSpeedKph}"><span>km/h</span></div></div>
           <label class="trip-settings__toggle"><input type="checkbox" data-field="mountain-mode" ${state.mountainMode ? 'checked' : ''}> Mode montagne (voyage alpin)</label>
+          <p>Pré-rempli automatiquement selon le dénivelé du parcours ; modifiable ici si besoin.</p>
           <p>Budget de pauses calculé automatiquement selon la distance, la durée et le D+ de chaque étape.</p>
         </details>
         ${state.errorMessage !== null ? `<p class="wizard-error" role="alert">${escapeHtml(state.errorMessage)}</p>` : ''}
@@ -380,6 +385,7 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
     const target = event.target
     if (target instanceof HTMLInputElement && target.dataset.field === 'mountain-mode') {
       state.mountainMode = target.checked
+      state.mountainModeTouched = true
       return
     }
     if (target instanceof HTMLInputElement && target.dataset.field === 'files' && target.files !== null && target.files.length > 0) {
