@@ -50,9 +50,17 @@ const STAGE_PREP_LABELS: Readonly<Record<StagePreparationStatus, string>> = {
  * controls inside a `<button>` are invalid HTML; the "Réessayer" action for
  * `partial`/`error` (section 17) lives on the Étape screen itself instead
  * (`day-detail-view.ts`), never nested in this list card.
+ *
+ * R1 section 3 ("silence when healthy"): `ready` renders nothing at all — a
+ * permanent ✓ glyph on every single healthy card carries no functional role
+ * (no action, nothing left to retry) and is exactly the kind of "check
+ * permanent" the CDC asks to make disappear once preparation is genuinely
+ * done. A ready ride-day card is now visually indistinguishable from any
+ * other normal card, as intended ("une carte Voyage prête doit simplement
+ * ressembler à une carte normale").
  */
 export function renderStagePreparationIndicator(status: StagePreparationStatus | null | undefined): string {
-  if (status === null || status === undefined) return ''
+  if (status === null || status === undefined || status === 'ready') return ''
   const label = STAGE_PREP_LABELS[status]
   const inner = status === 'running' || status === 'stale'
     ? '<span class="trip-day-card__prep-spinner" aria-hidden="true"></span>'
@@ -93,6 +101,16 @@ function renderRideDayCard(bundle: TripBundle, day: TripBundle['days'][number], 
   // Section 5B/K: the status badge is its own grid item in the fixed-width
   // right column — never inline after the route name, so a long place name
   // can never push it around or make it wrap.
+  //
+  // R1: `[data-trip-day-prep-slot]` is an always-present mount, whatever the
+  // current status is — including `ready`/`null`, where it starts out empty
+  // (`renderStagePreparationIndicator` now renders nothing for those). This
+  // is what lets `trips-manager.ts::patchStagePreparationIndicators` target
+  // it unconditionally by `.innerHTML` rather than depending on the
+  // indicator glyph itself already existing in the DOM — a day that is
+  // `ready` (or was never given a status at all) from the very first render
+  // still needs a stable place to grow a spinner into if it is later marked
+  // `stale`/re-queued (CDC section 3: "progression compacte" while active).
   return `<li>
     <button class="trip-day-card trip-day-card--ride${isPriority ? ' is-priority' : ''}" type="button" data-action="open-day-detail" data-day-id="${escapeHtml(day.id)}"${isPriority ? ' data-trip-priority-day' : ''}>
       ${renderDayNumberGroup(day)}
@@ -102,7 +120,7 @@ function renderRideDayCard(bundle: TripBundle, day: TripBundle['days'][number], 
         <span class="trip-day-card__weather-mount" data-trip-day-weather-mount data-day-id="${escapeHtml(day.id)}"></span>
       </span>
       <span class="trip-day-card__schedule">
-        <span class="trip-day-card__status">${status}${renderStagePreparationIndicator(prepStatus)}</span>
+        <span class="trip-day-card__status">${status}<span data-trip-day-prep-slot>${renderStagePreparationIndicator(prepStatus)}</span></span>
         <small><span class="visually-hidden">Départ </span>${departureTime ?? '—'}</small>
         <strong><span class="visually-hidden">ETA </span>${eta ?? '—'}</strong>
       </span>

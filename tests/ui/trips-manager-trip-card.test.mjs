@@ -72,7 +72,25 @@ test('Mes voyages never shows a raw ISO date range or a raw TripStatus word — 
     assert.doesNotMatch(container.innerHTML, /2027-05-13/, 'no raw ISO end date')
     assert.doesNotMatch(container.innerHTML, />ready</, 'no raw internal status word')
     assert.match(container.innerHTML, /10 mai → 13 mai 2027/, 'a short, human date range instead')
-    assert.match(container.innerHTML, /<span class="tag tag--data">Prêt<\/span>/, 'the status is translated to French')
+  } finally {
+    db.close()
+  }
+})
+
+// R1 section 23 ("silence when healthy"): `ready` is the permanent, never-
+// actionable default every dated trip gets at import — no badge at all, not
+// even a translated one, since it carries no real business signal.
+test('R1: a "ready" trip card shows no status badge at all — that state is the silent default, not a business status', async () => {
+  const db = await openTestDatabase()
+  try {
+    const bundle = createGenericTripBundle() // status: 'ready'
+    await createTripRepository(db).saveTripBundle(bundle)
+    const container = createFakeContainer()
+    initializeTripsManager(container, noopDeps(db))
+    await flush()
+
+    assert.doesNotMatch(container.innerHTML, /<span class="tag tag--data">/, 'no status badge rendered for a ready trip')
+    assert.doesNotMatch(container.innerHTML, />Prêt</)
   } finally {
     db.close()
   }

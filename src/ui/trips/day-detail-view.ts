@@ -532,10 +532,17 @@ export function buildDayDetail(bundle: TripBundle, dayId: TripDayId, options: Da
   return buildRideDayDetail(bundle, day, options.preparationStatus ?? null)
 }
 
-/** C2.5 sections 16-17: a compact, non-blocking banner — partial/error data is shown, never hidden, with a real retry action right there. */
+/**
+ * C2.5 sections 16-17 / R1 section 4: a compact, non-blocking banner —
+ * partial/error data is shown, never hidden, with a real retry action right
+ * there. Short, actionable, no technical vocabulary (CDC R1: "pas de
+ * vocabulaire technique") — `partial` says what's actually missing in plain
+ * terms rather than a generic "préparation" sentence; `error` stays terse
+ * since nothing more specific is known at that point.
+ */
 function renderPreparationBanner(bundle: TripBundle, preparationStatus: StagePreparationStatus | null): string {
   if (preparationStatus !== 'partial' && preparationStatus !== 'error') return ''
-  const label = preparationStatus === 'partial' ? 'Préparation incomplète — certaines données seront complétées.' : 'Préparation en erreur — certaines données peuvent manquer.'
+  const label = preparationStatus === 'partial' ? 'Certaines données pratiques manquent.' : 'Préparation incomplète.'
   return `<div class="day-detail__prep-banner" role="status"><span>${escapeHtml(label)}</span><button class="button button--quiet" type="button" data-action="retry-stage-preparation" data-trip-id="${escapeHtml(bundle.metadata.id)}">Réessayer</button></div>`
 }
 

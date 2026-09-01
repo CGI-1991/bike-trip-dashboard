@@ -7,7 +7,7 @@ import { createGenericTripBundle } from '../trip-core/support/generic-trip-fixtu
 // Fixture ride days: day-alpha (2027-05-10), day-delta (2027-05-13).
 
 test('renderStagePreparationIndicator carries no Postpass/HTTP/provider jargon, only an accessible label (section 11)', () => {
-  for (const status of ['pending', 'running', 'ready', 'stale', 'partial', 'error']) {
+  for (const status of ['pending', 'running', 'stale', 'partial', 'error']) {
     const html = renderStagePreparationIndicator(status)
     assert.doesNotMatch(html, /postpass|http|provider|sql/i)
     assert.match(html, /aria-label="[^"]+"/)
@@ -18,6 +18,11 @@ test('renderStagePreparationIndicator carries no Postpass/HTTP/provider jargon, 
 test('renderStagePreparationIndicator renders nothing for null/undefined (OFF/transfer, or no status supplied at all)', () => {
   assert.equal(renderStagePreparationIndicator(null), '')
   assert.equal(renderStagePreparationIndicator(undefined), '')
+})
+
+// R1 section 3 ("silence when healthy") — test A.
+test('R1 test A: renderStagePreparationIndicator renders nothing at all for "ready" — no permanent checkmark once a stage is genuinely done', () => {
+  assert.equal(renderStagePreparationIndicator('ready'), '')
 })
 
 test('without a status map, renderTripDetail is byte-identical to before this feature existed — no indicator, no summary line', () => {
@@ -53,11 +58,21 @@ test('each ride card carries the indicator for its own day only — OFF/transfer
 
 test('renderSingleDayCard produces a `<button data-day-id>` carrying the requested status and the day\'s own route/name — a valid patch target for that one card', () => {
   const bundle = createGenericTripBundle()
-  const single = renderSingleDayCard(bundle, 'day-alpha', '2027-05-01', 'ready')
+  const single = renderSingleDayCard(bundle, 'day-alpha', '2027-05-01', 'partial')
   assert.match(single, /^<button class="trip-day-card trip-day-card--ride[^]*<\/button>$/)
   assert.match(single, /data-day-id="day-alpha"/)
   assert.match(single, /Riverside → Hilltown/)
-  assert.match(single, /trip-day-card__prep--ready/)
+  assert.match(single, /trip-day-card__prep--partial/)
+})
+
+// R1 test A: a ready card still always carries the always-present slot (so a
+// later status regression has somewhere to patch into), but nothing visible
+// inside it.
+test('renderSingleDayCard for a "ready" status carries the prep slot but no visible indicator inside it', () => {
+  const bundle = createGenericTripBundle()
+  const single = renderSingleDayCard(bundle, 'day-alpha', '2027-05-01', 'ready')
+  assert.match(single, /data-trip-day-prep-slot><\/span>/)
+  assert.doesNotMatch(single, /trip-day-card__prep--/)
 })
 
 test('renderSingleDayCard returns null for an unknown day id', () => {

@@ -19,19 +19,23 @@ import { initializeTripsManager } from '../../src/ui/trips/trips-manager.ts'
  * reassigned again — only the one stage's own preparation indicator is.
  */
 
-function fakeIndicatorSpan() {
-  let outerHTMLValue = '<span data-trip-day-prep></span>'
+// R1: `patchStagePreparationIndicators` now targets the always-present
+// `[data-trip-day-prep-slot]` mount by `.innerHTML` rather than the
+// indicator glyph's own (sometimes absent — "ready" renders nothing)
+// `[data-trip-day-prep]` by `.outerHTML` — the fake follows suit.
+function fakeIndicatorSlot() {
+  let innerHTMLValue = ''
   let setCount = 0
   return {
-    get outerHTML() { return outerHTMLValue },
-    set outerHTML(value) { outerHTMLValue = value; setCount++ },
+    get innerHTML() { return innerHTMLValue },
+    set innerHTML(value) { innerHTMLValue = value; setCount++ },
     get setCount() { return setCount },
   }
 }
 
-function fakeCardButton(indicator) {
+function fakeCardButton(slot) {
   return {
-    querySelector: (selector) => (selector === '[data-trip-day-prep]' ? indicator : null),
+    querySelector: (selector) => (selector === '[data-trip-day-prep-slot]' ? slot : null),
     scrollIntoView() {},
   }
 }
@@ -83,8 +87,8 @@ test('AB/AC: a practical-places progress tick patches only that stage\'s own ind
     await createTripRepository(db).saveTripBundle(bundle)
 
     const container = createFakeContainer()
-    const alphaIndicator = fakeIndicatorSpan()
-    const deltaIndicator = fakeIndicatorSpan()
+    const alphaIndicator = fakeIndicatorSlot()
+    const deltaIndicator = fakeIndicatorSlot()
     container.register('[data-day-id="day-alpha"]', fakeCardButton(alphaIndicator))
     container.register('[data-day-id="day-delta"]', fakeCardButton(deltaIndicator))
 

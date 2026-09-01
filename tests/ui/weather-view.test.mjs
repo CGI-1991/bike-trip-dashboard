@@ -68,6 +68,31 @@ test('the stage weather panel shows the synthesis (temperature range, precipitat
   assert.match(container.innerHTML, /11:30/)
 })
 
+// R1 section 12 ("météo banale"), test I — one compact line, no imposing
+// block, when there is genuinely nothing to flag: the engine/model itself
+// (riskLevel, summary) is untouched, only how much of it renders changes.
+test('R1 test I: a banal (green) day\'s synthesis collapses to one compact line — no "Risque météo" sentence, no weather-code line, no meta line', () => {
+  const container = fakeElement()
+  const model = baseModel({ riskLevel: 'green', alerts: [], recommendation: null })
+  renderGenericStageWeatherPanel(container, model, false, { includePointsList: false })
+  assert.match(container.innerHTML, /weather-synthesis--compact/)
+  assert.match(container.innerHTML, /12–21 °C/)
+  assert.match(container.innerHTML, /Pluie 35 %/)
+  assert.match(container.innerHTML, /Rafales 30 km\/h/)
+  assert.doesNotMatch(container.innerHTML, /Risque météo/)
+  assert.doesNotMatch(container.innerHTML, /Averses/, 'the raw weather-code line is dropped for a banal day')
+  assert.doesNotMatch(container.innerHTML, /Mis à jour/)
+})
+
+test('R1: an orange/red day keeps the full synthesis — code line, explicit risk sentence, freshness meta — the compacting never applies to an actual alert', () => {
+  const container = fakeElement()
+  renderGenericStageWeatherPanel(container, baseModel({ riskLevel: 'orange' }), false, { includePointsList: false })
+  assert.doesNotMatch(container.innerHTML, /weather-synthesis--compact/)
+  assert.match(container.innerHTML, /Risque météo : Modéré/)
+  assert.match(container.innerHTML, /Averses/)
+  assert.match(container.innerHTML, /Mis à jour/)
+})
+
 test('an unavailable stage weather shows an honest message, never a fabricated value', () => {
   const container = fakeElement()
   renderGenericStageWeatherPanel(container, baseModel({ availability: 'unavailable', summary: null, points: [], message: 'Prévision de localisation indisponible.', riskLevel: 'unknown', alerts: [] }), false)

@@ -185,9 +185,17 @@ function escapeHtml(value: string): string {
  */
 // UI-POLISH-01 section 24: `TripStatus` is an internal storage word — never
 // shown to the user raw ("ready"/"draft"/"archived").
-const TRIP_STATUS_LABELS: Readonly<Record<TripListEntry['status'], string>> = {
+//
+// R1 section 23 ("silence when healthy"): `ready` renders no badge at all —
+// it is the permanent, non-actionable state every dated trip is set to once
+// at import and never changes afterward (no archive/un-archive action exists
+// in this app today), so showing "Prêt" on every single card is exactly the
+// internal/default status the CDC asks to hide, not a real business signal
+// like `draft` (genuinely undated, actionable — "ajoutez une date de
+// départ") or `archived` (kept for if/when an archive action exists).
+const TRIP_STATUS_LABELS: Readonly<Record<TripListEntry['status'], string | null>> = {
   draft: 'Brouillon',
-  ready: 'Prêt',
+  ready: null,
   archived: 'Archivé',
 }
 
@@ -200,9 +208,11 @@ function formatTripDateRange(trip: TripListEntry): string {
 
 function renderTripCard(trip: TripListEntry): string {
   const dateLabel = formatTripDateRange(trip)
+  const statusLabel = TRIP_STATUS_LABELS[trip.status]
+  const statusBadge = statusLabel === null ? '' : `<span class="tag tag--data">${escapeHtml(statusLabel)}</span>`
   return `
     <li class="trip-card" data-action="open-trip" data-trip-id="${escapeHtml(trip.id)}" role="button" tabindex="0">
-      <div class="trip-card__header"><h3>${escapeHtml(trip.name)}</h3><span class="tag tag--data">${escapeHtml(TRIP_STATUS_LABELS[trip.status])}</span></div>
+      <div class="trip-card__header"><h3>${escapeHtml(trip.name)}</h3>${statusBadge}</div>
       <dl class="trip-card__stats">
         <div><dt>Dates</dt><dd>${escapeHtml(dateLabel)}</dd></div>
         <div><dt>Journées</dt><dd>${trip.dayCount}</dd></div>
@@ -854,12 +864,18 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   }
 
   /**
-   * C2.5 section 22: patches exactly the `[data-trip-day-prep]` icon of each
-   * given day's card, plus the global "N/M étapes prêtes" summary — never
-   * `container.innerHTML`, never a scroll/tab/focus reset, never touching
-   * any other card. A no-op unless Voyage (the day-LIST) is the screen
-   * currently on display for this exact trip (section 23: another screen,
-   * or another trip entirely after a switch, is left untouched).
+   * C2.5 section 22: patches exactly the `[data-trip-day-prep-slot]` mount of
+   * each given day's card, plus the global "N/M étapes prêtes" summary —
+   * never `container.innerHTML`, never a scroll/tab/focus reset, never
+   * touching any other card. A no-op unless Voyage (the day-LIST) is the
+   * screen currently on display for this exact trip (section 23: another
+   * screen, or another trip entirely after a switch, is left untouched).
+   *
+   * R1: targets the always-present `[data-trip-day-prep-slot]` wrapper by
+   * `.innerHTML`, not the indicator glyph's own `[data-trip-day-prep]` by
+   * `.outerHTML` — `renderStagePreparationIndicator` now renders nothing at
+   * all for `ready`, so that glyph may simply not exist in the DOM yet; the
+   * slot around it always does, whatever the current status is.
    */
   function patchStagePreparationIndicators(tripId: TripId, bundle: TripBundle, dayIds: readonly (TripDayId | null)[]): void {
     if (mode.kind !== 'detail' || mode.tripId !== tripId) return
@@ -867,9 +883,9 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     for (const dayId of dayIds) {
       if (dayId === null) continue
       const button = container.querySelector<HTMLElement>(`[data-day-id="${escapeSelectorValue(dayId)}"]`)
-      const indicator = button?.querySelector<HTMLElement>('[data-trip-day-prep]') ?? null
-      if (indicator === null) continue
-      indicator.outerHTML = renderStagePreparationIndicator(deriveStagePreparationStatus(bundle, dayId, context))
+      const slot = button?.querySelector<HTMLElement>('[data-trip-day-prep-slot]') ?? null
+      if (slot === null) continue
+      slot.innerHTML = renderStagePreparationIndicator(deriveStagePreparationStatus(bundle, dayId, context))
     }
     patchStagePreparationSummary(bundle, context)
   }

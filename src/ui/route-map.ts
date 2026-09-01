@@ -248,6 +248,15 @@ export function disposeMapLayerPanel(dialog: HTMLDialogElement): void {
 }
 
 /**
+ * R1 section 18: a light UX shortcut only — never a new POI category, never
+ * a change to the enrichment/search engine (`practical-places/*`). Exactly
+ * the four practical-place layer ids the CDC names ("Eau, Abris, Toilettes,
+ * Vélo"); every individual category checkbox stays fully independent and
+ * usable on its own, this only ever toggles several of them together.
+ */
+const ESSENTIAL_LAYER_IDS: ReadonlySet<string> = new Set(['practical-water', 'practical-shelter', 'practical-toilet', 'practical-bike-service'])
+
+/**
  * Installs the small "Calques" panel on the fullscreen map (structural
  * points are always drawn by `createRouteMap`, never part of this panel —
  * only additional, opt-in layers like Villages are). Reuses the practical
@@ -273,6 +282,22 @@ function installMapLayerPanel(dialog: HTMLDialogElement, map: L.Map, layers: rea
   const eventController = new AbortController()
   const { signal } = eventController
   const groups = new Map<string, L.LayerGroup>()
+
+  // R1 section 18/19: "Essentiels" — one tap to enable Eau/Abris/Toilettes/
+  // Vélo together for the field scenario ("il pleut, j'ouvre la carte, je
+  // veux un abri") — shown only when at least one of those four categories
+  // actually has something to show here; a trip with none of them present
+  // gets no dead shortcut. Placed first so it reads as a shortcut to what
+  // follows, not one more layer among the six.
+  if (usableLayers.some((layer) => ESSENTIAL_LAYER_IDS.has(layer.id))) {
+    const essentialButton = document.createElement('button')
+    essentialButton.type = 'button'
+    essentialButton.className = 'practical-layer-preset'
+    essentialButton.dataset.mapLayerPreset = 'essentials'
+    essentialButton.setAttribute('aria-pressed', 'false')
+    essentialButton.textContent = 'Essentiels'
+    list.appendChild(essentialButton)
+  }
 
   for (const layer of usableLayers) {
     const label = document.createElement('label')
@@ -336,6 +361,28 @@ function installMapLayerPanel(dialog: HTMLDialogElement, map: L.Map, layers: rea
     input.addEventListener('change', () => {
       if (input.checked) group.addTo(map)
       else group.remove()
+    }, { signal })
+  }
+
+  // R1 section 18: reads the essential checkboxes back out of `list` rather
+  // than tracking them separately — there is exactly one source of truth
+  // (the checkboxes themselves), this button only ever drives them. Toggling
+  // dispatches a real `change` event on each so the existing per-checkbox
+  // listener above (map add/remove) fires exactly as if the user had
+  // clicked each one — never a second, parallel "add to map" code path.
+  const essentialButton = list.querySelector<HTMLButtonElement>('[data-map-layer-preset="essentials"]')
+  if (essentialButton !== null) {
+    const essentialInputs = (): HTMLInputElement[] =>
+      Array.from(list.querySelectorAll<HTMLInputElement>('input[data-map-layer]')).filter((input) => ESSENTIAL_LAYER_IDS.has(input.dataset.mapLayer ?? ''))
+    essentialButton.addEventListener('click', () => {
+      const inputs = essentialInputs()
+      const nextChecked = !inputs.every((input) => input.checked)
+      for (const input of inputs) {
+        if (input.checked === nextChecked) continue
+        input.checked = nextChecked
+        input.dispatchEvent(new Event('change'))
+      }
+      essentialButton.setAttribute('aria-pressed', String(nextChecked))
     }, { signal })
   }
 

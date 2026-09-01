@@ -702,3 +702,27 @@ test('every day type resolves through buildDayDetail — the precondition for a 
     assert.ok(buildDayDetail(bundle, dayId) !== null, `${dayId} must be openable`)
   }
 })
+
+// --- R1 section 4 ("erreurs/partial"), tests C/D: short, plain-language, ---
+// --- actionable banners — no technical vocabulary, a real Réessayer. -------
+
+test('R1 test C: a partial-preparation ride day shows a short, actionable banner — no "préparation"/technical wording', () => {
+  const bundle = createGenericTripBundle()
+  const detail = buildDayDetail(bundle, 'day-alpha', { preparationStatus: 'partial' })
+  assert.match(detail.html, /<div class="day-detail__prep-banner" role="status"><span>Certaines données pratiques manquent\.<\/span>/)
+  assert.match(detail.html, /data-action="retry-stage-preparation"[^>]*>Réessayer<\/button>/)
+  assert.doesNotMatch(detail.html, /postpass|provider|enrichment/i)
+})
+
+test('R1 test D: an errored ride day shows a short banner with a retry action', () => {
+  const bundle = createGenericTripBundle()
+  const detail = buildDayDetail(bundle, 'day-alpha', { preparationStatus: 'error' })
+  assert.match(detail.html, /<div class="day-detail__prep-banner" role="status"><span>Préparation incomplète\.<\/span>/)
+  assert.match(detail.html, /data-action="retry-stage-preparation"[^>]*>Réessayer<\/button>/)
+})
+
+test('a ready ride day shows no preparation banner at all', () => {
+  const bundle = createGenericTripBundle()
+  const detail = buildDayDetail(bundle, 'day-alpha', { preparationStatus: 'ready' })
+  assert.doesNotMatch(detail.html, /day-detail__prep-banner/)
+})

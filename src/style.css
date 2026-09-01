@@ -1753,6 +1753,11 @@ body.map-scroll-locked { position: fixed; top: var(--map-scroll-lock-y, 0); inse
 .practical-layer-option__symbol { width: 28px; height: 28px; font-size: .8rem; }
 .practical-layer-option__name { min-width: 0; overflow-wrap: anywhere; font-size: .82rem; font-weight: 750; }
 .practical-layer-option__count { min-width: 2rem; padding: 2px 6px; color: var(--ink-soft); background: var(--surface-muted); border-radius: 999px; font-size: .72rem; font-weight: 800; text-align: center; }
+/* R1 section 18 — the "Essentiels" preset shortcut, sized/touch-target like
+ * a normal layer row but visually a plain action (no checkbox/count) until
+ * pressed, when it picks up the same accent used for an active checkbox. */
+.practical-layer-preset { min-height: 44px; padding: 5px 12px; color: var(--ink); font-size: .82rem; font-weight: 750; text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 9px; cursor: pointer; }
+.practical-layer-preset[aria-pressed="true"] { color: var(--forest-800); background: var(--forest-50); border-color: var(--forest-700); }
 .practical-marker { background: transparent; border: 0; }
 .practical-marker__surface { width: 28px; height: 28px; border-style: dashed; font-size: .66rem; line-height: 1; }
 /*
@@ -3290,6 +3295,12 @@ button:disabled { cursor: not-allowed; opacity: .55; }
  * ever conflicts with, or reflows because of, the other. */
 .trip-day-card__schedule { min-width: 62px; display: grid; justify-items: end; gap: 3px; font-variant-numeric: tabular-nums; }
 .trip-day-card__status { display: inline-flex; align-items: center; gap: 4px; line-height: 1; }
+/* R1: a transparent flex-layout passthrough — when empty (ready/no-status
+ * card, the normal healthy case) it contributes no flex item of its own, so
+ * `.trip-day-card__status`'s `gap` never reserves space for it; whenever
+ * `renderStagePreparationIndicator` does render something inside it, that
+ * indicator becomes a direct flex item exactly as if it had no wrapper. */
+[data-trip-day-prep-slot] { display: contents; }
 /* C2.5 section 11-12: a small, fixed-size preparation indicator next to the
  * existing status tag — same row, never a new row, so a status change
  * (pending → running → ready) never changes the card's own height/width. */

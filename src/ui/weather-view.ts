@@ -65,11 +65,26 @@ function formatFetchedAt(fetchedAt: string): string {
     : new Intl.DateTimeFormat('fr-FR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Europe/Paris' }).format(parsed)
 }
 
+/**
+ * R1 section 12: a banal (green — nothing needs attention, `renderRiskBanner`
+ * already rendered nothing for this same model) day stays a single compact
+ * line — "12–23°C · sec · vent faible" — never the fuller block. The
+ * "Risque météo : Faible" sentence and the raw weather-code line are both
+ * genuinely redundant once there is no alert to explain (a green day IS the
+ * "nothing to see" case by definition) — dropped only for `green`, never for
+ * `orange`/`red`/`unknown`, where the full synthesis (code, explicit risk
+ * sentence, freshness meta) stays exactly as before: the engine/data itself
+ * is untouched, this only ever changes how much of it is shown.
+ */
 function renderSynthesis(model: GenericDayWeatherViewModel): string {
   const parts = summaryLine(model.summary)
+  const line = parts.length === 0 ? 'Données insuffisantes.' : escapeHtml(parts.join(' · '))
+  if (model.riskLevel === 'green') {
+    return `<div class="weather-synthesis weather-synthesis--compact" data-weather-synthesis><p class="weather-synthesis__line">${line}</p></div>`
+  }
   const worst = model.summary?.worstWeatherLabel ?? null
   return `<div class="weather-synthesis" data-weather-synthesis>
-    <p class="weather-synthesis__line">${parts.length === 0 ? 'Données insuffisantes.' : escapeHtml(parts.join(' · '))}</p>
+    <p class="weather-synthesis__line">${line}</p>
     ${worst === null ? '' : `<p class="weather-synthesis__code">${escapeHtml(worst)}</p>`}
     <p class="weather-risk weather-risk--${model.riskLevel}">Risque météo : ${RISK_LABELS[model.riskLevel]}</p>
     ${model.fetchedAt === null ? '' : `<p class="weather-synthesis__meta">Mis à jour ${escapeHtml(formatFetchedAt(model.fetchedAt))}${model.isRefreshing ? ' · actualisation en cours' : ''}</p>`}
