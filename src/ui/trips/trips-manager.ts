@@ -24,6 +24,7 @@ import { resolvePreferredActiveTripId } from '../../trips-manager/active-trip-se
 import { deriveTripTemporalState, resolveAdjacentTripDayId } from '../../trips-manager/trip-day-temporal-state.ts'
 import { deleteTripCompletely, listTripSummaries, setActiveTrip } from '../../trips-manager/trip-manager-actions.ts'
 import type { TripListEntry } from '../../trips-manager/trip-summary.ts'
+import { formatShortDate } from '../date-format.ts'
 import type { MapLayerDefinition, RouteMapInteractionHandle } from '../route-map.ts'
 import { buildGenericOverviewDetailMarkers, buildGenericOverviewRouteMapModel, buildGenericRouteMapModel } from '../route-map-model.ts'
 import type { RouteMapModel } from '../route-map-model.ts'
@@ -175,11 +176,26 @@ function escapeHtml(value: string): string {
  * resolves to whichever is nearest, so clicking them never also triggers
  * the card's own `open-trip` action.
  */
+// UI-POLISH-01 section 24: `TripStatus` is an internal storage word — never
+// shown to the user raw ("ready"/"draft"/"archived").
+const TRIP_STATUS_LABELS: Readonly<Record<TripListEntry['status'], string>> = {
+  draft: 'Brouillon',
+  ready: 'Prêt',
+  archived: 'Archivé',
+}
+
+/** Same short-date convention as everywhere else (`app-header.ts`/`trip-detail-view.ts`) — never a raw ISO `YYYY-MM-DD` string, the year only shown once, on the last date. */
+function formatTripDateRange(trip: TripListEntry): string {
+  if (trip.startDate === null) return 'Non daté'
+  if (trip.endDate === null) return `${formatShortDate(trip.startDate)} ${trip.startDate.slice(0, 4)}`
+  return `${formatShortDate(trip.startDate)} → ${formatShortDate(trip.endDate)} ${trip.endDate.slice(0, 4)}`
+}
+
 function renderTripCard(trip: TripListEntry): string {
-  const dateLabel = trip.startDate === null ? 'Non daté' : trip.endDate === null ? trip.startDate : `${trip.startDate} → ${trip.endDate}`
+  const dateLabel = formatTripDateRange(trip)
   return `
     <li class="trip-card" data-action="open-trip" data-trip-id="${escapeHtml(trip.id)}" role="button" tabindex="0">
-      <div class="trip-card__header"><h3>${escapeHtml(trip.name)}</h3><span class="tag tag--data">${escapeHtml(trip.status)}</span></div>
+      <div class="trip-card__header"><h3>${escapeHtml(trip.name)}</h3><span class="tag tag--data">${escapeHtml(TRIP_STATUS_LABELS[trip.status])}</span></div>
       <dl class="trip-card__stats">
         <div><dt>Dates</dt><dd>${escapeHtml(dateLabel)}</dd></div>
         <div><dt>Journées</dt><dd>${trip.dayCount}</dd></div>
@@ -188,7 +204,7 @@ function renderTripCard(trip: TripListEntry): string {
       </dl>
       <div class="trip-card__actions">
         <button class="button button--quiet" type="button" data-action="edit-trip" data-trip-id="${escapeHtml(trip.id)}">Modifier</button>
-        <button class="button button--quiet" type="button" data-action="delete-trip" data-trip-id="${escapeHtml(trip.id)}">Supprimer</button>
+        <button class="button button--danger" type="button" data-action="delete-trip" data-trip-id="${escapeHtml(trip.id)}">Supprimer</button>
       </div>
     </li>`
 }

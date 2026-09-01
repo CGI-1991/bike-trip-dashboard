@@ -141,7 +141,7 @@ function renderProgressStats(progress: TripProgress): string {
   </section>`
 }
 
-function renderHighlightedDay(bundle: TripBundle, highlightedDayId: TripDayId | null, now: Date | string | null): string {
+function renderHighlightedDay(bundle: TripBundle, highlightedDayId: TripDayId | null, now: Date | string | null, zoneLabel: string): string {
   if (highlightedDayId === null) return ''
   const day = bundle.days.find((candidate) => candidate.id === highlightedDayId)
   if (day === undefined) return ''
@@ -169,7 +169,7 @@ function renderHighlightedDay(bundle: TripBundle, highlightedDayId: TripDayId | 
     // Journée shell to open (`day-detail-view.ts`) — the highlighted card
     // here is a real navigation target too, exactly like a ride day's,
     // never left as a dead end just because it isn't a ride.
-    return `<article class="trip-overview__highlighted-day card" data-action="open-day-detail" data-day-id="${escapeHtml(day.id)}" role="button" tabindex="0"><p class="eyebrow">À suivre</p><h3>${headerParts.join(' — ')}</h3><p>${known}</p></article>`
+    return `<article class="trip-overview__highlighted-day card" data-action="open-day-detail" data-day-id="${escapeHtml(day.id)}" role="button" tabindex="0"><p class="eyebrow trip-overview__zone-eyebrow">${escapeHtml(zoneLabel)}</p><h3>${headerParts.join(' — ')}</h3><p>${known}</p></article>`
   }
 
   const stage = bundle.stages.find((candidate) => candidate.id === day.stageId)
@@ -185,7 +185,7 @@ function renderHighlightedDay(bundle: TripBundle, highlightedDayId: TripDayId | 
   // so wrapping it is safe (CDC section 4: "les boutons internes ne
   // doivent pas déclencher aussi la navigation" — there are none here).
   return `<article class="trip-overview__highlighted-day card" data-action="open-day-detail" data-day-id="${escapeHtml(day.id)}" role="button" tabindex="0">
-    <p class="eyebrow">À suivre</p><h3>${headerParts.join(' — ')}</h3>
+    <p class="eyebrow trip-overview__zone-eyebrow">${escapeHtml(zoneLabel)}</p><h3>${headerParts.join(' — ')}</h3>
     <div class="route-map route-map--compact" data-trip-overview-day-map></div>
     <dl class="trip-overview__highlighted-day-stats">
       <div><dt>Distance</dt><dd>${stage?.distanceKm === null || stage?.distanceKm === undefined ? '—' : formatKilometers(stage.distanceKm)}</dd></div>
@@ -250,7 +250,7 @@ export function buildTripOverview(bundle: TripBundle, now: Date | string | null)
   // over nothing would be worse than omitting the zone entirely.
   const highlightedState = highlightedDayId === null ? null : getTripDayTemporalState(temporal, highlightedDayId)
   const nextZoneLabel = highlightedState?.current === true ? 'Aujourd’hui' : highlightedDay?.type === 'ride' ? 'Prochaine étape' : 'À suivre'
-  const highlightedDayHtml = renderHighlightedDay(bundle, highlightedDayId, now)
+  const highlightedDayHtml = renderHighlightedDay(bundle, highlightedDayId, now, nextZoneLabel)
 
   // CDC D1.2 section 2: the app-shell header (fond vert) is now the sole
   // general trip identity — its own subtitle already carries the date
@@ -260,7 +260,6 @@ export function buildTripOverview(bundle: TripBundle, now: Date | string | null)
   const html = `<div class="trip-overview" data-trip-overview>
     <header class="view-heading"><p class="eyebrow">Aperçu</p></header>
     <section class="trip-overview__zone trip-overview__zone--trip" data-trip-overview-zone="trip">
-      <p class="eyebrow trip-overview__zone-eyebrow">Voyage</p>
       ${renderProgressStats(progress)}
       <section class="card route-map-card" data-route-visuals>
         <div class="section-heading"><div><p class="eyebrow">Vue d’ensemble</p><h3>Carte du voyage</h3></div><div class="route-map-card__actions"><button class="button button--quiet" type="button" data-action="download-trip-gpx">GPX</button></div></div>
@@ -272,7 +271,6 @@ export function buildTripOverview(bundle: TripBundle, now: Date | string | null)
       </dialog>
     </section>
     ${highlightedDayHtml === '' ? '' : `<section class="trip-overview__zone trip-overview__zone--next" data-trip-overview-zone="next">
-      <p class="eyebrow trip-overview__zone-eyebrow">${nextZoneLabel}</p>
       ${highlightedDayHtml}
     </section>`}
   </div>`

@@ -439,6 +439,40 @@ test('Infos is read-only by default: shows the note as plain text, plus a single
   assert.match(detail.html, /data-action="save-day-infos"/)
 })
 
+// UI-POLISH-01 section 22: three overlapping labels ("Infos" tab + a generic
+// "Éditorial et logistique" kicker + "Infos" title again) collapsed into one.
+test('Infos carries a single "Infos" title — no separate "Éditorial et logistique" kicker duplicating it', () => {
+  const bundle = createGenericTripBundle()
+  const detail = buildDayDetail(bundle, 'day-alpha')
+  assert.doesNotMatch(detail.infosHtml, /Éditorial et logistique/)
+  assert.match(detail.infosHtml, /<h3>Infos<\/h3>/)
+})
+
+// UI-POLISH-01 section 23: every form control in Infos (notably the notes
+// textarea, which used to fall back to the browser's own default
+// font/border) shares the same `.field` recipe as the lodging `<input>`s
+// right below it.
+test('Infos edit form: the notes textarea uses the same `.field` styling as the other inputs — no browser-default font any more', () => {
+  const bundle = createGenericTripBundle()
+  const detail = buildDayDetail(bundle, 'day-alpha')
+  assert.match(detail.infosHtml, /<div class="field"><label for="day-notes">Notes<\/label><div class="field__control"><textarea id="day-notes"/)
+  const css = readFileSync(new URL('../../src/style.css', import.meta.url), 'utf8')
+  assert.match(css, /\.field textarea \{[^}]*font-size: 1rem/, 'the textarea gets an explicit, app-consistent font-size — no monospace/browser-default fallback')
+})
+
+// UI-POLISH-01 section 8/26: one compact toolbar convention, shared by every
+// fullscreen map header (Aperçu's `trip-overview-view.ts` and this Étape
+// dialog both use `.route-map-dialog > header`) — a single row, the title
+// truncated with an ellipsis rather than allowed to wrap onto a second line.
+test('the fullscreen map toolbar (shared by Aperçu and Étape) stays a single compact row — title truncates, it never wraps to a second line', () => {
+  const bundle = createGenericTripBundle()
+  const detail = buildDayDetail(bundle, 'day-alpha')
+  assert.match(detail.html, /<dialog class="route-map-dialog" data-day-detail-map-dialog[^>]*>\s*<header><h2/)
+  const css = readFileSync(new URL('../../src/style.css', import.meta.url), 'utf8')
+  assert.match(css, /\.route-map-dialog > header \{[^}]*flex-wrap: nowrap/, 'the toolbar is one row, not a wrapping stack')
+  assert.match(css, /\.route-map-dialog > header h2 \{[^}]*text-overflow: ellipsis/, 'a long title truncates instead of pushing the toolbar taller')
+})
+
 test('Infos shows "Aucune note" when there is none, never an empty block, and still offers "Modifier"', () => {
   const bundle = createGenericTripBundle()
   assert.equal(bundle.days[0].accommodationId, null)
@@ -493,13 +527,15 @@ test('AA/AB/AC: a climb renders as a tappable mini-card, same skeleton as a plai
   assert.match(toggleHtml, /day-detail__timeline-meta">5,0 km · \+450 m · 9,0 %</)
   // AE: an (empty, until weather arrives) weather mount sits in the same body.
   assert.match(toggleHtml, /data-waypoint-weather data-waypoint-id="climb-test-1"/)
-  // Expanded profile panel: still Longueur (climb length, 15 - 10 km)/D+/Pente moyenne.
+  // UI-POLISH-01 section 20: the expanded panel used to repeat the exact
+  // same three numbers (Longueur/D+/Pente moyenne) already shown in the
+  // closed meta line above (AC) — that duplicated `<dl>` is gone; the panel
+  // now only ever adds the profile graphic itself.
   const profileMatch = /<div class="day-detail__climb-profile" id="climb-profile-climb-test-1"[^]*?<\/div>\s*<\/li>/.exec(detail.html)
   assert.ok(profileMatch !== null)
   const profileHtml = profileMatch[0]
-  assert.match(profileHtml, /<dt>Longueur<\/dt><dd>5,0 km<\/dd>/)
-  assert.match(profileHtml, /<dt>D\+<\/dt><dd>\+450 m<\/dd>/)
-  assert.match(profileHtml, /<dt>Pente moyenne<\/dt><dd>9,0 %<\/dd>/)
+  assert.doesNotMatch(profileHtml, /day-detail__climb-profile-stats/, 'no duplicated stats block inside the expanded profile any more')
+  assert.doesNotMatch(profileHtml, /<dt>Longueur<\/dt>/)
   assert.match(detail.html, /data-climb-profile hidden/, 'AD: collapsed by default, still developable')
   // CDC Jalon C1 closeout: the gradient colouring lives only on the
   // altimetric silhouette's `<polygon>` bands now — the redundant flat
@@ -589,7 +625,6 @@ test('a mountain-pass landmark merged with its detected climb still gets the cli
   // Pente" directly (climb length 5 km) — the same compact meta an
   // expanded-only summit stat used to be.
   assert.match(detail.timelineHtml, /day-detail__timeline-meta">5,0 km · \+450 m · 9,0 %</)
-  assert.match(detail.timelineHtml, /<dt>Longueur<\/dt><dd>5,0 km<\/dd>/)
   assert.match(detail.timelineHtml, /◆/, 'the col marker/icon is preserved, not swapped for the generic climb marker')
 })
 

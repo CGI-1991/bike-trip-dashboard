@@ -188,6 +188,7 @@ function installBandProfileInteraction(container: HTMLElement, samples: readonly
   const cursor = container.querySelector<SVGGElement>('[data-profile-cursor]')
   const line = container.querySelector<SVGLineElement>('[data-profile-cursor-line]')
   const dot = container.querySelector<SVGCircleElement>('[data-profile-cursor-dot]')
+  const band = container.querySelector<HTMLElement>('[data-profile-band]')
   const bandDistance = container.querySelector<HTMLElement>('[data-profile-band-distance]')
   const bandAltitude = container.querySelector<HTMLElement>('[data-profile-band-altitude]')
   const bandGrade = container.querySelector<HTMLElement>('[data-profile-band-grade]')
@@ -203,6 +204,8 @@ function installBandProfileInteraction(container: HTMLElement, samples: readonly
   // sobres") both on mount and once the interaction ends.
   const clearBand = (): void => {
     bandDistance.textContent = '—'; bandAltitude.textContent = '—'; bandGrade.textContent = '—'; bandEta.textContent = '—'
+    // UI-POLISH-01 section 13: back to the idle hint, not the raw dashes.
+    band?.setAttribute('data-band-empty', '')
   }
   clearBand()
 
@@ -216,6 +219,7 @@ function installBandProfileInteraction(container: HTMLElement, samples: readonly
     dot.setAttribute('cx', x.toFixed(1)); dot.setAttribute('cy', y.toFixed(1))
     cursor.removeAttribute('hidden')
     const etaLabel = options.timingCurve?.clockTimeAt(sample.distanceKm) ?? null
+    band?.removeAttribute('data-band-empty')
     bandDistance.textContent = `${sample.distanceKm.toFixed(1)} km`
     bandAltitude.textContent = `${Math.round(sample.altitudeM)} m`
     bandGrade.textContent = `Pente ${sample.smoothedGradePercent.toFixed(1)} %`
@@ -321,12 +325,21 @@ function renderProfileSvgMarkup(
     : ''
   // CDC D1.1 section 16: `32,6 km | 1 486 m | Pente 6,2 % | ETA 12:41` — a
   // fixed band, always visible, below the stage rather than floating over
-  // it. Neutral dashes until the first interaction (`installBandProfileInteraction`
-  // fills them in immediately on mount too).
+  // it. UI-POLISH-01 section 13: bare "—　—　—　—" with no label read as an
+  // unfinished component — a compact hint now fills the idle band instead,
+  // swapped out for the four real values as soon as there is a sample
+  // (`data-band-empty`, toggled by `installBandProfileInteraction` below).
+  // The four value spans themselves are untouched (still "—" internally
+  // until then) — existing consumers reading their `textContent` keep
+  // working exactly as before, only the idle band's own visible content
+  // changes.
   const band = presentation === 'band'
-    ? `<div class="profile-band" data-profile-band><span data-profile-band-distance>—</span><span data-profile-band-altitude>—</span><span data-profile-band-grade>—</span><span data-profile-band-eta>—</span></div>`
+    ? `<div class="profile-band" data-profile-band data-band-empty><span class="profile-band__hint" aria-hidden="true">Toucher le profil pour explorer</span><span data-profile-band-distance>—</span><span data-profile-band-altitude>—</span><span data-profile-band-grade>—</span><span data-profile-band-eta>—</span></div>`
     : ''
-  return `<figure class="elevation-profile"><div class="elevation-profile__stage"><svg data-profile-interactive tabindex="0" viewBox="0 0 800 240" role="group" aria-labelledby="profile-title-${titleId}" aria-describedby="profile-live-${titleId}" preserveAspectRatio="none"><title id="profile-title-${titleId}">${escapeHtml(titleLabel)}</title><path class="profile-area" d="${line} L780,214 L20,214 Z"/><path class="profile-line" d="${line}"/>${markersHtml}<g class="profile-cursor" data-profile-cursor hidden><line data-profile-cursor-line y1="25" y2="214"/><circle data-profile-cursor-dot r="6"/></g><text x="20" y="20">${Math.round(max)} m</text><text x="20" y="230">${Math.round(min)} m</text><text x="700" y="230">${total.toFixed(1)} km</text></svg>${infoSurface}</div>${band}<p class="visually-hidden" id="profile-live-${titleId}" data-profile-live aria-live="polite"></p><figcaption>Survolez, touchez ou utilisez les flèches pour lire distance, altitude, pente moyenne${presentation === 'band' ? ' et ETA' : ''}.</figcaption></figure>`
+  // The band's own hint now carries the sighted-user instruction; the
+  // figcaption stays for assistive tech only (never shown twice).
+  const caption = `<figcaption${presentation === 'band' ? ' class="visually-hidden"' : ''}>Survolez, touchez ou utilisez les flèches pour lire distance, altitude, pente moyenne${presentation === 'band' ? ' et ETA' : ''}.</figcaption>`
+  return `<figure class="elevation-profile"><div class="elevation-profile__stage"><svg data-profile-interactive tabindex="0" viewBox="0 0 800 240" role="group" aria-labelledby="profile-title-${titleId}" aria-describedby="profile-live-${titleId}" preserveAspectRatio="none"><title id="profile-title-${titleId}">${escapeHtml(titleLabel)}</title><path class="profile-area" d="${line} L780,214 L20,214 Z"/><path class="profile-line" d="${line}"/>${markersHtml}<g class="profile-cursor" data-profile-cursor hidden><line data-profile-cursor-line y1="25" y2="214"/><circle data-profile-cursor-dot r="6"/></g><text x="20" y="20">${Math.round(max)} m</text><text x="20" y="230">${Math.round(min)} m</text><text x="700" y="230">${total.toFixed(1)} km</text></svg>${infoSurface}</div>${band}<p class="visually-hidden" id="profile-live-${titleId}" data-profile-live aria-live="polite"></p>${caption}</figure>`
 }
 
 export function renderElevationProfile(

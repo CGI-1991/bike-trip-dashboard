@@ -218,9 +218,17 @@ function installMapLayerPanel(dialog: HTMLDialogElement, map: L.Map, layers: rea
     input.type = 'checkbox'
     input.checked = layer.defaultVisible
     input.dataset.mapLayer = layer.id
+    // UI-POLISH-01 section 28: the legend swatch used to be one fixed
+    // grey-blue circle for every layer, with no glyph — a "Vélo"/"Eau"/
+    // "Boulangerie" row looked identical to any other. Every marker in a
+    // layer shares the same category (`buildMarker`/`villagesLayer`), so its
+    // first marker's own colour/symbol (the exact same ones drawn on the
+    // map) is a safe, always-available representative for the whole row.
+    const representativeStyle = layer.markers[0] === undefined ? null : getRouteMarkerStyle(layer.markers[0].category)
     const symbol = document.createElement('span')
     symbol.className = 'practical-layer-option__symbol'
-    symbol.style.setProperty('--practical-color', '#3f5a72')
+    symbol.style.setProperty('--practical-color', representativeStyle?.colorHex ?? '#3f5a72')
+    symbol.textContent = representativeStyle?.symbol ?? ''
     symbol.setAttribute('aria-hidden', 'true')
     const name = document.createElement('span')
     name.className = 'practical-layer-option__name'
@@ -237,7 +245,10 @@ function installMapLayerPanel(dialog: HTMLDialogElement, map: L.Map, layers: rea
       // C2 (CDC section 19): a practical-POI marker carries its own rich
       // popup, opened on click — every structural marker leaves `popupHtml`
       // unset and keeps its plain tooltip-only behaviour, unchanged.
-      if (marker.popupHtml !== undefined) built.bindPopup(marker.popupHtml)
+      // UI-POLISH-01 section 31: explicit `maxWidth`/`autoPanPadding` so the
+      // popup never renders under the fullscreen toolbar or Leaflet's own
+      // zoom controls — it used to rely entirely on Leaflet's defaults.
+      if (marker.popupHtml !== undefined) built.bindPopup(marker.popupHtml, { maxWidth: 300, autoPan: true, autoPanPadding: [16, 60] })
       return built
     }))
     groups.set(layer.id, group)

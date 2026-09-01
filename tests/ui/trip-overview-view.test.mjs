@@ -59,19 +59,26 @@ test('A: buildTripOverview never repeats the trip name or its dates in its own c
 
 // --- visual hierarchy: Voyage vs Aujourd'hui/Prochaine étape (CDC Jalon B4.4 sections 14/34) ---
 
-test('Aperçu distinguishes a "Voyage" zone (stats + map) from a "Prochaine étape" zone (the highlighted day)', () => {
+// UI-POLISH-01 section 6: the screen-level "Aperçu" kicker plus a second
+// "Voyage" zone-eyebrow right above a card titled "Progression du voyage"
+// was three labels for one idea — the zone eyebrow is gone, "Aperçu" alone
+// is enough. The next-step zone's own label used to be a separate kicker
+// ABOVE the highlighted-day card, which then repeated its own "À suivre"
+// eyebrow again inside itself; it now lives only once, inside the card.
+test('Aperçu distinguishes a "Voyage" zone (stats + map) from a "Prochaine étape" zone (the highlighted day), without repeating either zone label', () => {
   const bundle = createGenericTripBundle()
   const overview = buildTripOverview(bundle, '2027-05-01')
   const voyageZoneIndex = overview.html.indexOf('data-trip-overview-zone="trip"')
-  const voyageEyebrowIndex = overview.html.indexOf('>Voyage<')
   const statsIndex = overview.html.indexOf('data-trip-overview-progress')
   const mapIndex = overview.html.indexOf('data-trip-overview-map')
   const nextZoneIndex = overview.html.indexOf('data-trip-overview-zone="next"')
-  const nextEyebrowIndex = overview.html.indexOf('>Prochaine étape<')
   const dayIndex = overview.html.indexOf('trip-overview__highlighted-day')
+  const nextEyebrowIndex = overview.html.indexOf('>Prochaine étape<')
   assert.ok(voyageZoneIndex >= 0 && nextZoneIndex >= 0, 'both zones are present')
-  assert.ok(voyageZoneIndex < voyageEyebrowIndex && voyageEyebrowIndex < statsIndex && statsIndex < mapIndex, 'the Voyage zone wraps stats + map, eyebrow first')
-  assert.ok(mapIndex < nextZoneIndex && nextZoneIndex < nextEyebrowIndex && nextEyebrowIndex < dayIndex, 'the next-step zone starts only after the Voyage zone, eyebrow before the day card')
+  assert.ok(voyageZoneIndex < statsIndex && statsIndex < mapIndex, 'the Voyage zone wraps stats + map')
+  assert.ok(mapIndex < nextZoneIndex && nextZoneIndex < dayIndex, 'the next-step zone starts only after the Voyage zone')
+  assert.ok(dayIndex < nextEyebrowIndex, 'the zone label now lives inside the highlighted-day card itself, not as a separate kicker repeated above it')
+  assert.equal((overview.html.match(/>Prochaine étape</g) ?? []).length, 1, 'the label appears exactly once, never duplicated')
 })
 
 test('Aperçu labels the highlighted day "Aujourd’hui" when it is today, "Prochaine étape" otherwise', () => {

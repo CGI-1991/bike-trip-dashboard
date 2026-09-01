@@ -129,14 +129,18 @@ export function renderTripDetail(bundle: TripBundle, options: TripDetailRenderOp
   const osmState = bundle.enrichmentMetadata.providers.find((state) => state.provider === 'osm')
   const routeEnrichmentState = bundle.enrichmentMetadata.providers.find((state) => state.provider === 'postpass-route-enrichment')
   const hasRideStages = bundle.stages.length > 0
+  // UI-POLISH-01 section 10: never surface provider names/diagnostics here
+  // (`automaticEnrichmentProgress`/`automaticEnrichmentError` still carry
+  // that raw detail for dev/debug callers, just never rendered) — at most
+  // one concise, non-blocking line with a discreet spinner while it runs.
   const automaticStatus = options.automaticEnrichmentPending
-    ? `<div class="trip-detail__enrichment" role="status"><strong>Enrichissement en cours…</strong><span>${escapeHtml(options.automaticEnrichmentProgress ?? 'Préparation')}</span></div>`
+    ? '<div class="trip-detail__enrichment trip-detail__enrichment--pending" role="status"><span class="trip-detail__enrichment-spinner" aria-hidden="true"></span><span>Mise à jour des données…</span></div>'
     : options.automaticEnrichmentError !== null && options.automaticEnrichmentError !== undefined
-      ? `<div class="trip-detail__enrichment" role="status"><strong>Enrichissement partiel</strong><span>${escapeHtml(options.automaticEnrichmentError)}</span></div>`
+      ? '<p class="trip-detail__enrichment">Certaines données seront complétées ultérieurement.</p>'
       : routeEnrichmentState?.status === 'success' && (osmState === undefined || osmState.status === 'success')
         ? ''
         : routeEnrichmentState?.status === 'partial' || routeEnrichmentState?.status === 'error' || osmState?.status === 'partial' || osmState?.status === 'error'
-          ? '<p class="trip-detail__enrichment"><strong>Enrichissement partiel</strong> — certaines données seront complétées ultérieurement.</p>'
+          ? '<p class="trip-detail__enrichment">Certaines données seront complétées ultérieurement.</p>'
           : ''
   const geocodingStatus = options.geocodingPending
     ? '<p role="status">Identification des lieux en cours…</p>'

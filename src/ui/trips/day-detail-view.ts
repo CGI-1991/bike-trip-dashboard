@@ -237,7 +237,7 @@ function renderClimbProfileBar(segments: readonly ClimbProfileSegment[]): string
       <span>${formatKilometers(first?.startDistanceKm ?? 0)} · ${first?.startAltitudeM === null || first?.startAltitudeM === undefined ? '—' : `${Math.round(first.startAltitudeM)} m`}</span>
       <span>${formatKilometers(last?.endDistanceKm ?? 0)} · ${last?.endAltitudeM === null || last?.endAltitudeM === undefined ? '—' : `${Math.round(last.endAltitudeM)} m`}</span>
     </div>
-    <p class="day-detail__climb-profile-caption">Survolez, touchez ou utilisez les flèches pour lire la distance, l’altitude et la pente.</p>`
+    <p class="day-detail__climb-profile-caption">Touchez le profil pour explorer.</p>`
 }
 
 /**
@@ -282,11 +282,6 @@ function renderClimbCard(waypoint: CanonicalWaypoint, climb: Climb, routeGeometr
       </span>
     </button>
     <div class="day-detail__climb-profile" id="${profileId}" data-climb-profile hidden>
-      <dl class="day-detail__climb-profile-stats">
-        <div><dt>Longueur</dt><dd>${formatKilometers(climb.endDistanceKm - climb.startDistanceKm)}</dd></div>
-        <div><dt>D+</dt><dd>+${Math.round(climb.elevationGainM)} m</dd></div>
-        <div><dt>Pente moyenne</dt><dd>${formatPercent(climb.averageGradientPercent)}</dd></div>
-      </dl>
       ${profile === null ? '<p class="day-detail__climb-profile-empty">Profil indisponible pour cette montée.</p>' : renderClimbProfileBar(profile.segments)}
     </div>
   </li>`
@@ -470,7 +465,7 @@ function renderInfosPanel(day: TripBundle['days'][number], accommodation: Accomm
   </div>`
 
   return `<section id="day-panel-infos" class="card" role="tabpanel" aria-labelledby="day-tab-infos" data-day-panel="infos" hidden>
-    <p class="eyebrow">Éditorial et logistique</p><h3>Infos</h3>
+    <h3>Infos</h3>
     ${readView}
     ${editView}
   </section>`
@@ -675,7 +670,7 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
     </section>
     <dialog class="route-map-dialog" data-day-detail-map-dialog aria-labelledby="day-detail-expanded-map-title">
       <header><h2 id="day-detail-expanded-map-title">Carte de l’étape</h2><div class="route-map-dialog__actions"><button class="button button--quiet" type="button" data-map-layers-toggle aria-expanded="false" aria-controls="day-detail-map-layers-panel" hidden>Calques</button><button class="button button--quiet" type="button" data-close-map>Fermer</button></div></header>
-      <div class="route-map-dialog__map-wrap"><div class="route-map route-map--expanded" data-route-map-expanded></div><p class="route-map__fallback route-map__fallback--expanded" data-expanded-route-map-fallback hidden>Fond de carte indisponible. Le tracé reste accessible dans le profil.</p><button class="practical-layers-backdrop" type="button" data-map-layers-backdrop aria-label="Fermer les calques" tabindex="-1" hidden></button><section class="practical-layers-panel" id="day-detail-map-layers-panel" data-map-layers-panel role="dialog" aria-labelledby="day-detail-map-layers-title" hidden><header><div><p class="eyebrow">Points principaux toujours visibles</p><h3 id="day-detail-map-layers-title">Calques</h3></div><button class="button button--quiet" type="button" data-map-layers-close>Fermer</button></header><div class="practical-layers-list" data-map-layers-list></div></section></div>
+      <div class="route-map-dialog__map-wrap"><div class="route-map route-map--expanded" data-route-map-expanded></div><p class="route-map__fallback route-map__fallback--expanded" data-expanded-route-map-fallback hidden>Fond de carte indisponible. Le tracé reste accessible dans le profil.</p><button class="practical-layers-backdrop" type="button" data-map-layers-backdrop aria-label="Fermer les calques" tabindex="-1" hidden></button><section class="practical-layers-panel" id="day-detail-map-layers-panel" data-map-layers-panel role="dialog" aria-labelledby="day-detail-map-layers-title" hidden><header><div><h3 id="day-detail-map-layers-title">Calques</h3><p class="practical-layers-panel__note">Points principaux toujours visibles</p></div><button class="button button--quiet" type="button" data-map-layers-close>Fermer</button></header><div class="practical-layers-list" data-map-layers-list></div></section></div>
     </dialog>
     <section class="card day-detail__details-card" data-day-detail-details-card>
       <nav class="day-tabs" role="tablist" aria-label="Sections de l’étape" data-day-detail-tabs>

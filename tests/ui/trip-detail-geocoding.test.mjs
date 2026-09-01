@@ -75,18 +75,22 @@ test('trip detail (Voyage) never surfaces practical places, however many are sto
 })
 
 /**
- * CDC Jalon C1 closeout: this test used to assert a literal "Voyage
- * enrichi"/"Provider = Postpass" banner — text that no longer exists
- * anywhere in the generic runtime (it predates the B4.3/B4.4 UX pass, which
- * deliberately made a clean, fully-successful enrichment SILENT — no banner
- * at all once every provider has succeeded, per `renderTripDetail`'s own
- * `automaticStatus` logic: empty string when `routeEnrichmentState`/
- * `osmState` are both `'success'`). Re-adding that old label just to turn
- * this test green would be a regression, not a fix — the actual contract
- * this test must guard is:
- *   1. a pending enrichment shows its own progress banner;
+ * CDC Jalon C1 closeout, refined by UI-POLISH-01 section 10: this test used
+ * to assert a literal "Voyage enrichi"/"Provider = Postpass" banner — text
+ * that no longer exists anywhere in the generic runtime (it predates the
+ * B4.3/B4.4 UX pass, which deliberately made a clean, fully-successful
+ * enrichment SILENT — no banner at all once every provider has succeeded,
+ * per `renderTripDetail`'s own `automaticStatus` logic: empty string when
+ * `routeEnrichmentState`/`osmState` are both `'success'`). UI-POLISH-01 went
+ * one step further: the pending/partial banners themselves must never show
+ * provider names or raw diagnostic text either (`automaticEnrichmentProgress`/
+ * `automaticEnrichmentError` are still accepted as props for dev/debug
+ * callers, just never rendered) — one concise, generic line only. The actual
+ * contract this test must guard is:
+ *   1. a pending enrichment shows a concise, non-technical banner — never the
+ *      raw provider progress string;
  *   2. a fully successful one shows NO diagnostic banner (silent success);
- *   3. a partial one shows the "Enrichissement partiel" banner;
+ *   3. a partial one shows a concise, non-technical banner too;
  *   4. in every case, a structural route point (city/town/village/climb
  *      landmark) discovered by Postpass is never listed in Voyage — that
  *      stays an Étape/Parcours-only concern, never duplicated here.
@@ -108,8 +112,8 @@ test('trip detail reflects Postpass enrichment status honestly (pending/silent-s
   bundle.stages[0].routePointIds.push('locality-ui')
 
   const pending = renderTripDetail(bundle, { automaticEnrichmentPending: true, automaticEnrichmentProgress: 'Points structurants — étape 1/2 · 320 ms · 2/4 retenus' })
-  assert.match(pending, /Enrichissement en cours/)
-  assert.match(pending, /Points structurants — étape 1\/2/)
+  assert.match(pending, /Mise à jour des données/)
+  assert.doesNotMatch(pending, /Points structurants — étape 1\/2/, 'the raw provider progress string is never shown to the user (UI-POLISH-01 section 10)')
   assert.doesNotMatch(pending, /City UI/, 'a structural point discovered by Postpass never leaks into Voyage, even while enrichment is still running')
 
   // Every provider `'success'` (the fixture's own `osm` state is already
@@ -127,7 +131,8 @@ test('trip detail reflects Postpass enrichment status honestly (pending/silent-s
     message: 'Une zone reste à reprendre.',
   }
   const partial = renderTripDetail(bundle)
-  assert.match(partial, /Enrichissement partiel/)
+  assert.match(partial, /trip-detail__enrichment/)
+  assert.match(partial, /Certaines données seront complétées ultérieurement/)
   assert.doesNotMatch(partial, /Rechercher les lieux utiles/)
   assert.doesNotMatch(partial, /City UI/, 'not duplicated in the partial state either')
 })
