@@ -378,6 +378,16 @@ test('M/O: Stats and Map+Profil render as their own top-level cards, structurall
   assert.doesNotMatch(mapProfileCardBlock, /role="tabpanel"/)
 })
 
+test('R3 sections 24-28: the "Alertes météo" mount sits between the map/profile card and the tabbed Détails card — always present, never behind the Pauses/Météo bottom-block toggle', () => {
+  const bundle = createGenericTripBundle()
+  const detail = buildDayDetail(bundle, 'day-alpha')
+  const mapProfileCardIndex = detail.html.indexOf('data-day-detail-map-profile-card')
+  const alertsMountIndex = detail.html.indexOf('data-day-detail-weather-alerts')
+  const detailsCardIndex = detail.html.indexOf('data-day-detail-details-card')
+  assert.ok(alertsMountIndex > mapProfileCardIndex && alertsMountIndex < detailsCardIndex)
+  assert.doesNotMatch(detail.html, /data-day-detail-weather-alerts"[^>]*hidden/, 'never hidden by default — trips-manager.ts fills it in once weather resolves, same as every other empty-slot mount')
+})
+
 test('the stats stay present regardless of which tab a caller would select — they are not conditionally rendered per tab (M/N)', () => {
   const bundle = createGenericTripBundle()
   const detail = buildDayDetail(bundle, 'day-alpha')
@@ -1158,6 +1168,31 @@ test('a non-bike mode leaves the opérateur field visible', () => {
   bundle.days[2].transferMode = 'train'
   const detail = buildDayDetail(bundle, 'day-charlie')
   assert.doesNotMatch(detail.infosHtml, /data-field-group="transfer-operator" hidden/)
+})
+
+// --- R3 sections 18-21: a configured reservation link/opérateur must
+// actually appear in Détail — the real bug this section names outright. ---
+
+test('a configured reservation link appears as a clickable action in the transfer\'s own Résumé — the exact gap R3 names ("configuré mais absent de Détail")', () => {
+  const bundle = createGenericTripBundle()
+  bundle.days[2].transferLink = 'https://sncf-connect.com/booking/abc123'
+  const detail = buildDayDetail(bundle, 'day-charlie')
+  assert.match(detail.summaryHtml, /<a class="button button--quiet" href="https:\/\/sncf-connect\.com\/booking\/abc123" target="_blank" rel="noopener">Réservation<\/a>/)
+})
+
+test('a configured opérateur shows as plain text in the Résumé — never turned into a link/action of its own', () => {
+  const bundle = createGenericTripBundle()
+  bundle.days[2].transferOperator = 'SNCF'
+  const detail = buildDayDetail(bundle, 'day-charlie')
+  assert.match(detail.summaryHtml, /<p class="day-detail__summary-transfer">SNCF<\/p>/)
+  assert.doesNotMatch(detail.summaryHtml, /<a[^>]*>SNCF/)
+})
+
+test('no reservation link/opérateur configured shows neither line at all — never an empty action', () => {
+  const bundle = createGenericTripBundle()
+  const detail = buildDayDetail(bundle, 'day-charlie')
+  assert.doesNotMatch(detail.summaryHtml, /Réservation/)
+  assert.doesNotMatch(detail.summaryHtml, /day-detail__summary-actions/)
 })
 
 test('R2.1 sections 22/31: the "dedicated" transferTiming label reads "Journée indépendante", matching the CDC\'s own wording', () => {

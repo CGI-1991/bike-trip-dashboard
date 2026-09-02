@@ -174,6 +174,40 @@ function renderRecommendation(model: GenericDayWeatherViewModel): string {
 }
 
 /**
+ * R3 sections 24-28: the "Alertes météo" block — an always-visible,
+ * compact summary between the map/profile and Parcours (never behind the
+ * Pauses/Météo bottom-block's own click-to-open toggle, section 26), so a
+ * real risk or a suggested departure is never more than a glance away.
+ * Deliberately lighter than `renderRiskBanner`'s own loud, uppercase
+ * treatment inside the full Météo panel (section 27's "double niveau" —
+ * this shows only the essential point, the panel explains the
+ * alternatives) and only ever a ride day's own single risk/recommendation
+ * (a transfer's composite origin/destination model has no equivalent
+ * single "suggested departure" concept). Renders nothing at all when there
+ * is genuinely nothing to say (section 28 letter O: no recommendation
+ * beyond the current time never gets an empty "Départ suggéré" line;
+ * healthy/green weather never gets a risk line either).
+ */
+export function renderWeatherAlertsSummary(model: GenericDayWeatherViewModel | GenericTransferWeatherViewModel | null): string {
+  if (model === null || 'origin' in model) return ''
+  const topAlert = model.riskLevel === 'red' || model.riskLevel === 'orange' ? model.alerts[0] ?? null : null
+  const riskLine = topAlert === null
+    ? ''
+    : `<p class="weather-alerts-summary__risk weather-alerts-summary__risk--${model.riskLevel}">${escapeHtml(topAlert.summary === '' ? topAlert.title : `${topAlert.title} · ${topAlert.summary}`)}</p>`
+  const recommendation = model.recommendation
+  const suggestionScenario = recommendation?.status === 'recommended-change' ? recommendation.recommendedScenario : null
+  const suggestionLine = suggestionScenario === null || suggestionScenario === undefined
+    ? ''
+    : `<p class="weather-alerts-summary__suggestion">Départ suggéré · ${escapeHtml(OFFSET_LABELS[suggestionScenario.offsetMinutes] ?? `${suggestionScenario.offsetMinutes > 0 ? '+' : ''}${suggestionScenario.offsetMinutes} min`)}</p>`
+  if (riskLine === '' && suggestionLine === '') return ''
+  return `<section class="card weather-alerts-summary" data-weather-alerts-summary>
+    <p class="eyebrow">Alertes météo</p>
+    ${riskLine}
+    ${suggestionLine}
+  </section>`
+}
+
+/**
  * One row of the "Comparer les horaires" comparison (section 24) — offset
  * label, departure/arrival, risk, and (for any other coherent scenario) its
  * own "Choisir HH:MM" (section 25) — applied immediately, R2.1 section 7.

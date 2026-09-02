@@ -53,7 +53,7 @@ import { createTripDetailAutoScrollSession, scrollTripDayCardIntoView } from '..
 import { createOpenMeteoProvider } from '../../weather/open-meteo.ts'
 import type { WeatherProvider } from '../../weather/types.ts'
 import { GenericWeatherCoordinator } from '../../weather/generic/coordinator.ts'
-import { renderGenericDayCardWeatherLine, renderGenericOverviewWeatherBlock, renderGenericStageWeatherPanel, renderInlineWaypointWeather } from '../weather-view.ts'
+import { renderGenericDayCardWeatherLine, renderGenericOverviewWeatherBlock, renderGenericStageWeatherPanel, renderInlineWaypointWeather, renderWeatherAlertsSummary } from '../weather-view.ts'
 import type { GenericDayWeatherViewModel } from '../../weather/generic/view-model.ts'
 import type { GenericTransferWeatherViewModel } from '../../weather/generic/coordinator.ts'
 import { GENERIC_APP_HEADER_NO_ACTIVE_TRIP, buildGenericAppHeader } from './app-header.ts'
@@ -340,6 +340,12 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
         // Parcours timeline to fold into (section 29) and keep the list.
         renderGenericStageWeatherPanel(panel, model, false, { includePointsList: day.type !== 'ride' })
         if (day.type === 'ride') mountTimelineWaypointWeather(model)
+        // R3 sections 24-28: the always-visible "Alertes météo" summary,
+        // between map/profile and Parcours — reuses this exact same
+        // `model` (never a second fetch), so it always stays in sync with
+        // the full Météo panel above.
+        const alertsMount = container.querySelector<HTMLElement>('[data-day-detail-weather-alerts]')
+        if (alertsMount !== null) alertsMount.innerHTML = renderWeatherAlertsSummary(model)
       }
     }
     const overviewMount = container.querySelector<HTMLElement>('[data-trip-overview-weather-mount]')

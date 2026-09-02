@@ -3504,6 +3504,11 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .day-detail__summary { display: grid; gap: 4px; }
 .day-detail__summary-timing { color: var(--ink-soft); font-size: .85rem; }
 .day-detail__summary-transfer { color: var(--ink-soft); font-size: .85rem; }
+/* R3 sections 18-21: a configured reservation link — a discreet secondary
+ * action, never a big primary button, matching the same sober language as
+ * lodging's own Maps/site links (`day-infos__lodging-links`). */
+.day-detail__summary-actions { margin-top: 2px; }
+.day-detail__summary-actions .button { display: inline-flex; }
 
 /*
  * Arrêts (CDC Jalon B4.3 sections 30-32, B4.4 sections 7-10): compact status
@@ -3589,6 +3594,18 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .weather-decision__banner-title { text-transform: uppercase; letter-spacing: .02em; font-size: .82rem; }
 .weather-decision__banner-detail { margin-top: 4px; font-weight: 400; }
 .weather-decision__note { color: var(--ink-soft); }
+/*
+ * R3 sections 24-28: the "Alertes météo" block — always visible between
+ * map/profile and Parcours, never behind the Pauses/Météo bottom-block's
+ * own toggle. Deliberately lighter than `.weather-decision__banner`'s own
+ * uppercase treatment (the full Météo panel already carries that) — one
+ * or two compact sentences, coloured only, no heavy background/border.
+ */
+.weather-alerts-summary { display: grid; gap: 2px; }
+.weather-alerts-summary__risk { font-weight: 700; }
+.weather-alerts-summary__risk--orange { color: var(--warning-text); }
+.weather-alerts-summary__risk--red { color: var(--danger-text); }
+.weather-alerts-summary__suggestion { color: var(--ink-soft); font-size: .85rem; }
 .weather-decision__recommendation { display: grid; gap: 8px; padding: 10px; background: var(--surface-muted); border-radius: 9px; }
 .weather-decision__actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .weather-decision__compare summary { cursor: pointer; font-weight: 800; padding: 6px 0; }

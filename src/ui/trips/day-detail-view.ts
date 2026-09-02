@@ -852,12 +852,23 @@ function renderTransferSummary(bundle: TripBundle, day: TripDay): string {
   const route = origin === null && destination === null ? 'Origine/destination inconnues.' : `${escapeHtml(origin ?? '—')} → ${escapeHtml(destination ?? '—')}`
   const modeAndTimes = formatTransferModeAndTimes(day)
   const duration = formatTransferDuration(day)
+  // R3 sections 18-21: opérateur stays plain text (no action of its own);
+  // a configured reservation link is an evident action and must be
+  // directly reachable here — this fixes the real gap the CDC names
+  // outright ("un champ Lien de réservation peut être configuré mais ne
+  // pas apparaître dans Détail"): `transferOperator`/`transferLink` were
+  // editable from Infos since R2.1 but never had a read-side surface at
+  // all until now.
+  const operator = day.transferOperator ?? null
+  const link = day.transferLink ?? null
   return `<section class="card day-detail__summary" data-day-detail-summary>
     <p class="eyebrow">Résumé</p>
     <p>${route}</p>
     <p class="day-detail__summary-timing">${escapeHtml(transferTimingLabel(day.transferTiming))}</p>
     ${modeAndTimes === null ? '' : `<p class="day-detail__summary-transfer">${escapeHtml(modeAndTimes)}</p>`}
     ${duration === null ? '' : `<p class="day-detail__summary-transfer">${escapeHtml(duration)}</p>`}
+    ${operator === null ? '' : `<p class="day-detail__summary-transfer">${escapeHtml(operator)}</p>`}
+    ${link === null ? '' : `<p class="day-detail__summary-actions"><a class="button button--quiet" href="${escapeHtml(link)}" target="_blank" rel="noopener">Réservation</a></p>`}
   </section>`
 }
 
@@ -996,6 +1007,7 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
       <header><h2 id="day-detail-expanded-map-title">Carte de l’étape</h2><div class="route-map-dialog__actions"><button class="button button--quiet" type="button" data-action="locate-me" aria-label="Me localiser">📍</button><button class="button button--quiet" type="button" data-map-layers-toggle aria-expanded="false" aria-controls="day-detail-map-layers-panel" hidden>Calques</button><button class="button button--quiet" type="button" data-close-map>Fermer</button></div></header>
       <div class="route-map-dialog__map-wrap"><div class="route-map route-map--expanded" data-route-map-expanded></div><p class="route-map__fallback route-map__fallback--expanded" data-expanded-route-map-fallback hidden>Fond de carte indisponible. Le tracé reste accessible dans le profil.</p><button class="practical-layers-backdrop" type="button" data-map-layers-backdrop aria-label="Fermer les calques" tabindex="-1" hidden></button><section class="practical-layers-panel" id="day-detail-map-layers-panel" data-map-layers-panel role="dialog" aria-labelledby="day-detail-map-layers-title" hidden><header><div><h3 id="day-detail-map-layers-title">Calques</h3><p class="practical-layers-panel__note">Points principaux toujours visibles</p></div><button class="button button--quiet" type="button" data-map-layers-close>Fermer</button></header><div class="practical-layers-list" data-map-layers-list></div></section></div>
     </dialog>
+    <div data-day-detail-weather-alerts></div>
     <section class="card day-detail__details-card" data-day-detail-details-card>
       <nav class="day-tabs" role="tablist" aria-label="Sections de l’étape" data-day-detail-tabs>
         <button id="day-tab-route" type="button" role="tab" data-day-tab="route" aria-controls="day-panel-route" aria-selected="true" tabindex="0">Parcours</button>

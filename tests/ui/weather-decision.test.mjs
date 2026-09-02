@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { renderGenericStageWeatherPanel } from '../../src/ui/weather-view.ts'
+import { renderGenericStageWeatherPanel, renderWeatherAlertsSummary } from '../../src/ui/weather-view.ts'
 
 // Sections 18-27/29 closeout: the weather decision card — risk banner,
 // recommendation + apply/modify actions, confirmation panel, and the
@@ -208,4 +208,50 @@ test('no "Suggéré" badge at all when the recommendation keeps the current depa
   const recommendation = { status: 'keep-current', currentScenario: scenarios[2], recommendedScenario: null, title: 'Le départ actuel reste le meilleur compromis.', explanation: [] }
   renderGenericStageWeatherPanel(container, baseModel({ recommendation, departureScenarios: scenarios }), false)
   assert.doesNotMatch(container.innerHTML, /tag--suggested/)
+})
+
+// --- R3 sections 24-28 (tests M-Q): the always-visible "Alertes météo"
+// summary — a lighter, compact counterpart to the full weather-decision
+// card above, reusing the exact same model. ---------------------------
+
+test('M: a red/orange risk shows a compact risk line — never the full uppercase banner treatment', () => {
+  const html = renderWeatherAlertsSummary(baseModel({
+    riskLevel: 'red',
+    alerts: [{ id: 'a1', dayId: 'day-alpha', riskType: 'gust', level: 'red', title: 'Risque notable au Col X', summary: 'Rafales 65 km/h' }],
+  }))
+  assert.match(html, /data-weather-alerts-summary/)
+  assert.match(html, /Alertes météo/)
+  assert.match(html, /Risque notable au Col X · Rafales 65 km\/h/)
+  assert.doesNotMatch(html, /ALERTE MÉTÉO · RISQUE/, 'lighter than the full banner\'s own uppercase treatment')
+})
+
+test('N: a recommended-change suggestion shows a compact "Départ suggéré" reminder', () => {
+  const recommendation = {
+    status: 'recommended-change',
+    currentScenario: scenario({ departureTimeLocal: '2027-05-10T08:00' }),
+    recommendedScenario: scenario({ offsetMinutes: 120, isCurrent: false, departureTimeLocal: '2027-05-10T10:00' }),
+    title: 'Un départ vers 10:00 semble plus favorable.',
+    explanation: [],
+  }
+  const html = renderWeatherAlertsSummary(baseModel({ recommendation }))
+  assert.match(html, /Départ suggéré · \+2 h/)
+})
+
+test('O: no recommendation beyond the current time never shows an empty "Départ suggéré" line', () => {
+  const recommendation = { status: 'keep-current', currentScenario: scenario(), recommendedScenario: null, title: 'Le départ actuel reste le meilleur compromis.', explanation: [] }
+  const html = renderWeatherAlertsSummary(baseModel({ recommendation }))
+  assert.doesNotMatch(html, /Départ suggéré/)
+  assert.equal(html, '', 'nothing at all — green risk and no real suggestion means genuinely nothing to say')
+})
+
+test('P: healthy (green, no recommendation) renders nothing at all — silence when healthy', () => {
+  assert.equal(renderWeatherAlertsSummary(baseModel()), '')
+})
+
+test('Q: a transfer\'s own composite view-model (origin/destination) never renders this summary — no single "suggested departure" concept for it', () => {
+  assert.equal(renderWeatherAlertsSummary({ origin: baseModel({ riskLevel: 'red', alerts: [{ id: 'a1', dayId: 'x', riskType: 'gust', level: 'red', title: 't', summary: 's' }] }), destination: null }), '')
+})
+
+test('null model renders nothing (still loading)', () => {
+  assert.equal(renderWeatherAlertsSummary(null), '')
 })

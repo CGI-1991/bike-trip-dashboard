@@ -120,3 +120,31 @@ test('U/W: the start waypoint\'s own [data-waypoint-weather] mount is filled fro
     db.close()
   }
 })
+
+test('R3 sections 24-28: the "Alertes météo" mount is wired end-to-end from the exact same view-model — benign weather leaves it genuinely empty (silence when healthy)', async () => {
+  const db = await openTestDatabase()
+  try {
+    const bundle = createGenericTripBundle()
+    await createTripRepository(db).saveTripBundle(bundle)
+    const container = createFakeContainer()
+    const weatherPanel = fakeElement()
+    const alertsMount = fakeElement()
+    container.register('[data-day-detail-weather]', [weatherPanel])
+    container.register('[data-day-detail-weather-alerts]', [alertsMount])
+
+    initializeTripsManager(container, {
+      database: db, now: () => '2027-05-09T08:00:00.000Z', idFactory: (() => { let n = 0; return () => `id-${n++}` })(),
+      renderMap: () => {}, closeMap: () => {}, weatherProvider: realWeatherProvider(),
+    })
+    await flush()
+    container.dispatch('click', { target: fakeActionElement({ action: 'open-trip', tripId: bundle.metadata.id }) })
+    await flush()
+    container.dispatch('click', { target: fakeActionElement({ action: 'open-day-detail', dayId: bundle.days[0].id }) })
+    await flush()
+    await flush()
+
+    assert.equal(alertsMount.innerHTML, '', 'benign (all-green) forecast, no recommendation — nothing to show')
+  } finally {
+    db.close()
+  }
+})
