@@ -1300,7 +1300,9 @@ test('nothing resolvable at all (no neighbour, no route geometry) yields a null 
   bundle.days = [{ ...bundle.days[1], index: 0 }]
   const detail = buildDayDetail(bundle, 'day-bravo')
   assert.equal(detail.markersOnlyMapModel, null)
-  assert.doesNotMatch(detail.html, /data-day-detail-map/)
+  assert.equal(detail.mapCardHtml, '', 'R3 sections 36-37: the always-present slot itself stays empty until a location resolves')
+  assert.doesNotMatch(detail.html, /data-day-detail-map"/, 'the map container itself never appears — only its empty wrapping slot')
+  assert.doesNotMatch(detail.html, /data-day-detail-map-dialog/)
 })
 
 test('every day type resolves through buildDayDetail — the precondition for a previous/next nav that traverses the whole trip chronology (CDC Jalon B4.4 section 25; the click-driven traversal itself lives in trips-manager.ts, not covered here)', () => {

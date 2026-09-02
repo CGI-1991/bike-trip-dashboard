@@ -781,11 +781,20 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       const summaryEl = container.querySelector<HTMLElement>('[data-day-detail-summary]')
       if (summaryEl !== null) summaryEl.outerHTML = detail.summaryHtml
     }
-    // R2.1 sections 40-41: a manual location override (saved from Infos)
-    // changes an OFF/transfer day's own markers-only map too — remounted
-    // here alongside the Résumé card so both stay in sync after one save.
-    // No-op for a ride day (`mountMapAndProfile` itself gates on the map
-    // container even existing).
+    // R3 sections 36-37: a location override (saved from Infos or the map
+    // picker) changes the identity bandeau's own label too (e.g. "OFF —
+    // Hilltown") — patched here, always present, so it never goes stale
+    // until the screen is reopened.
+    const identityEl = container.querySelector<HTMLElement>('[data-day-detail-identity]')
+    if (identityEl !== null) identityEl.outerHTML = detail.identityHtml
+    // R3 sections 36-37: an OFF/transfer day's map card isn't always in the
+    // DOM at all (only once at least one side resolves) — the always-present
+    // `[data-day-detail-map-slot]` wrapper is patched in first (a no-op for
+    // a ride day, which has no such slot) so `mountMapAndProfile` right
+    // after can actually find `[data-day-detail-map]` the very first time a
+    // location override resolves it, not just on every subsequent one.
+    const mapSlot = container.querySelector<HTMLElement>('[data-day-detail-map-slot]')
+    if (mapSlot !== null) mapSlot.innerHTML = detail.mapCardHtml
     mountMapAndProfile(bundle, detail, dayId)
   }
 

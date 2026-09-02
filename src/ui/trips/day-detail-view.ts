@@ -722,6 +722,19 @@ export interface DayDetail {
   readonly timingCurve: StageTimingCurve | null
   /** R2.1 sections 38/40-41 — an OFF/transfer day's own markers-only map (its resolved location, or the transfer's origin/destination pair), never a routed line (no GPX exists for a transfer). `null` for a ride day (its own `geometry`-driven model already covers that) or when nothing at all is resolvable. */
   readonly markersOnlyMapModel: RouteMapModel | null
+  /** R3 sections 36-37 — the sticky identity header fragment (`[data-day-detail-identity]`), on its own so a location override (saved from Infos or the map picker) can patch just this subtree too, alongside `summaryHtml`/the map — never leaving the header stale until the screen is reopened. */
+  readonly identityHtml: string
+  /**
+   * R3 sections 36-37 — an OFF/transfer day's own map card + dialog markup
+   * (or `''` when nothing is resolvable at all yet), the exact content of
+   * the always-present `[data-day-detail-map-slot]` wrapper. Lets a
+   * location override that resolves a map for the FIRST time patch that
+   * slot in directly — the map card's own presence in the DOM is otherwise
+   * baked in only at the initial full render, so `mountMapAndProfile`
+   * would silently no-op (no `[data-day-detail-map]` to find yet) without
+   * this. Always `''` for a ride day (its own map is never conditional).
+   */
+  readonly mapCardHtml: string
 }
 
 /**
@@ -834,12 +847,13 @@ function buildOffOrTransferDayDetail(bundle: TripBundle, day: TripDay): DayDetai
   // R2.1 sections 28-29: no tablist for OFF/transfer any more — Résumé,
   // Météo and Infos all render directly, at the top level, in that fixed
   // order (never a Parcours/profil/montées section — this day has none).
+  const identityHtml = renderDayIdentityHeader(day, mainLabel, fullMainLabel)
   const html = `<div class="day-detail" data-day-detail>
     <div class="day-detail__sticky-header" data-day-detail-sticky-header>
-      ${renderDayIdentityHeader(day, mainLabel, fullMainLabel)}
+      ${identityHtml}
     </div>
     ${summaryHtml}
-    ${mapHtml}
+    <div data-day-detail-map-slot>${mapHtml}</div>
     ${renderWeatherPanel()}
     ${infosHtml}
     <nav class="day-detail__floating-nav" aria-label="Journées voisines"><button class="button button--quiet" type="button" data-action="previous-day" aria-label="Journée précédente">‹</button><button class="button button--quiet" type="button" data-action="next-day" aria-label="Journée suivante">›</button></nav>
@@ -847,7 +861,7 @@ function buildOffOrTransferDayDetail(bundle: TripBundle, day: TripDay): DayDetai
 
   return {
     html, waypoints: [], geometry: null, stageLabel, villageWaypoints: [], sourceFileId: null,
-    statsHtml: '', pausesHtml: '', timelineHtml: '', infosHtml, summaryHtml, timingCurve: null, markersOnlyMapModel,
+    statsHtml: '', pausesHtml: '', timelineHtml: '', infosHtml, summaryHtml, timingCurve: null, markersOnlyMapModel, identityHtml, mapCardHtml: mapHtml,
   }
 }
 
@@ -1012,9 +1026,10 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
   // — the tabbar moved into the Détails card itself and sticks contextually
   // there (`--day-sticky-header-h`, `sticky-header-offset.ts`), not from the
   // very top of the screen (section 10).
+  const identityHtml = renderDayIdentityHeader(day, locations, fullLocations)
   const html = `<div class="day-detail" data-day-detail>
     <div class="day-detail__sticky-header" data-day-detail-sticky-header>
-      ${renderDayIdentityHeader(day, locations, fullLocations)}
+      ${identityHtml}
     </div>
     <section class="card day-detail__stats-card" data-day-detail-stats-card>
       ${statsHtml}
@@ -1048,6 +1063,6 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
     html, waypoints, geometry, stageLabel,
     villageWaypoints: waypoints.filter((waypoint) => waypoint.kind === 'village'),
     sourceFileId: route.sourceFileId,
-    statsHtml, pausesHtml, timelineHtml, infosHtml, summaryHtml: '', timingCurve, markersOnlyMapModel: null,
+    statsHtml, pausesHtml, timelineHtml, infosHtml, summaryHtml: '', timingCurve, markersOnlyMapModel: null, identityHtml, mapCardHtml: '',
   }
 }

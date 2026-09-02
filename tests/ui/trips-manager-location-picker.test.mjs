@@ -266,3 +266,42 @@ test('the transfer day\'s "end" target resolves the destination side independent
     db.close()
   }
 })
+
+test('R3 sections 36-37: confirming a pick immediately refreshes the identity header and the map slot — never stale until the screen reopens', async () => {
+  const db = await openTestDatabase()
+  try {
+    const bundle = createGenericTripBundle()
+    await createTripRepository(db).saveTripBundle(bundle)
+    const container = createFakeContainer()
+    const { picker, labelInput } = fakePickerDom()
+    const identityEl = { outerHTML: '<header data-day-detail-identity>stale</header>' }
+    const mapSlotEl = { innerHTML: '' }
+    container.register('[data-location-picker]', picker)
+    container.register('[data-day-detail-identity]', identityEl)
+    container.register('[data-day-detail-map-slot]', mapSlotEl)
+    const interaction = fakeInteractionHandle()
+    initializeTripsManager(container, {
+      database: db, now: () => '2027-05-10T08:00:00.000Z', idFactory: (() => { let n = 0; return () => `id-${n++}` })(),
+      renderMap: () => {}, closeMap: () => {},
+      mountLocationPicker: () => interaction.handle,
+    })
+    await flush()
+    container.dispatch('click', { target: fakeActionElement({ action: 'open-trip', tripId: bundle.metadata.id }) })
+    await flush()
+    container.dispatch('click', { target: fakeActionElement({ action: 'open-day-detail', dayId: 'day-bravo' }) })
+    await flush()
+
+    container.dispatch('click', { target: fakeActionElement({ action: 'start-choose-location', target: 'start' }) })
+    await flush(200)
+    interaction.triggerClick(45.5, 6.7)
+    labelInput.value = 'Custom Hamlet'
+    container.dispatch('click', { target: fakeActionElement({ action: 'confirm-choose-location' }) })
+    await flush(300)
+
+    assert.doesNotMatch(identityEl.outerHTML, /stale/, 'the identity header was actually replaced')
+    assert.match(identityEl.outerHTML, /Custom Hamlet/, 'reflects the just-chosen location, without reopening the screen')
+    assert.match(mapSlotEl.innerHTML, /data-day-detail-map data-explore-map/, 'the map slot reflects the map card content — including the first time a location ever resolves, since that slot patch never depends on the map card having existed in the DOM before')
+  } finally {
+    db.close()
+  }
+})
