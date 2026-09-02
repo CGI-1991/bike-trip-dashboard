@@ -638,20 +638,41 @@ function renderInfosPanel(day: TripBundle['days'][number], accommodation: Accomm
     <div class="field" data-field-group="transfer-operator"${day.transferMode === 'bike' ? ' hidden' : ''}><label for="transfer-operator">Compagnie / opérateur</label><div class="field__control"><input id="transfer-operator" type="text" data-field="transfer-operator" value="${escapeHtml(day.transferOperator ?? '')}" placeholder="SNCF, FlixBus…"></div></div>
     <div class="field"><label for="transfer-link">Lien réservation</label><div class="field__control"><input id="transfer-link" type="url" data-field="transfer-link" value="${escapeHtml(day.transferLink ?? '')}" placeholder="https://…"></div></div>`
 
-  // R2.1 sections 40-41: a manual location label — the always-available
-  // fallback once neither a neighbouring stage nor a coordinate override
-  // can resolve one. `startLocationName`/`endLocationName` are `day`'s own
-  // fields (never `infoDay`'s), exactly like the transfer fields above.
+  // R2.1 sections 40-41 / R3 sections 30-35: a manual location label — the
+  // always-available fallback once neither a neighbouring stage nor a
+  // coordinate override can resolve one — plus, per side, a "Choisir sur
+  // la carte" trigger for the fuller coordinate override (never required;
+  // the text field alone remains a complete, map-free path).
+  // `startLocationName`/`endLocationName` are `day`'s own fields (never
+  // `infoDay`'s), exactly like the transfer fields above.
   const resolvedLocation = options.resolvedLocation
+  const pickerTrigger = (target: 'start' | 'end'): string =>
+    `<button class="button button--quiet field__map-trigger" type="button" data-action="start-choose-location" data-target="${target}">Choisir sur la carte</button>`
   const locationFields = day.type === 'off'
-    ? `<div class="field"><label for="location-start">Lieu</label><div class="field__control"><input id="location-start" type="text" data-field="location-start" value="${escapeHtml(day.startLocationName ?? '')}" placeholder="${escapeHtml(resolvedLocation?.start ?? 'Nom du lieu')}"></div></div>`
+    ? `<div class="field"><label for="location-start">Lieu</label><div class="field__control"><input id="location-start" type="text" data-field="location-start" value="${escapeHtml(day.startLocationName ?? '')}" placeholder="${escapeHtml(resolvedLocation?.start ?? 'Nom du lieu')}"></div>${pickerTrigger('start')}</div>`
     : day.type === 'transfer' ? `<div class="field field--inline">
-      <label for="location-start">Origine</label><div class="field__control"><input id="location-start" type="text" data-field="location-start" value="${escapeHtml(day.startLocationName ?? '')}" placeholder="${escapeHtml(resolvedLocation?.start ?? 'Origine')}"></div>
-      <label for="location-end">Destination</label><div class="field__control"><input id="location-end" type="text" data-field="location-end" value="${escapeHtml(day.endLocationName ?? '')}" placeholder="${escapeHtml(resolvedLocation?.end ?? 'Destination')}"></div>
+      <label for="location-start">Origine</label><div class="field__control"><input id="location-start" type="text" data-field="location-start" value="${escapeHtml(day.startLocationName ?? '')}" placeholder="${escapeHtml(resolvedLocation?.start ?? 'Origine')}"></div>${pickerTrigger('start')}
+      <label for="location-end">Destination</label><div class="field__control"><input id="location-end" type="text" data-field="location-end" value="${escapeHtml(day.endLocationName ?? '')}" placeholder="${escapeHtml(resolvedLocation?.end ?? 'Destination')}"></div>${pickerTrigger('end')}
     </div>` : ''
+  // R3 sections 30-35: one shared picker block, reused for whichever side
+  // was clicked (`data-location-picker`, target tracked purely client-side
+  // — never baked into this static markup). Starts hidden; `trips-manager.ts`
+  // reveals it and mounts a real, synchronous, always-interactive map
+  // (`mountLocationPicker`) on `start-choose-location`.
+  const locationPicker = day.type === 'off' || day.type === 'transfer' ? `<div class="location-picker" data-location-picker hidden>
+    <p class="location-picker__hint">Touchez la carte pour choisir un point.</p>
+    <div class="route-map route-map--picker" data-location-picker-map></div>
+    <p class="route-map__fallback" data-location-picker-fallback hidden>Fond de carte indisponible. Vous pouvez tout de même toucher la carte pour choisir un point.</p>
+    <div class="field"><label for="location-picker-label">Libellé</label><div class="field__control"><input id="location-picker-label" type="text" data-location-picker-label placeholder="Nom du lieu"></div></div>
+    <div class="location-picker__actions">
+      <button class="button button--primary" type="button" data-action="confirm-choose-location" disabled>Confirmer</button>
+      <button class="button button--quiet" type="button" data-action="cancel-choose-location">Annuler</button>
+    </div>
+  </div>` : ''
 
   const editView = `<div class="day-infos__edit" data-day-infos-edit hidden>
     ${locationFields}
+    ${locationPicker}
     ${transferFields}
     <div class="field"><label for="day-notes">Notes</label><div class="field__control"><textarea id="day-notes" data-field="day-notes" rows="5" placeholder="Conseils, description, logistique, choses à faire…">${escapeHtml(infoDay.notes ?? '')}</textarea></div></div>
     ${showLodging ? `

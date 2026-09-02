@@ -20,7 +20,7 @@ import type { StagePreparationContext, StagePreparationStatus } from '../../trip
 import { deriveStageInvalidation } from '../../trips-manager/pause-invalidation.ts'
 import { enrichStoredTripPracticalPlaces } from '../../practical-places/enrichment.ts'
 import type {
-  AccommodationId, IsoDate, RideStageId, RideStageSettings, RoutePointId, StagePauseSetting, TripBundle, TripDayId, TripId,
+  AccommodationId, IsoDate, LatitudeDegrees, LongitudeDegrees, RideStageId, RideStageSettings, RoutePointId, StagePauseSetting, TripBundle, TripDayId, TripId,
 } from '../../trip-core/index.ts'
 import { getActiveTripId } from '../../storage/indexeddb/active-trip.ts'
 import { resolvePreferredActiveTripId } from '../../trips-manager/active-trip-selection.ts'
@@ -37,7 +37,7 @@ import { downloadBlob } from '../gpx-share.ts'
 import { buildZipArchive } from '../zip-writer.ts'
 import type { ZipEntryInput } from '../zip-writer.ts'
 import { isSignificantWaypoint } from '../../analysis/canonical-waypoints.ts'
-import { resolveSharedInfoDayId } from '../../analysis/day-location-fill.ts'
+import { resolveOffCoordinates, resolveOffLocation, resolveSharedInfoDayId, resolveTransferCoordinates, resolveTransferLocations } from '../../analysis/day-location-fill.ts'
 import { normalizePauseDurationMinutes } from '../../analysis/pause-duration.ts'
 import { observeStickyHeaderHeight } from '../sticky-header-offset.ts'
 import type { StickyHeaderObserverHandle } from '../sticky-header-offset.ts'
@@ -131,6 +131,17 @@ export interface TripsManagerDeps {
    * that never register a real map keep working unchanged.
    */
   readonly getMapInteractionHandle?: (container: HTMLElement) => RouteMapInteractionHandle | null
+  /**
+   * R3 sections 30-35 — "Choisir sur la carte": always the real
+   * `route-map.ts::mountLocationPicker` in production, mounting a small,
+   * dedicated, always-interactive map synchronously (no
+   * `requestAnimationFrame` polling — see that function's own doc comment).
+   * Optional (defaults to always returning `null`, i.e. the picker is
+   * unavailable) so existing tests that never render a real map keep
+   * working unchanged, and so the picker degrades to "unavailable" rather
+   * than crashing wherever Leaflet itself cannot mount.
+   */
+  readonly mountLocationPicker?: (container: HTMLElement, initial: { readonly latitude: number; readonly longitude: number } | null) => RouteMapInteractionHandle | null
   /**
    * Weather provider (CDC Jalon C1 section 14) — defaults to the real,
    * unmodified `createOpenMeteoProvider()` when omitted. Injectable purely
@@ -256,6 +267,16 @@ export interface TripsManagerHandle {
 
 export function initializeTripsManager(container: HTMLElement, deps: TripsManagerDeps): TripsManagerHandle {
   let mode: Mode = { kind: 'list' }
+  /**
+   * R3 sections 30-35 — "Choisir sur la carte": at most one picker is ever
+   * open at a time (the whole Infos edit form it lives in is itself a
+   * single-open surface), so simple closure state — never a WeakMap keyed
+   * by DOM node — is enough. Reset by both `confirm-choose-location` and
+   * `cancel-choose-location`.
+   */
+  let activePickerHandle: RouteMapInteractionHandle | null = null
+  let activePickerTarget: 'start' | 'end' | null = null
+  let activePickerCoordinate: { readonly latitude: number; readonly longitude: number } | null = null
   // The wizard/editor own their own live DOM listeners (AbortController-based)
   // separate from this container's single delegated click listener — torn
   // down by `teardownSubComponent` at the top of every full-screen render in
@@ -271,6 +292,19 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   function teardownSubComponent(): void {
     activeSubComponent?.destroy()
     activeSubComponent = null
+    // R3 section 35: any active "Choisir sur la carte" picker's own Leaflet
+    // map is torn down along with its DOM subtree the moment ANY of the 4
+    // render entry points below replaces `container.innerHTML` — the
+    // handle itself would otherwise dangle, a zombie `onMapClick` still
+    // registered against a map instance nothing references any more.
+    // Always reset here (unconditionally, unlike GPS tracking below, which
+    // deliberately persists across day-to-day navigation) since a picker
+    // never survives ANY re-render, including Précédent/Suivant.
+    activePickerHandle?.onMapClick(null)
+    activePickerHandle?.clearTemporaryMarker()
+    activePickerHandle = null
+    activePickerTarget = null
+    activePickerCoordinate = null
     // CDC C3.B section 44: every one of the four render* entry points
     // (list/detail/day/overview) calls this first, by which point `mode`
     // already reflects the DESTINATION screen (each `open*` helper sets it
@@ -1647,6 +1681,91 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
           patchDaySummary(updated, dayId)
         }
       })()
+    } else if (action === 'start-choose-location' && mode.kind === 'day') {
+      // R3 sections 30-35: opens the shared picker block, mounts a real,
+      // synchronous, always-interactive map via `deps.mountLocationPicker`
+      // (no polling — see that seam's own doc comment), pre-seeded with
+      // whatever this side already resolves to (auto-filled or an existing
+      // override) so the initial view is never a fabricated fallback
+      // unless genuinely nothing is known yet.
+      const target = button.dataset.target
+      if (target !== 'start' && target !== 'end') return
+      const { tripId, dayId } = mode
+      const picker = container.querySelector<HTMLElement>('[data-location-picker]')
+      const mapMount = picker?.querySelector<HTMLElement>('[data-location-picker-map]')
+      const fallback = picker?.querySelector<HTMLElement>('[data-location-picker-fallback]')
+      const confirmButton = picker?.querySelector<HTMLButtonElement>('[data-action="confirm-choose-location"]')
+      const labelInput = picker?.querySelector<HTMLInputElement>('[data-location-picker-label]')
+      if (picker == null || mapMount == null || confirmButton == null) return
+      void (async () => {
+        const bundle = await createTripRepository(deps.database).loadTripBundle(tripId)
+        const day = bundle?.days.find((candidate) => candidate.id === dayId)
+        if (bundle === null || bundle === undefined || day === undefined) return
+        const initialCoordinates = day.type === 'off'
+          ? resolveOffCoordinates(bundle, day)
+          : day.type === 'transfer'
+            ? (target === 'start' ? resolveTransferCoordinates(bundle, day).origin : resolveTransferCoordinates(bundle, day).destination)
+            : null
+        const initialName = day.type === 'off'
+          ? resolveOffLocation(bundle, day).name
+          : (() => {
+              const { origin, destination } = resolveTransferLocations(bundle, day)
+              return target === 'start' ? origin : destination
+            })()
+        picker.hidden = false
+        confirmButton.disabled = true
+        if (fallback !== null && fallback !== undefined) fallback.hidden = true
+        if (labelInput !== null && labelInput !== undefined) labelInput.value = initialName ?? ''
+        activePickerTarget = target
+        activePickerCoordinate = null
+        const handle = deps.mountLocationPicker?.(mapMount, initialCoordinates === null ? null : { latitude: initialCoordinates.latitude, longitude: initialCoordinates.longitude }) ?? null
+        activePickerHandle = handle
+        if (handle === null) {
+          if (fallback !== null && fallback !== undefined) fallback.hidden = false
+          return
+        }
+        handle.onMapClick((latitude, longitude) => {
+          handle.setTemporaryMarker(latitude, longitude)
+          activePickerCoordinate = { latitude, longitude }
+          confirmButton.disabled = false
+        })
+      })()
+    } else if (action === 'confirm-choose-location' && mode.kind === 'day') {
+      const { tripId, dayId } = mode
+      const target = activePickerTarget
+      const coordinate = activePickerCoordinate
+      if (target === null || coordinate === null) return
+      const picker = container.querySelector<HTMLElement>('[data-location-picker]')
+      const labelInput = picker?.querySelector<HTMLInputElement>('[data-location-picker-label]')
+      const label = trimmedOrNull(labelInput?.value ?? '') ?? 'Point choisi sur la carte'
+      void (async () => {
+        const updated = await mutateTripBundle(tripId, (bundle) => {
+          const day = bundle.days.find((candidate) => candidate.id === dayId)
+          if (day === undefined) return bundle
+          const patch = target === 'start'
+            ? { overrideStartLatitude: coordinate.latitude as LatitudeDegrees, overrideStartLongitude: coordinate.longitude as LongitudeDegrees, startLocationName: label }
+            : { overrideEndLatitude: coordinate.latitude as LatitudeDegrees, overrideEndLongitude: coordinate.longitude as LongitudeDegrees, endLocationName: label }
+          return { ...bundle, days: bundle.days.map((candidate) => (candidate.id === dayId ? { ...candidate, ...patch } : candidate)) }
+        })
+        activePickerHandle?.onMapClick(null)
+        activePickerHandle?.clearTemporaryMarker()
+        activePickerHandle = null
+        activePickerTarget = null
+        activePickerCoordinate = null
+        if (picker !== null && picker !== undefined) picker.hidden = true
+        if (updated !== null) {
+          patchInfosPanel(updated, dayId)
+          patchDaySummary(updated, dayId)
+        }
+      })()
+    } else if (action === 'cancel-choose-location' && mode.kind === 'day') {
+      const picker = container.querySelector<HTMLElement>('[data-location-picker]')
+      activePickerHandle?.onMapClick(null)
+      activePickerHandle?.clearTemporaryMarker()
+      activePickerHandle = null
+      activePickerTarget = null
+      activePickerCoordinate = null
+      if (picker !== null) picker.hidden = true
     } else if (action === 'download-stage-gpx' && mode.kind === 'day') {
       const { tripId, dayId } = mode
       void (async () => {

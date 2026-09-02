@@ -1450,6 +1450,14 @@ ul {
   font-size: 0.76rem;
 }
 
+/* R3 sections 30-35: "Choisir sur la carte" — a discreet trigger next to
+ * the manual location field, and the shared picker block it reveals. */
+.field__map-trigger { justify-self: start; margin-top: 4px; grid-column: 1 / -1; }
+.location-picker { display: grid; gap: 8px; margin-top: 6px; padding: 10px; background: var(--surface-muted); border-radius: var(--radius-sm); }
+.location-picker__hint { margin: 0; color: var(--ink-soft); font-size: .82rem; }
+.route-map--picker { min-height: 220px; }
+.location-picker__actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
 /* D3.1 — the trip-editor "Informations" card's own field hints/inline
  * validation/read-only derived labels (e.g. "Terrain"), sharing `.field`'s
  * existing label typography rather than inventing a second one. */

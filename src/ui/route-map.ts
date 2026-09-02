@@ -250,6 +250,33 @@ export function createRouteMap(container: HTMLElement, model: RouteMapModel, opt
 }
 
 /**
+ * R3 sections 30-35 — "Choisir sur la carte": a small, dedicated,
+ * ALWAYS-interactive map, deliberately never reusing `renderGenericRouteMap`'s
+ * own two paths — its compact preview is hardcoded `interactive: false`,
+ * and its fullscreen dialog only mounts a frame later
+ * (`requestAnimationFrame`), which would force the caller to poll for
+ * readiness. Calling `createRouteMap` directly here is synchronous: the
+ * returned `RouteMapInteractionHandle` (via `getRouteMapInteractionHandle`)
+ * is valid immediately, no polling, no timing race (CDC section 34).
+ *
+ * `initial === null` (nothing resolvable yet, CDC section 32) falls back to
+ * a wide, clearly-generic view (mainland France) purely so the map has
+ * somewhere to render tiles and receive a tap — this fallback view is
+ * NEVER itself treated as a chosen location (CDC section 33: "ne jamais
+ * persister ce fallback comme vraie localisation sans clic utilisateur");
+ * only the caller's own `onMapClick` handler ever produces a real
+ * coordinate.
+ */
+export function mountLocationPicker(container: HTMLElement, initial: { readonly latitude: number; readonly longitude: number } | null, onTileError: () => void): RouteMapInteractionHandle | null {
+  const model: RouteMapModel = initial === null
+    ? { coordinates: [], markers: [] }
+    : { coordinates: [], markers: [{ id: 'picker-initial', category: 'start', name: 'Position actuelle', coordinate: [initial.latitude, initial.longitude], offRoute: false, pauseActive: false }] }
+  const map = createRouteMap(container, model, { interactive: true, fitPadding: [24, 24], maxInitialZoom: 13 }, onTileError)
+  if (initial === null) map.setView([46.5, 2.5], 5)
+  return getRouteMapInteractionHandle(container)
+}
+
+/**
  * One togglable layer of extra markers on the fullscreen map (CDC Jalon B4
  * section 9): V1 only ever passes a single "Villages" entry, but the panel
  * itself takes an arbitrary list so a future POI layer (water, shelter,

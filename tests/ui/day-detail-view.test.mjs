@@ -1239,6 +1239,33 @@ test('a ride day never exposes a manual location field at all — its endpoints 
   assert.doesNotMatch(detail.infosHtml, /data-field="location-start"/)
 })
 
+// --- R3 sections 30-35: "Choisir sur la carte" picker markup --------------
+
+test('an OFF day exposes exactly one "Choisir sur la carte" trigger (its single location), and the shared picker block starts hidden', () => {
+  const bundle = createGenericTripBundle()
+  const detail = buildDayDetail(bundle, 'day-bravo')
+  const triggers = detail.infosHtml.match(/data-action="start-choose-location" data-target="(start|end)"/g) ?? []
+  assert.deepEqual(triggers, ['data-action="start-choose-location" data-target="start"'])
+  assert.match(detail.infosHtml, /<div class="location-picker" data-location-picker hidden>/)
+  assert.match(detail.infosHtml, /data-location-picker-map/)
+  assert.match(detail.infosHtml, /data-action="confirm-choose-location" disabled/)
+  assert.match(detail.infosHtml, /data-action="cancel-choose-location"/)
+})
+
+test('a transfer day exposes two triggers, one per side (origine/destination)', () => {
+  const bundle = createGenericTripBundle()
+  const detail = buildDayDetail(bundle, 'day-charlie')
+  const triggers = detail.infosHtml.match(/data-action="start-choose-location" data-target="(start|end)"/g) ?? []
+  assert.deepEqual(triggers, ['data-action="start-choose-location" data-target="start"', 'data-action="start-choose-location" data-target="end"'])
+})
+
+test('a ride day has neither a picker trigger nor a picker block at all', () => {
+  const bundle = createGenericTripBundle()
+  const detail = buildDayDetail(bundle, 'day-alpha')
+  assert.doesNotMatch(detail.infosHtml, /start-choose-location/)
+  assert.doesNotMatch(detail.infosHtml, /data-location-picker/)
+})
+
 test('R2.1 sections 38/40-41: an OFF day with a resolvable location gets a real markers-only map model — one "start" marker, never a routed line', () => {
   const bundle = createGenericTripBundle()
   const detail = buildDayDetail(bundle, 'day-bravo')
