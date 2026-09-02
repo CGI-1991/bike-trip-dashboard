@@ -72,3 +72,37 @@ test('two ride stages for the same day are rejected', () => {
   const codes = issueCodes(validateTripBundle(bundle))
   assert.ok(codes.includes('duplicate-stage-for-day'))
 })
+
+// --- R2 section 2: transferMode/transferDepartureTime/transferArrivalTime —
+// purely additive, permissive like transferTiming (no `type === 'transfer'`
+// gate), so an old bundle that never had these fields stays valid as-is.
+
+test('a bundle with no transferMode/transferDepartureTime/transferArrivalTime at all (an old/current bundle) validates as-is', () => {
+  const bundle = createGenericTripBundle()
+  assert.equal(validateTripBundle(bundle).ok, true)
+})
+
+test('a transfer day with a valid mode and HH:MM times validates', () => {
+  const bundle = createGenericTripBundle()
+  bundle.days[2].transferMode = 'Train'
+  bundle.days[2].transferDepartureTime = '09:20'
+  bundle.days[2].transferArrivalTime = '12:05'
+  assert.equal(validateTripBundle(bundle).ok, true)
+})
+
+test('an empty-string transferMode is rejected — use undefined to leave it unset', () => {
+  const bundle = createGenericTripBundle()
+  bundle.days[2].transferMode = ''
+  const codes = issueCodes(validateTripBundle(bundle))
+  assert.ok(codes.includes('invalid-value'))
+})
+
+test('a malformed transferDepartureTime/transferArrivalTime (not HH:MM) is rejected', () => {
+  const bundleBadDeparture = createGenericTripBundle()
+  bundleBadDeparture.days[2].transferDepartureTime = '9:20am'
+  assert.ok(issueCodes(validateTripBundle(bundleBadDeparture)).includes('invalid-value'))
+
+  const bundleBadArrival = createGenericTripBundle()
+  bundleBadArrival.days[2].transferArrivalTime = 'noon'
+  assert.ok(issueCodes(validateTripBundle(bundleBadArrival)).includes('invalid-value'))
+})

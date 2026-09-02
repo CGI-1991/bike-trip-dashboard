@@ -195,6 +195,48 @@ test('a transfer can be added and removed without fabricating a ride stage', asy
   }
 })
 
+// R2 section 2/14: `transferMode`/`transferDepartureTime`/`transferArrivalTime`
+// are only ever written from the Infos tab (`trips-manager.ts`'s
+// `save-day-infos` handler), never through `TripEditSlot` — a REAL
+// regression this jalon fixes is `mergeEditedTripBundle` silently dropping
+// them on the very next unrelated structural edit, since `rebuilt` never
+// carries fields it doesn't know about.
+test('a transfer\'s mode/heures (saved from Infos, never touched by the structural editor) survive an unrelated structural edit', async () => {
+  const database = await openImportTestDatabase()
+  try {
+    await importTrip(database, [gpxFile('one.gpx'), gpxFile('two.gpx', 45.02)])
+    const draft = await loadTripEditDraft(database, 'trip-edit')
+    const added = await edit(database, [draft.slots[0], { kind: 'transfer', existingDayId: null, notes: 'Train' }, draft.slots[1]], 'transfer-add')
+    assert.equal(added.ok, true)
+    const transferDay = added.bundle.days.find((day) => day.type === 'transfer')
+    assert.notEqual(transferDay, undefined)
+
+    // Simulate the Infos tab's own light save (`mutateTripBundle`/
+    // `save-day-infos` in `trips-manager.ts`) — a direct, targeted patch,
+    // never the structural pipeline.
+    const tripRepository = createTripRepository(database)
+    const withTransferDetails = {
+      ...added.bundle,
+      days: added.bundle.days.map((day) => (day.id === transferDay.id
+        ? { ...day, transferMode: 'Train', transferDepartureTime: '09:20', transferArrivalTime: '12:05' }
+        : day)),
+    }
+    await tripRepository.saveTripBundle(withTransferDetails)
+
+    // An unrelated structural edit (reordering the two ride days around the
+    // transfer) must not silently wipe the transfer's own mode/heures.
+    const withDetails = await loadTripEditDraft(database, 'trip-edit')
+    const reordered = await edit(database, [...withDetails.slots].reverse(), 'transfer-unrelated-edit')
+    assert.equal(reordered.ok, true)
+    const survivingTransferDay = reordered.bundle.days.find((day) => day.type === 'transfer')
+    assert.equal(survivingTransferDay?.transferMode, 'Train')
+    assert.equal(survivingTransferDay?.transferDepartureTime, '09:20')
+    assert.equal(survivingTransferDay?.transferArrivalTime, '12:05')
+  } finally {
+    database.close()
+  }
+})
+
 test('manual day data is preserved only on retained days and is not copied to a replacement route or new day', async () => {
   const database = await openImportTestDatabase()
   try {

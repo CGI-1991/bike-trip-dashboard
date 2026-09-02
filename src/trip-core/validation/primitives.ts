@@ -1,3 +1,4 @@
+import type { IsoDate } from '../model/common.ts'
 import type { ValidationIssue } from './types.ts'
 
 export function issue(path: string, code: string, message: string): ValidationIssue {
@@ -35,7 +36,7 @@ export function isOneOf<T extends string>(value: unknown, options: readonly T[])
 
 const ISO_DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/
 
-export function isIsoDate(value: unknown): value is string {
+export function isIsoDate(value: unknown): value is IsoDate {
   if (typeof value !== 'string') return false
   const match = ISO_DATE_PATTERN.exec(value)
   if (match === null) return false

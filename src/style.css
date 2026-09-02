@@ -1436,6 +1436,14 @@ ul {
   gap: 9px;
 }
 
+/* R2 section 2: transfer départ/arrivée side by side — label|label then
+ * control|control, via grid auto-placement (never a second column set that
+ * could overflow narrow viewports; each half still stays minmax(0, 1fr)). */
+.field--inline {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 10px;
+}
+
 .field__control span {
   min-width: 60px;
   color: var(--ink-soft);
@@ -3196,16 +3204,14 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .day-detail__timeline-meta { color: var(--ink-soft); font-size: .78rem; }
 .day-detail__timeline-time { color: var(--ink-soft); font-size: .78rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .tag--pause { justify-self: start; color: var(--forest-800); background: var(--forest-50); }
-/* CDC D1.2 sections 18-21: a normal point's inline weather stays one sober
- * line; an alert-level point (orange/red) becomes a real button revealing
- * its reasons — never a chevron on a point with nothing to expand. */
+/* R2 section 1 (correction R1): météo is never expandable in the Parcours
+ * timeline — every point, alert or not, is the exact same non-interactive
+ * line/font-size; an alert only ever gets colour + weight (never a chevron,
+ * never a disclosure panel — those belong to the dedicated Météo tab only,
+ * and to montées, the timeline's one remaining expandable content). */
 .day-detail__waypoint-weather { display: block; margin-top: 2px; color: var(--ink-soft); font-size: .78rem; }
 .day-detail__waypoint-weather--orange { color: var(--warning-text); font-weight: 700; }
 .day-detail__waypoint-weather--red { color: var(--danger-text); font-weight: 700; }
-.day-detail__waypoint-weather-toggle { width: 100%; padding: 2px 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; background: none; border: 0; font: inherit; text-align: left; cursor: pointer; }
-.day-detail__waypoint-weather-chevron { color: var(--ink-soft); }
-.day-detail__waypoint-weather-detail { margin-top: 6px; padding: 8px 10px; background: var(--surface-muted); border-radius: 8px; font-size: .8rem; }
-.day-detail__waypoint-weather-reasons { margin: 4px 0 0; padding-left: 18px; }
 
 .day-detail__climb-card { grid-template-columns: minmax(0, 1fr); padding: 0; overflow: hidden; }
 .day-detail__climb-toggle { width: 100%; min-height: 44px; padding: 10px; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 10px; align-items: start; text-align: left; color: inherit; background: none; border: 0; cursor: pointer; }
@@ -3268,6 +3274,8 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   .trip-overview__progress-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 .trip-overview__highlighted-day { display: grid; gap: 10px; text-align: left; }
+/* R2 section 12: same secondary-line treatment as the Voyage card's own transfer meta — never a fabricated stat. */
+.trip-overview__highlighted-day-transfer { margin-top: -6px; color: var(--ink-soft); font-size: .85rem; }
 .route-map--compact { min-height: 160px; }
 .route-map--compact .route-map__canvas { height: 160px; }
 .trip-overview__highlighted-day-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
@@ -3290,6 +3298,9 @@ button:disabled { cursor: not-allowed; opacity: .55; }
  * below) instead of sharing this line. */
 .trip-day-card__route { min-width: 0; display: block; overflow: hidden; color: var(--ink); font-size: .75rem; font-weight: 800; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
 .trip-day-card__metrics { display: flex; flex-wrap: wrap; gap: 2px 8px; color: var(--ink-soft); font-size: .67rem; font-variant-numeric: tabular-nums; }
+/* R2 section 12: the same compact secondary-line treatment as a ride day's
+ * own metrics — never a bigger/bolder line than the route itself. */
+.trip-day-card__transfer-meta { display: block; color: var(--ink-soft); font-size: .67rem; font-variant-numeric: tabular-nums; }
 /* Section 5B/5C: a fixed-width column, three stacked rows — status always
  * first/top-right, then Départ (secondary), then ETA (bolder) — so neither
  * ever conflicts with, or reflows because of, the other. */
@@ -3411,6 +3422,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 
 .day-detail__summary { display: grid; gap: 4px; }
 .day-detail__summary-timing { color: var(--ink-soft); font-size: .85rem; }
+.day-detail__summary-transfer { color: var(--ink-soft); font-size: .85rem; }
 
 /*
  * Arrêts (CDC Jalon B4.3 sections 30-32, B4.4 sections 7-10): compact status

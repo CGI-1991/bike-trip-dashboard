@@ -11,6 +11,7 @@
  */
 
 import { resolveOffLocation, resolveTransferLocations } from '../../analysis/day-location-fill.ts'
+import { formatTransferModeAndTimes } from './transfer-summary-format.ts'
 import { deriveTripTemporalState, getTripDayTemporalState } from '../../trips-manager/trip-day-temporal-state.ts'
 import type { TripDayTemporalState } from '../../trips-manager/trip-day-temporal-state.ts'
 import type { StagePreparationStatus } from '../../trips-manager/stage-preparation.ts'
@@ -64,7 +65,7 @@ export function renderStagePreparationIndicator(status: StagePreparationStatus |
   const label = STAGE_PREP_LABELS[status]
   const inner = status === 'running' || status === 'stale'
     ? '<span class="trip-day-card__prep-spinner" aria-hidden="true"></span>'
-    : `<span aria-hidden="true">${status === 'ready' ? '✓' : status === 'pending' ? '○' : '⚠'}</span>`
+    : `<span aria-hidden="true">${status === 'pending' ? '○' : '⚠'}</span>`
   return `<span class="trip-day-card__prep trip-day-card__prep--${status}" data-trip-day-prep data-status="${status}" role="img" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}">${inner}</span>`
 }
 
@@ -151,11 +152,15 @@ function renderTransferDayCard(bundle: TripBundle, day: TripBundle['days'][numbe
   const { origin, destination } = resolveTransferLocations(bundle, day)
   const fullRoute = origin === null && destination === null ? 'Trajet à préciser' : `${origin ?? '—'} → ${destination ?? '—'}`
   const route = origin === null && destination === null ? fullRoute : `${compactPlaceName(origin ?? '—')} → ${compactPlaceName(destination ?? '—')}`
+  // R2 section 12: mode/heures show only when actually filled in — never a
+  // fake D+/profile, never a fabricated duration/distance.
+  const modeAndTimes = formatTransferModeAndTimes(day)
   return `<li>
     <button class="trip-day-card trip-day-card--transfer${isPriority ? ' is-priority' : ''}" type="button" data-action="open-day-detail" data-day-id="${escapeHtml(day.id)}"${isPriority ? ' data-trip-priority-day' : ''}>
       ${renderDayNumberGroup(day)}
       <span class="trip-day-card__content">
         <span class="trip-day-card__route" title="${escapeHtml(fullRoute)}" aria-label="${escapeHtml(fullRoute)}">${escapeHtml(route)}</span>
+        ${modeAndTimes === null ? '' : `<span class="trip-day-card__transfer-meta">${escapeHtml(modeAndTimes)}</span>`}
       </span>
       <span class="trip-day-card__schedule"><span class="trip-day-card__status"><span class="tag tag--transfer">Transfert</span></span></span>
     </button>

@@ -173,28 +173,30 @@ test('omitting the option (or passing true) keeps the exact historical behaviour
   assert.match(container.innerHTML, /Col du Test/)
 })
 
-// --- CDC D1.2 sections 18-21 (tests W/X/Y/Z) — the inline per-waypoint line ---
+// --- R2 section 1 (correction R1) — the inline per-waypoint line is NEVER expandable ---
 
 test('W/Z: a normal (green) point renders one compact line, no chevron, no expand affordance', () => {
-  const html = renderInlineWaypointWeather('p1', baseModel().points[0])
+  const html = renderInlineWaypointWeather(baseModel().points[0])
   assert.match(html, /<span class="day-detail__waypoint-weather day-detail__waypoint-weather--green">/)
   assert.match(html, /12 °C/)
   assert.doesNotMatch(html, /data-action="toggle-waypoint-weather"/)
   assert.doesNotMatch(html, /chevron/)
 })
 
-test('X/Y: an orange/red point becomes a real expand toggle, highlighted, revealing the already-computed risk reasons', () => {
-  const html = renderInlineWaypointWeather('p2', baseModel().points[1])
-  assert.match(html, /<button type="button" class="day-detail__waypoint-weather day-detail__waypoint-weather--red day-detail__waypoint-weather-toggle" data-action="toggle-waypoint-weather" aria-expanded="false" aria-controls="waypoint-weather-detail-p2">/)
-  assert.match(html, /<div class="day-detail__waypoint-weather-detail" id="waypoint-weather-detail-p2" hidden>/)
-  assert.match(html, /Rafales fortes en altitude/, 'the alert engine\'s own riskReasons, never a second computation')
+test('X/Y: an orange/red point stays the exact same non-interactive structure, only highlighted via colour/weight — never a button, never a chevron, never a disclosure panel', () => {
+  const html = renderInlineWaypointWeather(baseModel().points[1])
+  assert.match(html, /^<span class="day-detail__waypoint-weather day-detail__waypoint-weather--red">[^<]+<\/span>$/)
+  assert.doesNotMatch(html, /<button/)
+  assert.doesNotMatch(html, /chevron/)
+  assert.doesNotMatch(html, /aria-expanded/)
+  assert.doesNotMatch(html, /day-detail__waypoint-weather-detail/)
 })
 
 test('no data for this waypoint yet (still loading, or not a significant point) renders nothing at all — never a placeholder block per row', () => {
-  assert.equal(renderInlineWaypointWeather('unknown-id', undefined), '')
+  assert.equal(renderInlineWaypointWeather(undefined), '')
 })
 
 test('an unavailable sample point (no real data reached it) renders nothing rather than a fabricated line', () => {
   const point = { ...baseModel().points[0], available: false, temperatureC: null, precipitationProbabilityPct: null, windSpeedKph: null }
-  assert.equal(renderInlineWaypointWeather('p1', point), '')
+  assert.equal(renderInlineWaypointWeather(point), '')
 })

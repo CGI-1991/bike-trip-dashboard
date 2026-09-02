@@ -54,4 +54,18 @@ export interface TripDay {
   readonly enrichmentStatus: TripDayEnrichmentStatus
   /** Only meaningful when `type === 'transfer'` — see `TransferTiming`. */
   readonly transferTiming?: TransferTiming
+  /**
+   * R2 section 2: pragmatic, free-text transfer fields — a mode of transport
+   * ("Train", "Voiture"…), and its own départ/arrivée wall-clock times
+   * ("HH:MM"), entirely optional/manually entered (never inferred, never a
+   * multimodal provider). Optional/absent on historical records — always
+   * treated as unset when missing, exactly like `transferTiming`, so this is
+   * purely additive (no schema version bump, no migration). Meaningless
+   * (and always `undefined`) for non-`transfer` days. Duration is never
+   * stored — only ever derived from these two times at display time, and
+   * only when both are present and consistent (never fabricated).
+   */
+  readonly transferMode?: string
+  readonly transferDepartureTime?: string
+  readonly transferArrivalTime?: string
 }

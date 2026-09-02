@@ -25,10 +25,11 @@ test('R1 test A: renderStagePreparationIndicator renders nothing at all for "rea
   assert.equal(renderStagePreparationIndicator('ready'), '')
 })
 
-test('without a status map, renderTripDetail is byte-identical to before this feature existed — no indicator, no summary line', () => {
+test('without a status map, renderTripDetail shows no indicator/summary line — only the always-present, empty mount a later status patch could grow into (R1: `patchStagePreparationIndicators` targets it unconditionally, see `renderStagePreparationIndicator`\'s own doc comment)', () => {
   const bundle = createGenericTripBundle()
   const html = renderTripDetail(bundle, { now: '2027-05-01' })
-  assert.doesNotMatch(html, /data-trip-day-prep/)
+  assert.match(html, /<span data-trip-day-prep-slot><\/span>/, 'the mount itself is always present, empty')
+  assert.doesNotMatch(html, /data-trip-day-prep /, 'but never a real indicator glyph/label without a status map')
   assert.doesNotMatch(html, /data-trip-prep-summary/)
 })
 
@@ -54,6 +55,25 @@ test('each ride card carries the indicator for its own day only — OFF/transfer
   const alphaCard = html.slice(html.indexOf('data-day-id="day-alpha"'), html.indexOf('data-day-id="day-bravo"'))
   assert.match(alphaCard, /trip-day-card__prep--pending/)
   assert.doesNotMatch(html.slice(html.indexOf('data-day-id="day-bravo"'), html.indexOf('data-day-id="day-charlie"')), /data-trip-day-prep/)
+})
+
+// --- R2 section 12: pragmatic transfer mode/heures on the Voyage card ------
+
+test('a transfer card with no mode/heures shows no extra line at all — never a fake D+/profile', () => {
+  const bundle = createGenericTripBundle()
+  const html = renderTripDetail(bundle)
+  const card = html.slice(html.indexOf('data-day-id="day-charlie"'), html.indexOf('data-day-id="day-delta"'))
+  assert.doesNotMatch(card, /trip-day-card__transfer-meta/)
+})
+
+test('a transfer card with mode + heures shows the compact "Mode · HH:MM → HH:MM" line, matching the CDC worked example', () => {
+  const bundle = createGenericTripBundle()
+  bundle.days[2].transferMode = 'Train'
+  bundle.days[2].transferDepartureTime = '09:20'
+  bundle.days[2].transferArrivalTime = '12:05'
+  const html = renderTripDetail(bundle)
+  const card = html.slice(html.indexOf('data-day-id="day-charlie"'), html.indexOf('data-day-id="day-delta"'))
+  assert.match(card, /<span class="trip-day-card__transfer-meta">Train · 09:20 → 12:05<\/span>/)
 })
 
 test('renderSingleDayCard produces a `<button data-day-id>` carrying the requested status and the day\'s own route/name — a valid patch target for that one card', () => {

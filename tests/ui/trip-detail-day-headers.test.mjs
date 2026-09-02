@@ -166,7 +166,11 @@ test('K: the status badge is its own grid item, physically separate from the Dé
   const bundle = createGenericTripBundle()
   const html = renderTripDetail(bundle)
   const alphaCard = html.match(/<li>\s*<button[^>]*data-day-id="day-alpha"[\s\S]*?<\/button>\s*<\/li>/)?.[0] ?? ''
-  assert.match(alphaCard, /<span class="trip-day-card__schedule">\s*<span class="trip-day-card__status"><span class="tag tag--ride">Étape<\/span><\/span>\s*<small>/)
+  // R1: the status span also carries the always-present, empty prep-slot
+  // mount (`data-trip-day-prep-slot`, see `renderStagePreparationIndicator`'s
+  // own doc comment) right after the tag — never a real indicator here
+  // since no status map was supplied.
+  assert.match(alphaCard, /<span class="trip-day-card__schedule">\s*<span class="trip-day-card__status"><span class="tag tag--ride">Étape<\/span><span data-trip-day-prep-slot><\/span><\/span>\s*<small>/)
   // The route name's own <span> carries no badge markup any more.
   assert.doesNotMatch(alphaCard, /<span class="trip-day-card__route"[^>]*>[^<]*<span class="tag/)
 })

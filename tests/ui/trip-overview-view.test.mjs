@@ -142,6 +142,22 @@ test('buildTripOverview shows the highlighted OFF day as a clickable card too �
   assert.match(overview.html, /data-action="open-day-detail" data-day-id="day-bravo"/)
 })
 
+test('R2 section 12: the highlighted transfer card shows mode/heures only when actually filled in — never a fake D+/profile', () => {
+  const bundle = createGenericTripBundle()
+  const withoutDetails = buildTripOverview(bundle, '2027-05-12')
+  assert.equal(withoutDetails.highlightedDayId, 'day-charlie')
+  assert.doesNotMatch(withoutDetails.html, /trip-overview__highlighted-day-transfer/)
+
+  const withDetails = {
+    ...bundle,
+    days: bundle.days.map((day) => (day.id === 'day-charlie'
+      ? { ...day, transferMode: 'Train', transferDepartureTime: '09:20', transferArrivalTime: '12:05' }
+      : day)),
+  }
+  const overview = buildTripOverview(withDetails, '2027-05-12')
+  assert.match(overview.html, /<p class="trip-overview__highlighted-day-transfer">Train · 09:20 → 12:05<\/p>/)
+})
+
 test('after the trip, no highlighted-day section renders at all', () => {
   const bundle = createGenericTripBundle()
   const overview = buildTripOverview(bundle, '2027-06-01')

@@ -166,12 +166,12 @@ export function createTripEditor(
 
   /** D3.1 section 36: the exact same field validation the light save path enforces, reused here so Save stays disabled for an invalid name/speed regardless of which path (light or heavy) would end up handling it. */
   function currentPreferencesUpdate(): TripPreferencesUpdate {
-    const update: TripPreferencesUpdate = {}
-    if (name.trim() !== originalName) update.name = name
-    if (startDate !== null && startDate !== originalStartDate) update.startDate = startDate
-    if (referenceSpeedKph !== originalReferenceSpeedKph) update.referenceSpeedKph = referenceSpeedKph
-    if (terrainOverride !== originalTerrainOverride) update.terrainOverride = terrainOverride
-    return update
+    return {
+      ...(name.trim() !== originalName ? { name } : {}),
+      ...(startDate !== null && startDate !== originalStartDate ? { startDate } : {}),
+      ...(referenceSpeedKph !== originalReferenceSpeedKph ? { referenceSpeedKph } : {}),
+      ...(terrainOverride !== originalTerrainOverride ? { terrainOverride } : {}),
+    }
   }
 
   function canSave(): boolean {

@@ -280,6 +280,16 @@ export function mergeEditedTripBundle(existing: TripBundle, rebuilt: TripBundle,
       accommodationId: original?.accommodationId ?? null,
       notes: original?.notes ?? day.notes,
       enrichmentStatus: original?.enrichmentStatus ?? day.enrichmentStatus,
+      // R2 section 2: `rebuilt` never carries these (only `notes`/
+      // `transferTiming` flow through `TripEditSlot`/`day-structure.ts` —
+      // these three are only ever edited from the Infos tab, never the D3.1
+      // structural editor itself, exactly like `notes` used to be before it
+      // gained this same preservation). Without this, ANY structural edit
+      // (reorder/add/remove a day) would silently wipe them from every
+      // transfer day in the trip, touched or not.
+      transferMode: original?.transferMode ?? day.transferMode,
+      transferDepartureTime: original?.transferDepartureTime ?? day.transferDepartureTime,
+      transferArrivalTime: original?.transferArrivalTime ?? day.transferArrivalTime,
     }
   })
 

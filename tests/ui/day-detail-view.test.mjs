@@ -4,6 +4,7 @@ import test from 'node:test'
 
 import { buildDayDetail } from '../../src/ui/trips/day-detail-view.ts'
 import { isSignificantWaypoint } from '../../src/analysis/canonical-waypoints.ts'
+import { renderInlineWaypointWeather } from '../../src/ui/weather-view.ts'
 import { createGenericTripBundle } from '../trip-core/support/generic-trip-fixture.mjs'
 
 // CDC Jalon B4.4 sections 23-24: OFF/transfer days used to have no Étape
@@ -660,6 +661,89 @@ test('a mountain-pass landmark with no matching detected climb (climbId null) st
   assert.match(detail.timelineHtml, /Col Isolé/)
 })
 
+// --- R2 section 1 (correction R1): C3 disappears from the Parcours timeline,
+// stays fully actionable in the manual pause editor only. ------------------
+
+/**
+ * A real town anchor right next to stage-alpha's "main" ideal pause slot —
+ * 50 % of its ACTUAL geometry distance (~32.36 km here, independent of the
+ * fixture's own `RideStage.distanceKm` metadata field, which
+ * `computeStageWaypoints` never reads for this) — is enough for the
+ * automatic engine to pick it over a synthetic fallback pause, no
+ * practical-place/POI fixture needed for a recommendation to exist at all
+ * (`levelFor` in `analysis/pause-recommendation.ts` only ever returns 'good'
+ * or 'recommended' for an actually-selected candidate, never a silent/
+ * neutral level). A distinct id/distance from the shared `pushAnchorPoint`
+ * helper (used elsewhere at 30 km, well outside this window) on purpose.
+ */
+function pushMainSlotAnchor(bundle) {
+  bundle.routePoints.push({
+    id: 'town-main-slot', routeId: bundle.routes[0].id, type: 'passage', name: 'Waypoint Main',
+    latitude: 45.2, longitude: 6.35, elevationM: 300, trackDistanceKm: 16,
+    osmFeatureType: 'town', lateralDistanceKm: 0.3,
+    provenance: { sourceType: 'osm', sourceId: 'postpass:town:2', fetchedAt: null, engineVersion: 'route-enrichment@4', confidence: 'high', manuallyOverridden: false },
+  })
+  bundle.stages[0].routePointIds.push('town-main-slot')
+  return bundle
+}
+
+test('A/B: an automatic pause in the Parcours timeline is a bare "Pause N min" badge — no "Bon choix"/"★ Recommandé", no C3 reason, no score', () => {
+  const bundle = pushMainSlotAnchor(createGenericTripBundle())
+  const detail = buildDayDetail(bundle, 'day-alpha')
+  const pausedWaypoint = detail.waypoints.find((candidate) => candidate.id === 'town-main-slot')
+  assert.ok(pausedWaypoint !== undefined && pausedWaypoint.pauseDurationMinutes !== null, 'the anchor must actually receive the automatic pause for this test to be meaningful')
+  assert.match(detail.timelineHtml, new RegExp(`Pause ${pausedWaypoint.pauseDurationMinutes} min`))
+  assert.doesNotMatch(detail.timelineHtml, /tag--pause-recommended/)
+  assert.doesNotMatch(detail.timelineHtml, /day-detail__pause-reason/)
+  assert.doesNotMatch(detail.timelineHtml, /Bon choix/)
+  assert.doesNotMatch(detail.timelineHtml, /★ Recommandé/)
+  assert.doesNotMatch(detail.timelineHtml, /Score/)
+})
+
+test('C/D: the manual pause editor still shows the C3 recommendation badge and its short reason for the same candidate — the only place this information is actionable', () => {
+  const bundle = pushMainSlotAnchor(createGenericTripBundle())
+  const detail = buildDayDetail(bundle, 'day-alpha')
+  const editorMatch = /<div class="day-pause-editor__list">[^]*<\/div>\s*<div class="day-pause-editor__actions">/.exec(detail.pausesHtml)
+  assert.ok(editorMatch !== null)
+  const rowHtml = editorMatch[0]
+  assert.match(rowHtml, /data-candidate-id="town-main-slot"/)
+  assert.match(rowHtml, /day-pause-editor__row-hint/)
+  assert.match(rowHtml, /tag--pause-recommended/)
+  assert.match(rowHtml, /Bon choix|★ Recommandé/)
+})
+
+// --- R2 section 1 (correction R1): météo is never expandable, montées stay
+// the timeline's one and only disclosure. -----------------------------------
+
+test('G: a climb toggle keeps working on its own — aria-expanded/aria-controls, one interactive control per row', () => {
+  const bundle = pushClimb(createGenericTripBundle())
+  const detail = buildDayDetail(bundle, 'day-alpha')
+  assert.match(detail.timelineHtml, /<button class="day-detail__climb-toggle"[^>]*aria-expanded="false" aria-controls="climb-profile-climb-test-1"/)
+})
+
+test('H: a climb that also carries an alert-level météo line exposes exactly one expandable control — the climb toggle, never the météo line', () => {
+  const bundle = pushClimb(createGenericTripBundle())
+  const detail = buildDayDetail(bundle, 'day-alpha')
+  const waypoint = detail.waypoints.find((candidate) => candidate.climbId === 'climb-test-1')
+  const cardMatch = new RegExp(`<li class="day-detail__timeline-row[^"]*day-detail__climb-card"[^]*?<\\/li>`).exec(detail.timelineHtml)
+  assert.ok(cardMatch !== null)
+  // Simulates `trips-manager.ts::mountTimelineWaypointWeather` filling this
+  // exact row's mount with an alert-level point — `renderInlineWaypointWeather`
+  // can no longer ever produce a `<button>` (R2 section 1), so this stays a
+  // single-button row regardless of the weather risk level.
+  const mountedHtml = cardMatch[0].replace(
+    `<span class="day-detail__timeline-weather" data-waypoint-weather data-waypoint-id="${waypoint.id}"></span>`,
+    renderInlineWaypointWeather({
+      id: waypoint.id, name: waypoint.name, role: 'passage', available: true, riskLevel: 'red',
+      temperatureC: 6, apparentTemperatureC: 3, precipitationProbabilityPct: 80, precipitationMm: 12,
+      windSpeedKph: 30, windGustsKph: 70, weatherCodeLabel: null, etaLabel: waypoint.clockTime, riskReasons: ['Rafales fortes en altitude'],
+    }),
+  )
+  assert.equal((mountedHtml.match(/<button/g) ?? []).length, 1, 'only the climb toggle is a <button> — the météo line must never add a second one')
+  assert.equal((mountedHtml.match(/aria-expanded/g) ?? []).length, 1, 'only the climb toggle carries aria-expanded')
+  assert.match(mountedHtml, /day-detail__waypoint-weather day-detail__waypoint-weather--red/, 'the météo line is still highlighted — just never interactive')
+})
+
 // --- OFF/transfer detail shell (CDC Jalon B4.4 sections 23-24/38): every
 // day type is now openable — no more `null` for OFF/transfer. ---------------
 
@@ -694,6 +778,72 @@ test('a transfer day with no explicit transferTiming shows the "journée dédié
   const bundle = createGenericTripBundle()
   const detail = buildDayDetail(bundle, 'day-charlie')
   assert.match(detail.html, /Journée dédiée/)
+})
+
+// --- R2 section 2: pragmatic transfer mode/heures — never fabricated -------
+
+test('N/P: a transfer with no mode/heures at all (an old bundle, or simply never filled in) shows neither a mode/times line nor a duration — never fabricated', () => {
+  const bundle = createGenericTripBundle()
+  const detail = buildDayDetail(bundle, 'day-charlie')
+  assert.doesNotMatch(detail.html, /day-detail__summary-transfer/)
+})
+
+test('P: a transfer with only a mode (no times) shows it alone', () => {
+  const bundle = createGenericTripBundle()
+  bundle.days[2].transferMode = 'Train'
+  const detail = buildDayDetail(bundle, 'day-charlie')
+  assert.match(detail.html, /<p class="day-detail__summary-transfer">Train<\/p>/)
+})
+
+test('P: a transfer with only times (no mode) shows them alone', () => {
+  const bundle = createGenericTripBundle()
+  bundle.days[2].transferDepartureTime = '09:20'
+  bundle.days[2].transferArrivalTime = '12:05'
+  const detail = buildDayDetail(bundle, 'day-charlie')
+  assert.match(detail.html, /<p class="day-detail__summary-transfer">09:20 → 12:05<\/p>/)
+})
+
+test('mode + heures together render as "Mode · HH:MM → HH:MM", plus a separately derived duration line — never a stored/fabricated duration', () => {
+  const bundle = createGenericTripBundle()
+  bundle.days[2].transferMode = 'Train'
+  bundle.days[2].transferDepartureTime = '09:20'
+  bundle.days[2].transferArrivalTime = '12:05'
+  const detail = buildDayDetail(bundle, 'day-charlie')
+  assert.match(detail.html, /<p class="day-detail__summary-transfer">Train · 09:20 → 12:05<\/p>/)
+  assert.match(detail.html, /<p class="day-detail__summary-transfer">2 h 45<\/p>/)
+})
+
+test('Q: an inconsistent/overnight time pair (arrival not after departure) never fabricates a negative/guessed duration', () => {
+  const bundle = createGenericTripBundle()
+  bundle.days[2].transferDepartureTime = '22:00'
+  bundle.days[2].transferArrivalTime = '02:00'
+  const detail = buildDayDetail(bundle, 'day-charlie')
+  assert.match(detail.html, /<p class="day-detail__summary-transfer">22:00 → 02:00<\/p>/)
+  assert.equal((detail.html.match(/day-detail__summary-transfer/g) ?? []).length, 1, 'exactly one transfer line — no duration line at all')
+})
+
+test('an old/incomplete transfer bundle (no transferMode/transferDepartureTime/transferArrivalTime fields at all) does not crash', () => {
+  const bundle = createGenericTripBundle()
+  delete bundle.days[2].transferMode
+  delete bundle.days[2].transferDepartureTime
+  delete bundle.days[2].transferArrivalTime
+  assert.doesNotThrow(() => buildDayDetail(bundle, 'day-charlie'))
+})
+
+test('the Infos edit form exposes mode/départ/arrivée fields only for a transfer day — never for OFF or ride', () => {
+  const bundle = createGenericTripBundle()
+  bundle.days[2].transferMode = 'Train'
+  bundle.days[2].transferDepartureTime = '09:20'
+  bundle.days[2].transferArrivalTime = '12:05'
+  const transferDetail = buildDayDetail(bundle, 'day-charlie')
+  assert.match(transferDetail.infosHtml, /<input id="transfer-mode" type="text" data-field="transfer-mode" value="Train"/)
+  assert.match(transferDetail.infosHtml, /<input id="transfer-departure-time" type="time" data-field="transfer-departure-time" value="09:20">/)
+  assert.match(transferDetail.infosHtml, /<input id="transfer-arrival-time" type="time" data-field="transfer-arrival-time" value="12:05">/)
+
+  const offDetail = buildDayDetail(bundle, 'day-bravo')
+  assert.doesNotMatch(offDetail.infosHtml, /data-field="transfer-mode"/)
+  const rideDetail = buildDayDetail(bundle, 'day-alpha')
+  assert.doesNotMatch(rideDetail.infosHtml, /data-field="transfer-mode"/)
 })
 
 test('every day type resolves through buildDayDetail — the precondition for a previous/next nav that traverses the whole trip chronology (CDC Jalon B4.4 section 25; the click-driven traversal itself lives in trips-manager.ts, not covered here)', () => {

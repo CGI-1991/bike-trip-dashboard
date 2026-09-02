@@ -348,7 +348,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     const byId = new Map(points.map((point) => [point.id, point]))
     for (const mount of container.querySelectorAll<HTMLElement>('[data-waypoint-weather]')) {
       const waypointId = mount.dataset.waypointId
-      mount.innerHTML = waypointId === undefined ? '' : renderInlineWaypointWeather(waypointId, byId.get(waypointId))
+      mount.innerHTML = waypointId === undefined ? '' : renderInlineWaypointWeather(byId.get(waypointId))
     }
   }
 
@@ -704,6 +704,22 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   }
 
   /**
+   * R2 section 2: an OFF/transfer day's own Résumé card — a targeted patch
+   * (never a full `renderDay`) so a transfer's mode/heures, saved from
+   * Infos, show up immediately in the always-visible summary above it. A
+   * ride day has no `summaryHtml`/`[data-day-detail-summary]` at all, so
+   * this is a no-op there.
+   */
+  function patchDaySummary(bundle: TripBundle, dayId: TripDayId): void {
+    if (mode.kind !== 'day' || mode.dayId !== dayId) return
+    const detail = buildDayDetail(bundle, dayId, dayPreparationOptions(bundle, dayId))
+    if (detail === null || detail.summaryHtml === '') return
+    const summaryEl = container.querySelector<HTMLElement>('[data-day-detail-summary]')
+    if (summaryEl === null) return
+    summaryEl.outerHTML = detail.summaryHtml
+  }
+
+  /**
    * The Aperçu global map (CDC D1.1 sections 1-3): the base model — full
    * ridden trace, principal points only — is always what both the compact
    * card and the fullscreen dialog start from; the fullscreen-only "Détail"
@@ -780,6 +796,18 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
         const bundle = await repository.loadTripBundle(tripId)
         if (bundle === null) return
         if (!tripNeedsAutomaticEnrichment(bundle, deps)) return
+        // R2 section 3 (offline robustness): `navigator.onLine === false` is
+        // only ever a UX hint (section 19 — a lying `true` still hits the
+        // provider's own error handling below), but a confirmed `false`
+        // means every one of Postpass/Nominatim/route-enrichment would
+        // otherwise be attempted and only fail after their own ~30s
+        // timeout — up to ~90s of dead time on every single offline trip
+        // open. Skip straight to the same "will complete later" state the
+        // `catch` below already produces on a real failure.
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+          automaticEnrichmentErrors.set(tripId, 'Sera complété une fois la connexion rétablie.')
+          return
+        }
 
         automaticEnrichmentErrors.delete(tripId)
         const report = await runStoredTripAutomaticEnrichment({
@@ -1273,20 +1301,6 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       }
       return
     }
-    // CDC D1.2 sections 19-21: an alert-level waypoint's own inline weather
-    // line becomes a real expand toggle (`weather-view.ts::
-    // renderInlineWaypointWeather`) — same open/close mechanics as the climb
-    // profile toggle above, never a second pattern.
-    const weatherToggle = target.closest<HTMLButtonElement>('[data-action="toggle-waypoint-weather"]')
-    if (weatherToggle !== null) {
-      const panel = container.querySelector<HTMLElement>(`#${CSS.escape(weatherToggle.getAttribute('aria-controls') ?? '')}`)
-      if (panel !== null) {
-        const nextExpanded = panel.hidden
-        panel.hidden = !nextExpanded
-        weatherToggle.setAttribute('aria-expanded', String(nextExpanded))
-      }
-      return
-    }
     if (target.closest('[data-action="edit-day-infos"]') !== null) {
       const readView = container.querySelector<HTMLElement>('[data-day-infos-read]')
       const editView = container.querySelector<HTMLElement>('[data-day-infos-edit]')
@@ -1481,6 +1495,16 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       const name = trimmedOrNull(nameField?.value ?? '')
       const mapsUrl = trimmedOrNull(mapsField?.value ?? '')
       const website = trimmedOrNull(websiteField?.value ?? '')
+      // R2 section 2: only present in the DOM for a transfer day's own
+      // Infos edit form — `undefined` (never `null`, TripDay's own optional
+      // shape) whenever the field isn't rendered at all (ride/off) or was
+      // cleared by the user.
+      const transferModeField = container.querySelector<HTMLInputElement>('[data-field="transfer-mode"]')
+      const transferDepartureField = container.querySelector<HTMLInputElement>('[data-field="transfer-departure-time"]')
+      const transferArrivalField = container.querySelector<HTMLInputElement>('[data-field="transfer-arrival-time"]')
+      const transferMode = transferModeField === null ? undefined : trimmedOrNull(transferModeField.value) ?? undefined
+      const transferDepartureTime = transferDepartureField === null ? undefined : trimmedOrNull(transferDepartureField.value) ?? undefined
+      const transferArrivalTime = transferArrivalField === null ? undefined : trimmedOrNull(transferArrivalField.value) ?? undefined
       // CDC Jalon B4.3 section 36: clearing every lodging field and saving
       // removes the lodging — no separate "Supprimer" action needed.
       const clearLodging = name === null && mapsUrl === null && website === null
@@ -1488,11 +1512,12 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
         const updated = await mutateTripBundle(tripId, (bundle) => {
           const day = bundle.days.find((candidate) => candidate.id === dayId)
           const existingId = day?.accommodationId ?? null
+          const dayPatch = { notes, transferMode, transferDepartureTime, transferArrivalTime }
           if (clearLodging) {
             return {
               ...bundle,
               accommodations: bundle.accommodations.filter((entry) => entry.id !== existingId),
-              days: bundle.days.map((candidate) => (candidate.id === dayId ? { ...candidate, notes, accommodationId: null } : candidate)),
+              days: bundle.days.map((candidate) => (candidate.id === dayId ? { ...candidate, ...dayPatch, accommodationId: null } : candidate)),
             }
           }
           const accommodationId = (existingId ?? deps.idFactory()) as AccommodationId
@@ -1504,10 +1529,13 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
           const accommodations = existingId === null ? [...bundle.accommodations, record] : bundle.accommodations.map((entry) => (entry.id === existingId ? record : entry))
           return {
             ...bundle, accommodations,
-            days: bundle.days.map((candidate) => (candidate.id === dayId ? { ...candidate, notes, accommodationId } : candidate)),
+            days: bundle.days.map((candidate) => (candidate.id === dayId ? { ...candidate, ...dayPatch, accommodationId } : candidate)),
           }
         })
-        if (updated !== null) patchInfosPanel(updated, dayId)
+        if (updated !== null) {
+          patchInfosPanel(updated, dayId)
+          patchDaySummary(updated, dayId)
+        }
       })()
     } else if (action === 'download-stage-gpx' && mode.kind === 'day') {
       const { tripId, dayId } = mode

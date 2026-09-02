@@ -108,19 +108,24 @@ function renderPointRow(point: GenericWeatherPointViewModel): string {
 }
 
 /**
- * CDC D1.2 sections 18-22/26: the compact weather line injected straight
+ * R2 section 1 (correction R1): the compact weather line injected straight
  * into a single Parcours waypoint row (`day-detail-view.ts`'s own
  * `[data-waypoint-weather]` mount point, filled by `trips-manager.ts` once
  * weather arrives) — never a second, separate list repeating the same
- * names/times (section 24: only the scenario comparison, a genuinely
- * different question, stays its own section). A normal point stays one
- * sober line, no chevron (section 21); an orange/red point gets a visible
- * highlight and an expand toggle revealing the reasons already computed by
- * the alert engine (`GenericWeatherPointViewModel.riskReasons`) — never a
- * second scoring, never a fresh fetch per point (`point` is read straight
- * from the already-fetched/interpolated view-model).
+ * names/times. Météo is NEVER expandable in this timeline: a normal point
+ * stays one sober line, and an orange/red point gets the exact same
+ * structure/font-size, only highlighted via colour + weight (CSS
+ * `day-detail__waypoint-weather--orange/--red`) — never a chevron, never a
+ * disclosure panel, never a second scoring. This also removes the only
+ * source of an interactive element nested inside `renderClimbCard`'s own
+ * `<button>` (a montée + météo warning on the same waypoint used to nest a
+ * `<button>` inside a `<button>`) — montées stay the timeline's one and only
+ * expandable content. The detailed reasons behind an alert
+ * (`GenericWeatherPointViewModel.riskReasons`) remain fully available in the
+ * dedicated Météo tab/tools — never dropped from the engine, only no longer
+ * duplicated here.
  */
-export function renderInlineWaypointWeather(waypointId: string, point: GenericWeatherPointViewModel | undefined): string {
+export function renderInlineWaypointWeather(point: GenericWeatherPointViewModel | undefined): string {
   if (point === undefined || !point.available) return ''
   const parts = [
     formatTemperatureRange(point.temperatureC, null),
@@ -129,21 +134,7 @@ export function renderInlineWaypointWeather(waypointId: string, point: GenericWe
   ].filter((value): value is string => value !== null)
   if (parts.length === 0) return ''
   const line = escapeHtml(parts.join(' · '))
-  const isAlert = point.riskLevel === 'orange' || point.riskLevel === 'red'
-  if (!isAlert) {
-    return `<span class="day-detail__waypoint-weather day-detail__waypoint-weather--${point.riskLevel}">${line}</span>`
-  }
-  const detailId = `waypoint-weather-detail-${escapeHtml(waypointId)}`
-  const reasons = point.riskReasons.length === 0
-    ? ''
-    : `<ul class="day-detail__waypoint-weather-reasons">${point.riskReasons.map((reason) => `<li>${escapeHtml(reason)}</li>`).join('')}</ul>`
-  return `<button type="button" class="day-detail__waypoint-weather day-detail__waypoint-weather--${point.riskLevel} day-detail__waypoint-weather-toggle" data-action="toggle-waypoint-weather" aria-expanded="false" aria-controls="${detailId}">
-      <span>${line}</span><span class="day-detail__waypoint-weather-chevron" aria-hidden="true">›</span>
-    </button>
-    <div class="day-detail__waypoint-weather-detail" id="${detailId}" hidden>
-      <p>Risque ${RISK_LABELS[point.riskLevel].toLowerCase()}${point.etaLabel === null ? '' : ` · ${escapeHtml(point.etaLabel)}`}</p>
-      ${reasons}
-    </div>`
+  return `<span class="day-detail__waypoint-weather day-detail__waypoint-weather--${point.riskLevel}">${line}</span>`
 }
 
 /** Section 23: a red/orange risk gets a real, visible callout — never a small badge lost among 15 values. Green/unknown stay sober (a plain sentence, already carried by `renderSynthesis`). */

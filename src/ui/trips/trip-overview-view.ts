@@ -14,6 +14,7 @@ import { routeGeometry } from '../../route-enrichment/route-fingerprint.ts'
 import { isSignificantWaypoint } from '../../analysis/canonical-waypoints.ts'
 import type { CanonicalWaypoint } from '../../analysis/canonical-waypoints.ts'
 import { resolveOffLocation, resolveTransferLocations } from '../../analysis/day-location-fill.ts'
+import { formatTransferModeAndTimes } from './transfer-summary-format.ts'
 import { deriveTripTemporalState, getTripDayTemporalState } from '../../trips-manager/trip-day-temporal-state.ts'
 import { formatSimpleDate } from '../date-format.ts'
 import type { TripBundle, TripDayId } from '../../trip-core/index.ts'
@@ -166,11 +167,14 @@ function renderHighlightedDay(bundle: TripBundle, highlightedDayId: TripDayId | 
           return origin !== null && origin === destination ? escapeHtml(origin) : `${escapeHtml(origin ?? '—')} → ${escapeHtml(destination ?? '—')}`
         })()
     const headerParts = [`J${day.displayNumber}`, typeLabel, dateLabel].filter((part): part is string => part !== null)
+    // R2 section 12: same compact mode/heures line as the Voyage card —
+    // only when actually filled in, never fabricated.
+    const modeAndTimes = day.type === 'transfer' ? formatTransferModeAndTimes(day) : null
     // CDC Jalon B4.4 sections 23/35: OFF/transfer days now have their own
     // Journée shell to open (`day-detail-view.ts`) — the highlighted card
     // here is a real navigation target too, exactly like a ride day's,
     // never left as a dead end just because it isn't a ride.
-    return `<article class="trip-overview__highlighted-day card" data-action="open-day-detail" data-day-id="${escapeHtml(day.id)}" role="button" tabindex="0"><p class="eyebrow trip-overview__zone-eyebrow">${escapeHtml(zoneLabel)}</p><h3>${headerParts.join(' — ')}</h3><p>${known}</p></article>`
+    return `<article class="trip-overview__highlighted-day card" data-action="open-day-detail" data-day-id="${escapeHtml(day.id)}" role="button" tabindex="0"><p class="eyebrow trip-overview__zone-eyebrow">${escapeHtml(zoneLabel)}</p><h3>${headerParts.join(' — ')}</h3><p>${known}</p>${modeAndTimes === null ? '' : `<p class="trip-overview__highlighted-day-transfer">${escapeHtml(modeAndTimes)}</p>`}</article>`
   }
 
   const stage = bundle.stages.find((candidate) => candidate.id === day.stageId)

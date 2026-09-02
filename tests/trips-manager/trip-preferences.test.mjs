@@ -102,7 +102,13 @@ test('shiftTripStartDate never touches structure: same day/stage/route ids, same
   assert.deepEqual(shifted.days.map((day) => day.type), bundle.days.map((day) => day.type))
   assert.deepEqual(shifted.days.map((day) => day.stageId), bundle.days.map((day) => day.stageId))
   assert.deepEqual(shifted.stages.map((stage) => stage.id), bundle.stages.map((stage) => stage.id))
-  assert.deepEqual(shifted.stages, bundle.stages) // date shift never re-touches stage timing/geometry
+  // date shift never re-touches stage timing/geometry — `weatherRecordIds` is
+  // excluded on purpose: clearing stale weather IS the documented, intended
+  // behaviour (see the very next test), never a structural change.
+  assert.deepEqual(
+    shifted.stages.map((stage) => ({ ...stage, weatherRecordIds: undefined })),
+    bundle.stages.map((stage) => ({ ...stage, weatherRecordIds: undefined })),
+  )
 })
 
 test('shiftTripStartDate clears stale weather (CDC section 8/26 — the editor never re-fetches, it only invalidates)', () => {
@@ -330,7 +336,7 @@ test('updateTripPreferences: a startDate save shifts every day, clears weather, 
   const bundle = createGenericTripBundle({ dated: true })
   const database = await seededDatabase(bundle)
   try {
-    const result = await updateTripPreferences({ database, tripId: bundle.metadata.id, update: { startDate: '2028-09-01' }, now: () => 'ts' })
+    const result = await updateTripPreferences({ database, tripId: bundle.metadata.id, update: { startDate: '2028-09-01' }, now: () => '2028-01-01T00:00:00.000Z' })
     assert.equal(result.ok, true)
     assert.deepEqual(result.bundle.days.map((day) => day.date), ['2028-09-01', '2028-09-02', '2028-09-03', '2028-09-04'])
     assert.deepEqual(result.bundle.days.map((day) => day.id), bundle.days.map((day) => day.id))
@@ -348,7 +354,7 @@ test('updateTripPreferences: a referenceSpeedKph save recomputes timing locally 
   const bundle = createGenericTripBundle({ dated: true })
   const database = await seededDatabase(bundle)
   try {
-    const result = await updateTripPreferences({ database, tripId: bundle.metadata.id, update: { referenceSpeedKph: 26 }, now: () => 'ts' })
+    const result = await updateTripPreferences({ database, tripId: bundle.metadata.id, update: { referenceSpeedKph: 26 }, now: () => '2028-01-01T00:00:00.000Z' })
     assert.equal(result.ok, true)
     assert.equal(result.bundle.settings.global.referenceSpeedKph, 26)
     assert.notEqual(result.bundle.stages[0].movingDurationSeconds, bundle.stages[0].movingDurationSeconds)
@@ -366,7 +372,7 @@ test('updateTripPreferences: a terrainOverride save round-trips through storage 
   const bundle = createGenericTripBundle({ dated: true })
   const database = await seededDatabase(bundle)
   try {
-    const result = await updateTripPreferences({ database, tripId: bundle.metadata.id, update: { terrainOverride: true }, now: () => 'ts' })
+    const result = await updateTripPreferences({ database, tripId: bundle.metadata.id, update: { terrainOverride: true }, now: () => '2028-01-01T00:00:00.000Z' })
     assert.equal(result.ok, true)
     assert.equal(result.bundle.settings.global.mountainMode, true)
     const reloaded = await createTripRepository(database).loadTripBundle(bundle.metadata.id)

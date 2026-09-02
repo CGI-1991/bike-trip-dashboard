@@ -35,6 +35,7 @@ const col = {
 function bundle({ settings: settingsOverrides, ...overrides } = {}) {
   return {
     days: [{ id: 'day-1', stageId: 'stage-1' }],
+    stages: [stage],
     routePoints: [col],
     climbs: [],
     settings: {

@@ -142,6 +142,15 @@ app.innerHTML = renderDashboard(currentRideDaySettings, rga2026TripPlan)
 
 const networkStatus = getRequiredElement<HTMLElement>('[data-network-status]')
 const unbindNetworkStatus = bindNetworkStatus(networkStatus)
+// R2 section 3 (offline robustness): the discreet `[data-network-status]`
+// bandeau above already reacts to online/offline instantly (`bindNetworkStatus`),
+// but the Aujourd'hui panel's own "Mode hors ligne" alert (`isOffline` in
+// `renderToday`) was only ever read at whatever point `renderToday()` last
+// happened to run — it could stay stale/wrong for a while after a real
+// connectivity change. `renderToday()` only ever touches the Aujourd'hui
+// panel's own subtree (never a full app rerender, CDC section 28).
+window.addEventListener('online', renderToday)
+window.addEventListener('offline', renderToday)
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   void registerServiceWorker(import.meta.env.BASE_URL).catch(() => undefined)
 }

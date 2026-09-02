@@ -499,6 +499,12 @@ export function validateTripBundle(value: unknown): ValidationResult<TripBundle>
     }
     if (day.notes !== null && !isNonEmptyString(day.notes)) issues.push(issue(`${path}.notes`, 'invalid-value', 'notes invalide.'))
     if (!isOneOf(day.enrichmentStatus, TRIP_DAY_ENRICHMENT_STATUSES)) issues.push(issue(`${path}.enrichmentStatus`, 'invalid-enum', 'enrichmentStatus invalide.'))
+    // R2 section 2: purely additive, optional transfer fields — permissive
+    // like `transferTiming` (no `type === 'transfer'` gate), just a format
+    // check when present at all.
+    if (day.transferMode !== undefined && !isNonEmptyString(day.transferMode)) issues.push(issue(`${path}.transferMode`, 'invalid-value', 'transferMode invalide.'))
+    if (day.transferDepartureTime !== undefined && !isTimeOfDay(day.transferDepartureTime)) issues.push(issue(`${path}.transferDepartureTime`, 'invalid-value', 'transferDepartureTime doit être HH:MM.'))
+    if (day.transferArrivalTime !== undefined && !isTimeOfDay(day.transferArrivalTime)) issues.push(issue(`${path}.transferArrivalTime`, 'invalid-value', 'transferArrivalTime doit être HH:MM.'))
   })
   const daysById = new Map(days.map((day) => [day.id, day]))
 

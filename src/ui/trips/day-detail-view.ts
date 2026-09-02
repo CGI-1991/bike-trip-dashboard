@@ -42,6 +42,7 @@ import {
   pauseRecommendationBadgeLabel,
 } from './pause-recommendation-view.ts'
 import type { PauseRecommendationViewModel } from './pause-recommendation-view.ts'
+import { formatTransferDuration, formatTransferModeAndTimes } from './transfer-summary-format.ts'
 import type { StagePreparationStatus } from '../../trips-manager/stage-preparation.ts'
 import type { Accommodation, Climb, RideStageSettings, RouteGeometryPoint, RoutePointId, SourceFileId, TransferTiming, TripBundle, TripDay, TripDayId } from '../../trip-core/index.ts'
 
@@ -108,22 +109,16 @@ const KIND_MARKERS: Readonly<Record<CanonicalWaypointKind, string>> = {
 }
 
 /**
- * CDC C3 sections 24/30: the existing "Pause 21 min" badge, optionally
- * followed by a compact "★ Recommandé"/"Bon choix" badge and a one-line
- * reason ("Après descente · boulangerie ouverte · eau") — never a raw score
- * (section 24), never a bigger card (section 30's own explicit "ne pas
- * transformer chaque pause en énorme carte"). `recommendation` is
- * `undefined` for a manual pause, a fallback slot, or when C3 never ran at
- * all for this stage — the plain badge alone renders exactly as before C3.
+ * R2 section 1 (correction R1): the Parcours timeline shows only the bare
+ * "Pause N min" badge — no "★ Recommandé"/"Bon choix", no reason, no score.
+ * C3's recommendation stays fully available (and actionable) in the manual
+ * pause editor only, via `renderPauseCandidateRow`'s own
+ * `day-pause-editor__row-hint` — never duplicated here. A compact pause
+ * stays exactly that: compact.
  */
-function renderPauseBadge(waypoint: CanonicalWaypoint, recommendation: PauseRecommendationViewModel | undefined): string {
+function renderPauseBadge(waypoint: CanonicalWaypoint): string {
   if (waypoint.pauseDurationMinutes === null) return ''
-  const badgeLabel = recommendation === undefined ? null : pauseRecommendationBadgeLabel(recommendation.level)
-  const badge = badgeLabel === null ? '' : ` <span class="tag tag--pause-recommended">${escapeHtml(badgeLabel)}</span>`
-  const reasonLine = recommendation === undefined || recommendation.reasons.length === 0
-    ? ''
-    : `<span class="day-detail__pause-reason">${escapeHtml(formatPauseRecommendationReasons(recommendation.reasons))}</span>`
-  return `<span class="tag tag--pause">Pause ${waypoint.pauseDurationMinutes} min</span>${badge}${reasonLine}`
+  return `<span class="tag tag--pause">Pause ${waypoint.pauseDurationMinutes} min</span>`
 }
 
 /**
@@ -148,7 +143,7 @@ function renderPauseBadge(waypoint: CanonicalWaypoint, recommendation: PauseReco
  * same waypoints (section 24 — the "Points significatifs" block dropped
  * from the mounted weather panel itself, see `trips-manager.ts`).
  */
-function renderTimelineRow(waypoint: CanonicalWaypoint, recommendations: readonly PauseRecommendationViewModel[]): string {
+function renderTimelineRow(waypoint: CanonicalWaypoint): string {
   const meta = `${KIND_LABELS[waypoint.kind]} · ${formatKilometers(waypoint.trackDistanceKm)}`
   const time = waypoint.clockTime === null ? '' : `<span class="day-detail__timeline-time">${escapeHtml(waypoint.clockTime)}</span>`
   return `<li class="day-detail__timeline-row day-detail__timeline-row--${waypoint.importance}" data-waypoint-id="${escapeHtml(waypoint.id)}" data-waypoint-kind="${waypoint.kind}">
@@ -156,7 +151,7 @@ function renderTimelineRow(waypoint: CanonicalWaypoint, recommendations: readonl
     <div class="day-detail__timeline-body">
       <strong><span class="day-detail__timeline-marker" aria-hidden="true">${KIND_MARKERS[waypoint.kind]}</span>${escapeHtml(waypoint.name)}</strong>
       <span class="day-detail__timeline-meta">${meta}</span>
-      ${renderPauseBadge(waypoint, findPauseRecommendationForWaypoint(recommendations, waypoint.id))}
+      ${renderPauseBadge(waypoint)}
       <span class="day-detail__timeline-weather" data-waypoint-weather data-waypoint-id="${escapeHtml(waypoint.id)}"></span>
     </div>
   </li>`
@@ -284,7 +279,7 @@ function renderClimbProfileBar(segments: readonly ClimbProfileSegment[]): string
  * whole point of the merge is that this is still the named col, just with
  * its profile attached.
  */
-function renderClimbCard(waypoint: CanonicalWaypoint, climb: Climb, routeGeometryFull: readonly RouteGeometryPoint[] | null, recommendations: readonly PauseRecommendationViewModel[]): string {
+function renderClimbCard(waypoint: CanonicalWaypoint, climb: Climb, routeGeometryFull: readonly RouteGeometryPoint[] | null): string {
   const profile = routeGeometryFull === null ? null : buildClimbProfile(routeGeometryFull, climb, climbSegmentLengthMeters(climb))
   const profileId = `climb-profile-${escapeHtml(climb.id)}`
   // CDC D1.2 sections 17/22: the SAME skeleton as a plain timeline row —
@@ -301,7 +296,7 @@ function renderClimbCard(waypoint: CanonicalWaypoint, climb: Climb, routeGeometr
       <span class="day-detail__timeline-body">
         <strong><span class="day-detail__timeline-marker" aria-hidden="true">${KIND_MARKERS[waypoint.kind]}</span>${escapeHtml(waypoint.name)}</strong>
         <span class="day-detail__timeline-meta">${meta}</span>
-        ${renderPauseBadge(waypoint, findPauseRecommendationForWaypoint(recommendations, waypoint.id))}
+        ${renderPauseBadge(waypoint)}
         <span class="day-detail__timeline-weather" data-waypoint-weather data-waypoint-id="${escapeHtml(waypoint.id)}"></span>
       </span>
     </button>
@@ -325,7 +320,7 @@ function renderClimbCard(waypoint: CanonicalWaypoint, climb: Climb, routeGeometr
 // classified internally (`classifyClimbImportance`, `climb-detection.ts`)
 // — only this display-level filter disappears; nothing here mutates the
 // underlying topographic analysis.
-function renderTimelineList(waypoints: readonly CanonicalWaypoint[], climbs: readonly Climb[], routeGeometryFull: readonly RouteGeometryPoint[] | null, recommendations: readonly PauseRecommendationViewModel[] = []): string {
+function renderTimelineList(waypoints: readonly CanonicalWaypoint[], climbs: readonly Climb[], routeGeometryFull: readonly RouteGeometryPoint[] | null): string {
   const visible = waypoints.filter((waypoint) => isSignificantWaypoint(waypoint))
   if (visible.length === 0) return '<p>Aucun point de passage disponible.</p>'
   const rows = visible.map((waypoint) => {
@@ -337,9 +332,9 @@ function renderTimelineList(waypoints: readonly CanonicalWaypoint[], climbs: rea
     // first, regardless of `kind`, is what makes that case — the single most
     // common one for a named col — actually resolve to `renderClimbCard`
     // instead of a plain row with no profile at all.
-    if (waypoint.climbId === null) return renderTimelineRow(waypoint, recommendations)
+    if (waypoint.climbId === null) return renderTimelineRow(waypoint)
     const climb = climbs.find((candidate) => candidate.id === waypoint.climbId)
-    return climb === undefined ? renderTimelineRow(waypoint, recommendations) : renderClimbCard(waypoint, climb, routeGeometryFull, recommendations)
+    return climb === undefined ? renderTimelineRow(waypoint) : renderClimbCard(waypoint, climb, routeGeometryFull)
   }).join('')
   return `<ol class="day-detail__timeline">${rows}</ol>`
 }
@@ -482,7 +477,18 @@ function renderInfosPanel(day: TripBundle['days'][number], accommodation: Accomm
     <button class="button button--quiet" type="button" data-action="edit-day-infos">Modifier</button>
   </div>`
 
+  // R2 section 2: a transfer's own mode/heures are edited here, right next
+  // to notes — the same single edit surface as lodging, never a second
+  // location (the D3.1 structural editor stays structure-only, exactly like
+  // it already does for notes).
+  const transferFields = day.type !== 'transfer' ? '' : `
+    <div class="field"><label for="transfer-mode">Mode de transport</label><div class="field__control"><input id="transfer-mode" type="text" data-field="transfer-mode" value="${escapeHtml(day.transferMode ?? '')}" placeholder="Train, voiture, bus…"></div></div>
+    <div class="field field--inline">
+      <label for="transfer-departure-time">Départ</label><div class="field__control field__time-control"><input id="transfer-departure-time" type="time" data-field="transfer-departure-time" value="${escapeHtml(day.transferDepartureTime ?? '')}"></div>
+      <label for="transfer-arrival-time">Arrivée</label><div class="field__control field__time-control"><input id="transfer-arrival-time" type="time" data-field="transfer-arrival-time" value="${escapeHtml(day.transferArrivalTime ?? '')}"></div>
+    </div>`
   const editView = `<div class="day-infos__edit" data-day-infos-edit hidden>
+    ${transferFields}
     <div class="field"><label for="day-notes">Notes</label><div class="field__control"><textarea id="day-notes" data-field="day-notes" rows="5" placeholder="Conseils, description, logistique, choses à faire…">${escapeHtml(day.notes ?? '')}</textarea></div></div>
     <div class="field"><label for="lodging-name">Nom du logement</label><div class="field__control"><input id="lodging-name" type="text" data-field="lodging-name" value="${escapeHtml(accommodation?.name ?? '')}" placeholder="Hôtel, gîte, camping…"></div></div>
     <div class="field"><label for="lodging-maps-url">URL Maps</label><div class="field__control"><input id="lodging-maps-url" type="url" data-field="lodging-maps-url" value="${escapeHtml(accommodation?.mapsUrl ?? '')}" placeholder="https://maps.google.com/…"></div></div>
@@ -515,6 +521,8 @@ export interface DayDetail {
   readonly pausesHtml: string
   readonly timelineHtml: string
   readonly infosHtml: string
+  /** R2 section 2: the OFF/transfer Résumé card (`[data-day-detail-summary]`) — empty for a ride day, which has no separate summary card of its own (its identity bandeau/stats already cover that ground). Lets a transfer's mode/heures edit (saved from Infos) patch just this one subtree instead of a full rebuild. */
+  readonly summaryHtml: string
   /** CDC D1.1 sections 16-17 — the profile's distance→time mapping (`waypoint-timeline.ts::computeStageTimingCurve`), threaded through to `renderGenericElevationProfile`'s ETA band. `null` for OFF/transfer days (no profile at all) or an untimed ride stage. */
   readonly timingCurve: StageTimingCurve | null
 }
@@ -599,7 +607,7 @@ function buildOffOrTransferDayDetail(bundle: TripBundle, day: TripDay): DayDetai
 
   return {
     html, waypoints: [], geometry: null, stageLabel, villageWaypoints: [], sourceFileId: null,
-    statsHtml: '', pausesHtml: '', timelineHtml: '', infosHtml, timingCurve: null,
+    statsHtml: '', pausesHtml: '', timelineHtml: '', infosHtml, summaryHtml, timingCurve: null,
   }
 }
 
@@ -612,14 +620,25 @@ function renderOffSummary(bundle: TripBundle, day: TripDay): string {
   </section>`
 }
 
-/** Transfer Résumé (CDC Jalon B4.4 sections 22/24) — origin → destination, plus the transfer's own moment when it isn't the default "journée dédiée" (CDC section 22's `transferTiming`, edited from the trip editor). */
+/**
+ * Transfer Résumé (CDC Jalon B4.4 sections 22/24) — origin → destination,
+ * plus the transfer's own moment when it isn't the default "journée dédiée"
+ * (CDC section 22's `transferTiming`, edited from the trip editor). R2
+ * section 2: mode/heures (edited from Infos, never fabricated) show as one
+ * extra compact line, plus a derived duration line only when both times are
+ * present and consistent — never a third stored field.
+ */
 function renderTransferSummary(bundle: TripBundle, day: TripDay): string {
   const { origin, destination } = resolveTransferLocations(bundle, day)
   const route = origin === null && destination === null ? 'Origine/destination inconnues.' : `${escapeHtml(origin ?? '—')} → ${escapeHtml(destination ?? '—')}`
+  const modeAndTimes = formatTransferModeAndTimes(day)
+  const duration = formatTransferDuration(day)
   return `<section class="card day-detail__summary" data-day-detail-summary>
     <p class="eyebrow">Résumé</p>
     <p>${route}</p>
     <p class="day-detail__summary-timing">${escapeHtml(transferTimingLabel(day.transferTiming))}</p>
+    ${modeAndTimes === null ? '' : `<p class="day-detail__summary-transfer">${escapeHtml(modeAndTimes)}</p>`}
+    ${duration === null ? '' : `<p class="day-detail__summary-transfer">${escapeHtml(duration)}</p>`}
   </section>`
 }
 
@@ -713,7 +732,7 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
   </dl>`
 
   const pausesHtml = renderPauseEditor(stage.id, pauseResolution, stageSettings, anchorCandidates, pauseRecommendations)
-  const timelineHtml = renderTimelineList(waypoints, bundle.climbs, geometry, pauseRecommendations)
+  const timelineHtml = renderTimelineList(waypoints, bundle.climbs, geometry)
   const accommodation = day.accommodationId === null ? undefined : bundle.accommodations.find((candidate) => candidate.id === day.accommodationId)
   const infosHtml = renderInfosPanel(day, accommodation)
   const timingCurve = computeStageTimingCurve(waypointsInput)
@@ -764,6 +783,6 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
     html, waypoints, geometry, stageLabel,
     villageWaypoints: waypoints.filter((waypoint) => waypoint.kind === 'village'),
     sourceFileId: route.sourceFileId,
-    statsHtml, pausesHtml, timelineHtml, infosHtml, timingCurve,
+    statsHtml, pausesHtml, timelineHtml, infosHtml, summaryHtml: '', timingCurve,
   }
 }
