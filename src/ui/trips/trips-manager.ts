@@ -40,6 +40,7 @@ import { downloadBlob } from '../gpx-share.ts'
 import { buildZipArchive } from '../zip-writer.ts'
 import type { ZipEntryInput } from '../zip-writer.ts'
 import { isSignificantWaypoint } from '../../analysis/canonical-waypoints.ts'
+import { resolveSharedInfoDayId } from '../../analysis/day-location-fill.ts'
 import { observeStickyHeaderHeight } from '../sticky-header-offset.ts'
 import type { StickyHeaderObserverHandle } from '../sticky-header-offset.ts'
 import { buildDayDetail } from './day-detail-view.ts'
@@ -561,8 +562,12 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       // CDC C3.B section 49: only a ride day actually has a map to show a
       // "vous êtes ici" marker on — OFF/transfer days never reach this branch.
       ensureCurrentLocationTracking()
+      // R2.1 sections 38/40-41: an OFF/transfer day has no route geometry
+      // at all — its own markers-only model (resolved location, or the
+      // transfer's origin/destination pair) stands in instead, never a
+      // fabricated line.
       const model = detail.geometry === null
-        ? null
+        ? detail.markersOnlyMapModel
         : buildGenericRouteMapModel(visibleWaypoints, detail.geometry.map((point) => [point.latitude, point.longitude] as const))
       deps.renderMap(mapContainer, mapDialog, model, [...villagesLayer(detail.villageWaypoints), ...practicalPlaceLayers(bundle, detail, dayId)])
       mapDialog.querySelector<HTMLButtonElement>('[data-close-map]')?.addEventListener('click', () => deps.closeMap(mapDialog))
@@ -713,10 +718,17 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   function patchDaySummary(bundle: TripBundle, dayId: TripDayId): void {
     if (mode.kind !== 'day' || mode.dayId !== dayId) return
     const detail = buildDayDetail(bundle, dayId, dayPreparationOptions(bundle, dayId))
-    if (detail === null || detail.summaryHtml === '') return
-    const summaryEl = container.querySelector<HTMLElement>('[data-day-detail-summary]')
-    if (summaryEl === null) return
-    summaryEl.outerHTML = detail.summaryHtml
+    if (detail === null) return
+    if (detail.summaryHtml !== '') {
+      const summaryEl = container.querySelector<HTMLElement>('[data-day-detail-summary]')
+      if (summaryEl !== null) summaryEl.outerHTML = detail.summaryHtml
+    }
+    // R2.1 sections 40-41: a manual location override (saved from Infos)
+    // changes an OFF/transfer day's own markers-only map too — remounted
+    // here alongside the Résumé card so both stay in sync after one save.
+    // No-op for a ride day (`mountMapAndProfile` itself gates on the map
+    // container even existing).
+    mountMapAndProfile(bundle, detail, dayId)
   }
 
   /**
@@ -740,18 +752,34 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     if (close !== null) close.onclick = () => deps.closeMap(mapDialog)
   }
 
-  async function renderOverview(tripId: TripId): Promise<void> {
+  /**
+   * `diffGated: true` (R2.1 sections 42-43) is used only by
+   * `refreshIfShowing`'s background-enrichment path — never a genuine
+   * navigation open, which always wants the normal placeholder→content
+   * sequence below. Diff-gated skips the "Chargement…" wipe and the whole
+   * content/map replacement whenever the freshly-computed HTML is byte-
+   * identical to what is already on screen (the common case: the
+   * enrichment pass that just finished didn't change anything Aperçu
+   * itself surfaces) — the root cause of the "double refresh" observed on
+   * the field was this same function running unconditionally a second time
+   * once background enrichment settled, always re-showing the placeholder
+   * and always tearing down/remounting the Leaflet map even when nothing
+   * about the trip's own Aperçu content had actually changed.
+   */
+  async function renderOverview(tripId: TripId, options: { readonly diffGated?: boolean } = {}): Promise<void> {
     teardownSubComponent()
-    container.innerHTML = '<p role="status">Chargement du voyage…</p>'
+    if (options.diffGated !== true) container.innerHTML = '<p role="status">Chargement du voyage…</p>'
     const tripRepository = createTripRepository(deps.database)
     const bundle = await tripRepository.loadTripBundle(tripId)
     if (bundle === null) {
+      if (options.diffGated === true) return
       mode = { kind: 'list' }
       await renderList()
       return
     }
-    deps.onHeaderChange?.(buildGenericAppHeader(bundle, { view: 'overview' }))
     const overview = buildTripOverview(bundle, deps.now())
+    if (options.diffGated === true && overview.html === container.innerHTML) return
+    deps.onHeaderChange?.(buildGenericAppHeader(bundle, { view: 'overview' }))
     container.innerHTML = overview.html
     mountOverviewMap(overview)
     // The highlighted day's own compact map (CDC Jalon B4.3 section 8) — a
@@ -1007,7 +1035,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
 
   /** Re-renders whichever of Aperçu/Voyage is currently open for `tripId` — enrichment can finish while the user is on either screen. */
   async function refreshIfShowing(tripId: TripId): Promise<void> {
-    if (mode.kind === 'overview' && mode.tripId === tripId) await renderOverview(tripId)
+    if (mode.kind === 'overview' && mode.tripId === tripId) await renderOverview(tripId, { diffGated: true })
     else if (mode.kind === 'detail' && mode.tripId === tripId) await renderDetail(tripId)
     // `mode.kind === 'day'` is deliberately left untouched here — this
     // callback also fires from the ordinary, unawaited `startAutomaticEnrichment`
@@ -1301,6 +1329,25 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       }
       return
     }
+    // R2.1 sections 3-4: the Pauses/Météo bottom block — at most one panel
+    // open at a time. Clicking the currently-open panel's own toggle closes
+    // it (both end up closed); clicking the other one closes whichever was
+    // open and opens the clicked one. Pure client-side, never a re-render —
+    // same "no full rebuild for a UI toggle" rule as the tab/climb toggles
+    // above.
+    const bottomToggle = target.closest<HTMLButtonElement>('[data-action="toggle-bottom-panel"]')
+    if (bottomToggle !== null) {
+      const panel = container.querySelector<HTMLElement>(`#${CSS.escape(bottomToggle.getAttribute('aria-controls') ?? '')}`)
+      if (panel === null) return
+      const opening = panel.hidden
+      for (const otherPanel of container.querySelectorAll<HTMLElement>('[data-bottom-panel]')) otherPanel.hidden = true
+      for (const otherToggle of container.querySelectorAll<HTMLButtonElement>('[data-action="toggle-bottom-panel"]')) otherToggle.setAttribute('aria-expanded', 'false')
+      if (opening) {
+        panel.hidden = false
+        bottomToggle.setAttribute('aria-expanded', 'true')
+      }
+      return
+    }
     if (target.closest('[data-action="edit-day-infos"]') !== null) {
       const readView = container.querySelector<HTMLElement>('[data-day-infos-read]')
       const editView = container.querySelector<HTMLElement>('[data-day-infos-edit]')
@@ -1455,33 +1502,19 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       input.focus()
       try { input.showPicker?.() } catch { /* not eligible here — focus() still opens the native control on most mobile platforms */ }
     } else if (action === 'apply-weather-departure-time' && mode.kind === 'day') {
-      // Sections 25-26 closeout: "Appliquer"/"Choisir" never persists
-      // directly — it only reveals the shared compact confirmation panel,
-      // pre-filled with the current → target times, exactly like a
-      // dedicated dialog would be but without a second, heavier component.
-      const target = button.dataset.departureTime
-      const current = button.dataset.currentDepartureTime
-      if (target === undefined) return
-      const confirmPanel = container.querySelector<HTMLElement>('[data-weather-apply-confirm]')
-      const timesEl = container.querySelector<HTMLElement>('[data-weather-apply-confirm-times]')
-      if (confirmPanel === null) return
-      confirmPanel.dataset.pendingDepartureTime = target
-      if (timesEl !== null) timesEl.textContent = `${current ?? '—'} → ${target}`
-      confirmPanel.hidden = false
-    } else if (action === 'cancel-apply-weather-departure-time' && mode.kind === 'day') {
-      const confirmPanel = container.querySelector<HTMLElement>('[data-weather-apply-confirm]')
-      if (confirmPanel !== null) confirmPanel.hidden = true
-    } else if (action === 'confirm-apply-weather-departure-time' && mode.kind === 'day') {
+      // R2.1 section 7 (correcting sections 25-26 closeout): "Appliquer"/
+      // "Choisir" now applies IMMEDIATELY — no confirmation panel, no modal.
+      // The exact same `saveDayDepartureTime` pipeline as the Étape stats
+      // editor (no new weather fetch — the coordinator reassociates the
+      // already-fetched forecast against the new ETAs; see
+      // `tests/weather/generic/coordinator.test.mjs`'s "re-associates a
+      // changed ETA without fetching the same signature"). Reverting is
+      // simply choosing "Actuel" or another scenario again — never a
+      // separate "Annuler".
       const { tripId, dayId } = mode
-      const confirmPanel = container.querySelector<HTMLElement>('[data-weather-apply-confirm]')
-      const target = confirmPanel?.dataset.pendingDepartureTime
+      const target = button.dataset.departureTime
       if (target === undefined) return
       void (async () => {
-        // The exact same `saveDayDepartureTime` pipeline as the Étape stats
-        // editor (section 27: no new weather fetch — the coordinator
-        // reassociates the already-fetched forecast against the new ETAs;
-        // see `tests/weather/generic/coordinator.test.mjs`'s "re-associates a
-        // changed ETA without fetching the same signature").
         const updated = await saveDayDepartureTime(tripId, dayId, target)
         if (updated !== null) patchDayDetail(updated, dayId)
       })()
@@ -1495,41 +1528,109 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       const name = trimmedOrNull(nameField?.value ?? '')
       const mapsUrl = trimmedOrNull(mapsField?.value ?? '')
       const website = trimmedOrNull(websiteField?.value ?? '')
-      // R2 section 2: only present in the DOM for a transfer day's own
-      // Infos edit form — `undefined` (never `null`, TripDay's own optional
-      // shape) whenever the field isn't rendered at all (ride/off) or was
-      // cleared by the user.
-      const transferModeField = container.querySelector<HTMLInputElement>('[data-field="transfer-mode"]')
+      // R2/R2.1 sections 2/36-37: only present in the DOM for a transfer
+      // day's own Infos edit form — `undefined` (never `null`, TripDay's own
+      // optional shape) whenever the field isn't rendered at all (ride/off)
+      // or was cleared by the user.
+      const transferModeField = container.querySelector<HTMLSelectElement>('[data-field="transfer-mode"]')
       const transferDepartureField = container.querySelector<HTMLInputElement>('[data-field="transfer-departure-time"]')
       const transferArrivalField = container.querySelector<HTMLInputElement>('[data-field="transfer-arrival-time"]')
+      const transferOperatorField = container.querySelector<HTMLInputElement>('[data-field="transfer-operator"]')
+      const transferLinkField = container.querySelector<HTMLInputElement>('[data-field="transfer-link"]')
       const transferMode = transferModeField === null ? undefined : trimmedOrNull(transferModeField.value) ?? undefined
       const transferDepartureTime = transferDepartureField === null ? undefined : trimmedOrNull(transferDepartureField.value) ?? undefined
       const transferArrivalTime = transferArrivalField === null ? undefined : trimmedOrNull(transferArrivalField.value) ?? undefined
+      const transferOperator = transferOperatorField === null ? undefined : trimmedOrNull(transferOperatorField.value) ?? undefined
+      const transferLink = transferLinkField === null ? undefined : trimmedOrNull(transferLinkField.value) ?? undefined
+      // R2.1 sections 40-41: the manual location-name override — present for
+      // OFF (`location-start` only) and transfer (`location-start`/`-end`)
+      // days, absent for ride. `null` (never `undefined` — `TripDay`'s own
+      // `startLocationName`/`endLocationName` are non-optional) clears it
+      // back to "use the automatic one"; absent from the DOM entirely
+      // (ride days) leaves the field out of the patch, untouched.
+      const locationStartField = container.querySelector<HTMLInputElement>('[data-field="location-start"]')
+      const locationEndField = container.querySelector<HTMLInputElement>('[data-field="location-end"]')
+      const locationStartName = locationStartField === null ? undefined : trimmedOrNull(locationStartField.value)
+      const locationEndName = locationEndField === null ? undefined : trimmedOrNull(locationEndField.value)
       // CDC Jalon B4.3 section 36: clearing every lodging field and saving
-      // removes the lodging — no separate "Supprimer" action needed.
-      const clearLodging = name === null && mapsUrl === null && website === null
+      // removes the lodging — no separate "Supprimer" action needed. R2.1
+      // section 32: a `before_next` transfer never renders lodging fields
+      // at all (see `renderInfosPanel`'s `showLodging`) — its own
+      // `accommodationId` (if any legacy value lingers) is left untouched
+      // rather than treated as "every field cleared".
+      const lodgingFieldsRendered = nameField !== null || mapsField !== null || websiteField !== null
+      const clearLodging = lodgingFieldsRendered && name === null && mapsUrl === null && website === null
       void (async () => {
         const updated = await mutateTripBundle(tripId, (bundle) => {
           const day = bundle.days.find((candidate) => candidate.id === dayId)
-          const existingId = day?.accommodationId ?? null
-          const dayPatch = { notes, transferMode, transferDepartureTime, transferArrivalTime }
+          if (day === undefined) return bundle
+          // R2.1 sections 33-34: an `after_previous` transfer's notes/
+          // lodging are saved onto the previous day it shares them with,
+          // never a second, orphaned copy on the transfer day itself — the
+          // transfer-specific fields below always stay on `dayId`, even
+          // when that differs from the info day.
+          const infoDayId = resolveSharedInfoDayId(bundle, day)
+          const infoDay = bundle.days.find((candidate) => candidate.id === infoDayId)
+          const existingAccommodationId = infoDay?.accommodationId ?? null
+          // Transfer mode/heures/opérateur/lien AND the manual location-name
+          // override (R2.1 sections 40-41) all belong to `dayId` itself,
+          // never `infoDayId` — a shared transfer still has its own journey
+          // and its own place.
+          const dayOwnPatch = {
+            transferMode, transferDepartureTime, transferArrivalTime, transferOperator, transferLink,
+            ...(locationStartName === undefined ? {} : { startLocationName: locationStartName }),
+            ...(locationEndName === undefined ? {} : { endLocationName: locationEndName }),
+          }
+          if (!lodgingFieldsRendered) {
+            return {
+              ...bundle,
+              days: bundle.days.map((candidate) => {
+                const isInfoDay = candidate.id === infoDayId
+                const isOwnDay = candidate.id === dayId
+                if (!isInfoDay && !isOwnDay) return candidate
+                return {
+                  ...candidate,
+                  ...(isInfoDay ? { notes } : {}),
+                  ...(isOwnDay ? dayOwnPatch : {}),
+                }
+              }),
+            }
+          }
           if (clearLodging) {
             return {
               ...bundle,
-              accommodations: bundle.accommodations.filter((entry) => entry.id !== existingId),
-              days: bundle.days.map((candidate) => (candidate.id === dayId ? { ...candidate, ...dayPatch, accommodationId: null } : candidate)),
+              accommodations: bundle.accommodations.filter((entry) => entry.id !== existingAccommodationId),
+              days: bundle.days.map((candidate) => {
+                const isInfoDay = candidate.id === infoDayId
+                const isOwnDay = candidate.id === dayId
+                if (!isInfoDay && !isOwnDay) return candidate
+                return {
+                  ...candidate,
+                  ...(isInfoDay ? { notes, accommodationId: null } : {}),
+                  ...(isOwnDay ? dayOwnPatch : {}),
+                }
+              }),
             }
           }
-          const accommodationId = (existingId ?? deps.idFactory()) as AccommodationId
+          const accommodationId = (existingAccommodationId ?? deps.idFactory()) as AccommodationId
           const record = {
             id: accommodationId, name: name ?? 'Hébergement', type: 'hotel' as const, address: null, latitude: null, longitude: null,
             mapsUrl, website, phone: null, bookingReference: null, notes: null, confirmed: true,
             provenance: { sourceType: 'user' as const, sourceId: null, fetchedAt: null, engineVersion: 'trips-manager-lodging@1', confidence: null, manuallyOverridden: true },
           }
-          const accommodations = existingId === null ? [...bundle.accommodations, record] : bundle.accommodations.map((entry) => (entry.id === existingId ? record : entry))
+          const accommodations = existingAccommodationId === null ? [...bundle.accommodations, record] : bundle.accommodations.map((entry) => (entry.id === existingAccommodationId ? record : entry))
           return {
             ...bundle, accommodations,
-            days: bundle.days.map((candidate) => (candidate.id === dayId ? { ...candidate, ...dayPatch, accommodationId } : candidate)),
+            days: bundle.days.map((candidate) => {
+              const isInfoDay = candidate.id === infoDayId
+              const isOwnDay = candidate.id === dayId
+              if (!isInfoDay && !isOwnDay) return candidate
+              return {
+                ...candidate,
+                ...(isInfoDay ? { notes, accommodationId } : {}),
+                ...(isOwnDay ? dayOwnPatch : {}),
+              }
+            }),
           }
         })
         if (updated !== null) {
@@ -1574,14 +1675,21 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
 
   container.addEventListener('change', (event) => {
     const target = event.target
-    if (!(target instanceof HTMLInputElement)) return
     // Pure client-side reveal (CDC Jalon B4.3 section 31: "Durée uniquement
     // si Pause = oui") — never a save, matches every checked/unchecked row
     // locally until the single "Enregistrer" action reads them all.
-    if (target.dataset.field === 'pause-active') {
+    if (target instanceof HTMLInputElement && target.dataset.field === 'pause-active') {
       const row = target.closest<HTMLElement>('.day-pause-editor__row')
       const durationField = row?.querySelector<HTMLElement>('.day-pause-editor__row-duration')
       if (durationField !== null && durationField !== undefined) durationField.hidden = !target.checked
+      return
+    }
+    // R2.1 section 37: a bike transfer leg has no compagnie/opérateur —
+    // the field hides on selection, same pure client-side reveal pattern,
+    // never a save.
+    if (target instanceof HTMLSelectElement && target.dataset.field === 'transfer-mode') {
+      const operatorGroup = container.querySelector<HTMLElement>('[data-field-group="transfer-operator"]')
+      if (operatorGroup !== null) operatorGroup.hidden = target.value === 'bike'
     }
   })
 

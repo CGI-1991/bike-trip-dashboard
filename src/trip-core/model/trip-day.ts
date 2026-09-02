@@ -1,7 +1,18 @@
-import type { IsoDate } from './common.ts'
+import type { IsoDate, LatitudeDegrees, LongitudeDegrees } from './common.ts'
 import type { AccommodationId, RideStageId, TripDayId } from './ids.ts'
 
 export type TripDayType = 'ride' | 'off' | 'transfer'
+
+/**
+ * R2.1 section 36 — a short, closed, pragmatic list (CDC: "pas d'autres
+ * modes pour R2.1"). `transferMode` itself stays a plain `string` below
+ * (never this literal union) so an already-saved free-text value from R2
+ * (before this list existed) is never silently dropped/invalidated — the
+ * edit UI offers exactly these seven as a `<select>`, plus the current
+ * value verbatim if it happens to be something else already.
+ */
+export const TRANSFER_MODES = ['train', 'bus', 'car', 'ferry', 'taxi', 'bike', 'other'] as const
+export type TransferMode = (typeof TRANSFER_MODES)[number]
 
 /**
  * When a `transfer` day actually happens on the calendar (CDC Jalon B4.3
@@ -68,4 +79,27 @@ export interface TripDay {
   readonly transferMode?: string
   readonly transferDepartureTime?: string
   readonly transferArrivalTime?: string
+  /**
+   * R2.1 section 37: a short, mode-appropriate compagnie/opérateur label
+   * ("SNCF", "FlixBus"…) and a booking/ticket link — both entirely optional,
+   * free text, never inferred. Meaningless for non-`transfer` days.
+   */
+  readonly transferOperator?: string
+  readonly transferLink?: string
+  /**
+   * R2.1 sections 40-41: "Choisir sur la carte" — a manual coordinate
+   * override for `startLocationName`/`endLocationName` when neither a
+   * neighbouring ride stage nor the existing text override can resolve a
+   * location. Purely additive, like every other field here. Reused for an
+   * `off` day too (its own single location, via the *Start pair only —
+   * `resolveOffLocation` already prefers `startLocationName` first).
+   * Deliberately paired 1:1 with the existing string field it accompanies —
+   * never persisted without a corresponding name, never resolved on its
+   * own (CDC section 41: "autoriser un libellé manuel" when no name can be
+   * resolved any other way).
+   */
+  readonly overrideStartLatitude?: LatitudeDegrees
+  readonly overrideStartLongitude?: LongitudeDegrees
+  readonly overrideEndLatitude?: LatitudeDegrees
+  readonly overrideEndLongitude?: LongitudeDegrees
 }

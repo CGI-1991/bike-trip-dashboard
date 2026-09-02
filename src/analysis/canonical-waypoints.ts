@@ -256,6 +256,18 @@ export function buildCanonicalWaypoints(input: BuildCanonicalWaypointsInput): re
 
   for (const point of stageRoutePoints) {
     if (mergedPointIds.has(point.id) || point.trackDistanceKm === null) continue
+    // R2.1 section 24-25 — firm product rule: a col (mountain-pass/saddle)
+    // never reaching the merge above (no detected `Climb` matched it by
+    // name+distance, `isLandmarkForClimbMerge`) is a col with no associated
+    // montée — it must not appear in ANY user-facing surface (timeline,
+    // pauses, map/profile, Aperçu). The single point of truth is here:
+    // simply never materialize it as a `CanonicalWaypoint` at all, rather
+    // than patching every consumer's own filter separately. The underlying
+    // `RoutePoint` stays in `bundle.routePoints` untouched for
+    // enrichment/debug — only its surfaced *waypoint* disappears. A city/
+    // town/village is never affected — only a col genuinely requires an
+    // associated climb to be shown at all.
+    if (isLandmarkForClimbMerge(point)) continue
     const kind = point.osmFeatureType as CanonicalWaypointKind
     waypoints.push({
       id: point.id, kind, ...KIND_PRESENTATION[kind], name: point.name, trackDistanceKm: point.trackDistanceKm,

@@ -9,7 +9,7 @@ const stage = {
   distanceKm: 40, elevationGainM: 800, elevationLossM: 200, minAltitudeM: 200, maxAltitudeM: 1200,
   movingDurationSeconds: 7_200, pauseDurationSeconds: 0, totalDurationSeconds: 7_200, estimatedAverageSpeedKph: 20,
   validationStatus: 'valid', metricsProvenance: null,
-  climbIds: [], routePointIds: ['point-col'], weatherRecordIds: [],
+  climbIds: ['climb-col'], routePointIds: ['point-col'], weatherRecordIds: [],
 }
 
 const route = {
@@ -32,12 +32,24 @@ const col = {
   osmFeatureType: 'mountain-pass', provenance: null,
 }
 
+// R2.1 sections 24-25: a col is only ever surfaced as a waypoint with an
+// associated montée now — this fixture's col needs a matching `Climb` (same
+// normalized name, within tolerance of its distance) to keep existing as an
+// anchor candidate at all.
+const climbCol = {
+  id: 'climb-col', routeId: 'route-1', name: 'Col Test',
+  startDistanceKm: 18, endDistanceKm: 22.26, elevationGainM: 700,
+  averageGradientPercent: 6, maxGradientPercent: 10, startAltitudeM: 500, endAltitudeM: 1200,
+  confidence: 'confirmed',
+  provenance: { sourceType: 'osm', sourceId: 'test:climb-col', fetchedAt: null, engineVersion: 'test', confidence: 'high', manuallyOverridden: false },
+}
+
 function bundle({ settings: settingsOverrides, ...overrides } = {}) {
   return {
     days: [{ id: 'day-1', stageId: 'stage-1' }],
     stages: [stage],
     routePoints: [col],
-    climbs: [],
+    climbs: [climbCol],
     settings: {
       global: { referenceSpeedKph: 20, pausePlanMode: 'automatic', mountainMode: false },
       days: [{ dayId: 'day-1', departureTime: '08:00', totalBreakSeconds: 0 }],

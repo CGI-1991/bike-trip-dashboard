@@ -9,23 +9,10 @@ import { openTestDatabase } from '../storage/indexeddb/support/open-test-databas
 import { createGenericTripBundle } from '../trip-core/support/generic-trip-fixture.mjs'
 import { initializeTripsManager } from '../../src/ui/trips/trips-manager.ts'
 
-// Sections 25-28 closeout: "Appliquer"/"Choisir" from the weather decision
-// card never persists directly — it only reveals the shared compact
-// confirmation panel; only "Confirmer" actually calls the same
-// `saveDayDepartureTime` pipeline the Étape stats editor uses.
-
-function fakeSubElement() {
-  let hiddenValue = true
-  let textContentValue = ''
-  const dataset = {}
-  return {
-    get hidden() { return hiddenValue },
-    set hidden(value) { hiddenValue = value },
-    get textContent() { return textContentValue },
-    set textContent(value) { textContentValue = value },
-    dataset,
-  }
-}
+// R2.1 section 7 (tests O-U): "Appliquer"/"Choisir" from the weather
+// decision card now persist the new departure time IMMEDIATELY — no
+// confirmation panel, no modal, no separate "Annuler" (reverting is simply
+// choosing "Actuel" or another scenario again).
 
 function createFakeContainer() {
   let innerHTMLValue = ''
@@ -80,52 +67,20 @@ async function openDayAlpha(db) {
   const bundle = createGenericTripBundle()
   await createTripRepository(db).saveTripBundle(bundle)
   const container = createFakeContainer()
-  const confirmPanel = fakeSubElement()
-  const timesEl = fakeSubElement()
-  container.register('[data-weather-apply-confirm]', confirmPanel)
-  container.register('[data-weather-apply-confirm-times]', timesEl)
   initializeTripsManager(container, noopDeps(db))
   await flush()
   container.dispatch('click', { target: fakeActionElement({ action: 'open-trip', tripId: bundle.metadata.id }) })
   await flush()
   container.dispatch('click', { target: fakeActionElement({ action: 'open-day-detail', dayId: bundle.days[0].id }) })
   await flush()
-  return { bundle, container, confirmPanel, timesEl }
+  return { bundle, container }
 }
 
-test('"Appliquer"/"Choisir" reveals the confirmation panel pre-filled with current → target — never persists yet', async () => {
-  const db = await openTestDatabase()
-  try {
-    const { container, confirmPanel, timesEl } = await openDayAlpha(db)
-    container.dispatch('click', { target: fakeActionElement({ action: 'apply-weather-departure-time', departureTime: '07:00', currentDepartureTime: '08:00' }) })
-    assert.equal(confirmPanel.hidden, false)
-    assert.equal(timesEl.textContent, '08:00 → 07:00')
-    assert.equal(confirmPanel.dataset.pendingDepartureTime, '07:00')
-  } finally {
-    db.close()
-  }
-})
-
-test('"Annuler" hides the panel without ever persisting', async () => {
-  const db = await openTestDatabase()
-  try {
-    const { bundle, container, confirmPanel } = await openDayAlpha(db)
-    container.dispatch('click', { target: fakeActionElement({ action: 'apply-weather-departure-time', departureTime: '07:00', currentDepartureTime: '08:00' }) })
-    container.dispatch('click', { target: fakeActionElement({ action: 'cancel-apply-weather-departure-time' }) })
-    assert.equal(confirmPanel.hidden, true)
-    const updated = await createTripRepository(db).loadTripBundle(bundle.metadata.id)
-    assert.deepEqual(updated.settings.days, bundle.settings.days, 'cancelling must never touch the stored bundle')
-  } finally {
-    db.close()
-  }
-})
-
-test('"Confirmer" persists the chosen departure time through the exact same saveDayDepartureTime pipeline as the Étape stats editor', async () => {
+test('O/P: "Choisir"/"Appliquer" persists the chosen departure time immediately through the exact same saveDayDepartureTime pipeline as the Étape stats editor', async () => {
   const db = await openTestDatabase()
   try {
     const { bundle, container } = await openDayAlpha(db)
-    container.dispatch('click', { target: fakeActionElement({ action: 'apply-weather-departure-time', departureTime: '07:00', currentDepartureTime: '08:00' }) })
-    container.dispatch('click', { target: fakeActionElement({ action: 'confirm-apply-weather-departure-time' }) })
+    container.dispatch('click', { target: fakeActionElement({ action: 'apply-weather-departure-time', departureTime: '07:00' }) })
     await flush()
     const updated = await createTripRepository(db).loadTripBundle(bundle.metadata.id)
     const daySettings = updated.settings.days.find((entry) => entry.dayId === bundle.days[0].id)
@@ -135,14 +90,42 @@ test('"Confirmer" persists the chosen departure time through the exact same save
   }
 })
 
-test('confirming with no pending departure time (confirm clicked without a prior apply) is a safe no-op', async () => {
+test('Q: no confirmation panel/modal ever appears — there is nothing left to confirm or cancel', async () => {
+  const db = await openTestDatabase()
+  try {
+    const { container } = await openDayAlpha(db)
+    container.dispatch('click', { target: fakeActionElement({ action: 'apply-weather-departure-time', departureTime: '07:00' }) })
+    await flush()
+    assert.doesNotMatch(container.innerHTML, /data-weather-apply-confirm/)
+  } finally {
+    db.close()
+  }
+})
+
+test('a click with no departureTime dataset (malformed/unexpected) is a safe no-op — never persists', async () => {
   const db = await openTestDatabase()
   try {
     const { bundle, container } = await openDayAlpha(db)
-    container.dispatch('click', { target: fakeActionElement({ action: 'confirm-apply-weather-departure-time' }) })
+    container.dispatch('click', { target: fakeActionElement({ action: 'apply-weather-departure-time' }) })
     await flush()
     const updated = await createTripRepository(db).loadTripBundle(bundle.metadata.id)
     assert.deepEqual(updated.settings.days, bundle.settings.days)
+  } finally {
+    db.close()
+  }
+})
+
+test('R: choosing a second, different scenario afterwards overwrites the first — reverting is just picking another scenario, never a separate "Annuler"', async () => {
+  const db = await openTestDatabase()
+  try {
+    const { bundle, container } = await openDayAlpha(db)
+    container.dispatch('click', { target: fakeActionElement({ action: 'apply-weather-departure-time', departureTime: '07:00' }) })
+    await flush()
+    container.dispatch('click', { target: fakeActionElement({ action: 'apply-weather-departure-time', departureTime: '08:00' }) })
+    await flush()
+    const updated = await createTripRepository(db).loadTripBundle(bundle.metadata.id)
+    const daySettings = updated.settings.days.find((entry) => entry.dayId === bundle.days[0].id)
+    assert.equal(daySettings.departureTime, '08:00', 'the later choice wins — no lingering pending state from the first click')
   } finally {
     db.close()
   }

@@ -104,17 +104,25 @@ const CATEGORY_STYLES: Record<RouteMarkerCategory, RouteMarkerStyle> = {
     sizePx: 8,
     label: 'Point remarquable',
   },
-  // C2 (CDC section 18): a simple, differentiable icon per category — plain
-  // circles, one distinct colour + glyph each, deliberately smaller than the
-  // structural markers above so they read as a secondary, opt-in layer
-  // rather than competing with départ/arrivée/cols. Never recoloured by
-  // opening status (CDC section 26 — that only ever shows in the popup).
-  'practical-bike': { category: 'practical-bike', shape: 'circle', colorHex: '#1d4ed8', symbol: '🚲', sizePx: 16, label: 'Vélo' },
-  'practical-supermarket': { category: 'practical-supermarket', shape: 'circle', colorHex: '#b45309', symbol: '🛒', sizePx: 16, label: 'Supermarché' },
-  'practical-bakery': { category: 'practical-bakery', shape: 'circle', colorHex: '#c2410c', symbol: '🥖', sizePx: 16, label: 'Boulangerie' },
-  'practical-water': { category: 'practical-water', shape: 'circle', colorHex: '#0891b2', symbol: '💧', sizePx: 16, label: 'Eau' },
-  'practical-shelter': { category: 'practical-shelter', shape: 'circle', colorHex: '#57534e', symbol: '⛺', sizePx: 16, label: 'Abris' },
-  'practical-toilet': { category: 'practical-toilet', shape: 'circle', colorHex: '#0e7490', symbol: '🚻', sizePx: 16, label: 'Toilette' },
+  // R2.1 section 27 (correcting C2 section 18): a simple, differentiable
+  // marker per category — plain circles, one distinct colour + a single
+  // bold letter each, deliberately smaller than the structural markers
+  // above so they read as a secondary, opt-in layer rather than competing
+  // with départ/arrivée/cols. The multi-tone illustrative emoji this used
+  // to carry (🚲🛒🥖💧⛺🚻) were judged too detailed/noisy at 16px — a plain
+  // letter on a solid colour disc is the exact same minimal graphic
+  // language `start`/`finish` already use above ('D'/'A'), now applied
+  // uniformly to every category rather than only two of them. `symbol` is
+  // also read as plain `textContent` in the map legend swatch
+  // (`route-map.ts`), so it must stay a short literal string, never markup.
+  // Never recoloured by opening status (CDC section 26 — that only ever
+  // shows in the popup).
+  'practical-bike': { category: 'practical-bike', shape: 'circle', colorHex: '#1d4ed8', symbol: 'V', sizePx: 16, label: 'Vélo' },
+  'practical-supermarket': { category: 'practical-supermarket', shape: 'circle', colorHex: '#b45309', symbol: 'S', sizePx: 16, label: 'Supermarché' },
+  'practical-bakery': { category: 'practical-bakery', shape: 'circle', colorHex: '#c2410c', symbol: 'B', sizePx: 16, label: 'Boulangerie' },
+  'practical-water': { category: 'practical-water', shape: 'circle', colorHex: '#0891b2', symbol: 'E', sizePx: 16, label: 'Eau' },
+  'practical-shelter': { category: 'practical-shelter', shape: 'circle', colorHex: '#57534e', symbol: 'Ab', sizePx: 16, label: 'Abris' },
+  'practical-toilet': { category: 'practical-toilet', shape: 'circle', colorHex: '#0e7490', symbol: 'T', sizePx: 16, label: 'Toilette' },
 }
 
 export function getRouteMarkerStyle(category: RouteMarkerCategory): RouteMarkerStyle {
@@ -199,12 +207,12 @@ const CATEGORY_LEGEND_SYMBOL: Record<RouteMarkerCategory, string> = {
   'locality-minor': '●',
   'overview-primary': '●',
   'overview-secondary': '●',
-  'practical-bike': '🚲',
-  'practical-supermarket': '🛒',
-  'practical-bakery': '🥖',
-  'practical-water': '💧',
-  'practical-shelter': '⛺',
-  'practical-toilet': '🚻',
+  'practical-bike': 'V',
+  'practical-supermarket': 'S',
+  'practical-bakery': 'B',
+  'practical-water': 'E',
+  'practical-shelter': 'Ab',
+  'practical-toilet': 'T',
 }
 
 /**

@@ -116,19 +116,25 @@ test('a significant climb with no matching landmark becomes its own climb waypoi
   assert.equal(middle[0].name, 'Montée 1')
 })
 
-test('a landmark beyond 1 km, or with a different name, never merges — both waypoints stay distinct', () => {
+// R2.1 sections 24-25: a landmark that fails to merge (too far, or a
+// different name) is now a col with no associated montée — it must not be
+// surfaced at all (firm product rule), leaving only the bare `climb`
+// waypoint the climb itself still produces on its own.
+test('a landmark beyond 1 km, or with a different name, never merges — the unmatched col is dropped entirely (R2.1: a col with no associated montée is never surfaced), only the bare climb waypoint remains', () => {
   const farPass = point({ id: 'pass-far', name: 'Col Test', osmFeatureType: 'mountain-pass', trackDistanceKm: 15 })
   const differentNamePass = point({ id: 'pass-diff', name: 'Autre Col', osmFeatureType: 'mountain-pass', trackDistanceKm: 9.8 })
 
   const farResult = buildCanonicalWaypoints({
     stage: stage({ routePointIds: ['pass-far'], climbIds: ['climb-test'] }), route: route(), routePoints: [farPass], climbs: [climb()],
   }).filter((waypoint) => waypoint.kind !== 'start' && waypoint.kind !== 'end')
-  assert.deepEqual(farResult.map((waypoint) => waypoint.kind).sort(), ['climb', 'mountain-pass'])
+  assert.deepEqual(farResult.map((waypoint) => waypoint.kind), ['climb'])
+  assert.equal(farResult.some((waypoint) => waypoint.id === 'pass-far'), false)
 
   const diffResult = buildCanonicalWaypoints({
     stage: stage({ routePointIds: ['pass-diff'], climbIds: ['climb-test'] }), route: route(), routePoints: [differentNamePass], climbs: [climb()],
   }).filter((waypoint) => waypoint.kind !== 'start' && waypoint.kind !== 'end')
-  assert.deepEqual(diffResult.map((waypoint) => waypoint.kind).sort(), ['climb', 'mountain-pass'])
+  assert.deepEqual(diffResult.map((waypoint) => waypoint.kind), ['climb'])
+  assert.equal(diffResult.some((waypoint) => waypoint.id === 'pass-diff'), false)
 })
 
 test('a hamlet/peak RoutePoint (read-compatibility with an old TripBundle) is never surfaced as a waypoint', () => {
@@ -145,8 +151,16 @@ test('a hamlet/peak RoutePoint (read-compatibility with an old TripBundle) is ne
 test('importance/visibility hierarchy (CDC Jalon B4.3 sections 26/28): only mountain-pass/saddle stay visible by default — city/town/village are all hidden unless significant (pause, handled elsewhere)', () => {
   const types = ['city', 'town', 'village', 'mountain-pass', 'saddle']
   const points = types.map((type, index) => point({ id: `p-${type}`, name: `N-${type}`, osmFeatureType: type, trackDistanceKm: index + 1 }))
+  // R2.1 sections 24-25: mountain-pass/saddle are only ever surfaced with an
+  // associated montée now — give each its own matching climb (same
+  // normalized name, within CLIMB_MERGE_TOLERANCE_KM) so this test keeps
+  // exercising their visibility/importance defaults rather than being
+  // silently dropped as orphan cols.
+  const passClimb = climb({ id: 'climb-pass', name: 'N-mountain-pass', endDistanceKm: 4 })
+  const saddleClimb = climb({ id: 'climb-saddle', name: 'N-saddle', endDistanceKm: 5 })
   const waypoints = buildCanonicalWaypoints({
-    stage: stage({ routePointIds: points.map((candidate) => candidate.id) }), route: route(), routePoints: points, climbs: [],
+    stage: stage({ routePointIds: points.map((candidate) => candidate.id), climbIds: ['climb-pass', 'climb-saddle'] }),
+    route: route(), routePoints: points, climbs: [passClimb, saddleClimb],
   })
   const byKind = new Map(waypoints.map((waypoint) => [waypoint.kind, waypoint]))
   for (const type of ['city', 'town', 'village']) {

@@ -30,19 +30,25 @@ import type { CanonicalWaypoint, CanonicalWaypointKind } from '../../analysis/ca
 import { buildClimbProfile } from '../../analysis/climb-profile.ts'
 import type { ClimbGradeClass, ClimbProfileSegment } from '../../analysis/climb-profile.ts'
 import { routeGeometry } from '../../route-enrichment/route-fingerprint.ts'
-import { resolveOffLocation, resolveTransferLocations } from '../../analysis/day-location-fill.ts'
+import { resolveOffCoordinates, resolveOffLocation, resolveSharedInfoDayId, resolveTransferCoordinates, resolveTransferLocations } from '../../analysis/day-location-fill.ts'
+import type { RouteMapMarkerModel, RouteMapModel } from '../route-map-model.ts'
 import { isPracticalPlaceUxCategory } from '../../practical-places/taxonomy.ts'
 import { resolveEffectiveMountainMode } from '../../analysis/terrain-context.ts'
 import { formatShortDate } from '../date-format.ts'
 import { compactPlaceName } from '../compact-place-name.ts'
 import {
   buildPauseRecommendationViewModels,
+  computeCandidateOpeningStatus,
   findPauseRecommendationForWaypoint,
   formatPauseRecommendationReasons,
   pauseRecommendationBadgeLabel,
 } from './pause-recommendation-view.ts'
-import type { PauseRecommendationViewModel } from './pause-recommendation-view.ts'
+import type { CandidateOpeningStatusViewModel, PauseRecommendationViewModel } from './pause-recommendation-view.ts'
+import { buildPauseCandidates } from '../../analysis/pause-recommendation.ts'
+import { parseClockToMinutes } from '../../analysis/timing.ts'
 import { formatTransferDuration, formatTransferModeAndTimes } from './transfer-summary-format.ts'
+import { TRANSFER_MODE_LABELS } from './transfer-mode-labels.ts'
+import { TRANSFER_MODES } from '../../trip-core/index.ts'
 import type { StagePreparationStatus } from '../../trips-manager/stage-preparation.ts'
 import type { Accommodation, Climb, RideStageSettings, RouteGeometryPoint, RoutePointId, SourceFileId, TransferTiming, TripBundle, TripDay, TripDayId } from '../../trip-core/index.ts'
 
@@ -122,6 +128,24 @@ function renderPauseBadge(waypoint: CanonicalWaypoint): string {
 }
 
 /**
+ * R2.1 section 11: the time column now stacks the clock time above the
+ * pause badge (when there is one) — a card with a pause keeps the exact
+ * same skeleton as one without, no full-width badge reshaping the row's own
+ * geometry (the old behaviour put the badge in the body, next to the meta
+ * line, which could push/reflow that line under a long place name). Shared
+ * by `renderTimelineRow` and `renderClimbCard` so both keep an identical
+ * left column. Omitted entirely (no wrapper at all) when there is neither a
+ * clock time nor a pause — preserves the exact 1-or-0-children grid
+ * behaviour the row's `auto minmax(0, 1fr)` template already relies on.
+ */
+function renderTimelineTimeColumn(waypoint: CanonicalWaypoint): string {
+  const time = waypoint.clockTime === null ? '' : `<span class="day-detail__timeline-time">${escapeHtml(waypoint.clockTime)}</span>`
+  const pauseBadge = renderPauseBadge(waypoint)
+  if (time === '' && pauseBadge === '') return ''
+  return `<span class="day-detail__timeline-time-col">${time}${pauseBadge}</span>`
+}
+
+/**
  * One plain chronological row — every kind except `climb`, which gets the
  * richer mini-card below (CDC Jalon B4.2 section 17), same skeleton now
  * (CDC D1.2 section 17). Sections 32-40/47 closeout: the secondary line is
@@ -145,13 +169,11 @@ function renderPauseBadge(waypoint: CanonicalWaypoint): string {
  */
 function renderTimelineRow(waypoint: CanonicalWaypoint): string {
   const meta = `${KIND_LABELS[waypoint.kind]} · ${formatKilometers(waypoint.trackDistanceKm)}`
-  const time = waypoint.clockTime === null ? '' : `<span class="day-detail__timeline-time">${escapeHtml(waypoint.clockTime)}</span>`
   return `<li class="day-detail__timeline-row day-detail__timeline-row--${waypoint.importance}" data-waypoint-id="${escapeHtml(waypoint.id)}" data-waypoint-kind="${waypoint.kind}">
-    ${time}
+    ${renderTimelineTimeColumn(waypoint)}
     <div class="day-detail__timeline-body">
       <strong><span class="day-detail__timeline-marker" aria-hidden="true">${KIND_MARKERS[waypoint.kind]}</span>${escapeHtml(waypoint.name)}</strong>
       <span class="day-detail__timeline-meta">${meta}</span>
-      ${renderPauseBadge(waypoint)}
       <span class="day-detail__timeline-weather" data-waypoint-weather data-waypoint-id="${escapeHtml(waypoint.id)}"></span>
     </div>
   </li>`
@@ -288,15 +310,13 @@ function renderClimbCard(waypoint: CanonicalWaypoint, climb: Climb, routeGeometr
   // "Longueur · D+ · Pente" (climb-specific, in the same position a plain
   // row's "Type · Distance" occupies) rather than deferred to the expanded
   // state only.
-  const time = waypoint.clockTime === null ? '' : `<span class="day-detail__timeline-time">${escapeHtml(waypoint.clockTime)}</span>`
   const meta = `${formatKilometers(climb.endDistanceKm - climb.startDistanceKm)} · +${Math.round(climb.elevationGainM)} m · ${formatPercent(climb.averageGradientPercent)}`
   return `<li class="day-detail__timeline-row day-detail__timeline-row--${waypoint.importance} day-detail__climb-card" data-waypoint-id="${escapeHtml(waypoint.id)}" data-waypoint-kind="${waypoint.kind}">
     <button class="day-detail__climb-toggle" type="button" data-action="toggle-climb-profile" data-climb-id="${escapeHtml(climb.id)}" aria-expanded="false" aria-controls="${profileId}">
-      ${time}
+      ${renderTimelineTimeColumn(waypoint)}
       <span class="day-detail__timeline-body">
         <strong><span class="day-detail__timeline-marker" aria-hidden="true">${KIND_MARKERS[waypoint.kind]}</span>${escapeHtml(waypoint.name)}</strong>
         <span class="day-detail__timeline-meta">${meta}</span>
-        ${renderPauseBadge(waypoint)}
         <span class="day-detail__timeline-weather" data-waypoint-weather data-waypoint-id="${escapeHtml(waypoint.id)}"></span>
       </span>
     </button>
@@ -352,14 +372,37 @@ function pauseStatusText(mode: 'automatic' | 'custom', activeCount: number): str
  * save: every row's state is read together by the caller's single
  * "Enregistrer" action (`trips-manager.ts`).
  */
-/** CDC C3 section 31: a compact "★ Recommandé"/"Bon choix" + one reason line inside the manual editor's own candidate row — a hint only, never a value the row itself carries into `save-manual-pauses` (the checkbox/duration inputs are unaffected). `undefined` (no recommendation for this candidate, or C3 never ran) renders nothing extra, identical to before this feature existed. */
-function renderPauseCandidateRow(candidate: CanonicalWaypoint, activePause: RideStageSettings['pauses'][number] | undefined, recommendation: PauseRecommendationViewModel | undefined): string {
+/**
+ * CDC C3 section 31: a compact "★ Recommandé"/"Bon choix" + one reason line
+ * inside the manual editor's own candidate row — a hint only, never a value
+ * the row itself carries into `save-manual-pauses` (the checkbox/duration
+ * inputs are unaffected). `undefined` (no recommendation for this
+ * candidate, or C3 never ran) renders nothing extra, identical to before
+ * this feature existed.
+ *
+ * R2.1 sections 9-10: `openingStatus`, when present, adds one more compact
+ * line — "Ouvert à l'ETA"/"Fermé à l'ETA"/"Horaires inconnus", plus (only
+ * when genuinely useful — closed now, open with a different departure) a
+ * short "ouvert avec départ ±N h" hint. Never a fresh fetch, never a second
+ * opening-hours parser — `computeCandidateOpeningStatus`
+ * (`pause-recommendation-view.ts`) reuses C3's own `evaluateOpeningAtPassage`
+ * and the weather panel's own 5 scenario offsets.
+ */
+function renderPauseCandidateRow(
+  candidate: CanonicalWaypoint,
+  activePause: RideStageSettings['pauses'][number] | undefined,
+  recommendation: PauseRecommendationViewModel | undefined,
+  openingStatus: CandidateOpeningStatusViewModel | undefined,
+): string {
   const isActive = activePause !== undefined
   const durationMinutes = activePause === undefined ? 15 : Math.round(activePause.durationSeconds / 60)
   const badgeLabel = recommendation === undefined ? null : pauseRecommendationBadgeLabel(recommendation.level)
   const hint = badgeLabel === null
     ? ''
     : `<span class="day-pause-editor__row-hint"><span class="tag tag--pause-recommended">${escapeHtml(badgeLabel)}</span>${recommendation !== undefined && recommendation.reasons.length > 0 ? ` ${escapeHtml(formatPauseRecommendationReasons(recommendation.reasons, 2))}` : ''}</span>`
+  const openingLine = openingStatus === undefined
+    ? ''
+    : `<span class="day-pause-editor__row-opening">${escapeHtml(openingStatus.label)}${openingStatus.scenarioHint === null ? '' : ` · ${escapeHtml(openingStatus.scenarioHint)}`}</span>`
   return `<div class="day-pause-editor__row" data-candidate-id="${escapeHtml(candidate.id)}">
     <label class="day-pause-editor__row-check">
       <input type="checkbox" data-field="pause-active" ${isActive ? 'checked' : ''}>
@@ -367,6 +410,7 @@ function renderPauseCandidateRow(candidate: CanonicalWaypoint, activePause: Ride
     </label>
     <span class="day-pause-editor__row-meta">${KIND_LABELS[candidate.kind]} · ${formatKilometers(candidate.trackDistanceKm)}${candidate.clockTime === null ? '' : ` · ${escapeHtml(candidate.clockTime)}`}</span>
     ${hint}
+    ${openingLine}
     <label class="day-pause-editor__row-duration" ${isActive ? '' : 'hidden'}>
       <input type="number" min="0" max="120" step="5" value="${durationMinutes}" data-field="pause-duration"> min
     </label>
@@ -404,6 +448,7 @@ function renderPauseEditor(
   stageSettings: RideStageSettings | undefined,
   anchorCandidates: readonly CanonicalWaypoint[],
   recommendations: readonly PauseRecommendationViewModel[] = [],
+  openingStatusByCandidateId: ReadonlyMap<string, CandidateOpeningStatusViewModel> = new Map(),
 ): string {
   const activePauses = (stageSettings?.pauses ?? []).filter((pause) => pause.active)
   const activeByRoutePointId = new Map(activePauses.map((pause) => [pause.routePointId, pause]))
@@ -411,7 +456,12 @@ function renderPauseEditor(
 
   const candidateRows = anchorCandidates.length === 0
     ? '<p>Aucun point canonique disponible pour ancrer une pause sur cette étape.</p>'
-    : anchorCandidates.map((candidate) => renderPauseCandidateRow(candidate, activeByRoutePointId.get(candidate.id as RoutePointId), findPauseRecommendationForWaypoint(recommendations, candidate.id))).join('')
+    : anchorCandidates.map((candidate) => renderPauseCandidateRow(
+        candidate,
+        activeByRoutePointId.get(candidate.id as RoutePointId),
+        findPauseRecommendationForWaypoint(recommendations, candidate.id),
+        openingStatusByCandidateId.get(candidate.id),
+      )).join('')
 
   return `<section class="card day-detail__pauses" data-day-detail-pauses data-stage-id="${escapeHtml(stageId)}">
     <p class="eyebrow">Arrêts</p><h3>Pauses</h3>
@@ -430,18 +480,48 @@ function renderPauseEditor(
 }
 
 /**
+ * R2.1 sections 3-4: Pauses and Météo, regrouped into one compact,
+ * non-sticky bottom block — in the normal page flow (never `position:
+ * sticky`, it simply scrolls with everything else), placed after the
+ * timeline, before the "GPX" action. Both panels start closed; at most one
+ * is open at a time (`trips-manager.ts`'s own `toggle-bottom-panel`
+ * handler enforces that — this function only renders the static markup).
+ * `pausesHtml` is `renderPauseEditor`'s own output, completely unchanged —
+ * every existing function (candidates, C3 hint, Enregistrer, Rétablir Auto)
+ * stays exactly as it already is, just relocated into this panel. The
+ * weather mount (`[data-day-detail-weather]`) keeps the exact same
+ * attribute `mountWeatherViews` (`trips-manager.ts`) already queries by —
+ * only its container/visibility changed, not the wiring.
+ */
+function renderPauseWeatherBottomBlock(pausesHtml: string): string {
+  return `<div class="day-bottom-block" data-day-bottom-block>
+    <div class="day-bottom-block__toggles">
+      <button type="button" class="day-bottom-block__toggle" data-action="toggle-bottom-panel" aria-expanded="false" aria-controls="day-bottom-panel-pauses">Pauses</button>
+      <button type="button" class="day-bottom-block__toggle" data-action="toggle-bottom-panel" aria-expanded="false" aria-controls="day-bottom-panel-weather">Météo</button>
+    </div>
+    <div id="day-bottom-panel-pauses" class="day-bottom-block__panel" data-bottom-panel hidden>
+      ${pausesHtml}
+    </div>
+    <div id="day-bottom-panel-weather" class="day-bottom-block__panel" data-bottom-panel hidden>
+      <div data-day-detail-weather><p role="status">Chargement des prévisions…</p></div>
+    </div>
+  </div>`
+}
+
+/**
  * Météo tab (CDC Jalon B4.2/B4.3 section 22/37-38, B4.4 section 27): an
  * honest placeholder only — the weather engine itself is out of scope for
  * this pass, never fake data. Identical placeholder for ride/OFF/transfer
  * days (CDC B4.4 section 27: "afficher le même placeholder propre") — a
  * future phase can key it off the OFF location or the transfer's origin/
- * destination, but never before the engine itself exists. `defaultVisible`
- * is `false` for a ride day (Parcours is the first tab there) and `true` for
- * an OFF/transfer day (which has no Parcours tab at all, so Météo opens
- * first).
+ * destination, but never before the engine itself exists. R2.1 sections
+ * 28-29: only ever used by the OFF/transfer shell now (a ride day's own
+ * weather stays inline inside Parcours, `renderTimelineList`'s sibling
+ * weather section) — always visible, direct in the page flow, no tab of
+ * its own any more.
  */
-function renderWeatherPanel(defaultVisible = false): string {
-  return `<section id="day-panel-weather" class="card" role="tabpanel" aria-labelledby="day-tab-weather" data-day-panel="weather" ${defaultVisible ? '' : 'hidden'}>
+function renderWeatherPanel(): string {
+  return `<section id="day-panel-weather" class="card" data-day-panel="weather">
     <p class="eyebrow">Conditions</p><h3>Météo</h3>
     <div data-day-detail-weather><p role="status">Chargement des prévisions…</p></div>
   </section>`
@@ -469,30 +549,99 @@ function renderLodgingReadView(accommodation: Accommodation | undefined): string
  * — they belong to Parcours only (CDC hardening: never duplicated between
  * tabs).
  */
-function renderInfosPanel(day: TripBundle['days'][number], accommodation: Accommodation | undefined): string {
-  const hasNotes = day.notes !== null && day.notes.trim() !== ''
+/**
+ * R2.1 section 36's `<select>`: the 7 fixed values, plus — only when the
+ * currently-stored value isn't one of them (a legacy R2 free-text value,
+ * e.g. "TGV") — one extra literal option so it stays selected and visible
+ * rather than silently snapping away the moment this form re-renders.
+ */
+function renderTransferModeOptions(currentMode: string | undefined): string {
+  const known = TRANSFER_MODES.map((code) => `<option value="${code}"${currentMode === code ? ' selected' : ''}>${TRANSFER_MODE_LABELS[code]}</option>`).join('')
+  const isLegacyValue = currentMode !== undefined && currentMode.trim() !== '' && !(TRANSFER_MODES as readonly string[]).includes(currentMode)
+  const legacyOption = isLegacyValue ? `<option value="${escapeHtml(currentMode as string)}" selected>${escapeHtml(currentMode as string)}</option>` : ''
+  return `<option value=""${currentMode === undefined || currentMode === '' ? ' selected' : ''}>—</option>${known}${legacyOption}`
+}
+
+/**
+ * Infos tab (CDC Jalon B4.3 sections 35-36, R2.1 sections 33-34/36-37):
+ * read-only in normal consultation — free text and lodging shown as plain
+ * content, a single "Modifier" button reveals one grouped edit form
+ * (textarea + lodging fields together, plus a transfer's own mode/heures/
+ * opérateur/lien when relevant) with one "Enregistrer" — never a form
+ * directly in view, never a separate action per field. Deliberately never
+ * lists climbs here — they belong to Parcours only (CDC hardening: never
+ * duplicated between tabs).
+ *
+ * `infoDay` (R2.1 sections 33-34) is the day whose notes/lodging are shown
+ * and edited here — the day itself for everything except an
+ * `after_previous` transfer, which shares its previous day's own Infos
+ * (`resolveSharedInfoDayId`); defaults to `day` when the caller has nothing
+ * different to say. The transfer-specific fields (mode/heures/opérateur/
+ * lien) always belong to `day` itself, never to `infoDay`, even when they
+ * differ — a shared transfer still has its own journey.
+ *
+ * `resolvedLocation` (R2.1 sections 40-41) is the location(s) already
+ * auto-resolved by `day-location-fill.ts` — shown only as each field's own
+ * placeholder (never its `value`, so an empty field always reads as "using
+ * the automatic one", exactly like every other auto-fill in this app), and
+ * only ever a fallback: as soon as `startLocationName`/`endLocationName`
+ * itself is non-null, `resolveOffLocation`/`resolveTransferLocations`
+ * already prefer it outright — this field is simply what makes that
+ * override reachable ("autoriser un libellé manuel" when nothing else can
+ * resolve one).
+ */
+function renderInfosPanel(day: TripBundle['days'][number], accommodation: Accommodation | undefined, options: { readonly asTab?: boolean; readonly infoDay?: TripBundle['days'][number]; readonly resolvedLocation?: { readonly start: string | null; readonly end: string | null } } = {}): string {
+  const infoDay = options.infoDay ?? day
+  const isSharedInfo = infoDay.id !== day.id
+  const hasNotes = infoDay.notes !== null && infoDay.notes.trim() !== ''
+  // R2.1 section 32: a `before_next` transfer never carries its own
+  // lodging — logically it belongs to the following ride day, not to the
+  // journey between two places. Hidden outright rather than shown-but-
+  // pointless, in both the read and edit views.
+  const showLodging = !(day.type === 'transfer' && (day.transferTiming ?? 'dedicated') === 'before_next')
+  const sharedInfoHint = isSharedInfo ? '<p class="day-infos__shared-hint">Infos partagées avec la journée précédente.</p>' : ''
   const readView = `<div class="day-infos__read" data-day-infos-read>
-    ${hasNotes ? `<p class="day-infos__notes-text">${escapeHtml(day.notes as string).replaceAll('\n', '<br>')}</p>` : '<p class="day-infos__empty">Aucune note pour cette étape.</p>'}
-    ${renderLodgingReadView(accommodation)}
+    ${sharedInfoHint}
+    ${hasNotes ? `<p class="day-infos__notes-text">${escapeHtml(infoDay.notes as string).replaceAll('\n', '<br>')}</p>` : '<p class="day-infos__empty">Aucune note pour cette étape.</p>'}
+    ${showLodging ? renderLodgingReadView(accommodation) : ''}
     <button class="button button--quiet" type="button" data-action="edit-day-infos">Modifier</button>
   </div>`
 
-  // R2 section 2: a transfer's own mode/heures are edited here, right next
-  // to notes — the same single edit surface as lodging, never a second
-  // location (the D3.1 structural editor stays structure-only, exactly like
-  // it already does for notes).
+  // R2/R2.1 sections 2/36-37: a transfer's own mode/heures/opérateur/lien
+  // are edited here, right next to notes — the same single edit surface as
+  // lodging, never a second location (the D3.1 structural editor stays
+  // structure-only, exactly like it already does for notes). The opérateur
+  // field is hidden for "bike" (client-side reveal, see the `change`
+  // listener in `trips-manager.ts` — a bike leg has no compagnie).
   const transferFields = day.type !== 'transfer' ? '' : `
-    <div class="field"><label for="transfer-mode">Mode de transport</label><div class="field__control"><input id="transfer-mode" type="text" data-field="transfer-mode" value="${escapeHtml(day.transferMode ?? '')}" placeholder="Train, voiture, bus…"></div></div>
+    <div class="field"><label for="transfer-mode">Mode de transport</label><div class="field__control"><select id="transfer-mode" data-field="transfer-mode">${renderTransferModeOptions(day.transferMode)}</select></div></div>
     <div class="field field--inline">
       <label for="transfer-departure-time">Départ</label><div class="field__control field__time-control"><input id="transfer-departure-time" type="time" data-field="transfer-departure-time" value="${escapeHtml(day.transferDepartureTime ?? '')}"></div>
       <label for="transfer-arrival-time">Arrivée</label><div class="field__control field__time-control"><input id="transfer-arrival-time" type="time" data-field="transfer-arrival-time" value="${escapeHtml(day.transferArrivalTime ?? '')}"></div>
-    </div>`
+    </div>
+    <div class="field" data-field-group="transfer-operator"${day.transferMode === 'bike' ? ' hidden' : ''}><label for="transfer-operator">Compagnie / opérateur</label><div class="field__control"><input id="transfer-operator" type="text" data-field="transfer-operator" value="${escapeHtml(day.transferOperator ?? '')}" placeholder="SNCF, FlixBus…"></div></div>
+    <div class="field"><label for="transfer-link">Lien réservation</label><div class="field__control"><input id="transfer-link" type="url" data-field="transfer-link" value="${escapeHtml(day.transferLink ?? '')}" placeholder="https://…"></div></div>`
+
+  // R2.1 sections 40-41: a manual location label — the always-available
+  // fallback once neither a neighbouring stage nor a coordinate override
+  // can resolve one. `startLocationName`/`endLocationName` are `day`'s own
+  // fields (never `infoDay`'s), exactly like the transfer fields above.
+  const resolvedLocation = options.resolvedLocation
+  const locationFields = day.type === 'off'
+    ? `<div class="field"><label for="location-start">Lieu</label><div class="field__control"><input id="location-start" type="text" data-field="location-start" value="${escapeHtml(day.startLocationName ?? '')}" placeholder="${escapeHtml(resolvedLocation?.start ?? 'Nom du lieu')}"></div></div>`
+    : day.type === 'transfer' ? `<div class="field field--inline">
+      <label for="location-start">Origine</label><div class="field__control"><input id="location-start" type="text" data-field="location-start" value="${escapeHtml(day.startLocationName ?? '')}" placeholder="${escapeHtml(resolvedLocation?.start ?? 'Origine')}"></div>
+      <label for="location-end">Destination</label><div class="field__control"><input id="location-end" type="text" data-field="location-end" value="${escapeHtml(day.endLocationName ?? '')}" placeholder="${escapeHtml(resolvedLocation?.end ?? 'Destination')}"></div>
+    </div>` : ''
+
   const editView = `<div class="day-infos__edit" data-day-infos-edit hidden>
+    ${locationFields}
     ${transferFields}
-    <div class="field"><label for="day-notes">Notes</label><div class="field__control"><textarea id="day-notes" data-field="day-notes" rows="5" placeholder="Conseils, description, logistique, choses à faire…">${escapeHtml(day.notes ?? '')}</textarea></div></div>
+    <div class="field"><label for="day-notes">Notes</label><div class="field__control"><textarea id="day-notes" data-field="day-notes" rows="5" placeholder="Conseils, description, logistique, choses à faire…">${escapeHtml(infoDay.notes ?? '')}</textarea></div></div>
+    ${showLodging ? `
     <div class="field"><label for="lodging-name">Nom du logement</label><div class="field__control"><input id="lodging-name" type="text" data-field="lodging-name" value="${escapeHtml(accommodation?.name ?? '')}" placeholder="Hôtel, gîte, camping…"></div></div>
     <div class="field"><label for="lodging-maps-url">URL Maps</label><div class="field__control"><input id="lodging-maps-url" type="url" data-field="lodging-maps-url" value="${escapeHtml(accommodation?.mapsUrl ?? '')}" placeholder="https://maps.google.com/…"></div></div>
-    <div class="field"><label for="lodging-website">URL du site</label><div class="field__control"><input id="lodging-website" type="url" data-field="lodging-website" value="${escapeHtml(accommodation?.website ?? '')}" placeholder="https://…"></div></div>
+    <div class="field"><label for="lodging-website">URL du site</label><div class="field__control"><input id="lodging-website" type="url" data-field="lodging-website" value="${escapeHtml(accommodation?.website ?? '')}" placeholder="https://…"></div></div>` : ''}
     <div class="day-infos__notes-actions">
       <button class="button button--primary" type="button" data-action="save-day-infos">Enregistrer</button>
       <button class="button button--quiet" type="button" data-action="cancel-edit-day-infos">Annuler</button>
@@ -500,7 +649,16 @@ function renderInfosPanel(day: TripBundle['days'][number], accommodation: Accomm
     </div>
   </div>`
 
-  return `<section id="day-panel-infos" class="card" role="tabpanel" aria-labelledby="day-tab-infos" data-day-panel="infos" hidden>
+  // R2.1 sections 28-29: OFF/transfer no longer wrap Infos in a tab at all
+  // (`options.asTab: false`) — a plain, always-visible section, direct in
+  // the page flow. Ride days are untouched (`asTab` defaults to `true`,
+  // the existing Parcours/Infos tablist). `data-day-panel="infos"` stays on
+  // the section either way — `patchInfosPanel`/`patchDaySummary`
+  // (`trips-manager.ts`) target it by that attribute regardless of tab
+  // membership.
+  const asTab = options.asTab ?? true
+  const sectionAttrs = asTab ? ' role="tabpanel" aria-labelledby="day-tab-infos" data-day-panel="infos" hidden' : ' data-day-panel="infos"'
+  return `<section id="day-panel-infos" class="card"${sectionAttrs}>
     <h3>Infos</h3>
     ${readView}
     ${editView}
@@ -525,6 +683,8 @@ export interface DayDetail {
   readonly summaryHtml: string
   /** CDC D1.1 sections 16-17 — the profile's distance→time mapping (`waypoint-timeline.ts::computeStageTimingCurve`), threaded through to `renderGenericElevationProfile`'s ETA band. `null` for OFF/transfer days (no profile at all) or an untimed ride stage. */
   readonly timingCurve: StageTimingCurve | null
+  /** R2.1 sections 38/40-41 — an OFF/transfer day's own markers-only map (its resolved location, or the transfer's origin/destination pair), never a routed line (no GPX exists for a transfer). `null` for a ride day (its own `geometry`-driven model already covers that) or when nothing at all is resolvable. */
+  readonly markersOnlyMapModel: RouteMapModel | null
 }
 
 /**
@@ -557,7 +717,30 @@ function renderPreparationBanner(bundle: TripBundle, preparationStatus: StagePre
 function transferTimingLabel(timing: TransferTiming | undefined): string {
   if (timing === 'after_previous') return 'Après l’étape précédente'
   if (timing === 'before_next') return 'Avant l’étape suivante'
-  return 'Journée dédiée'
+  return 'Journée indépendante'
+}
+
+/**
+ * R2.1 sections 38/40-41 — an OFF/transfer day's own markers-only map:
+ * `resolveOffCoordinates`/`resolveTransferCoordinates` supply the exact
+ * same coordinates "Choisir sur la carte" would also read/override, so this
+ * is never a second, divergent resolution. Deliberately no `coordinates`
+ * line at all (`createRouteMap` still fits the view to every marker's own
+ * position) — a transfer's origin→destination gap is never drawn as a
+ * fabricated straight line (no GPX exists for a transfer in v1).
+ */
+function buildOffOrTransferMapModel(bundle: TripBundle, day: TripDay): RouteMapModel | null {
+  const markers: RouteMapMarkerModel[] = []
+  if (day.type === 'off') {
+    const location = resolveOffCoordinates(bundle, day)
+    if (location !== null) markers.push({ id: `${day.id}-location`, category: 'start', name: resolveOffLocation(bundle, day).name ?? 'Lieu', coordinate: [location.latitude, location.longitude], offRoute: false, pauseActive: false })
+  } else if (day.type === 'transfer') {
+    const { origin, destination } = resolveTransferCoordinates(bundle, day)
+    const { origin: originName, destination: destinationName } = resolveTransferLocations(bundle, day)
+    if (origin !== null) markers.push({ id: `${day.id}-origin`, category: 'start', name: originName ?? 'Origine', coordinate: [origin.latitude, origin.longitude], offRoute: false, pauseActive: false })
+    if (destination !== null) markers.push({ id: `${day.id}-destination`, category: 'finish', name: destinationName ?? 'Destination', coordinate: [destination.latitude, destination.longitude], offRoute: false, pauseActive: false })
+  }
+  return markers.length === 0 ? null : { coordinates: [], markers }
 }
 
 /**
@@ -578,36 +761,56 @@ function buildOffOrTransferDayDetail(bundle: TripBundle, day: TripDay): DayDetai
   // bandeau needs none (départ → arrivée alone is unambiguous), but OFF/
   // transfer's own type is exactly what a bare location can't convey.
   const badgeLabel = day.type === 'off' ? 'OFF' : 'Transfert'
-  const fullLocationLabel = day.type === 'off'
-    ? resolveOffLocation(bundle, day).name ?? '—'
+  const resolvedLocation = day.type === 'off'
+    ? { start: resolveOffLocation(bundle, day).name, end: null }
     : (() => {
         const { origin, destination } = resolveTransferLocations(bundle, day)
-        return origin === null && destination === null ? '—' : `${origin ?? '—'} → ${destination ?? '—'}`
+        return { start: origin, end: destination }
       })()
+  const fullLocationLabel = day.type === 'off'
+    ? resolvedLocation.start ?? '—'
+    : resolvedLocation.start === null && resolvedLocation.end === null ? '—' : `${resolvedLocation.start ?? '—'} → ${resolvedLocation.end ?? '—'}`
   const fullMainLabel = `${badgeLabel} — ${fullLocationLabel}`
   const mainLabel = `${escapeHtml(badgeLabel)} — ${escapeHtml(compactPlaceName(fullLocationLabel))}`
 
   const summaryHtml = day.type === 'off' ? renderOffSummary(bundle, day) : renderTransferSummary(bundle, day)
-  const accommodation = day.accommodationId === null ? undefined : bundle.accommodations.find((candidate) => candidate.id === day.accommodationId)
-  const infosHtml = renderInfosPanel(day, accommodation)
+  // R2.1 sections 33-34: an `after_previous` transfer shows/edits the
+  // previous day's own notes/lodging, not a second, empty copy of its own.
+  const infoDayId = resolveSharedInfoDayId(bundle, day)
+  const infoDay = bundle.days.find((candidate) => candidate.id === infoDayId) ?? day
+  const accommodation = infoDay.accommodationId === null ? undefined : bundle.accommodations.find((candidate) => candidate.id === infoDay.accommodationId)
+  const infosHtml = renderInfosPanel(day, accommodation, { asTab: false, infoDay, resolvedLocation })
+  const markersOnlyMapModel = buildOffOrTransferMapModel(bundle, day)
+  // R2.1 sections 38/40-41: the map card only appears at all once at least
+  // one location is resolvable — never an empty map frame with nothing to
+  // show (`mountMapAndProfile`, `trips-manager.ts`, mounts into it once
+  // `markersOnlyMapModel` is non-null; same container/dialog attributes as
+  // the ride shell's own map, so the shared Leaflet wiring needs no branch).
+  const mapHtml = markersOnlyMapModel === null ? '' : `<section class="card day-detail__map-profile-card" data-day-detail-map-profile-card>
+      <div class="route-map route-map--action" data-day-detail-map data-explore-map role="button" tabindex="0" aria-label="Ouvrir la carte en plein écran"></div>
+    </section>
+    <dialog class="route-map-dialog" data-day-detail-map-dialog aria-labelledby="day-detail-expanded-map-title">
+      <header><h2 id="day-detail-expanded-map-title">Carte</h2><div class="route-map-dialog__actions"><button class="button button--quiet" type="button" data-close-map>Fermer</button></div></header>
+      <div class="route-map-dialog__map-wrap"><div class="route-map route-map--expanded" data-route-map-expanded></div><p class="route-map__fallback route-map__fallback--expanded" data-expanded-route-map-fallback hidden>Fond de carte indisponible.</p></div>
+    </dialog>`
 
+  // R2.1 sections 28-29: no tablist for OFF/transfer any more — Résumé,
+  // Météo and Infos all render directly, at the top level, in that fixed
+  // order (never a Parcours/profil/montées section — this day has none).
   const html = `<div class="day-detail" data-day-detail>
     <div class="day-detail__sticky-header" data-day-detail-sticky-header>
       ${renderDayIdentityHeader(day, mainLabel, fullMainLabel)}
-      <nav class="day-tabs" role="tablist" aria-label="Sections de la journée" data-day-detail-tabs>
-        <button id="day-tab-weather" type="button" role="tab" data-day-tab="weather" aria-controls="day-panel-weather" aria-selected="true" tabindex="0">Météo</button>
-        <button id="day-tab-infos" type="button" role="tab" data-day-tab="infos" aria-controls="day-panel-infos" aria-selected="false" tabindex="-1">Infos</button>
-      </nav>
     </div>
     ${summaryHtml}
-    ${renderWeatherPanel(true)}
+    ${mapHtml}
+    ${renderWeatherPanel()}
     ${infosHtml}
     <nav class="day-detail__floating-nav" aria-label="Journées voisines"><button class="button button--quiet" type="button" data-action="previous-day" aria-label="Journée précédente">‹</button><button class="button button--quiet" type="button" data-action="next-day" aria-label="Journée suivante">›</button></nav>
   </div>`
 
   return {
     html, waypoints: [], geometry: null, stageLabel, villageWaypoints: [], sourceFileId: null,
-    statsHtml: '', pausesHtml: '', timelineHtml: '', infosHtml, summaryHtml, timingCurve: null,
+    statsHtml: '', pausesHtml: '', timelineHtml: '', infosHtml, summaryHtml, timingCurve: null, markersOnlyMapModel,
   }
 }
 
@@ -689,6 +892,23 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
   const waypoints = computeStageWaypoints(waypointsInput)
   const pauseRecommendations = buildPauseRecommendationViewModels(computeStagePauseRecommendations(waypointsInput), waypoints)
   const anchorCandidates = waypoints.filter((waypoint) => PAUSE_ANCHOR_KINDS.has(waypoint.kind))
+  // R2.1 sections 9-10: opening status per candidate — reuses the exact
+  // same merged POI-per-anchor data C3's own scoring already computes
+  // (`buildPauseCandidates`), never a second, divergent association. Only
+  // ever computed when the day's weekday is actually known (an undated
+  // trip has nothing reliable to evaluate against — never guessed at).
+  const openingStatusByCandidateId = new Map<string, CandidateOpeningStatusViewModel>()
+  if (automaticPauseEnrichment.weekdayAtDeparture !== undefined) {
+    const mergedCandidates = buildPauseCandidates(waypoints, automaticPauseEnrichment.practicalPlaces ?? [])
+    for (const candidate of anchorCandidates) {
+      if (candidate.clockTime === null) continue
+      const merged = mergedCandidates.find((entry) => entry.waypointId === candidate.id)
+      const place = merged?.places.find((entry) => entry.openingHours !== null)
+      if (place === undefined) continue
+      const status = computeCandidateOpeningStatus(place.openingHours, automaticPauseEnrichment.weekdayAtDeparture, parseClockToMinutes(candidate.clockTime))
+      if (status !== null) openingStatusByCandidateId.set(candidate.id, status)
+    }
+  }
 
   const fullLocations = `${stage.startLocationName ?? '—'} → ${stage.endLocationName ?? '—'}`
   const locations = `${escapeHtml(compactPlaceName(stage.startLocationName ?? '—'))} → ${escapeHtml(compactPlaceName(stage.endLocationName ?? '—'))}`
@@ -731,7 +951,7 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
     <div><dt>Pauses</dt><dd>${totalPauseMinutes === null ? '—' : `${totalPauseMinutes} min`}</dd></div>
   </dl>`
 
-  const pausesHtml = renderPauseEditor(stage.id, pauseResolution, stageSettings, anchorCandidates, pauseRecommendations)
+  const pausesHtml = renderPauseEditor(stage.id, pauseResolution, stageSettings, anchorCandidates, pauseRecommendations, openingStatusByCandidateId)
   const timelineHtml = renderTimelineList(waypoints, bundle.climbs, geometry)
   const accommodation = day.accommodationId === null ? undefined : bundle.accommodations.find((candidate) => candidate.id === day.accommodationId)
   const infosHtml = renderInfosPanel(day, accommodation)
@@ -767,11 +987,7 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
       </nav>
       <section id="day-panel-route" class="card" role="tabpanel" aria-labelledby="day-tab-route" data-day-panel="route">
         <div data-day-detail-timeline>${timelineHtml}</div>
-        ${pausesHtml}
-        <section class="day-detail__weather-inline" data-day-detail-weather-section>
-          <p class="eyebrow">Météo opérationnelle</p>
-          <div data-day-detail-weather><p role="status">Chargement des prévisions…</p></div>
-        </section>
+        ${renderPauseWeatherBottomBlock(pausesHtml)}
         <button class="button button--quiet button--full" type="button" data-action="download-stage-gpx">GPX</button>
       </section>
       ${infosHtml}
@@ -783,6 +999,6 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
     html, waypoints, geometry, stageLabel,
     villageWaypoints: waypoints.filter((waypoint) => waypoint.kind === 'village'),
     sourceFileId: route.sourceFileId,
-    statsHtml, pausesHtml, timelineHtml, infosHtml, summaryHtml: '', timingCurve,
+    statsHtml, pausesHtml, timelineHtml, infosHtml, summaryHtml: '', timingCurve, markersOnlyMapModel: null,
   }
 }

@@ -63,16 +63,14 @@ export interface WizardState {
   duplicateSelectionNotice: string | null
   /** Trip-level settings (CDC Jalon B4.3 sections 19-21): reference speed and Mode montagne belong to the trip, set here at creation and editable afterwards via "Modifier le voyage" — never per-stage/per-day, never a separate global settings screen. */
   referenceSpeedKph: number
-  mountainMode: boolean
   /**
-   * Jalon C2.5 sections 63-66: `mountainMode` is auto-suggested from the
-   * uploaded GPX files' own elevation-gain profile (`deriveMountainModeDefault`
-   * below) every time a file is added, UNLESS the user has already touched
-   * the checkbox themselves — once `true`, the auto-suggestion never
-   * overwrites their explicit choice again for the rest of this wizard
-   * session.
+   * R2.1 section 23 (correcting C2.5 sections 63-66): always `false`
+   * ("Normal") at the start of a new wizard session, whatever the uploaded
+   * GPX profile looks like — `deriveMountainModeDefault` below is no longer
+   * auto-applied here (CDC: "Terrain = Normal par défaut", unconditionally).
+   * The user picks Normal/Montagne explicitly in Réglages avancés.
    */
-  mountainModeTouched: boolean
+  mountainMode: boolean
 }
 
 let structureKeyCounter = 0
@@ -93,7 +91,6 @@ export function createEmptyWizardState(): WizardState {
     duplicateSelectionNotice: null,
     referenceSpeedKph: 18,
     mountainMode: false,
-    mountainModeTouched: false,
   }
 }
 

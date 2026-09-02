@@ -77,6 +77,34 @@ test('A: a locality with an open bakery beats an equidistant locality with no se
   assert.ok(main.reasons.includes('locality'))
 })
 
+// --- R2.1 sections 15-16: a standalone POI (no nearby structural anchor)
+// must never itself become an automatic pause's name — the "Service"
+// generic-lieu bug. ----------------------------------------------------------
+
+test('R2.1: a standalone POI with no nearby waypoint anchor never wins the slot — falls back to the slot\'s own name, never "Service"/a POI category name', () => {
+  const waypoints = baseWaypoints() // start/end only — no locality/col anywhere near the "main" ideal slot (50 km)
+  const recommendations = recommendAutomaticPauses({
+    totalBreakMinutes: TOTAL_BREAK_MINUTES, totalDistanceKm: TOTAL_DISTANCE_KM, waypoints, climbs: [],
+    places: [place({ id: 'bakery-1', name: null, trackDistanceKm: 50, openingHours: null })],
+  })
+  const main = findRecommendation(recommendations, 'main')
+  assert.equal(main.waypointId, null)
+  assert.equal(main.level, 'fallback')
+  assert.equal(main.name, 'Pause principale', 'the slot\'s own label, never the POI\'s (missing) name/category')
+  assert.notEqual(main.name, 'Service')
+})
+
+test('R2.1: a standalone POI still enriches/scores a REAL nearby anchor (CDC "POI = service utile associé") — this merge behaviour is unaffected', () => {
+  const waypoints = [...baseWaypoints(), waypoint({ id: 'town-bakery', trackDistanceKm: 50 })]
+  const recommendations = recommendAutomaticPauses({
+    totalBreakMinutes: TOTAL_BREAK_MINUTES, totalDistanceKm: TOTAL_DISTANCE_KM, waypoints, climbs: [],
+    places: [place({ id: 'bakery-1', trackDistanceKm: 50.1, openingHours: null })],
+  })
+  const main = findRecommendation(recommendations, 'main')
+  assert.equal(main.waypointId, 'town-bakery')
+  assert.notEqual(main.level, 'fallback')
+})
+
 test('B: a closed bakery never scores like an open one', () => {
   const waypoints = [...baseWaypoints(), waypoint({ id: 'town-bakery', trackDistanceKm: 50 })]
   const timingCommon = { movingElapsedMinutesAt: (distanceKm) => (distanceKm / 20) * 60, departureMinutes: 8 * 60, weekdayAtDeparture: 1 }
@@ -111,15 +139,21 @@ test('C: unknown opening hours are neither treated as open nor as closed', () =>
   assert.ok(!main.reasons.includes('shop-closed'))
 })
 
-test('D: a POI 50 m off-route beats an equivalent one 600 m off-route', () => {
+test('D: of two POI merged onto the same real locality, the 50 m off-route one beats the 600 m off-route one', () => {
+  // R2.1 sections 15-16: a bare POI can no longer win a slot on its own (see
+  // the standalone-POI tests above) — this test now anchors both POI onto a
+  // REAL waypoint (never a fabricated "Service" pause) to keep exercising
+  // the actual detour-distance scoring it was written for.
+  const waypoints = [...baseWaypoints(), waypoint({ id: 'town-main', trackDistanceKm: 50 })]
   const recommendations = recommendAutomaticPauses({
-    totalBreakMinutes: TOTAL_BREAK_MINUTES, totalDistanceKm: TOTAL_DISTANCE_KM, waypoints: baseWaypoints(), climbs: [],
+    totalBreakMinutes: TOTAL_BREAK_MINUTES, totalDistanceKm: TOTAL_DISTANCE_KM, waypoints, climbs: [],
     places: [
-      place({ id: 'near', trackDistanceKm: 49, detourKm: 0.05 }),
-      place({ id: 'far', trackDistanceKm: 51, detourKm: 0.6 }),
+      place({ id: 'near', trackDistanceKm: 50, detourKm: 0.05 }),
+      place({ id: 'far', trackDistanceKm: 50, detourKm: 0.6 }),
     ],
   })
   const main = findRecommendation(recommendations, 'main')
+  assert.equal(main.waypointId, 'town-main')
   assert.equal(main.primaryPoiIds[0], 'near')
   assert.ok(main.reasons.includes('low-detour'))
 })

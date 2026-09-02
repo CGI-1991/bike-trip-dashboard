@@ -148,12 +148,14 @@ function renderRiskBanner(model: GenericDayWeatherViewModel): string {
 }
 
 /**
- * Sections 20-21/25-26/28: the one-sentence conclusion, plus — only for an
- * actual `recommended-change` — the "Appliquer HH:MM"/"Modifier manuellement"
- * actions (never persisted without the confirmation panel below, section 26).
- * "Modifier manuellement" reuses the exact same `edit-day-departure-time`
- * action the Étape stats header's own editor already wires (section 28 —
- * never a second implementation).
+ * R2.1 section 7 (correcting sections 20-21/25-26/28): the one-sentence
+ * conclusion, plus — only for an actual `recommended-change` — the
+ * "Appliquer HH:MM"/"Modifier manuellement" actions. "Appliquer" now
+ * applies the new departure time IMMEDIATELY (no confirmation panel/modal
+ * any more — `trips-manager.ts`'s `apply-weather-departure-time` handler
+ * persists it directly). "Modifier manuellement" reuses the exact same
+ * `edit-day-departure-time` action the Étape stats header's own editor
+ * already wires (never a second implementation).
  */
 function renderRecommendation(model: GenericDayWeatherViewModel): string {
   const { recommendation } = model
@@ -162,11 +164,10 @@ function renderRecommendation(model: GenericDayWeatherViewModel): string {
     return `<p class="weather-decision__note">${escapeHtml(recommendation.title)}</p>`
   }
   const targetClock = formatClock(recommendation.recommendedScenario?.departureTimeLocal ?? null)
-  const currentClock = formatClock(recommendation.currentScenario?.departureTimeLocal ?? null)
   return `<div class="weather-decision__recommendation">
     <p class="weather-decision__recommendation-title">${escapeHtml(recommendation.title)}</p>
     <div class="weather-decision__actions">
-      <button class="button button--primary" type="button" data-action="apply-weather-departure-time" data-departure-time="${escapeHtml(targetClock)}" data-current-departure-time="${escapeHtml(currentClock)}">Appliquer ${escapeHtml(targetClock)}</button>
+      <button class="button button--primary" type="button" data-action="apply-weather-departure-time" data-departure-time="${escapeHtml(targetClock)}">Appliquer ${escapeHtml(targetClock)}</button>
       <button class="button button--quiet" type="button" data-action="edit-day-departure-time">Modifier manuellement</button>
     </div>
   </div>`
@@ -175,18 +176,19 @@ function renderRecommendation(model: GenericDayWeatherViewModel): string {
 /**
  * One row of the "Comparer les horaires" comparison (section 24) — offset
  * label, departure/arrival, risk, and (for any other coherent scenario) its
- * own "Choisir HH:MM" (section 25). `isRecommended` (CDC D1.1 section 15) is
- * a plain boolean flag, independent of this row's own position in the
- * list — the badge marks whichever scenario the ranking picked, wherever
- * it happens to sit chronologically, never by moving it.
+ * own "Choisir HH:MM" (section 25) — applied immediately, R2.1 section 7.
+ * `isRecommended` (CDC D1.1 section 15) is a plain boolean flag, independent
+ * of this row's own position in the list — the badge marks whichever
+ * scenario the ranking picked, wherever it happens to sit chronologically,
+ * never by moving it.
  */
-function renderScenarioRow(scenario: DepartureWeatherScenario, currentClock: string, isRecommended: boolean): string {
+function renderScenarioRow(scenario: DepartureWeatherScenario, isRecommended: boolean): string {
   const label = OFFSET_LABELS[scenario.offsetMinutes] ?? `${scenario.offsetMinutes > 0 ? '+' : ''}${scenario.offsetMinutes} min`
   const departureClock = formatClock(scenario.departureTimeLocal)
   const arrivalClock = formatClock(scenario.arrivalTimeLocal)
   const applyButton = scenario.isCurrent || !scenario.isCoherent
     ? ''
-    : `<button class="button button--quiet" type="button" data-action="apply-weather-departure-time" data-departure-time="${escapeHtml(departureClock)}" data-current-departure-time="${escapeHtml(currentClock)}">Choisir ${escapeHtml(departureClock)}</button>`
+    : `<button class="button button--quiet" type="button" data-action="apply-weather-departure-time" data-departure-time="${escapeHtml(departureClock)}">Choisir ${escapeHtml(departureClock)}</button>`
   const badges = [
     scenario.isCurrent ? '<span class="tag tag--data">Actuel</span>' : '',
     isRecommended ? '<span class="tag tag--suggested">Suggéré</span>' : '',
@@ -211,31 +213,16 @@ function renderScenarioRow(scenario: DepartureWeatherScenario, currentClock: str
  */
 function renderScenarioComparison(model: GenericDayWeatherViewModel): string {
   if (model.departureScenarios.length === 0) return ''
-  const current = model.departureScenarios.find((scenario) => scenario.isCurrent) ?? null
-  const currentClock = formatClock(current?.departureTimeLocal ?? null)
   const recommendedOffsetMinutes = model.recommendation?.status === 'recommended-change'
     ? model.recommendation.recommendedScenario?.offsetMinutes ?? null
     : null
   const rows = model.departureScenarios
-    .map((scenario) => renderScenarioRow(scenario, currentClock, recommendedOffsetMinutes !== null && scenario.offsetMinutes === recommendedOffsetMinutes))
+    .map((scenario) => renderScenarioRow(scenario, recommendedOffsetMinutes !== null && scenario.offsetMinutes === recommendedOffsetMinutes))
     .join('')
   return `<details class="weather-decision__compare" data-weather-compare>
     <summary>Comparer les horaires</summary>
     <ul class="weather-decision__scenarios">${rows}</ul>
   </details>`
-}
-
-/** Section 26: the compact, non-native confirmation panel every "Appliquer"/"Choisir" button reveals — populated by `trips-manager.ts`'s click handler, never persisted before "Confirmer". Rendered once per weather panel, shared by every scenario row. */
-function renderApplyConfirm(): string {
-  return `<div class="weather-decision__confirm" data-weather-apply-confirm hidden>
-    <p>Modifier l’heure de départ ?</p>
-    <p class="weather-decision__confirm-times" data-weather-apply-confirm-times></p>
-    <p class="weather-decision__confirm-note">Les ETA et l’analyse météo de cette étape seront recalculées.</p>
-    <div class="weather-decision__confirm-actions">
-      <button class="button button--primary" type="button" data-action="confirm-apply-weather-departure-time">Confirmer</button>
-      <button class="button button--quiet" type="button" data-action="cancel-apply-weather-departure-time">Annuler</button>
-    </div>
-  </div>`
 }
 
 /**
@@ -255,7 +242,7 @@ function renderDecisionCard(model: GenericDayWeatherViewModel): string {
   const showComparison = model.mode === 'planning' || model.mode === 'operational' || (model.mode === 'live' && !model.departureAlreadyPassed)
   const comparison = showComparison ? renderScenarioComparison(model) : ''
   if (banner === '' && recommendation === '' && comparison === '') return ''
-  return `<section class="weather-decision" data-weather-decision>${banner}${recommendation}${comparison}${comparison === '' ? '' : renderApplyConfirm()}</section>`
+  return `<section class="weather-decision" data-weather-decision>${banner}${recommendation}${comparison}</section>`
 }
 
 function renderDaySection(label: string, model: GenericDayWeatherViewModel, includePointsList: boolean): string {

@@ -26,7 +26,6 @@ import {
   computeLoopPending,
   continuityWarnings,
   createEmptyWizardState,
-  deriveMountainModeDefault,
   formValidation,
   insertSlot,
   moveStructureItem,
@@ -38,6 +37,7 @@ import {
 } from './import-wizard-state.ts'
 import type { TransferTiming } from '../../trip-core/index.ts'
 import type { FileEntryId, StructureItem, WizardStage, WizardState } from './import-wizard-state.ts'
+import { renderTerrainToggle } from './terrain-toggle.ts'
 
 function asTripId(value: string): TripId {
   return value as TripId
@@ -99,9 +99,6 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
       bytes: await file.arrayBuffer(),
     })))
     await addFilesToState(state, { rawFiles: rawEntries, idFactory: deps.idFactory, preAnalyzeFiles })
-    // Jalon C2.5 sections 63-66: auto-suggest Mode montagne from the newly
-    // analyzed GPX — never once the user has touched the checkbox themselves.
-    if (!state.mountainModeTouched) state.mountainMode = deriveMountainModeDefault(activeFiles(state))
     render()
   }
 
@@ -191,7 +188,7 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
   }
 
   const TRANSFER_TIMING_LABELS: Readonly<Record<TransferTiming, string>> = {
-    dedicated: 'Journée dédiée',
+    dedicated: 'Journée indépendante',
     after_previous: 'Après l’étape précédente',
     before_next: 'Avant l’étape suivante',
   }
@@ -319,11 +316,21 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
       })
       .join('')
 
+    // R2.1 section 18: creation now mirrors modification's own structure —
+    // Informations (nom/date/vitesse) → Structure (the GPX/OFF/transfert
+    // timeline) → Réglages avancés (terrain only) — the same section order
+    // and the same field placement as `trip-editor.ts`'s own Informations
+    // card, rather than a diverging layout for the same properties.
     container.innerHTML = `
       <div class="wizard" data-wizard>
         <header class="view-heading"><p class="eyebrow">Nouveau voyage</p><h2>Créer un voyage</h2></header>
-        <div class="field"><label for="wizard-name">Nom du voyage</label><div class="field__control"><input id="wizard-name" type="text" data-field="name" value="${escapeHtml(state.name)}" required></div></div>
-        <div class="field"><label for="wizard-start-date">Date de départ</label><div class="field__control"><input id="wizard-start-date" type="date" data-field="start-date" value="${escapeHtml(state.startDate)}" required></div></div>
+        <section class="card trip-editor__info" data-wizard-info>
+          <p class="eyebrow">Informations</p>
+          <div class="field"><label for="wizard-name">Nom du voyage</label><div class="field__control"><input id="wizard-name" type="text" data-field="name" value="${escapeHtml(state.name)}" required></div></div>
+          <div class="field"><label for="wizard-start-date">Date de départ</label><div class="field__control"><input id="wizard-start-date" type="date" data-field="start-date" value="${escapeHtml(state.startDate)}" required></div></div>
+          <div class="field"><label for="wizard-reference-speed">Vitesse de référence</label><div class="field__control"><input id="wizard-reference-speed" type="number" min="8" max="40" step="0.5" data-field="reference-speed" value="${state.referenceSpeedKph}"><span>km/h</span></div></div>
+        </section>
+        <p class="eyebrow">Structure</p>
         <button class="button button--quiet" type="button" data-action="trigger-add-files">+ Ajouter des GPX</button>
         <input id="wizard-files" class="visually-hidden" type="file" accept=".gpx" multiple data-field="files" tabindex="-1" aria-hidden="true">
         ${summaryLine}
@@ -331,9 +338,7 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
         <ul class="wizard-structure__list" data-wizard-structure>${timelineRows}</ul>
         ${renderAlerts()}
         <details class="wizard-advanced"><summary>Réglages avancés</summary>
-          <div class="field"><label for="wizard-reference-speed">Vitesse de référence</label><div class="field__control"><input id="wizard-reference-speed" type="number" min="8" max="40" step="0.5" data-field="reference-speed" value="${state.referenceSpeedKph}"><span>km/h</span></div></div>
-          <label class="trip-settings__toggle"><input type="checkbox" data-field="mountain-mode" ${state.mountainMode ? 'checked' : ''}> Mode montagne (voyage alpin)</label>
-          <p>Pré-rempli automatiquement selon le dénivelé du parcours ; modifiable ici si besoin.</p>
+          ${renderTerrainToggle(state.mountainMode)}
           <p>Budget de pauses calculé automatiquement selon la distance, la durée et le D+ de chaque étape.</p>
         </details>
         ${state.errorMessage !== null ? `<p class="wizard-error" role="alert">${escapeHtml(state.errorMessage)}</p>` : ''}
@@ -383,11 +388,6 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
 
   container.addEventListener('change', (event) => {
     const target = event.target
-    if (target instanceof HTMLInputElement && target.dataset.field === 'mountain-mode') {
-      state.mountainMode = target.checked
-      state.mountainModeTouched = true
-      return
-    }
     if (target instanceof HTMLInputElement && target.dataset.field === 'files' && target.files !== null && target.files.length > 0) {
       const files = Array.from(target.files)
       // Reset immediately after capturing a plain-array snapshot, so the
@@ -426,6 +426,7 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
     else if (action === 'insert-off' && position !== null) { insertSlot(state, position, 'off'); render() }
     else if (action === 'insert-transfer' && position !== null) { insertSlot(state, position, 'transfer'); render() }
     else if (action === 'remove-structure-item' && position !== null) { removeStructureItem(state, position); render() }
+    else if (action === 'set-terrain-mode') { state.mountainMode = button.dataset.terrainMode === 'mountain'; render() }
     else if (action === 'submit') void submit()
     else if (action === 'cancel') cancel()
   }, { signal: controller.signal })

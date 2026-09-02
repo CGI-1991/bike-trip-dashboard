@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { countCalendarDays, nearestNextRideStage, nearestPreviousRideStage, resolveOffLocation, resolveTransferLocations } from '../../src/analysis/day-location-fill.ts'
+import {
+  countCalendarDays,
+  nearestNextRideStage,
+  nearestPreviousRideStage,
+  resolveOffCoordinates,
+  resolveOffLocation,
+  resolveSharedInfoDayId,
+  resolveTransferCoordinates,
+  resolveTransferLocations,
+} from '../../src/analysis/day-location-fill.ts'
 
 function stage(overrides = {}) {
   return { id: 'stage-test', dayId: 'day-test', sourceRouteId: 'route-test', name: null, startLocationName: null, endLocationName: null, distanceKm: null, elevationGainM: null, elevationLossM: null, minAltitudeM: null, maxAltitudeM: null, movingDurationSeconds: null, pauseDurationSeconds: null, totalDurationSeconds: null, estimatedAverageSpeedKph: null, validationStatus: 'pending', metricsProvenance: null, climbIds: [], routePointIds: [], weatherRecordIds: [], ...overrides }
@@ -11,8 +20,27 @@ function day(overrides = {}) {
   return { id: 'day-test', index: 0, displayNumber: 1, date: null, type: 'off', stageId: null, startLocationName: null, endLocationName: null, accommodationId: null, notes: null, enrichmentStatus: 'not-started', ...overrides }
 }
 
-function bundle(days, stages) {
-  return { days, stages }
+function route(overrides = {}) {
+  return {
+    id: 'route-test',
+    sourceFileId: null,
+    segments: [],
+    geometry: { full: null, simplified: null },
+    profile: null,
+    parsingStatus: 'parsed',
+    parsingErrors: [],
+    provenance: { source: 'gpx', importedAt: '2027-01-01T00:00:00.000Z' },
+    ...overrides,
+  }
+}
+
+/** A 2-point geometry, one route endpoint at each coordinate given. */
+function geometryFromEndpoints(start, end) {
+  return { full: [{ latitude: start[0], longitude: start[1], altitudeM: null }, { latitude: end[0], longitude: end[1], altitudeM: null }], simplified: null }
+}
+
+function bundle(days, stages, routes = []) {
+  return { days, stages, routes }
 }
 
 test('nearestPreviousRideStage / nearestNextRideStage skip over any number of intervening OFF/transfer days', () => {
@@ -117,4 +145,87 @@ test('a changed neighbouring stage is reflected immediately — nothing was ever
   const stagesAfter = [stage({ id: 's0', endLocationName: 'Gap' })]
   assert.equal(resolveOffLocation(bundle(days, stagesBefore), days[1]).name, 'Briançon')
   assert.equal(resolveOffLocation(bundle(days, stagesAfter), days[1]).name, 'Gap')
+})
+
+test('resolveOffCoordinates: falls back to the previous ride stage\'s own route-geometry endpoint', () => {
+  const days = [day({ id: 'd0', index: 0, type: 'ride', stageId: 's0' }), day({ id: 'd1', index: 1, type: 'off' })]
+  const stages = [stage({ id: 's0', sourceRouteId: 'r0' })]
+  const routes = [route({ id: 'r0', geometry: geometryFromEndpoints([44.1, 6.1], [44.9, 6.9]) })]
+  const result = resolveOffCoordinates(bundle(days, stages, routes), days[1])
+  assert.deepEqual(result, { latitude: 44.9, longitude: 6.9, autoFilled: true })
+})
+
+test('resolveOffCoordinates: no previous ride stage falls back to the next ride stage\'s own start endpoint', () => {
+  const days = [day({ id: 'd0', index: 0, type: 'off' }), day({ id: 'd1', index: 1, type: 'ride', stageId: 's1' })]
+  const stages = [stage({ id: 's1', sourceRouteId: 'r1' })]
+  const routes = [route({ id: 'r1', geometry: geometryFromEndpoints([45.1, 5.1], [45.9, 5.9]) })]
+  const result = resolveOffCoordinates(bundle(days, stages, routes), days[0])
+  assert.deepEqual(result, { latitude: 45.1, longitude: 5.1, autoFilled: true })
+})
+
+test('resolveOffCoordinates: a manual "Choisir sur la carte" override always wins outright, autoFilled false', () => {
+  const days = [
+    day({ id: 'd0', index: 0, type: 'ride', stageId: 's0' }),
+    day({ id: 'd1', index: 1, type: 'off', overrideStartLatitude: 43.5, overrideStartLongitude: 4.5 }),
+  ]
+  const stages = [stage({ id: 's0', sourceRouteId: 'r0' })]
+  const routes = [route({ id: 'r0', geometry: geometryFromEndpoints([44.1, 6.1], [44.9, 6.9]) })]
+  const result = resolveOffCoordinates(bundle(days, stages, routes), days[1])
+  assert.deepEqual(result, { latitude: 43.5, longitude: 4.5, autoFilled: false })
+})
+
+test('resolveOffCoordinates: genuinely unknown (no neighbour, no override, no geometry) stays null, never fabricated', () => {
+  const days = [day({ id: 'd0', index: 0, type: 'off' })]
+  assert.equal(resolveOffCoordinates(bundle(days, []), days[0]), null)
+})
+
+test('resolveTransferCoordinates: origin from the previous ride stage, destination from the next, each independently overridable', () => {
+  const days = [
+    day({ id: 'd0', index: 0, type: 'ride', stageId: 's0' }),
+    day({ id: 'd1', index: 1, type: 'transfer', overrideEndLatitude: 46.0, overrideEndLongitude: 7.0 }),
+    day({ id: 'd2', index: 2, type: 'ride', stageId: 's2' }),
+  ]
+  const stages = [stage({ id: 's0', sourceRouteId: 'r0' }), stage({ id: 's2', sourceRouteId: 'r2' })]
+  const routes = [
+    route({ id: 'r0', geometry: geometryFromEndpoints([44.1, 6.1], [44.9, 6.9]) }),
+    route({ id: 'r2', geometry: geometryFromEndpoints([45.1, 8.1], [45.9, 8.9]) }),
+  ]
+  const result = resolveTransferCoordinates(bundle(days, stages, routes), days[1])
+  assert.deepEqual(result.origin, { latitude: 44.9, longitude: 6.9, autoFilled: true }, 'origin auto-filled from the previous ride stage\'s arrival point')
+  assert.deepEqual(result.destination, { latitude: 46.0, longitude: 7.0, autoFilled: false }, 'destination overridden manually — the next stage\'s own start point is ignored')
+})
+
+test('resolveTransferCoordinates: neither side resolvable stays null on both sides', () => {
+  const days = [day({ id: 'd0', index: 0, type: 'transfer' })]
+  const result = resolveTransferCoordinates(bundle(days, []), days[0])
+  assert.equal(result.origin, null)
+  assert.equal(result.destination, null)
+})
+
+test('resolveSharedInfoDayId: an after_previous transfer resolves to the calendar-adjacent previous day\'s id', () => {
+  const days = [
+    day({ id: 'd0', index: 0, type: 'ride', stageId: 's0' }),
+    day({ id: 'd1', index: 1, type: 'transfer', transferTiming: 'after_previous' }),
+  ]
+  assert.equal(resolveSharedInfoDayId(bundle(days, []), days[1]), 'd0')
+})
+
+test('resolveSharedInfoDayId: a dedicated or before_next transfer, an OFF day, and a ride day all resolve to themselves', () => {
+  const dedicated = day({ id: 'd0', index: 0, type: 'transfer', transferTiming: 'dedicated' })
+  const beforeNext = day({ id: 'd1', index: 1, type: 'transfer', transferTiming: 'before_next' })
+  const untimed = day({ id: 'd2', index: 2, type: 'transfer' })
+  const off = day({ id: 'd3', index: 3, type: 'off' })
+  const ride = day({ id: 'd4', index: 4, type: 'ride', stageId: 's4' })
+  const days = [dedicated, beforeNext, untimed, off, ride]
+  const b = bundle(days, [])
+  assert.equal(resolveSharedInfoDayId(b, dedicated), 'd0')
+  assert.equal(resolveSharedInfoDayId(b, beforeNext), 'd1')
+  assert.equal(resolveSharedInfoDayId(b, untimed), 'd2', 'the historical absence of transferTiming is treated as dedicated, same as countCalendarDays')
+  assert.equal(resolveSharedInfoDayId(b, off), 'd3')
+  assert.equal(resolveSharedInfoDayId(b, ride), 'd4')
+})
+
+test('resolveSharedInfoDayId: an after_previous transfer with no calendar-adjacent day at all falls back to its own id, never crashes', () => {
+  const days = [day({ id: 'd0', index: 0, type: 'transfer', transferTiming: 'after_previous' })]
+  assert.equal(resolveSharedInfoDayId(bundle(days, []), days[0]), 'd0')
 })

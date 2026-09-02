@@ -460,6 +460,17 @@ export function selectPauseRecommendations(
       && candidate.distanceKm <= totalDistanceKm - minEdgeKm
       && Math.abs(candidate.distanceKm - ideal.distanceKm) <= windowKm
       && !usedCandidateIds.has(candidate.id)
+      // R2.1 section 15-16: a standalone POI (no nearby structural anchor —
+      // `origin: 'poi'`, `waypointId: null`) can never itself become the
+      // pause's own anchor/name — that is the exact source of the "Service"
+      // generic-lieu bug (a bare `PauseCandidatePlace.name` with no real
+      // waypoint to anchor it). It still fully participates in SCORING a
+      // real anchor nearby (`buildPauseCandidates`'s own merge step, CDC
+      // section 16 "POI = service utile associé"); it just never wins a
+      // slot on its own. A slot with no real anchor nearby falls through to
+      // the 'fallback' synthetic-position branch below, named after the
+      // slot itself ("Pause du matin"/etc.) — never a POI category name.
+      && candidate.waypointId !== null
       && selectedDistances.every((distanceKm) => Math.abs(distanceKm - candidate.distanceKm) >= minSpacingKm))
 
     const context: ScoringContext = { ...scoringContextFor(ideal.distanceKm, windowKm, priorPauseMinutes), idealDistanceKm: ideal.distanceKm, windowKm }

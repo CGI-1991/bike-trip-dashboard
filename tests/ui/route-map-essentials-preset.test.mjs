@@ -18,15 +18,24 @@ function extractFunction(name) {
   return source.slice(start, end)
 }
 
-// R1 section 18: "Essentiels" activates exactly Eau/Abris/Toilettes/Vélo
-// together — the CDC's own four categories, matched to the real layer ids
+// R2.1 section 26 (correcting R1 section 18): "Essentiels" activates exactly
+// Eau/Supermarché/Toilettes together — Abris/Vélo/Boulangerie are
+// deliberately excluded — matched to the real layer ids
 // buildPracticalPlaceMapLayers produces (`practical-${category}`).
 
-test('R1 test M: ESSENTIAL_LAYER_IDS is exactly Eau/Abris/Toilettes/Vélo — no other category, no new one invented', () => {
+test('R2.1 test AP: ESSENTIAL_LAYER_IDS is exactly Eau/Supermarché/Toilettes — no other category, no new one invented', () => {
   const match = /const ESSENTIAL_LAYER_IDS: ReadonlySet<string> = new Set\(\[([^\]]+)\]\)/.exec(source)
   assert.ok(match, 'ESSENTIAL_LAYER_IDS not found')
   const ids = match[1].split(',').map((entry) => entry.trim().replace(/^'|'$/g, ''))
-  assert.deepEqual(ids.sort(), ['practical-bike-service', 'practical-shelter', 'practical-toilet', 'practical-water'].sort())
+  assert.deepEqual(ids.sort(), ['practical-supermarket', 'practical-toilet', 'practical-water'].sort())
+})
+
+test('R2.1 tests AQ/AR/AS: Abris, Vélo and Boulangerie are NOT part of the Essentiels preset', () => {
+  const match = /const ESSENTIAL_LAYER_IDS: ReadonlySet<string> = new Set\(\[([^\]]+)\]\)/.exec(source)
+  const ids = match[1].split(',').map((entry) => entry.trim().replace(/^'|'$/g, ''))
+  assert.ok(!ids.includes('practical-shelter'), 'AQ: Abris must not be activated')
+  assert.ok(!ids.includes('practical-bike-service'), 'AR: Vélo must not be activated')
+  assert.ok(!ids.includes('practical-bakery'), 'AS: Boulangerie must not be activated')
 })
 
 test('the six individual practical-place categories are untouched — the preset never replaces them, only toggles several at once', () => {

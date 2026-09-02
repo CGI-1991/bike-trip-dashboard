@@ -212,7 +212,7 @@ test('saving the manual pause editor patches only the pauses/stats/timeline subt
   }
 })
 
-test('an unchecked row is never saved as a pause — only checked candidates survive', async () => {
+test('G/H (R2.1 section 5): an unchecked row is never saved as a pause — 0 pauses is a valid, persisted configuration, never blocked, the status line says so plainly', async () => {
   const db = await openTestDatabase()
   try {
     const bundle = withAnchorPoint(createGenericTripBundle())
@@ -234,8 +234,13 @@ test('an unchecked row is never saved as a pause — only checked candidates sur
     container.dispatch('click', { target: fakeActionElement({ action: 'save-manual-pauses' }) })
     await flush()
 
+    // G: never blocked — the save actually went through and patched the
+    // pauses subtree, no error/validation stopped it.
+    assert.match(pausesElement.outerHTML, /Mode manuel · aucune pause/)
+    // H: the empty configuration is genuinely persisted, not just displayed.
     const saved = await createTripRepository(db).loadTripBundle(bundle.metadata.id)
     const stageSettings = saved.settings.stages.find((entry) => entry.stageId === 'stage-alpha')
+    assert.equal(stageSettings.pausePlanMode, 'custom')
     assert.deepEqual(stageSettings.pauses, [])
   } finally {
     db.close()

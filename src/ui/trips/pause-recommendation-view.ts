@@ -13,6 +13,9 @@
 
 import type { PauseRecommendation, PauseRecommendationReasonCode } from '../../analysis/pause-recommendation.ts'
 import type { CanonicalWaypoint } from '../../analysis/canonical-waypoints.ts'
+import { evaluateOpeningAtPassage } from '../../practical-places/opening-hours.ts'
+import type { OpeningStatus } from '../../practical-places/opening-hours.ts'
+import { DEPARTURE_SCENARIO_OFFSETS_MINUTES } from '../../weather/alerts/thresholds.ts'
 
 export interface PauseRecommendationViewModel {
   readonly pauseId: string
@@ -88,4 +91,42 @@ export function buildPauseRecommendationViewModels(recommendations: readonly Pau
 /** Looks up this one waypoint's own recommendation, if any (CDC section 30: badge/reason line attaches to the exact same waypoint row the pause badge already renders on) — `undefined` for a waypoint C3 has nothing to say about (manual mode, fallback slot, or simply not a recommended pause). */
 export function findPauseRecommendationForWaypoint(viewModels: readonly PauseRecommendationViewModel[], waypointId: string): PauseRecommendationViewModel | undefined {
   return viewModels.find((viewModel) => viewModel.waypointId === waypointId)
+}
+
+/** R2.1 sections 9-10 own vocabulary — never the raw `OpeningStatus`/opening_hours string directly. */
+const OPENING_STATUS_LABELS: Readonly<Record<OpeningStatus, string>> = {
+  open: 'Ouvert à l’ETA', closed: 'Fermé à l’ETA', unknown: 'Horaires inconnus',
+}
+
+/** R2.1 sections 9-10: -1h/+1h before -2h/+2h — the closest, most likely-relevant alternative departure, never every scenario at once. */
+const SCENARIO_HINT_PRIORITY: readonly number[] = [-60, 60, -120, 120]
+const SCENARIO_OFFSET_LABELS: Readonly<Record<number, string>> = { [-120]: '−2 h', [-60]: '−1 h', 60: '+1 h', 120: '+2 h' }
+
+export interface CandidateOpeningStatusViewModel {
+  readonly label: string
+  /** R2.1 section 10: only ever set when genuinely useful — closed at the current ETA, but a real, coherent difference exists with one of the 5 departure scenarios (`DEPARTURE_SCENARIO_OFFSETS_MINUTES` — the exact same ones the weather panel already offers, never a new one). `null` otherwise (open/unknown, or nothing actually changes). */
+  readonly scenarioHint: string | null
+}
+
+/**
+ * R2.1 sections 9-10: a candidate's opening status at its own current ETA
+ * (`clockMinutes`), reusing `evaluateOpeningAtPassage` exactly as C3's own
+ * scoring already does (`analysis/pause-recommendation.ts`) — never a
+ * second opening-hours parser. `null` when there is genuinely nothing to
+ * show (no `openingHours` string at all for this candidate — CDC section 9:
+ * "pour chaque candidat disposant d'horaires fiables", never a line for a
+ * spot with no commerce/POI nearby at all).
+ */
+export function computeCandidateOpeningStatus(openingHours: string | null, weekday: number, clockMinutes: number): CandidateOpeningStatusViewModel | null {
+  if (openingHours === null || openingHours.trim() === '') return null
+  const current = evaluateOpeningAtPassage(openingHours, weekday, clockMinutes)
+  if (current.status !== 'closed') return { label: OPENING_STATUS_LABELS[current.status], scenarioHint: null }
+  for (const offset of SCENARIO_HINT_PRIORITY) {
+    if (!DEPARTURE_SCENARIO_OFFSETS_MINUTES.includes(offset as (typeof DEPARTURE_SCENARIO_OFFSETS_MINUTES)[number])) continue
+    const shiftedMinutes = ((clockMinutes + offset) % 1_440 + 1_440) % 1_440
+    if (evaluateOpeningAtPassage(openingHours, weekday, shiftedMinutes).status === 'open') {
+      return { label: OPENING_STATUS_LABELS.closed, scenarioHint: `ouvert avec départ ${SCENARIO_OFFSET_LABELS[offset]}` }
+    }
+  }
+  return { label: OPENING_STATUS_LABELS.closed, scenarioHint: null }
 }

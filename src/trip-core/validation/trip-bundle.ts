@@ -505,6 +505,23 @@ export function validateTripBundle(value: unknown): ValidationResult<TripBundle>
     if (day.transferMode !== undefined && !isNonEmptyString(day.transferMode)) issues.push(issue(`${path}.transferMode`, 'invalid-value', 'transferMode invalide.'))
     if (day.transferDepartureTime !== undefined && !isTimeOfDay(day.transferDepartureTime)) issues.push(issue(`${path}.transferDepartureTime`, 'invalid-value', 'transferDepartureTime doit être HH:MM.'))
     if (day.transferArrivalTime !== undefined && !isTimeOfDay(day.transferArrivalTime)) issues.push(issue(`${path}.transferArrivalTime`, 'invalid-value', 'transferArrivalTime doit être HH:MM.'))
+    // R2.1 sections 36-37/40-41: same permissive, purely additive pattern.
+    if (day.transferOperator !== undefined && !isNonEmptyString(day.transferOperator)) issues.push(issue(`${path}.transferOperator`, 'invalid-value', 'transferOperator invalide.'))
+    if (day.transferLink !== undefined && !isNonEmptyString(day.transferLink)) issues.push(issue(`${path}.transferLink`, 'invalid-value', 'transferLink invalide.'))
+    if (day.overrideStartLatitude !== undefined && !isLatitude(day.overrideStartLatitude)) issues.push(issue(`${path}.overrideStartLatitude`, 'invalid-value', 'overrideStartLatitude invalide.'))
+    if (day.overrideStartLongitude !== undefined && !isLongitude(day.overrideStartLongitude)) issues.push(issue(`${path}.overrideStartLongitude`, 'invalid-value', 'overrideStartLongitude invalide.'))
+    if (day.overrideEndLatitude !== undefined && !isLatitude(day.overrideEndLatitude)) issues.push(issue(`${path}.overrideEndLatitude`, 'invalid-value', 'overrideEndLatitude invalide.'))
+    if (day.overrideEndLongitude !== undefined && !isLongitude(day.overrideEndLongitude)) issues.push(issue(`${path}.overrideEndLongitude`, 'invalid-value', 'overrideEndLongitude invalide.'))
+    // A coordinate override is only ever meaningful paired with its own
+    // name override (CDC section 41: never resolved on its own) — a stray
+    // coordinate with no name to anchor it is rejected rather than silently
+    // orphaned.
+    if ((day.overrideStartLatitude !== undefined || day.overrideStartLongitude !== undefined) && day.startLocationName === null) {
+      issues.push(issue(`${path}.overrideStartLatitude`, 'inconsistent-override', 'Une coordonnée de départ surchargée exige un libellé (startLocationName).'))
+    }
+    if ((day.overrideEndLatitude !== undefined || day.overrideEndLongitude !== undefined) && day.endLocationName === null) {
+      issues.push(issue(`${path}.overrideEndLatitude`, 'inconsistent-override', 'Une coordonnée d’arrivée surchargée exige un libellé (endLocationName).'))
+    }
   })
   const daysById = new Map(days.map((day) => [day.id, day]))
 

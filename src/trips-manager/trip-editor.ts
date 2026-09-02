@@ -275,21 +275,32 @@ export function mergeEditedTripBundle(existing: TripBundle, rebuilt: TripBundle,
       ...day,
       id: mappedId,
       stageId: mappedStageId,
-      startLocationName: mergedStage?.startLocationName ?? day.startLocationName,
-      endLocationName: mergedStage?.endLocationName ?? day.endLocationName,
+      // R2.1 sections 40-41: `mergedStage` only ever exists for a ride day
+      // (fresh geocoding wins there) — for OFF/transfer (`mergedStage
+      // undefined`), `original`'s own manual override ("Choisir sur la
+      // carte"/a typed libellé) must survive a structural edit exactly like
+      // notes/accommodation already do, never silently reset to `null`.
+      startLocationName: mergedStage?.startLocationName ?? original?.startLocationName ?? day.startLocationName,
+      endLocationName: mergedStage?.endLocationName ?? original?.endLocationName ?? day.endLocationName,
       accommodationId: original?.accommodationId ?? null,
       notes: original?.notes ?? day.notes,
       enrichmentStatus: original?.enrichmentStatus ?? day.enrichmentStatus,
-      // R2 section 2: `rebuilt` never carries these (only `notes`/
+      // R2/R2.1: `rebuilt` never carries any of these (only `notes`/
       // `transferTiming` flow through `TripEditSlot`/`day-structure.ts` —
-      // these three are only ever edited from the Infos tab, never the D3.1
-      // structural editor itself, exactly like `notes` used to be before it
-      // gained this same preservation). Without this, ANY structural edit
-      // (reorder/add/remove a day) would silently wipe them from every
-      // transfer day in the trip, touched or not.
+      // every field below is only ever edited from the Infos tab, never the
+      // D3.1 structural editor itself, exactly like `notes` used to be
+      // before it gained this same preservation). Without this, ANY
+      // structural edit (reorder/add/remove a day) would silently wipe them
+      // from every OFF/transfer day in the trip, touched or not.
       transferMode: original?.transferMode ?? day.transferMode,
       transferDepartureTime: original?.transferDepartureTime ?? day.transferDepartureTime,
       transferArrivalTime: original?.transferArrivalTime ?? day.transferArrivalTime,
+      transferOperator: original?.transferOperator ?? day.transferOperator,
+      transferLink: original?.transferLink ?? day.transferLink,
+      overrideStartLatitude: original?.overrideStartLatitude ?? day.overrideStartLatitude,
+      overrideStartLongitude: original?.overrideStartLongitude ?? day.overrideStartLongitude,
+      overrideEndLatitude: original?.overrideEndLatitude ?? day.overrideEndLatitude,
+      overrideEndLongitude: original?.overrideEndLongitude ?? day.overrideEndLongitude,
     }
   })
 

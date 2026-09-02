@@ -8,10 +8,11 @@
  */
 
 import type { TripDay } from '../../trip-core/index.ts'
+import { formatTransferModeLabel } from './transfer-mode-labels.ts'
 
 /** `null` when nothing to show at all — mode and both times absent (never an empty line). */
 export function formatTransferModeAndTimes(day: TripDay): string | null {
-  const mode = day.transferMode ?? null
+  const mode = formatTransferModeLabel(day.transferMode)
   const departure = day.transferDepartureTime ?? null
   const arrival = day.transferArrivalTime ?? null
   const times = departure === null && arrival === null ? null : `${departure ?? '—'} → ${arrival ?? '—'}`

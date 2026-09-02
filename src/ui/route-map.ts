@@ -36,6 +36,7 @@ const scrollUnlocks = new WeakMap<HTMLDialogElement, () => void>()
 const pendingFrames = new WeakMap<HTMLDialogElement, number>()
 const mapLayerControllers = new WeakMap<HTMLDialogElement, { dispose(): void }>()
 const temporaryMarkers = new WeakMap<HTMLElement, L.CircleMarker>()
+const mapClickHandlers = new WeakMap<HTMLElement, (event: L.LeafletMouseEvent) => void>()
 const currentLocationMarkers = new WeakMap<HTMLElement, { readonly dot: L.CircleMarker; readonly halo: L.Circle | null }>()
 
 /**
@@ -62,6 +63,7 @@ export function destroyRouteMap(container: HTMLElement): void {
   // `setTemporaryMarker` must never resurrect/reuse it.
   temporaryMarkers.delete(container)
   currentLocationMarkers.delete(container)
+  mapClickHandlers.delete(container)
 }
 function destroy(container: HTMLElement): void { destroyRouteMap(container) }
 
@@ -85,6 +87,16 @@ export interface RouteMapInteractionHandle {
    */
   setCurrentLocationMarker(latitude: number, longitude: number, accuracyMeters: number | null): void
   clearCurrentLocationMarker(): void
+  /**
+   * R2.1 sections 40-41 — "Choisir sur la carte": lets the caller
+   * (`trips-manager.ts`) enter a click-to-pick mode on this exact map
+   * instance, with no new Leaflet concept of its own — a tap just reports
+   * its coordinates, same map, same tiles, same zoom/pan the user already
+   * has. At most one handler at a time (a second call replaces the first,
+   * exactly like `setTemporaryMarker`'s single marker); `null` removes it.
+   * Never installed by default — only while a picker is actually open.
+   */
+  onMapClick(handler: ((latitude: number, longitude: number) => void) | null): void
 }
 
 /**
@@ -150,6 +162,14 @@ export function getRouteMapInteractionHandle(container: HTMLElement): RouteMapIn
       existing.dot.remove()
       existing.halo?.remove()
       currentLocationMarkers.delete(canvas)
+    },
+    onMapClick(handler): void {
+      const existing = mapClickHandlers.get(canvas)
+      if (existing !== undefined) map.off('click', existing)
+      if (handler === null) { mapClickHandlers.delete(canvas); return }
+      const listener = (event: L.LeafletMouseEvent): void => handler(event.latlng.lat, event.latlng.lng)
+      mapClickHandlers.set(canvas, listener)
+      map.on('click', listener)
     },
   }
 }
@@ -248,13 +268,15 @@ export function disposeMapLayerPanel(dialog: HTMLDialogElement): void {
 }
 
 /**
- * R1 section 18: a light UX shortcut only — never a new POI category, never
- * a change to the enrichment/search engine (`practical-places/*`). Exactly
- * the four practical-place layer ids the CDC names ("Eau, Abris, Toilettes,
- * Vélo"); every individual category checkbox stays fully independent and
- * usable on its own, this only ever toggles several of them together.
+ * R2.1 section 26 (correcting R1 section 18): a light UX shortcut only —
+ * never a new POI category, never a change to the enrichment/search engine
+ * (`practical-places/*`). Exactly the three practical-place layer ids the
+ * CDC names ("Eau, Supermarché, Toilettes") — Abris/Vélo/Boulangerie are
+ * deliberately excluded now; every individual category checkbox stays fully
+ * independent and usable on its own, this only ever toggles several of them
+ * together.
  */
-const ESSENTIAL_LAYER_IDS: ReadonlySet<string> = new Set(['practical-water', 'practical-shelter', 'practical-toilet', 'practical-bike-service'])
+const ESSENTIAL_LAYER_IDS: ReadonlySet<string> = new Set(['practical-water', 'practical-supermarket', 'practical-toilet'])
 
 /**
  * Installs the small "Calques" panel on the fullscreen map (structural

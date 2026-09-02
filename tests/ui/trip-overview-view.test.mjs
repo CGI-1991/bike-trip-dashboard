@@ -220,8 +220,25 @@ test('mapStages waypoints are pre-filtered to the compact-map default (villages 
 // CDC D1.2 section 6: Détail ON adds ONLY pauses + named cols — an
 // auto-detected village/town/city is explicitly excluded, durably (H: no
 // future POI layer either).
+// R2.1 sections 24-25: a col is only ever surfaced with an associated
+// montée now — this fixture's "Col des Aravis" gets a matching `Climb`
+// (same normalized name, within tolerance of its distance) purely so it
+// keeps merging and staying visible; the point of this test (named cols vs
+// villages in the detail layer) is otherwise unchanged.
+function pushAravisClimb(bundle) {
+  bundle.climbs.push({
+    id: 'climb-aravis', routeId: bundle.routes[0].id, name: 'Col des Aravis',
+    startDistanceKm: 25, endDistanceKm: 30, elevationGainM: 550,
+    averageGradientPercent: 7, maxGradientPercent: 11, startAltitudeM: 950, endAltitudeM: 1486,
+    confidence: 'confirmed',
+    provenance: { sourceType: 'osm', sourceId: 'postpass:climb:aravis', fetchedAt: null, engineVersion: 'route-enrichment@4', confidence: 'high', manuallyOverridden: false },
+  })
+  bundle.stages[0].climbIds.push('climb-aravis')
+  return bundle
+}
+
 test('mapDetailStages carries only pauses and named cols — an auto-detected village never joins them, even though the default map keeps only endpoints', () => {
-  const bundle = createGenericTripBundle()
+  const bundle = pushAravisClimb(createGenericTripBundle())
   bundle.routePoints.push(
     {
       id: 'village-ui', routeId: bundle.routes[0].id, type: 'passage', name: 'Micro Village',
@@ -281,7 +298,7 @@ test('E: the fullscreen dialog carries the "Détail" control, stateful via aria-
 })
 
 test('D1.2 sections 6/H: Détail OFF keeps only principal points; Détail ON adds ONLY pauses + named cols, never a village/town or a practical POI', () => {
-  const bundle = createGenericTripBundle()
+  const bundle = pushAravisClimb(createGenericTripBundle())
   bundle.routePoints.push(
     {
       id: 'village-ui', routeId: bundle.routes[0].id, type: 'passage', name: 'Micro Village',

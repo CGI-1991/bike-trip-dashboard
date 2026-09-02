@@ -65,7 +65,7 @@ test('a green risk shows no banner at all — sober treatment (section 23)', () 
   assert.doesNotMatch(container.innerHTML, /weather-decision__banner/)
 })
 
-test('a recommended change shows the conclusion sentence, an "Appliquer HH:MM", and "Modifier manuellement" (sections 20-21/25/28)', () => {
+test('R2.1 section 7: a recommended change shows the conclusion sentence, an "Appliquer HH:MM" that applies directly, and "Modifier manuellement"', () => {
   const container = fakeElement()
   const recommendation = {
     status: 'recommended-change',
@@ -76,7 +76,7 @@ test('a recommended change shows the conclusion sentence, an "Appliquer HH:MM", 
   }
   renderGenericStageWeatherPanel(container, baseModel({ recommendation, departureScenarios: fiveScenarios() }), false)
   assert.match(container.innerHTML, /Un départ vers 07:00 semble plus favorable que 08:00\./)
-  assert.match(container.innerHTML, /data-action="apply-weather-departure-time" data-departure-time="07:00" data-current-departure-time="08:00">Appliquer 07:00</)
+  assert.match(container.innerHTML, /data-action="apply-weather-departure-time" data-departure-time="07:00">Appliquer 07:00</)
   assert.match(container.innerHTML, /data-action="edit-day-departure-time">Modifier manuellement/, 'reuses the exact same editor action as the Étape stats header — never a second implementation')
 })
 
@@ -120,13 +120,13 @@ test('each non-current coherent scenario offers its own "Choisir HH:MM" — the 
   assert.equal((container.innerHTML.match(/Choisir /g) ?? []).length, 1, 'only the one coherent, non-current scenario gets a "Choisir" action')
 })
 
-test('the confirmation panel is always rendered alongside a comparison, hidden by default (section 26)', () => {
+test('R2.1 section 7: no confirmation panel/modal at all any more — "Choisir"/"Appliquer" apply directly, nothing left to confirm or cancel', () => {
   const container = fakeElement()
   renderGenericStageWeatherPanel(container, baseModel({ departureScenarios: fiveScenarios() }), false)
-  assert.match(container.innerHTML, /data-weather-apply-confirm hidden/)
-  assert.match(container.innerHTML, /Modifier l.heure de départ ?/)
-  assert.match(container.innerHTML, /data-action="confirm-apply-weather-departure-time">Confirmer/)
-  assert.match(container.innerHTML, /data-action="cancel-apply-weather-departure-time">Annuler/)
+  assert.doesNotMatch(container.innerHTML, /data-weather-apply-confirm/)
+  assert.doesNotMatch(container.innerHTML, /confirm-apply-weather-departure-time/)
+  assert.doesNotMatch(container.innerHTML, /cancel-apply-weather-departure-time/)
+  assert.doesNotMatch(container.innerHTML, /Modifier l.heure de départ ?/)
 })
 
 test('mode policy (section 29): today-reference/past/trend show no decision card at all', () => {

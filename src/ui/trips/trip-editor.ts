@@ -5,10 +5,11 @@ import { checkChainContinuity, detectStrictDuplicates, editGpxTrip, loadTripEdit
 import type { GpxPreAnalysis, TripEditSlot } from '../../trips-manager/index.ts'
 import { shiftTripStartDate, updateTripPreferences, TRIP_REFERENCE_SPEED_MAX_KPH, TRIP_REFERENCE_SPEED_MIN_KPH, validateTripPreferencesUpdate } from '../../trips-manager/trip-preferences.ts'
 import type { TripPreferencesFieldError, TripPreferencesUpdate } from '../../trips-manager/trip-preferences.ts'
-import { deriveTripTerrainContext, TRIP_TERRAIN_LABELS } from '../../analysis/terrain-context.ts'
+import { deriveTripTerrainContext } from '../../analysis/terrain-context.ts'
 import { createTripRepository } from '../../storage/indexeddb/trip-repository.ts'
 import { resolveOffLocation, resolveTransferLocations } from '../../analysis/day-location-fill.ts'
 import { formatShortDate } from '../date-format.ts'
+import { renderTerrainToggle } from './terrain-toggle.ts'
 import type { IsoDate, SourceFileId, TransferTiming, TripBundle, TripDayId, TripId } from '../../trip-core/index.ts'
 import type { TripsManagerDeps } from './trips-manager.ts'
 
@@ -31,7 +32,7 @@ type EditorItem =
     }
 
 const TRANSFER_TIMING_LABELS: Readonly<Record<TransferTiming, string>> = {
-  dedicated: 'Journée dédiée',
+  dedicated: 'Journée indépendante',
   after_previous: 'Après l’étape précédente',
   before_next: 'Avant l’étape suivante',
 }
@@ -92,14 +93,22 @@ export function createTripEditor(
   let name = ''
   let startDate: string | null = null
   let referenceSpeedKph = 18
-  /** `null` = Automatique (CDC section 14-15) — mirrors `GlobalTripSettings.mountainMode`'s own `undefined` state, never a second boolean-vs-tristate representation. */
-  let terrainOverride: boolean | null = null
+  /**
+   * R2.1 sections 19-23: always a concrete boolean once the editor has
+   * loaded — exactly two selectable states (Normal/Montagne), never a third
+   * "Automatique" option in the UI any more. Legacy compatibility (CDC
+   * section 22) lives entirely in how this gets its INITIAL value in
+   * `initialize()` below: an old bundle with `mountainMode: undefined` is
+   * pre-selected as Normal or Montagne from its own current derived label,
+   * never left in a tristate the control itself can't represent.
+   */
+  let terrainOverride = false
   let originalName = ''
   let originalStartDate: string | null = null
   let originalReferenceSpeedKph = 18
-  let originalTerrainOverride: boolean | null = null
+  let originalTerrainOverride = false
   let originalStructureSnapshot = ''
-  /** Kept only to preview the auto-filled OFF/transfer location (CDC Jalon B4.3 sections 13-14) for slots that already existed before this editing session — a brand-new slot has no neighbouring stage data to preview from yet (it is only produced once this edit is saved and re-analysed). Also the source `deriveTripTerrainContext` reads for the live "Terrain" display — its own aggregate elevation-gain-per-km never changes just from a preference edit, so re-deriving it from the ORIGINAL bundle throughout the session is correct. */
+  /** Kept only to preview the auto-filled OFF/transfer location (CDC Jalon B4.3 sections 13-14) for slots that already existed before this editing session — a brand-new slot has no neighbouring stage data to preview from yet (it is only produced once this edit is saved and re-analysed). */
   let originalBundle: TripBundle | null = null
 
   function rideItems(): readonly Extract<EditorItem, { readonly kind: 'ride' }>[] {
@@ -286,7 +295,7 @@ export function createTripEditor(
       let patched: TripBundle = {
         ...result.bundle,
         metadata: { ...result.bundle.metadata, name: trimmedName === '' ? result.bundle.metadata.name : trimmedName },
-        settings: { ...result.bundle.settings, global: { ...result.bundle.settings.global, referenceSpeedKph, mountainMode: terrainOverride ?? undefined } },
+        settings: { ...result.bundle.settings, global: { ...result.bundle.settings.global, referenceSpeedKph, mountainMode: terrainOverride } },
       }
       if (startDate !== null && startDate !== patched.calendar.startDate) patched = shiftTripStartDate(patched, startDate as IsoDate)
       await tripRepository.saveTripBundle(patched)
@@ -379,15 +388,6 @@ export function createTripEditor(
     return rows.length === 0 ? '' : `<ul class='wizard-alerts'>${rows.join('')}</ul>`
   }
 
-  /** D3.1 sections 13-16: reads the live (not-yet-saved) `terrainOverride` against the ORIGINAL bundle's own aggregate terrain data — that data never changes from a preference edit, only the override choice does. */
-  function currentTerrainContext() {
-    if (originalBundle === null) return { mode: 'automatic' as const, label: 'rolling' as const }
-    return deriveTripTerrainContext({
-      ...originalBundle,
-      settings: { ...originalBundle.settings, global: { ...originalBundle.settings.global, mountainMode: terrainOverride ?? undefined } },
-    })
-  }
-
   /**
    * D3.1 sections 4-5/9/14/34-35: a clearly separate "Informations" card —
    * name/date/speed always editable here, terrain shown as a live-derived
@@ -400,8 +400,6 @@ export function createTripEditor(
   }
 
   function renderInformationsSection(): string {
-    const terrain = currentTerrainContext()
-    const terrainLine = `${terrain.mode === 'automatic' ? 'Automatique' : 'Forcé'} · ${TRIP_TERRAIN_LABELS[terrain.label]}`
     const dateField = startDate === null ? '' : `<div class='field'>
         <label for='editor-start-date'>Date de départ</label>
         <input id='editor-start-date' type='date' data-editor-field='start-date' value='${startDate}'>
@@ -421,10 +419,6 @@ export function createTripEditor(
         <div class='field__control'><input id='editor-reference-speed' type='number' min='${TRIP_REFERENCE_SPEED_MIN_KPH}' max='${TRIP_REFERENCE_SPEED_MAX_KPH}' step='0.5' data-editor-field='reference-speed' value='${referenceSpeedKph}' aria-describedby='editor-reference-speed-hint editor-reference-speed-error'><span>km/h</span></div>
         <p id='editor-reference-speed-hint' class='field__hint'>Base utilisée pour estimer les temps de roulage.</p>
         <span id='editor-reference-speed-error' class='field__error' data-field-error='referenceSpeedKph' role='status'>${escapeHtml(fieldErrorFor('referenceSpeedKph'))}</span>
-      </div>
-      <div class='field'>
-        <span class='field__label' id='editor-terrain-label'>Terrain</span>
-        <p aria-labelledby='editor-terrain-label'>${escapeHtml(terrainLine)}</p>
       </div>
     </section>`
   }
@@ -454,15 +448,8 @@ export function createTripEditor(
       <ul class='wizard-structure__list'>${items.map(renderItem).join('')}</ul>
       ${renderWarnings()}
       <details class='wizard-advanced'><summary>Réglages avancés</summary>
-        <div class='field'>
-          <label for='editor-terrain-override'>Comportement terrain</label>
-          <select id='editor-terrain-override' data-editor-field='terrain-override'>
-            <option value='automatic' ${terrainOverride === null ? 'selected' : ''}>Automatique</option>
-            <option value='mountain' ${terrainOverride === true ? 'selected' : ''}>Forcer mode montagne</option>
-            <option value='normal' ${terrainOverride === false ? 'selected' : ''}>Forcer mode normal</option>
-          </select>
-          <p class='field__hint'>Change uniquement le seuil utilisé pour distinguer les montées principales des secondaires.</p>
-        </div>
+        ${renderTerrainToggle(terrainOverride)}
+        <p class='field__hint'>Change uniquement le seuil utilisé pour distinguer les montées principales des secondaires.</p>
       </details>
       ${errorMessage === null ? '' : `<p class='wizard-error' role='alert'>${escapeHtml(errorMessage)}</p>`}
       ${stage === 'saving' ? `<p role='status'>${escapeHtml(savingMessage)}</p>` : ''}
@@ -489,7 +476,17 @@ export function createTripEditor(
       originalStartDate = draft.bundle.calendar.startDate
       referenceSpeedKph = draft.bundle.settings.global.referenceSpeedKph
       originalReferenceSpeedKph = draft.bundle.settings.global.referenceSpeedKph
-      terrainOverride = draft.bundle.settings.global.mountainMode ?? null
+      // R2.1 section 22 — legacy compatibility: an old/untouched bundle
+      // (`mountainMode: undefined`, i.e. "automatic") is pre-selected from
+      // its own current derived terrain label, never left in a tristate the
+      // 2-choice control can't represent — "non explicitement montagne" (a
+      // 'rolling'/'mixed' label) pre-selects Normal, "explicitement
+      // montagne" (a 'mountain' label) pre-selects Montagne. Saving from
+      // here always writes back an explicit boolean from now on (see
+      // `currentPreferencesUpdate`), so this tristate→boolean collapse only
+      // ever happens once, on first open, never a destructive migration.
+      terrainOverride = draft.bundle.settings.global.mountainMode
+        ?? deriveTripTerrainContext(draft.bundle).label === 'mountain'
       originalTerrainOverride = terrainOverride
       // D3.1 section 42: this re-analyzes every retained GPX byte-for-byte
       // on every editor open, even when nothing about it will change this
@@ -545,11 +542,6 @@ export function createTripEditor(
       setItemTransferTiming(Number(target.dataset.position), target.value as TransferTiming)
       return
     }
-    if (target instanceof HTMLSelectElement && target.dataset.editorField === 'terrain-override') {
-      terrainOverride = target.value === 'automatic' ? null : target.value === 'mountain'
-      render()
-      return
-    }
     if (target instanceof HTMLInputElement && target.dataset.editorField === 'start-date') {
       startDate = target.value === '' ? startDate : target.value
       render()
@@ -591,6 +583,15 @@ export function createTripEditor(
   container.addEventListener('click', (event) => {
     const target = event.target
     if (!(target instanceof Element)) return
+    // The shared Normal/Montagne toggle (`terrain-toggle.ts`, also used by
+    // the creation wizard) carries a plain `data-action`, not this file's
+    // own `data-editor-action` convention — checked first, on its own.
+    const terrainButton = target.closest<HTMLElement>('[data-action="set-terrain-mode"]')
+    if (terrainButton !== null) {
+      terrainOverride = terrainButton.dataset.terrainMode === 'mountain'
+      render()
+      return
+    }
     const button = target.closest<HTMLElement>('[data-editor-action]')
     if (button === null) return
     const action = button.dataset.editorAction

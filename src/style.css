@@ -3180,7 +3180,12 @@ button:disabled { cursor: not-allowed; opacity: .55; }
  * type="time">` that replaces it in place) so neither ever visually jumps
  * within the stat tile.
  */
-.day-detail__departure-value { min-height: auto; padding: 1px 4px; color: inherit; background: none; border: 1px dashed transparent; border-radius: 4px; font: inherit; font-weight: 800; }
+/* R2.1 sections 2/13-14: a sober, always-on affordance — a visible border +
+ * very light tint at rest (not only on hover, which touch devices never
+ * see), reusing the same forest-50/forest-700 family every other
+ * modifiable/interactive element in this timeline shares (`.tag--pause`,
+ * `.day-detail__climb-card` below) — never a big primary button. */
+.day-detail__departure-value { min-height: auto; padding: 1px 4px; color: inherit; background: var(--forest-50); border: 1px solid var(--line-strong); border-radius: 4px; font: inherit; font-weight: 800; }
 .day-detail__departure-value:hover, .day-detail__departure-value:focus-visible { border-color: var(--forest-700); }
 .day-detail__departure-input { padding: 0 4px; }
 .day-detail__pauses { display: grid; gap: 10px; }
@@ -3203,6 +3208,10 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .day-detail__timeline-body strong { overflow-wrap: anywhere; }
 .day-detail__timeline-meta { color: var(--ink-soft); font-size: .78rem; }
 .day-detail__timeline-time { color: var(--ink-soft); font-size: .78rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* R2.1 section 11: the pause badge now stacks under the clock time, in the
+ * same left column — a paused stop keeps the exact same card geometry as
+ * one without (never a full-width badge reshaping the row). */
+.day-detail__timeline-time-col { display: grid; gap: 2px; justify-items: start; }
 .tag--pause { justify-self: start; color: var(--forest-800); background: var(--forest-50); }
 /* R2 section 1 (correction R1): météo is never expandable in the Parcours
  * timeline — every point, alert or not, is the exact same non-interactive
@@ -3213,8 +3222,15 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .day-detail__waypoint-weather--orange { color: var(--warning-text); font-weight: 700; }
 .day-detail__waypoint-weather--red { color: var(--danger-text); font-weight: 700; }
 
-.day-detail__climb-card { grid-template-columns: minmax(0, 1fr); padding: 0; overflow: hidden; }
+/* R2.1 sections 12-13: a montée card is interactive (its own disclosure) —
+ * a sober, always-on affordance, the exact same forest-50/forest-700 family
+ * as `.day-detail__departure-value` above, never a loud/oversized colour
+ * change. A plain row (`.day-detail__timeline-row`'s own neutral
+ * surface/line) stays visually calm — only montées and other genuinely
+ * interactive elements carry this. */
+.day-detail__climb-card { grid-template-columns: minmax(0, 1fr); padding: 0; overflow: hidden; border-color: var(--forest-700); background: var(--forest-50); }
 .day-detail__climb-toggle { width: 100%; min-height: 44px; padding: 10px; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 10px; align-items: start; text-align: left; color: inherit; background: none; border: 0; cursor: pointer; }
+.day-detail__climb-toggle:hover, .day-detail__climb-toggle:focus-visible { background: var(--forest-100); }
 .day-detail__climb-profile { padding: 0 10px 12px; }
 /* CDC Jalon B4.4 sections 30-31: tall enough to actually read the climb's
    shape (not a flat strip), with a real pointer/touch/keyboard tooltip —
@@ -3235,7 +3251,17 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 
 .trip-settings { display: grid; gap: 14px; padding: 14px max(14px, env(safe-area-inset-right)) 90px max(14px, env(safe-area-inset-left)); }
 .trip-settings__section { display: grid; gap: 8px; }
-.trip-settings__toggle { display: flex; align-items: center; gap: 8px; min-height: 44px; font-weight: 700; }
+
+/* R2.1 sections 18-23: the shared Normal/Montagne segmented toggle
+ * (`terrain-toggle.ts`) — a plain two-button group, sober enough not to
+ * compete with a primary action, but a real affordance (not a link/text). */
+.segmented-toggle { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.segmented-toggle__option {
+  min-height: 44px; padding: 9px 11px; color: var(--ink); background: var(--surface);
+  border: 1px solid var(--line-strong); border-radius: 9px; font-size: .92rem; font-weight: 700; cursor: pointer;
+}
+.segmented-toggle__option:hover { border-color: #84a69d; }
+.segmented-toggle__option[aria-pressed='true'] { color: #fff; background: var(--forest-800); border-color: var(--forest-800); }
 
 .wizard-validation-reasons { color: var(--ink-soft); font-size: .8rem; display: grid; gap: 3px; }
 
@@ -3415,7 +3441,21 @@ button:disabled { cursor: not-allowed; opacity: .55; }
  * wrapping Détails card at all; this override only ever applies once truly
  * nested here. */
 .day-detail__details-card > [role="tabpanel"] { padding: 15px; background: none; border: 0; box-shadow: none; border-radius: 0; }
-.day-detail__weather-inline { margin-top: 14px; }
+
+/* R2.1 sections 3-4: the Pauses/Météo bottom block — plain, non-sticky, in
+ * the normal page flow (it is a regular block, nothing pins it while
+ * scrolling). Two discreet toggle buttons, visually quieter than a primary
+ * action but still a real, always-visible affordance — never mistaken for
+ * inert text. */
+.day-bottom-block { margin-top: 14px; display: grid; gap: 10px; }
+.day-bottom-block__toggles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.day-bottom-block__toggle {
+  min-height: 44px; padding: 9px 11px; color: var(--ink); background: var(--surface);
+  border: 1px solid var(--line-strong); border-radius: 9px; font-size: .88rem; font-weight: 750; cursor: pointer;
+}
+.day-bottom-block__toggle:hover, .day-bottom-block__toggle:focus-visible { border-color: var(--forest-700); }
+.day-bottom-block__toggle[aria-expanded='true'] { color: #fff; background: var(--forest-800); border-color: var(--forest-800); }
+.day-bottom-block__panel[hidden] { display: none; }
 .day-detail__floating-nav { position: fixed; z-index: 15; right: max(14px, env(safe-area-inset-right)); bottom: calc(72px + env(safe-area-inset-bottom)); left: max(14px, env(safe-area-inset-left)); display: flex; justify-content: space-between; pointer-events: none; }
 .day-detail__floating-nav .button { width: 48px; height: 48px; min-height: 48px; padding: 0; pointer-events: auto; color: #fff; background: rgb(23 59 53 / 94%); border: 1px solid rgb(255 255 255 / 72%); border-radius: 50%; box-shadow: 0 5px 18px rgb(16 45 40 / 24%); font-size: 1.45rem; }
 .day-detail__floating-nav .button:disabled { visibility: hidden; }
@@ -3458,6 +3498,8 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .day-pause-editor__row { padding: 9px 11px; display: flex; flex-wrap: wrap; column-gap: 10px; row-gap: 2px; align-items: center; background: var(--surface-muted); border: 1px solid var(--line); border-radius: 8px; }
 .day-pause-editor__row-check { display: flex; align-items: center; gap: 8px; min-height: 44px; }
 .day-pause-editor__row-meta { color: var(--ink-soft); font-size: .78rem; flex: 1 1 auto; }
+/* R2.1 sections 9-10: opening status + scenario hint — one compact line, same size/weight as the meta line, never a bigger block. */
+.day-pause-editor__row-opening { flex: 0 0 100%; color: var(--ink-soft); font-size: .78rem; }
 .day-pause-editor__row-duration { display: flex; align-items: center; gap: 6px; }
 .day-pause-editor__row-duration input { width: 64px; min-height: 40px; padding: 4px 6px; border: 1px solid var(--line-strong); border-radius: 8px; }
 .day-pause-editor__actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
@@ -3537,6 +3579,10 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .trip-overview__weather-risk { font-size: .82rem; }
 
 /* Voyage compact per-card line (section 21) — an inline element: its mount point sits inside the card's own <button>. */
-.trip-day-card__weather { display: block; margin-top: 2px; color: var(--ink-soft); font-size: .82rem; }
+/* R2.1 section 17: shaved down from .82rem — reuses `.trip-day-card__route`'s
+ * own existing token (.75rem) rather than a new arbitrary value, so the
+ * compact weather line fits a single line more often without becoming hard
+ * to read. */
+.trip-day-card__weather { display: block; margin-top: 2px; color: var(--ink-soft); font-size: .75rem; }
 .trip-day-card__weather--orange { color: var(--warning-text); font-weight: 700; }
 .trip-day-card__weather--red { color: var(--danger-text); font-weight: 700; }

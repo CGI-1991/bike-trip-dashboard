@@ -128,6 +128,46 @@ test('Arrêts shows a compact status line only in normal view — never the paus
   assert.doesNotMatch(detail.html, /Rétablir Auto/, 'already automatic — no need for a button back to it')
 })
 
+// --- R2.1 sections 3-4 (tests A/B/C/D/E): Pauses/Météo bottom block —
+// static markup, both panels closed by default, non-sticky, in the normal
+// page flow. ------------------------------------------------------------
+
+test('A: Pauses and Météo both start closed — no extended content visible, both toggles aria-expanded=false', () => {
+  const bundle = createGenericTripBundle()
+  const detail = buildDayDetail(bundle, 'day-alpha')
+  assert.match(detail.html, /<div class="day-bottom-block" data-day-bottom-block>/)
+  assert.match(detail.html, /data-action="toggle-bottom-panel" aria-expanded="false" aria-controls="day-bottom-panel-pauses">Pauses</)
+  assert.match(detail.html, /data-action="toggle-bottom-panel" aria-expanded="false" aria-controls="day-bottom-panel-weather">Météo</)
+  assert.match(detail.html, /<div id="day-bottom-panel-pauses" class="day-bottom-block__panel" data-bottom-panel hidden>/)
+  assert.match(detail.html, /<div id="day-bottom-panel-weather" class="day-bottom-block__panel" data-bottom-panel hidden>/)
+})
+
+test('the bottom block is never sticky (in the normal page flow, no dedicated sticky class/CSS rule)', () => {
+  const bundle = createGenericTripBundle()
+  const detail = buildDayDetail(bundle, 'day-alpha')
+  assert.doesNotMatch(detail.html, /day-bottom-block[^"]*sticky/)
+  const css = readFileSync(new URL('../../src/style.css', import.meta.url), 'utf8')
+  const blockRule = /\.day-bottom-block \{[^}]*\}/.exec(css)?.[0] ?? ''
+  assert.doesNotMatch(blockRule, /position: sticky/)
+})
+
+test('the Pauses panel still carries renderPauseEditor\'s own untouched content — status line, C3, Enregistrer', () => {
+  const bundle = pushMainSlotAnchor(createGenericTripBundle())
+  const detail = buildDayDetail(bundle, 'day-alpha')
+  const panelMatch = /<div id="day-bottom-panel-pauses"[^]*?<\/div>\s*<div id="day-bottom-panel-weather"/.exec(detail.html)
+  assert.ok(panelMatch !== null)
+  assert.match(panelMatch[0], /data-day-detail-pauses/)
+  assert.match(panelMatch[0], /data-action="save-manual-pauses"/)
+})
+
+test('the Météo panel still carries the exact same [data-day-detail-weather] mount `mountWeatherViews` (trips-manager.ts) queries by', () => {
+  const bundle = createGenericTripBundle()
+  const detail = buildDayDetail(bundle, 'day-alpha')
+  const panelMatch = /<div id="day-bottom-panel-weather"[^]*?<\/div>\s*<\/div>/.exec(detail.html)
+  assert.ok(panelMatch !== null)
+  assert.match(panelMatch[0], /data-day-detail-weather/)
+})
+
 function pushAnchorPoint(bundle) {
   bundle.routePoints.push({
     id: 'town-ui', routeId: bundle.routes[0].id, type: 'passage', name: 'Waypoint Town',
@@ -645,7 +685,11 @@ test('a saddle landmark merged with its detected climb also gets the climb mini-
   assert.match(detail.timelineHtml, /data-action="toggle-climb-profile" data-climb-id="climb-col-1"/)
 })
 
-test('a mountain-pass landmark with no matching detected climb (climbId null) stays a simple point, never a climb mini-card', () => {
+// R2.1 sections 24-25 (tests AL-AO): a firm product rule — a col with no
+// associated montée must not be exposed anywhere at all, not even as a
+// plain point (this used to stay a simple point, never a climb mini-card —
+// R2.1 removes it from the surfaced waypoint set entirely).
+test('AM: a mountain-pass landmark with no matching detected climb (climbId null) does not become a waypoint at all — absent from the timeline entirely', () => {
   const bundle = createGenericTripBundle()
   bundle.routePoints.push({
     id: 'bare-pass', routeId: bundle.routes[0].id, type: 'passage', name: 'Col Isolé',
@@ -655,10 +699,22 @@ test('a mountain-pass landmark with no matching detected climb (climbId null) st
   })
   bundle.stages[0].routePointIds.push('bare-pass')
   const detail = buildDayDetail(bundle, 'day-alpha')
-  const waypoint = detail.waypoints.find((candidate) => candidate.id === 'bare-pass')
-  assert.equal(waypoint.climbId, null)
+  assert.equal(detail.waypoints.find((candidate) => candidate.id === 'bare-pass'), undefined)
   assert.doesNotMatch(detail.timelineHtml, /day-detail__climb-card/)
-  assert.match(detail.timelineHtml, /Col Isolé/)
+  assert.doesNotMatch(detail.timelineHtml, /Col Isolé/)
+})
+
+test('AN: an orphan col (no montée associated) never becomes a pause candidate either', () => {
+  const bundle = createGenericTripBundle()
+  bundle.routePoints.push({
+    id: 'bare-pass', routeId: bundle.routes[0].id, type: 'passage', name: 'Col Isolé',
+    latitude: 45.22, longitude: 6.3, elevationM: 900, trackDistanceKm: 20,
+    osmFeatureType: 'mountain-pass', lateralDistanceKm: 0.05,
+    provenance: { sourceType: 'osm', sourceId: 'postpass:pass:1', fetchedAt: null, engineVersion: 'route-enrichment@4', confidence: 'high', manuallyOverridden: false },
+  })
+  bundle.stages[0].routePointIds.push('bare-pass')
+  const detail = buildDayDetail(bundle, 'day-alpha')
+  assert.doesNotMatch(detail.pausesHtml, /data-candidate-id="bare-pass"/)
 })
 
 // --- R2 section 1 (correction R1): C3 disappears from the Parcours timeline,
@@ -700,6 +756,31 @@ test('A/B: an automatic pause in the Parcours timeline is a bare "Pause N min" b
   assert.doesNotMatch(detail.timelineHtml, /Score/)
 })
 
+// --- R2.1 sections 9-10 (tests K/L): opening status per candidate, wired
+// end to end through buildDayDetail. ----------------------------------------
+
+test('K/L: a candidate near a POI with known opening hours shows its status in the manual pause editor, recomputed from the day\'s own current ETA — no fresh fetch, reuses already-persisted data', () => {
+  const bundle = pushMainSlotAnchor(createGenericTripBundle())
+  bundle.practicalPlaces.push({
+    id: 'poi-bakery-1', stageId: bundle.stages[0].id, category: 'bakery', name: 'Boulangerie du Village',
+    latitude: 45.2, longitude: 6.35, description: null, trackDistanceKm: 16, detourKm: 0.05,
+    openingHours: '24/7', usefulTags: {}, hidden: false, pinned: false, dayIds: [bundle.days[0].id],
+    provenance: { sourceType: 'osm', sourceId: 'postpass-practical-places:node:1', fetchedAt: '2028-01-01T00:00:00.000Z', engineVersion: 'practical-places-postpass@1', confidence: 'high', manuallyOverridden: false },
+  })
+  const detail = buildDayDetail(bundle, 'day-alpha')
+  const rowMatch = /<div class="day-pause-editor__row" data-candidate-id="town-main-slot">[^]*?<\/div>/.exec(detail.pausesHtml)
+  assert.ok(rowMatch !== null)
+  assert.match(rowMatch[0], /day-pause-editor__row-opening">Ouvert à l.ETA/)
+})
+
+test('a candidate with no nearby POI at all shows no opening-status line — never a fake "Horaires inconnus" for a plain locality', () => {
+  const bundle = pushMainSlotAnchor(createGenericTripBundle())
+  const detail = buildDayDetail(bundle, 'day-alpha')
+  const rowMatch = /<div class="day-pause-editor__row" data-candidate-id="town-main-slot">[^]*?<\/div>/.exec(detail.pausesHtml)
+  assert.ok(rowMatch !== null)
+  assert.doesNotMatch(rowMatch[0], /day-pause-editor__row-opening/)
+})
+
 test('C/D: the manual pause editor still shows the C3 recommendation badge and its short reason for the same candidate — the only place this information is actionable', () => {
   const bundle = pushMainSlotAnchor(createGenericTripBundle())
   const detail = buildDayDetail(bundle, 'day-alpha')
@@ -712,6 +793,31 @@ test('C/D: the manual pause editor still shows the C3 recommendation badge and i
   assert.match(rowHtml, /Bon choix|★ Recommandé/)
 })
 
+// --- R2.1 section 11 (tests V/W): the pause badge lives under the clock
+// time, in the left column — a paused stop keeps the exact same card
+// skeleton as one without, never a full-width badge. ------------------------
+
+test('V: the pause badge sits inside the same left time column as the clock time — never in the body next to the meta line', () => {
+  const bundle = pushMainSlotAnchor(createGenericTripBundle())
+  const detail = buildDayDetail(bundle, 'day-alpha')
+  const rowMatch = /<li class="day-detail__timeline-row[^"]*" data-waypoint-id="town-main-slot"[^]*?<\/li>/.exec(detail.timelineHtml)
+  assert.ok(rowMatch !== null)
+  const rowHtml = rowMatch[0]
+  const timeColMatch = /<span class="day-detail__timeline-time-col">([^]*?)<\/span>\s*<div class="day-detail__timeline-body">/.exec(rowHtml)
+  assert.ok(timeColMatch !== null, 'the time column wraps both the clock time and the pause badge together')
+  assert.match(timeColMatch[1], /day-detail__timeline-time/)
+  assert.match(timeColMatch[1], /tag--pause/)
+  const bodyHtml = rowHtml.slice(rowHtml.indexOf('day-detail__timeline-body'))
+  assert.doesNotMatch(bodyHtml, /tag--pause/, 'the badge never lands in the body/meta area any more')
+})
+
+test('W: a paused row and an unpaused row share the exact same skeleton — no full-width badge reshaping the card', () => {
+  const bundle = pushMainSlotAnchor(createGenericTripBundle())
+  const detail = buildDayDetail(bundle, 'day-alpha')
+  // Every row (paused or not) is still exactly `<li>[time-col?]<div class="day-detail__timeline-body">…</div></li>` — the pause badge only ever adds a second child inside the SAME time column, never a new sibling block of its own.
+  assert.doesNotMatch(detail.timelineHtml, /<span class="tag tag--pause">[^<]*<\/span>\s*<span class="day-detail__timeline-weather"/, 'the badge is never adjacent to the météo mount inside the body any more (it moved out of the body entirely)')
+})
+
 // --- R2 section 1 (correction R1): météo is never expandable, montées stay
 // the timeline's one and only disclosure. -----------------------------------
 
@@ -719,6 +825,25 @@ test('G: a climb toggle keeps working on its own — aria-expanded/aria-controls
   const bundle = pushClimb(createGenericTripBundle())
   const detail = buildDayDetail(bundle, 'day-alpha')
   assert.match(detail.timelineHtml, /<button class="day-detail__climb-toggle"[^>]*aria-expanded="false" aria-controls="climb-profile-climb-test-1"/)
+})
+
+// --- R2.1 sections 12-14 (tests X/Y): a shared, sober "this is
+// interactive" visual language — colour + a reinforced border, reused by
+// montées and the départ value, never applied to a plain informational row.
+
+test('X: a montée card carries the shared interactive affordance (reinforced border + tint) — a plain row never does', () => {
+  const css = readFileSync(new URL('../../src/style.css', import.meta.url), 'utf8')
+  const climbCardRule = /\.day-detail__climb-card \{[^}]*\}/.exec(css)?.[0] ?? ''
+  assert.match(climbCardRule, /border-color: var\(--forest-700\)/)
+  assert.match(climbCardRule, /background: var\(--forest-50\)/)
+  const plainRowRule = /\.day-detail__timeline-row \{[^}]*\}/.exec(css)?.[0] ?? ''
+  assert.doesNotMatch(plainRowRule, /var\(--forest-700\)/, 'Y: a plain informational row stays neutral — no borrowed interactive colour')
+})
+
+test('the départ value (Stats) uses the same interactive colour family as a montée card — a consistent language across comparable controls', () => {
+  const css = readFileSync(new URL('../../src/style.css', import.meta.url), 'utf8')
+  const departureRule = /\.day-detail__departure-value \{[^}]*\}/.exec(css)?.[0] ?? ''
+  assert.match(departureRule, /background: var\(--forest-50\)/)
 })
 
 test('H: a climb that also carries an alert-level météo line exposes exactly one expandable control — the climb toggle, never the météo line', () => {
@@ -747,37 +872,58 @@ test('H: a climb that also carries an alert-level météo line exposes exactly o
 // --- OFF/transfer detail shell (CDC Jalon B4.4 sections 23-24/38): every
 // day type is now openable — no more `null` for OFF/transfer. ---------------
 
-test('an OFF day now builds a real detail shell — Résumé + Météo/Infos, no Parcours tab, no fake map/profile', () => {
+test('AV/AW: an OFF day now builds a real detail shell — Résumé, Météo and Infos rendered directly one after another, no tabs at all, no fake map/profile', () => {
   const bundle = createGenericTripBundle()
   const detail = buildDayDetail(bundle, 'day-bravo')
   assert.ok(detail !== null, 'OFF days must be openable now (CDC Jalon B4.4 section 13)')
   assert.equal(detail.waypoints.length, 0)
   assert.equal(detail.geometry, null)
-  assert.doesNotMatch(detail.html, /data-day-detail-map/, 'never a fake cycling map for a day with no route')
+  // R2.1 sections 38/40-41: an OFF day now gets a real markers-only map
+  // once its location resolves (Hilltown, from the neighbouring ride day)
+  // — never an elevation profile, never a fake cycling stat alongside it.
+  assert.match(detail.html, /data-day-detail-map/, 'the resolved location gets a real markers-only map')
   assert.doesNotMatch(detail.html, /data-day-detail-profile/, 'never a fake elevation profile')
   assert.doesNotMatch(detail.html, /data-day-tab="route"/, 'no Parcours tab at all')
+  // R2.1 sections 28-29: no tablist at all for OFF/transfer any more.
+  assert.doesNotMatch(detail.html, /data-day-detail-tabs/)
+  assert.doesNotMatch(detail.html, /role="tab"/)
+  assert.doesNotMatch(detail.html, /role="tabpanel"/)
+  const summaryIndex = detail.html.indexOf('day-detail__summary')
+  const weatherIndex = detail.html.indexOf('day-panel-weather')
+  const infosIndex = detail.html.indexOf('day-panel-infos')
+  assert.ok(summaryIndex >= 0 && summaryIndex < weatherIndex && weatherIndex < infosIndex, 'AW: Résumé, then Météo, then Infos, in that fixed order')
+  assert.doesNotMatch(detail.html.slice(weatherIndex, weatherIndex + 40), /hidden/, 'Météo is directly visible, never hidden behind a tab')
+  assert.doesNotMatch(detail.html.slice(infosIndex, infosIndex + 40), /hidden/, 'Infos is directly visible, never hidden behind a tab')
   assert.match(detail.html, /<span class="day-detail__identity-route">OFF — Hilltown<\/span>/, 'the identity bandeau carries a short type badge + the known location')
   assert.match(detail.html, /Hilltown/, 'the OFF day\'s known/auto-filled location shows in the Résumé')
   assert.match(detail.html, /data-day-detail-weather/, 'the same Météo mount point as a ride day — real weather is mounted by trips-manager.ts')
   assert.match(detail.html, /data-action="edit-day-infos">Modifier/, 'Infos is the same read/edit component as a ride day')
 })
 
-test('a transfer day builds a real detail shell — origin → destination and its transferTiming (CDC Jalon B4.4 sections 22/24)', () => {
+test('AX/AY: a transfer day builds a real detail shell — origin → destination, its transferTiming, no tabs at all', () => {
   const bundle = createGenericTripBundle()
   bundle.days[2].transferTiming = 'after_previous'
   const detail = buildDayDetail(bundle, 'day-charlie')
   assert.ok(detail !== null)
   assert.equal(detail.geometry, null)
   assert.doesNotMatch(detail.html, /data-day-tab="route"/)
+  assert.doesNotMatch(detail.html, /data-day-detail-tabs/, 'AX: no tablist at all')
+  assert.doesNotMatch(detail.html, /role="tab"/)
   assert.match(detail.html, /Transfert/)
   assert.match(detail.html, /Hilltown → Lakeside/)
   assert.match(detail.html, /Après l’étape précédente/)
+  // AY: résumé + météo + infos all present, directly visible.
+  const weatherIndex = detail.html.indexOf('day-panel-weather')
+  const infosIndex = detail.html.indexOf('day-panel-infos')
+  assert.ok(weatherIndex >= 0 && infosIndex > weatherIndex)
+  assert.doesNotMatch(detail.html.slice(weatherIndex, weatherIndex + 40), /hidden/)
+  assert.doesNotMatch(detail.html.slice(infosIndex, infosIndex + 40), /hidden/)
 })
 
-test('a transfer day with no explicit transferTiming shows the "journée dédiée" default', () => {
+test('a transfer day with no explicit transferTiming shows the "journée indépendante" default', () => {
   const bundle = createGenericTripBundle()
   const detail = buildDayDetail(bundle, 'day-charlie')
-  assert.match(detail.html, /Journée dédiée/)
+  assert.match(detail.html, /Journée indépendante/)
 })
 
 // --- R2 section 2: pragmatic transfer mode/heures — never fabricated -------
@@ -832,11 +978,12 @@ test('an old/incomplete transfer bundle (no transferMode/transferDepartureTime/t
 
 test('the Infos edit form exposes mode/départ/arrivée fields only for a transfer day — never for OFF or ride', () => {
   const bundle = createGenericTripBundle()
-  bundle.days[2].transferMode = 'Train'
+  bundle.days[2].transferMode = 'train'
   bundle.days[2].transferDepartureTime = '09:20'
   bundle.days[2].transferArrivalTime = '12:05'
   const transferDetail = buildDayDetail(bundle, 'day-charlie')
-  assert.match(transferDetail.infosHtml, /<input id="transfer-mode" type="text" data-field="transfer-mode" value="Train"/)
+  assert.match(transferDetail.infosHtml, /<select id="transfer-mode" data-field="transfer-mode">/)
+  assert.match(transferDetail.infosHtml, /<option value="train" selected>Train<\/option>/)
   assert.match(transferDetail.infosHtml, /<input id="transfer-departure-time" type="time" data-field="transfer-departure-time" value="09:20">/)
   assert.match(transferDetail.infosHtml, /<input id="transfer-arrival-time" type="time" data-field="transfer-arrival-time" value="12:05">/)
 
@@ -844,6 +991,141 @@ test('the Infos edit form exposes mode/départ/arrivée fields only for a transf
   assert.doesNotMatch(offDetail.infosHtml, /data-field="transfer-mode"/)
   const rideDetail = buildDayDetail(bundle, 'day-alpha')
   assert.doesNotMatch(rideDetail.infosHtml, /data-field="transfer-mode"/)
+})
+
+// --- R2.1 sections 32-34/36-38/40-41: transfer overhaul ---------------------
+
+test('an after_previous transfer shows/edits the previous (calendar-adjacent) day\'s own notes/lodging, with a shared-info hint — never a second, empty copy of its own', () => {
+  const bundle = createGenericTripBundle()
+  bundle.days[2].transferTiming = 'after_previous'
+  const detail = buildDayDetail(bundle, 'day-charlie')
+  assert.match(detail.infosHtml, /day-infos__shared-hint/, 'a visible hint explains where these Infos actually come from')
+  assert.match(detail.infosHtml, /Rest day in Hilltown\./, 'day-bravo\'s own notes show here, not day-charlie\'s')
+  assert.doesNotMatch(detail.infosHtml, /Train transfer, no cyclable stage\./, 'never day-charlie\'s own (now-orphaned) notes')
+})
+
+test('a dedicated/before_next transfer, an OFF day, and a ride day show no shared-info hint — each shows its own Infos', () => {
+  const bundle = createGenericTripBundle()
+  for (const dayId of ['day-alpha', 'day-bravo', 'day-charlie']) {
+    const detail = buildDayDetail(bundle, dayId)
+    assert.doesNotMatch(detail.infosHtml, /day-infos__shared-hint/, `${dayId} has no shared-info hint`)
+  }
+})
+
+test('R2.1 section 32: a before_next transfer never shows lodging fields at all — logically belongs to the following ride day, not the journey', () => {
+  const bundle = createGenericTripBundle()
+  bundle.days[2].transferTiming = 'before_next'
+  const detail = buildDayDetail(bundle, 'day-charlie')
+  assert.doesNotMatch(detail.infosHtml, /lodging-name/)
+  assert.doesNotMatch(detail.infosHtml, /lodging-maps-url/)
+  assert.doesNotMatch(detail.infosHtml, /lodging-website/)
+  // The transfer's own fields (mode/heures/notes) stay fully present.
+  assert.match(detail.infosHtml, /data-field="transfer-mode"/)
+})
+
+test('a dedicated transfer keeps its lodging fields exactly as before — only before_next hides them', () => {
+  const bundle = createGenericTripBundle()
+  const detail = buildDayDetail(bundle, 'day-charlie')
+  assert.match(detail.infosHtml, /lodging-name/)
+})
+
+test('R2.1 section 37: opérateur/lien fields render with their stored values; opérateur starts hidden when the mode is "bike"', () => {
+  const bundle = createGenericTripBundle()
+  bundle.days[2].transferMode = 'bike'
+  bundle.days[2].transferOperator = 'Vélib\''
+  bundle.days[2].transferLink = 'https://example.com/booking'
+  const detail = buildDayDetail(bundle, 'day-charlie')
+  assert.match(detail.infosHtml, /data-field-group="transfer-operator" hidden/, 'a bike leg starts with the opérateur field already hidden')
+  assert.match(detail.infosHtml, /<input id="transfer-operator" type="text" data-field="transfer-operator" value="Vélib&#039;"/)
+  assert.match(detail.infosHtml, /<input id="transfer-link" type="url" data-field="transfer-link" value="https:\/\/example\.com\/booking"/)
+})
+
+test('a non-bike mode leaves the opérateur field visible', () => {
+  const bundle = createGenericTripBundle()
+  bundle.days[2].transferMode = 'train'
+  const detail = buildDayDetail(bundle, 'day-charlie')
+  assert.doesNotMatch(detail.infosHtml, /data-field-group="transfer-operator" hidden/)
+})
+
+test('R2.1 sections 22/31: the "dedicated" transferTiming label reads "Journée indépendante", matching the CDC\'s own wording', () => {
+  const bundle = createGenericTripBundle()
+  const detail = buildDayDetail(bundle, 'day-charlie')
+  assert.match(detail.html, /Journée indépendante/)
+  assert.doesNotMatch(detail.html, /Journée dédiée/)
+})
+
+// --- R2.1 sections 40-41: manual location-name override ---------------------
+
+test('an OFF day\'s manual location field starts empty, with the auto-resolved name as its placeholder — never the value, so it always reads as "using the automatic one"', () => {
+  const bundle = createGenericTripBundle()
+  // This fixture's OFF day already carries an explicit override matching
+  // what would also auto-resolve — clear it to exercise the genuinely
+  // unset case.
+  bundle.days[1].startLocationName = null
+  const detail = buildDayDetail(bundle, 'day-bravo')
+  assert.match(detail.infosHtml, /<input id="location-start" type="text" data-field="location-start" value="" placeholder="Hilltown">/)
+  assert.doesNotMatch(detail.infosHtml, /data-field="location-end"/, 'OFF has only one location, never an end field')
+})
+
+test('an OFF day\'s own manual override shows as the field\'s actual value, not just a placeholder', () => {
+  const bundle = createGenericTripBundle()
+  bundle.days[1].startLocationName = 'Custom Hamlet'
+  const detail = buildDayDetail(bundle, 'day-bravo')
+  assert.match(detail.infosHtml, /<input id="location-start" type="text" data-field="location-start" value="Custom Hamlet"/)
+})
+
+test('a transfer day exposes both an origin and a destination manual field, each with its own auto-resolved placeholder', () => {
+  const bundle = createGenericTripBundle()
+  // This fixture's transfer day already carries explicit overrides on both
+  // sides — clear them to exercise the genuinely unset, placeholder-only case.
+  bundle.days[2].startLocationName = null
+  bundle.days[2].endLocationName = null
+  const detail = buildDayDetail(bundle, 'day-charlie')
+  assert.match(detail.infosHtml, /<input id="location-start" type="text" data-field="location-start" value="" placeholder="Hilltown">/, 'the previous ride stage\'s own endLocationName ("Hilltown") is the origin placeholder')
+  assert.match(detail.infosHtml, /<input id="location-end" type="text" data-field="location-end" value="" placeholder="Lakeside">/, 'the next ride stage\'s own startLocationName ("Lakeside") is the destination placeholder')
+})
+
+test('a ride day never exposes a manual location field at all — its endpoints already come from its own GPX', () => {
+  const bundle = createGenericTripBundle()
+  const detail = buildDayDetail(bundle, 'day-alpha')
+  assert.doesNotMatch(detail.infosHtml, /data-field="location-start"/)
+})
+
+test('R2.1 sections 38/40-41: an OFF day with a resolvable location gets a real markers-only map model — one "start" marker, never a routed line', () => {
+  const bundle = createGenericTripBundle()
+  const detail = buildDayDetail(bundle, 'day-bravo')
+  assert.ok(detail.markersOnlyMapModel !== null)
+  assert.equal(detail.markersOnlyMapModel.coordinates.length, 0, 'never a fabricated line')
+  assert.equal(detail.markersOnlyMapModel.markers.length, 1)
+  assert.equal(detail.markersOnlyMapModel.markers[0].category, 'start')
+})
+
+test('a transfer day with both origin and destination resolvable gets two markers — start and finish, never a line between them', () => {
+  const bundle = createGenericTripBundle()
+  // The next ride stage's own route has no geometry in this fixture by
+  // default (`bundle.routes[1].geometry === null`) — give it a minimal one
+  // so both sides of the transfer actually resolve.
+  bundle.routes[1].geometry = { full: [{ latitude: 45.1, longitude: 5.1, altitudeM: null }, { latitude: 45.9, longitude: 5.9, altitudeM: null }], simplified: null }
+  const detail = buildDayDetail(bundle, 'day-charlie')
+  assert.ok(detail.markersOnlyMapModel !== null)
+  assert.equal(detail.markersOnlyMapModel.coordinates.length, 0)
+  const categories = detail.markersOnlyMapModel.markers.map((marker) => marker.category).sort()
+  assert.deepEqual(categories, ['finish', 'start'])
+})
+
+test('a ride day never carries a markersOnlyMapModel — its own geometry-driven model already covers that ground', () => {
+  const bundle = createGenericTripBundle()
+  const detail = buildDayDetail(bundle, 'day-alpha')
+  assert.equal(detail.markersOnlyMapModel, null)
+})
+
+test('nothing resolvable at all (no neighbour, no route geometry) yields a null markersOnlyMapModel and no map card in the HTML — never an empty map frame', () => {
+  const bundle = createGenericTripBundle()
+  // Isolate day-bravo with no ride neighbours at all.
+  bundle.days = [{ ...bundle.days[1], index: 0 }]
+  const detail = buildDayDetail(bundle, 'day-bravo')
+  assert.equal(detail.markersOnlyMapModel, null)
+  assert.doesNotMatch(detail.html, /data-day-detail-map/)
 })
 
 test('every day type resolves through buildDayDetail — the precondition for a previous/next nav that traverses the whole trip chronology (CDC Jalon B4.4 section 25; the click-driven traversal itself lives in trips-manager.ts, not covered here)', () => {
