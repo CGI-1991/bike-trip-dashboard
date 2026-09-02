@@ -320,7 +320,8 @@ test('a village carrying a manual pause is shown even with the Villages filter o
   }
   const detail = buildDayDetail(bundle, 'day-alpha')
   assert.match(detail.html, /Micro Village/, 'the village stays visible because it now carries a pause')
-  assert.match(detail.html, /Pause 10 min/)
+  assert.match(detail.html, /Pause 10 minutes/, 'the pause clock dial\'s own accessible label')
+  assert.match(detail.html, /pause-clock__label" aria-hidden="true">10'/)
   // Exactly one row for this point in the timeline itself (it may
   // additionally appear once more inside the manual pause editor's
   // always-present candidate list, a distinct feature — never a second
@@ -743,17 +744,119 @@ function pushMainSlotAnchor(bundle) {
   return bundle
 }
 
-test('A/B: an automatic pause in the Parcours timeline is a bare "Pause N min" badge — no "Bon choix"/"★ Recommandé", no C3 reason, no score', () => {
+test('A/B (R3 sections 5-8/14): an automatic pause in the Parcours timeline is a bare, compact clock dial — no "Bon choix"/"★ Recommandé", no C3 reason, no score, no full-width badge', () => {
   const bundle = pushMainSlotAnchor(createGenericTripBundle())
   const detail = buildDayDetail(bundle, 'day-alpha')
   const pausedWaypoint = detail.waypoints.find((candidate) => candidate.id === 'town-main-slot')
   assert.ok(pausedWaypoint !== undefined && pausedWaypoint.pauseDurationMinutes !== null, 'the anchor must actually receive the automatic pause for this test to be meaningful')
-  assert.match(detail.timelineHtml, new RegExp(`Pause ${pausedWaypoint.pauseDurationMinutes} min`))
+  assert.match(detail.timelineHtml, /class="pause-clock"/)
+  assert.match(detail.timelineHtml, new RegExp(`Pause ${pausedWaypoint.pauseDurationMinutes} minutes`), 'the dial\'s own accessible label')
+  assert.match(detail.timelineHtml, new RegExp(`pause-clock__label" aria-hidden="true">${pausedWaypoint.pauseDurationMinutes}'`), 'the dial\'s own centred text — always minutes, never "1h.."')
   assert.doesNotMatch(detail.timelineHtml, /tag--pause-recommended/)
   assert.doesNotMatch(detail.timelineHtml, /day-detail__pause-reason/)
   assert.doesNotMatch(detail.timelineHtml, /Bon choix/)
   assert.doesNotMatch(detail.timelineHtml, /★ Recommandé/)
   assert.doesNotMatch(detail.timelineHtml, /Score/)
+  assert.doesNotMatch(detail.timelineHtml, /tag--pause"/, 'H: no full-width Pause banner/badge at all any more')
+})
+
+// --- R3 sections 6-8/14 (tests A-H, letters reused per the CDC's own
+// section 14 numbering): the clock dial's own fraction/text at various
+// durations — a manual pause gives full control over the exact minute
+// value, unlike the automatic budget allocator. ------------------------
+
+function manualPauseBundle(durationSeconds) {
+  const bundle = pushVillageAndTown(createGenericTripBundle())
+  bundle.settings.stages[0] = {
+    stageId: bundle.stages[0].id, pausePlanMode: 'custom',
+    pauses: [{ id: 'pause-on-village', active: true, routePointId: 'village-ui', durationSeconds, order: 0, origin: 'custom' }],
+  }
+  return bundle
+}
+
+function pauseClockOf(detail) {
+  const match = /<span class="pause-clock" style="--pause-fraction: ([^"]+)"[^]*?pause-clock__label" aria-hidden="true">([^<]+)<\/span>/.exec(detail.timelineHtml)
+  assert.ok(match !== null, 'a pause-clock dial must be present')
+  return { fraction: Number(match[1]), label: match[2] }
+}
+
+test('A (10 min ≈ one-sixth of the dial)', () => {
+  const detail = buildDayDetail(manualPauseBundle(600), 'day-alpha')
+  const dial = pauseClockOf(detail)
+  assert.ok(Math.abs(dial.fraction - 10 / 60) < 1e-9)
+  assert.equal(dial.label, "10'")
+})
+
+test('B (30 min = half circle)', () => {
+  const detail = buildDayDetail(manualPauseBundle(1_800), 'day-alpha')
+  const dial = pauseClockOf(detail)
+  assert.equal(dial.fraction, 0.5)
+  assert.equal(dial.label, "30'")
+})
+
+test('C (55 min ≈ almost-complete sector)', () => {
+  const detail = buildDayDetail(manualPauseBundle(3_300), 'day-alpha')
+  const dial = pauseClockOf(detail)
+  assert.ok(Math.abs(dial.fraction - 55 / 60) < 1e-9)
+  assert.equal(dial.label, "55'")
+})
+
+test('D (60 min = full circle)', () => {
+  const detail = buildDayDetail(manualPauseBundle(3_600), 'day-alpha')
+  const dial = pauseClockOf(detail)
+  assert.equal(dial.fraction, 1)
+  assert.equal(dial.label, "60'")
+})
+
+test('E (75 min = full circle + text "75\'")', () => {
+  const detail = buildDayDetail(manualPauseBundle(4_500), 'day-alpha')
+  const dial = pauseClockOf(detail)
+  assert.equal(dial.fraction, 1, 'never a second ring/lap — a ≥60 min pause always reads as a full dial')
+  assert.equal(dial.label, "75'")
+})
+
+test('F (95 min = full circle + text "95\'")', () => {
+  const detail = buildDayDetail(manualPauseBundle(5_700), 'day-alpha')
+  const dial = pauseClockOf(detail)
+  assert.equal(dial.fraction, 1)
+  assert.equal(dial.label, "95'")
+})
+
+test('always minutes, never "1h.." — even at 75/95 min', () => {
+  const detail75 = buildDayDetail(manualPauseBundle(4_500), 'day-alpha')
+  const detail95 = buildDayDetail(manualPauseBundle(5_700), 'day-alpha')
+  assert.doesNotMatch(detail75.timelineHtml, /1\s*h/)
+  assert.doesNotMatch(detail95.timelineHtml, /1\s*h/)
+})
+
+test('I (39 min normalizes to 40 before it ever reaches the dial — legacy compatibility)', () => {
+  const detail = buildDayDetail(manualPauseBundle(39 * 60), 'day-alpha')
+  const dial = pauseClockOf(detail)
+  assert.equal(dial.label, "40'")
+})
+
+test('J (77 min normalizes to 75 before it ever reaches the dial)', () => {
+  const detail = buildDayDetail(manualPauseBundle(77 * 60), 'day-alpha')
+  const dial = pauseClockOf(detail)
+  assert.equal(dial.label, "75'")
+})
+
+test('G: a paused vignette keeps the same general timeline-row geometry as an unpaused one — only the fixed-size dial differs', () => {
+  const paused = buildDayDetail(manualPauseBundle(600), 'day-alpha')
+  const unpaused = buildDayDetail(createGenericTripBundle(), 'day-alpha')
+  const pausedRow = /<li class="day-detail__timeline-row[^>]*data-waypoint-id="village-ui"[^>]*>[^]*?<\/li>/.exec(paused.timelineHtml)?.[0]
+  const anyUnpausedRow = /<li class="day-detail__timeline-row[^]*?<\/li>/.exec(unpaused.timelineHtml)?.[0]
+  assert.ok(pausedRow !== undefined && anyUnpausedRow !== undefined)
+  // Same grid template class, same body structure — the dial only ever
+  // adds a second child inside the existing time column.
+  assert.match(pausedRow, /day-detail__timeline-time-col/)
+  assert.equal((pausedRow.match(/day-detail__timeline-body/g) ?? []).length, 1)
+  assert.equal((anyUnpausedRow.match(/day-detail__timeline-body/g) ?? []).length, 1)
+})
+
+test('H: the accessible label always carries the real value, independent of the dial\'s own visual fill', () => {
+  const detail = buildDayDetail(manualPauseBundle(4_500), 'day-alpha')
+  assert.match(detail.timelineHtml, /aria-label="Pause 75 minutes"/)
 })
 
 // --- R2.1 sections 9-10 (tests K/L): opening status per candidate, wired
@@ -793,29 +896,39 @@ test('C/D: the manual pause editor still shows the C3 recommendation badge and i
   assert.match(rowHtml, /Bon choix|★ Recommandé/)
 })
 
-// --- R2.1 section 11 (tests V/W): the pause badge lives under the clock
-// time, in the left column — a paused stop keeps the exact same card
-// skeleton as one without, never a full-width badge. ------------------------
+// --- R2.1 section 11 / R3 sections 5-8 (tests V/W): the pause clock dial
+// lives under the clock time, in the left column — a paused stop keeps the
+// exact same card skeleton as one without, never a full-width badge. -------
 
-test('V: the pause badge sits inside the same left time column as the clock time — never in the body next to the meta line', () => {
+test('V: the pause clock dial sits inside the same left time column as the clock time — never in the body next to the meta line', () => {
   const bundle = pushMainSlotAnchor(createGenericTripBundle())
   const detail = buildDayDetail(bundle, 'day-alpha')
   const rowMatch = /<li class="day-detail__timeline-row[^"]*" data-waypoint-id="town-main-slot"[^]*?<\/li>/.exec(detail.timelineHtml)
   assert.ok(rowMatch !== null)
   const rowHtml = rowMatch[0]
-  const timeColMatch = /<span class="day-detail__timeline-time-col">([^]*?)<\/span>\s*<div class="day-detail__timeline-body">/.exec(rowHtml)
-  assert.ok(timeColMatch !== null, 'the time column wraps both the clock time and the pause badge together')
-  assert.match(timeColMatch[1], /day-detail__timeline-time/)
-  assert.match(timeColMatch[1], /tag--pause/)
-  const bodyHtml = rowHtml.slice(rowHtml.indexOf('day-detail__timeline-body'))
-  assert.doesNotMatch(bodyHtml, /tag--pause/, 'the badge never lands in the body/meta area any more')
+  const timeColStart = rowHtml.indexOf('day-detail__timeline-time-col')
+  const bodyStart = rowHtml.indexOf('day-detail__timeline-body')
+  const dialIndex = rowHtml.indexOf('pause-clock')
+  assert.ok(timeColStart >= 0 && bodyStart > timeColStart, 'the time column wraps the clock time, ahead of the body')
+  assert.ok(dialIndex > timeColStart && dialIndex < bodyStart, 'the dial sits inside the time column, before the body starts')
+  const bodyHtml = rowHtml.slice(bodyStart)
+  assert.doesNotMatch(bodyHtml, /pause-clock/, 'the dial never lands in the body/meta area any more')
 })
 
 test('W: a paused row and an unpaused row share the exact same skeleton — no full-width badge reshaping the card', () => {
   const bundle = pushMainSlotAnchor(createGenericTripBundle())
   const detail = buildDayDetail(bundle, 'day-alpha')
-  // Every row (paused or not) is still exactly `<li>[time-col?]<div class="day-detail__timeline-body">…</div></li>` — the pause badge only ever adds a second child inside the SAME time column, never a new sibling block of its own.
-  assert.doesNotMatch(detail.timelineHtml, /<span class="tag tag--pause">[^<]*<\/span>\s*<span class="day-detail__timeline-weather"/, 'the badge is never adjacent to the météo mount inside the body any more (it moved out of the body entirely)')
+  // Every row (paused or not) is exactly `<li ...>[time-col?]<div class="day-detail__timeline-body">…</div></li>` — the pause dial only ever adds a second child inside the SAME time column, never a new sibling block of its own.
+  const rows = detail.timelineHtml.match(/<li class="day-detail__timeline-row[^]*?<\/li>/g) ?? []
+  assert.ok(rows.length > 1, 'sanity: more than one row to compare')
+  const pausedRows = rows.filter((row) => row.includes('pause-clock'))
+  const unpausedRows = rows.filter((row) => !row.includes('pause-clock'))
+  assert.ok(pausedRows.length > 0 && unpausedRows.length > 0, 'sanity: at least one of each')
+  for (const row of [...pausedRows, ...unpausedRows]) {
+    // Exactly one top-level body block, always the row's last child before `</li>`.
+    assert.equal((row.match(/day-detail__timeline-body/g) ?? []).length, 1)
+    assert.match(row, /<\/div>\s*<\/li>$/, 'the body div is always the row\'s own last child — no extra sibling block')
+  }
 })
 
 // --- R2 section 1 (correction R1): météo is never expandable, montées stay

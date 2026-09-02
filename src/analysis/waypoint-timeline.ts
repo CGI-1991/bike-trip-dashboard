@@ -23,6 +23,7 @@ import { buildCanonicalWaypoints } from './canonical-waypoints.ts'
 import { applyPausesToWaypoints, placeAutomaticPauses } from './pause-placement.ts'
 import type { PlacedPause } from './pause-placement.ts'
 import type { PauseAnchor } from './pauses.ts'
+import { normalizePauseDurationMinutes } from './pause-duration.ts'
 import { recommendAutomaticPauses } from './pause-recommendation.ts'
 import type { PauseCandidatePlace, PauseRecommendation, PauseWeatherContext } from './pause-recommendation.ts'
 import { buildTimeline, parseClockToMinutes } from './timing.ts'
@@ -63,7 +64,11 @@ export function resolveStagePauseSettings(globalMode: PausePlanMode, stageSettin
     .filter((pause) => pause.active && pause.routePointId !== null)
     .slice()
     .sort((left, right) => left.order - right.order)
-    .map((pause) => ({ id: pause.id, routePointId: pause.routePointId as string, durationMinutes: Math.round(pause.durationSeconds / 60), order: pause.order }))
+    // R3 section 13: an old bundle may still carry a non-multiple-of-5
+    // `durationSeconds` (e.g. 39 min) — normalized here, at read time,
+    // rather than a destructive migration; the next manual save persists
+    // the normalized value, so the exotic duration never resurfaces.
+    .map((pause) => ({ id: pause.id, routePointId: pause.routePointId as string, durationMinutes: normalizePauseDurationMinutes(Math.round(pause.durationSeconds / 60)), order: pause.order }))
   return { mode: 'custom', manualPauses }
 }
 

@@ -74,6 +74,24 @@ async function waitUntil(predicate, timeoutMs = 2_000) {
   while (!predicate() && Date.now() < deadline) await flush(20)
 }
 
+/**
+ * Without an explicit override, `trips-manager.ts` defaults `weatherProvider`
+ * to the real `createOpenMeteoProvider()` — a genuine network `fetch` this
+ * Node test environment has no access to, whose eventual rejection could
+ * otherwise land well after a test (and its database) has already closed.
+ * Every `initializeTripsManager` call in this file renders Voyage, which
+ * always calls `refreshWeather` — reused here under the same name as the
+ * existing fix in `tests/ui/trips-manager-overview-refresh.test.mjs`.
+ */
+function stubWeatherProvider() {
+  return {
+    id: 'open-meteo',
+    async fetchForecast(request) {
+      return { provider: 'open-meteo', requestKey: request.key, fetchedAt: '2027-01-01T00:00:00.000Z', status: 'error', locations: [], datesCovered: [], issues: ['test stub — no real weather'] }
+    },
+  }
+}
+
 test('AB/AC: a practical-places progress tick patches only that stage\'s own indicator — Voyage\'s container.innerHTML is untouched mid-pass, and reconciles exactly once when the whole pass finishes', async () => {
   const db = await openTestDatabase()
   try {
@@ -104,7 +122,7 @@ test('AB/AC: a practical-places progress tick patches only that stage\'s own ind
 
     const handle = initializeTripsManager(container, {
       database: db, now: () => '2027-05-01T08:00:00.000Z', idFactory: (() => { let n = 0; return () => `id-${n++}` })(),
-      renderMap: () => {}, closeMap: () => {},
+      renderMap: () => {}, closeMap: () => {}, weatherProvider: stubWeatherProvider(),
       practicalPlacesProvider: provider,
     })
 
@@ -119,24 +137,128 @@ test('AB/AC: a practical-places progress tick patches only that stage\'s own ind
 
     const setCountAfterOpen = container.innerHTMLSetCount
     assert.ok(setCountAfterOpen > 0, 'opening Voyage did render something')
+    // R3 sections 52-54 (root-causing the AB/AC flake): a fixed `flush()`
+    // followed immediately by an exact-count assertion raced the real
+    // async chain leading up to the first `findCandidates` call — under
+    // full-suite CPU contention, 30ms isn't always enough for it to be
+    // reached yet (`pendingCalls.length` observed at 0, not 1). Waiting on
+    // the actual signal (the call itself landing) removes the race outright
+    // — no arbitrary sleep to tune, just the real condition this assertion
+    // cares about.
+    await waitUntil(() => pendingCalls.length >= 1)
     assert.equal(pendingCalls.length, 1, 'stages are still requested one at a time (section 7) — the second is only reached once the first settles')
 
     // Resolve the FIRST stage's request — this is exactly the per-stage tick
     // that used to fire a full `renderDetail()` rebuild. The pass is not
     // over yet (a second stage remains), so nothing should reconcile the
-    // whole screen at this point.
+    // whole screen at this point. Waiting for the SECOND call to actually
+    // land (rather than a fixed `flush()`) both removes the same race as
+    // above AND is a strictly stronger check: `innerHTMLSetCount` is
+    // asserted unchanged across the whole window up to that point, not
+    // just an arbitrary 30ms slice of it.
     pendingCalls[0]()
-    await flush()
-    assert.equal(container.innerHTMLSetCount, setCountAfterOpen, 'a mid-pass tick must never reassign the whole screen\'s innerHTML')
+    await waitUntil(() => pendingCalls.length >= 2)
     assert.equal(pendingCalls.length, 2, 'the second (and last) stage is now being requested')
+    assert.equal(container.innerHTMLSetCount, setCountAfterOpen, 'a mid-pass tick must never reassign the whole screen\'s innerHTML')
     assert.ok(alphaIndicator.setCount > 0 || deltaIndicator.setCount > 0, 'the resolved stage\'s own indicator IS patched — something useful still happens, just not a full rebuild')
 
     // Resolve the LAST stage — the whole pass now settles, and exactly one
     // final reconciliation (`renderDetail`'s own loading-placeholder +
-    // real-content pair of assignments) is expected, never more.
+    // real-content pair of assignments) is expected, never more. Already a
+    // condition-based poll (never a blind sleep) — but its ORIGINAL
+    // predicate (`> setCountAfterOpen`) was itself the real remaining
+    // source of the AB/AC flake: it's satisfied by the FIRST of the two
+    // expected assignments alone, so under full-suite contention the poll
+    // could return, and the very next line assert, in the narrow gap
+    // between the placeholder wipe and the real-content assignment —
+    // observing `setCountAfterOpen + 1`, not `+ 2` (exactly the `7 !== 8`
+    // failure mode). Waiting on the actual expected total removes this
+    // race outright, no timeout tuning involved.
     pendingCalls[1]()
-    await waitUntil(() => container.innerHTMLSetCount > setCountAfterOpen)
-    assert.equal(container.innerHTMLSetCount, setCountAfterOpen + 2, 'exactly one full reconciliation once the whole pass has settled — never per-tick')
+    await waitUntil(() => container.innerHTMLSetCount >= setCountAfterOpen + 2)
+    assert.equal(container.innerHTMLSetCount, setCountAfterOpen + 2, 'exactly one full reconciliation once the whole pass has settled — never more')
+    // Both `startAutomaticEnrichment` and its trailing `refreshWeather` are
+    // fire-and-forget by design — waited out explicitly here so neither is
+    // still mid-flight against the database once it closes below.
+    await waitUntil(() => !handle.isAutomaticEnrichmentInFlight(bundle.metadata.id))
+    await handle.waitForWeatherIdle()
+  } finally {
+    db.close()
+  }
+})
+
+/**
+ * R3 sections 41-42/51 (tests S-V): the gate that used to block clicking a
+ * ride day from Voyage while its Postpass status was `pending`/`running`
+ * (`isDayDetailOpenable`) is gone — a ride's own route/profil/timing/
+ * timeline never came from Postpass in the first place, and the previous
+ * gate blocked EVERY ride day for the whole (strictly sequential)
+ * enrichment pass, not just the one stage actually being processed. These
+ * assert the real click path end-to-end, replacing the old unit-level
+ * `isDayDetailOpenable` tests removed from
+ * `tests/trips-manager/stage-preparation.test.mjs`.
+ */
+test('S: a ride day still mid-Postpass-pass (pending/running) opens exactly like a ready one on click', async () => {
+  const db = await openTestDatabase()
+  try {
+    const bundle = createGenericTripBundle()
+    await createTripRepository(db).saveTripBundle(bundle)
+    const container = createFakeContainer()
+
+    let resolveFindCandidates
+    const provider = {
+      id: 'controllable', sourceType: 'osm', attribution: 'x',
+      findCandidates() { return new Promise((resolve) => { resolveFindCandidates = resolve }) },
+    }
+    const handle = initializeTripsManager(container, {
+      database: db, now: () => '2027-05-01T08:00:00.000Z', idFactory: (() => { let n = 0; return () => `id-${n++}` })(),
+      renderMap: () => {}, closeMap: () => {}, weatherProvider: stubWeatherProvider(),
+      practicalPlacesProvider: provider,
+    })
+
+    container.dispatch('click', { target: fakeActionElement({ action: 'open-trip', tripId: bundle.metadata.id }) })
+    await flush()
+    await handle.goToDetailForActiveTrip()
+    await waitUntil(() => resolveFindCandidates !== undefined)
+    // The very first stage's own Postpass request is genuinely still in
+    // flight right now — the exact "running" moment the old gate blocked.
+
+    container.dispatch('click', { target: fakeActionElement({ action: 'open-day-detail', dayId: bundle.days[0].id }) })
+    await flush()
+    // `renderDay` (via `openDay`) is the only real gate left — it must have
+    // actually produced day content, not silently no-opped.
+    assert.match(container.innerHTML, /data-day-detail/, 'the day screen opened even though Postpass is still running for it')
+
+    resolveFindCandidates({ candidates: [], durationMs: 1, rawCandidateCount: 0, httpStatus: 200, payloadBytes: 0, startedAt: '2028-01-01T00:00:00.000Z', finishedAt: '2028-01-01T00:00:00.001Z' })
+    await waitUntil(() => !handle.isAutomaticEnrichmentInFlight(bundle.metadata.id))
+    await handle.waitForWeatherIdle()
+  } finally {
+    db.close()
+  }
+})
+
+test('T/U: a partial or errored Postpass status never blocks opening either — already the case before R3, still true after removing the pending/running gate', async () => {
+  const db = await openTestDatabase()
+  try {
+    const bundle = createGenericTripBundle()
+    bundle.enrichmentMetadata = {
+      providers: [{ provider: 'postpass-practical-places', status: 'partial', lastAttemptedAt: '2027-05-01T08:00:00.000Z', lastSuccessAt: null, message: '1 étape(s) restent à rechercher.' }],
+    }
+    await createTripRepository(db).saveTripBundle(bundle)
+    const container = createFakeContainer()
+    const handle = initializeTripsManager(container, {
+      database: db, now: () => '2027-05-01T08:00:00.000Z', idFactory: (() => { let n = 0; return () => `id-${n++}` })(),
+      renderMap: () => {}, closeMap: () => {}, weatherProvider: stubWeatherProvider(),
+    })
+    container.dispatch('click', { target: fakeActionElement({ action: 'open-trip', tripId: bundle.metadata.id }) })
+    await flush()
+    await handle.goToDetailForActiveTrip()
+    await flush()
+    container.dispatch('click', { target: fakeActionElement({ action: 'open-day-detail', dayId: bundle.days[0].id }) })
+    await flush()
+    assert.match(container.innerHTML, /data-day-detail/)
+    await waitUntil(() => !handle.isAutomaticEnrichmentInFlight(bundle.metadata.id))
+    await handle.waitForWeatherIdle()
   } finally {
     db.close()
   }

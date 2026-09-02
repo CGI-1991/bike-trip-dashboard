@@ -13,8 +13,19 @@
  * `'running'`, section 20).
  *
  * OFF/transfer days have no Postpass status at all (section 5) —
- * `deriveStagePreparationStatus` returns `null` for them, and callers must
- * treat `null` as "always openable", never as a blocking status.
+ * `deriveStagePreparationStatus` returns `null` for them.
+ *
+ * R3 sections 41-42: this status is display-only — it no longer gates
+ * whether a ride day can be opened at all (the removed `isDayDetailOpenable`
+ * used to block `'pending'`/`'running'` from `trips-manager.ts`'s
+ * `open-day-detail` handler). A ride's route/profil/timing/timeline come
+ * straight from its already-imported GPX, entirely independent of Postpass
+ * — gating the whole screen on a trip-wide enrichment pass that processes
+ * every stage strictly sequentially meant EVERY ride day stayed blocked for
+ * the whole pass's duration, not just the one stage actually being
+ * enriched (the real root cause behind "reste bloqué En cours"). The one
+ * legitimate reason a ride stays unopenable is `buildDayDetail` itself
+ * returning `null` — its stage/route genuinely can't be resolved at all.
  */
 
 import { deriveTripTemporalState } from './trip-day-temporal-state.ts'
@@ -67,11 +78,6 @@ export function deriveStagePreparationStatus(bundle: TripBundle, dayId: TripDayI
   if (relevant.every((status) => status === 'success')) return 'ready'
   if (relevant.some((status) => status === 'success' || status === 'partial')) return 'partial'
   return 'error'
-}
-
-/** Section 15-16: a ride is only gated while its very first preparation hasn't produced anything usable yet — a network hiccup never blocks it forever. */
-export function isDayDetailOpenable(status: StagePreparationStatus | null): boolean {
-  return status === null || status === 'ready' || status === 'partial' || status === 'error' || status === 'stale'
 }
 
 /**

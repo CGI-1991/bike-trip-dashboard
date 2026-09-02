@@ -16,6 +16,7 @@
 
 import { routeEngineConfig } from '../route/config.ts'
 import type { PauseRule } from '../route/config.ts'
+import { normalizePauseDurationMinutes } from './pause-duration.ts'
 
 export interface PauseAnchor {
   readonly id: string
@@ -58,6 +59,16 @@ function allocateByShare(totalMinutes: number, shares: readonly number[]): reado
  * (CDC section 18's automatic mode, POI-free variant). Returns `[]` when
  * there is nothing to distribute (`totalBreakMinutes <= 0`) or no route
  * distance to anchor to.
+ *
+ * R3 sections 9-11: each anchor's own final duration is normalized to the
+ * nearest 5-minute step — a readable `40`/`75` reads far better than an
+ * exact-budget `39`/`77`, and the CDC explicitly sanctions the resulting
+ * small drift from `totalBreakMinutes` ("ne pas produire une durée
+ * non-multiple de 5 uniquement pour tomber exactement sur un budget
+ * théorique"). Normalizing AFTER the largest-remainder split (rather than
+ * baking a 5-minute step into the split itself) keeps the split's own
+ * proportional-by-share behaviour unchanged — only the very last step
+ * rounds for readability.
  */
 export function distributeAutomaticPauses(
   totalDistanceKm: number,
@@ -73,7 +84,7 @@ export function distributeAutomaticPauses(
       id: rule.id,
       name: rule.name,
       distanceKm: totalDistanceKm * rule.routeFraction,
-      durationMinutes: durations[index] ?? 0,
+      durationMinutes: normalizePauseDurationMinutes(durations[index] ?? 0),
     }))
     .filter((anchor) => anchor.durationMinutes > 0)
 }

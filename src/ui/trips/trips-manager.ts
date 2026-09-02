@@ -15,10 +15,7 @@ import { runStoredTripAutomaticEnrichment, tripNeedsAutomaticEnrichment } from '
 import { buildPracticalPlaceViewModels } from '../../practical-places/view-model.ts'
 import type { PracticalPlacesProvider } from '../../practical-places/types.ts'
 import { createSingleFlightGuard } from '../../trips-manager/single-flight.ts'
-import {
-  deriveStagePreparationStatus,
-  isDayDetailOpenable,
-} from '../../trips-manager/stage-preparation.ts'
+import { deriveStagePreparationStatus } from '../../trips-manager/stage-preparation.ts'
 import type { StagePreparationContext, StagePreparationStatus } from '../../trips-manager/stage-preparation.ts'
 import { deriveStageInvalidation } from '../../trips-manager/pause-invalidation.ts'
 import { enrichStoredTripPracticalPlaces } from '../../practical-places/enrichment.ts'
@@ -41,6 +38,7 @@ import { buildZipArchive } from '../zip-writer.ts'
 import type { ZipEntryInput } from '../zip-writer.ts'
 import { isSignificantWaypoint } from '../../analysis/canonical-waypoints.ts'
 import { resolveSharedInfoDayId } from '../../analysis/day-location-fill.ts'
+import { normalizePauseDurationMinutes } from '../../analysis/pause-duration.ts'
 import { observeStickyHeaderHeight } from '../sticky-header-offset.ts'
 import type { StickyHeaderObserverHandle } from '../sticky-header-offset.ts'
 import { buildDayDetail } from './day-detail-view.ts'
@@ -234,6 +232,26 @@ export interface TripsManagerHandle {
   readonly goToOverviewForActiveTrip: () => Promise<void>
   /** Same, for Voyage. */
   readonly goToDetailForActiveTrip: () => Promise<void>
+  /**
+   * Whether a background automatic-enrichment pass (`startAutomaticEnrichment`
+   * — endpoints/route/practical-places, all fire-and-forget from
+   * `openOverview`/`openDetail`) is still running for `tripId` right now.
+   * Display-only (R3 sections 41-42: it never gates opening a day any more)
+   * — exists so a caller can know when every trailing side effect of that
+   * pass (including its own `refreshIfShowing` calls) has genuinely
+   * settled, e.g. before tearing down the database in a test.
+   */
+  readonly isAutomaticEnrichmentInFlight: (tripId: TripId) => boolean
+  /**
+   * Resolves once the weather coordinator's own queue is idle — `refreshWeather`
+   * (called at the end of `renderOverview`/`renderDetail`/`renderDay`) never
+   * awaits `weatherCoordinator.setTripBundle`'s own fetch/cache round-trip
+   * (by design: a screen renders immediately with whatever weather is
+   * already known, and `weatherCoordinator.subscribe` patches it in once a
+   * fetch actually settles). Exists so a caller can know when that trailing
+   * work has genuinely finished, same spirit as `isAutomaticEnrichmentInFlight`.
+   */
+  readonly waitForWeatherIdle: () => Promise<void>
 }
 
 export function initializeTripsManager(container: HTMLElement, deps: TripsManagerDeps): TripsManagerHandle {
@@ -946,21 +964,6 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     patchStagePreparationSummary(bundle, context)
   }
 
-  /**
-   * C2.5 section 15: a discreet, transient `role="status"` line — never a
-   * modal — right after the clicked card, auto-removed a couple seconds
-   * later. `insertAdjacentHTML` is guarded (absent from the minimal fake
-   * containers this component's own tests use for click-dispatch) so this
-   * is a safe no-op there — those tests assert the gating decision itself
-   * (the day never opens), not this cosmetic real-DOM feedback.
-   */
-  function showDayPreparationFeedback(button: HTMLElement): void {
-    if (typeof button.insertAdjacentHTML !== 'function') return
-    button.insertAdjacentHTML('afterend', '<p class="trip-day-card__preparation-feedback" role="status" data-day-preparation-feedback>Étape en préparation…</p>')
-    const feedback = button.nextElementSibling
-    if (feedback !== null) setTimeout(() => feedback.remove(), 2_500)
-  }
-
   function patchStagePreparationSummary(bundle: TripBundle, context: StagePreparationContext): void {
     const summaryEl = container.querySelector<HTMLElement>('[data-trip-prep-summary]')
     const rideDayIds = bundle.days.filter((day) => day.type === 'ride' && day.stageId !== null).map((day) => day.id)
@@ -1390,20 +1393,14 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       if (deps.onNavigateToView !== undefined) deps.onNavigateToView('today')
       else void openOverview(tripId as TripId)
     } else if (action === 'open-day-detail' && dayId !== undefined && (mode.kind === 'detail' || mode.kind === 'overview')) {
-      // C2.5 sections 15-16: gated only from Voyage (the day-list is the
-      // only card carrying `[data-trip-day-prep]` today — Aperçu's own
-      // highlighted-day card is untouched by this milestone, section 30)
-      // — a ride never yet given its first preparation pass stays visible
-      // but isn't opened; `ready`/`partial`/`error` (a network hiccup never
-      // blocks it forever) and any non-ride day (`null`, no indicator at
-      // all) open exactly as before.
-      const prepIndicatorStatus = typeof button.querySelector === 'function'
-        ? button.querySelector<HTMLElement>('[data-trip-day-prep]')?.dataset.status as StagePreparationStatus | undefined
-        : undefined
-      if (prepIndicatorStatus !== undefined && !isDayDetailOpenable(prepIndicatorStatus)) {
-        showDayPreparationFeedback(button)
-        return
-      }
+      // R3 sections 41-42: Postpass/POI enrichment (`pending`/`running`)
+      // NEVER gates opening a ride any more — its route/profil/timing/
+      // timeline come straight from the already-imported GPX, entirely
+      // independent of Postpass. The only real gate stays `buildDayDetail`
+      // itself (`renderDay` → `openDay`), which already falls back
+      // gracefully when a ride's stage/route genuinely can't be resolved
+      // (truly absent/unusable structural data — the one legitimate case
+      // from section 42, never "still enriching").
       void openDay(mode.tripId, dayId as TripDayId, mode.kind)
     } else if (action === 'back-to-trip-detail' && mode.kind === 'day') {
       if (mode.origin === 'overview') void openOverview(mode.tripId)
@@ -1467,7 +1464,13 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
           const checkbox = row.querySelector<HTMLInputElement>('[data-field="pause-active"]')
           const durationInput = row.querySelector<HTMLInputElement>('[data-field="pause-duration"]')
           if (candidateId === undefined || checkbox === null || !checkbox.checked) return
-          const minutes = durationInput !== null && Number.isFinite(durationInput.valueAsNumber) ? Math.max(0, Math.round(durationInput.valueAsNumber)) : 15
+          // R3 sections 9-12: normalized to the nearest 5-minute step at
+          // save time — the `<input step="5">` already steers a mouse/
+          // keyboard-arrow user there, but a typed/pasted value could still
+          // slip through un-stepped. A genuine `0` (or negative/non-finite)
+          // stays `0`, same as before — `normalizePauseDurationMinutes`
+          // itself never rounds a non-positive value up to a fabricated 5.
+          const minutes = durationInput !== null && Number.isFinite(durationInput.valueAsNumber) ? normalizePauseDurationMinutes(durationInput.valueAsNumber) : 15
           const existing = existingPauses.get(candidateId)
           nextPauses.push({
             id: existing?.id ?? deps.idFactory(), active: true, routePointId: candidateId as RoutePointId,
@@ -1695,5 +1698,9 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
 
   void renderList()
 
-  return { refresh, goToList, goToOverviewForActiveTrip, goToDetailForActiveTrip }
+  return {
+    refresh, goToList, goToOverviewForActiveTrip, goToDetailForActiveTrip,
+    isAutomaticEnrichmentInFlight: (tripId) => automaticEnrichmentGuard.isInFlight(tripId),
+    waitForWeatherIdle: () => weatherCoordinator.waitForIdle(),
+  }
 }

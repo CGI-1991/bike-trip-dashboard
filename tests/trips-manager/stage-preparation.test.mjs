@@ -4,7 +4,6 @@ import test from 'node:test'
 import {
   computeStagePreparationOrder,
   deriveStagePreparationStatus,
-  isDayDetailOpenable,
 } from '../../src/trips-manager/stage-preparation.ts'
 import { createGenericTripBundle } from '../trip-core/support/generic-trip-fixture.mjs'
 
@@ -92,26 +91,17 @@ test('O: after a reload (no in-memory running/stale state at all), a never-attem
   assert.equal(status, 'pending')
 })
 
-// --- P-T: gating ---
-
-test('P/Q: pending and running are not openable', () => {
-  assert.equal(isDayDetailOpenable('pending'), false)
-  assert.equal(isDayDetailOpenable('running'), false)
-})
-
-test('R/S/T: ready, partial and error are all openable — a network hiccup never blocks the day forever', () => {
-  assert.equal(isDayDetailOpenable('ready'), true)
-  assert.equal(isDayDetailOpenable('partial'), true)
-  assert.equal(isDayDetailOpenable('error'), true)
-})
-
-test('stale (a ready day being refreshed) stays openable — the previous snapshot is still shown', () => {
-  assert.equal(isDayDetailOpenable('stale'), true)
-})
-
-test('null (OFF/transfer) is always openable', () => {
-  assert.equal(isDayDetailOpenable(null), true)
-})
+// --- R3 sections 41-42: Postpass status is display-only, never a gate ------
+// `isDayDetailOpenable` (and the gating it powered in `trips-manager.ts`'s
+// `open-day-detail` handler) was removed outright — a ride's own
+// route/profil/timing/timeline never depended on Postpass in the first
+// place, and the strictly-sequential per-stage enrichment pass meant EVERY
+// ride day stayed blocked for the whole pass, not just the one stage being
+// enriched. `deriveStagePreparationStatus` itself is untouched — it still
+// drives the small, honest indicator glyph (tests above), just never a
+// click gate any more. The end-to-end "a pending/running stage still
+// opens" behaviour is covered in `tests/ui/trips-manager-stage-preparation.
+// test.mjs` (tests S-V, CDC section 51), closer to the real click path.
 
 // --- A-D: priority ordering ---
 

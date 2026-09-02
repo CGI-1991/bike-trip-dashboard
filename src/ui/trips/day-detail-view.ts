@@ -46,6 +46,7 @@ import {
 import type { CandidateOpeningStatusViewModel, PauseRecommendationViewModel } from './pause-recommendation-view.ts'
 import { buildPauseCandidates } from '../../analysis/pause-recommendation.ts'
 import { parseClockToMinutes } from '../../analysis/timing.ts'
+import { normalizePauseDurationMinutes } from '../../analysis/pause-duration.ts'
 import { formatTransferDuration, formatTransferModeAndTimes } from './transfer-summary-format.ts'
 import { TRANSFER_MODE_LABELS } from './transfer-mode-labels.ts'
 import { TRANSFER_MODES } from '../../trip-core/index.ts'
@@ -115,16 +116,28 @@ const KIND_MARKERS: Readonly<Record<CanonicalWaypointKind, string>> = {
 }
 
 /**
- * R2 section 1 (correction R1): the Parcours timeline shows only the bare
- * "Pause N min" badge — no "★ Recommandé"/"Bon choix", no reason, no score.
- * C3's recommendation stays fully available (and actionable) in the manual
- * pause editor only, via `renderPauseCandidateRow`'s own
- * `day-pause-editor__row-hint` — never duplicated here. A compact pause
- * stays exactly that: compact.
+ * R3 sections 5-8/14: a compact, fixed-size clock dial replaces the old
+ * full-width "Pause N min" badge/banner — a filled circular sector (CSS
+ * `conic-gradient`, clockwise from 12 o'clock, exactly like a stopwatch)
+ * with the duration in minutes at its centre, always as `N'` (never
+ * `1h15` — stays legible up to at least 99'). `--pause-fraction` is
+ * `min(1, minutes / 60)`: a pause ≥ 60 min shows a fully filled dial (CDC
+ * section 7: "le cercle peut être considéré comme entièrement rempli") —
+ * the exact value is never guessed from the dial itself, only from the
+ * centred text, so 65'/75'/90'/95' all render a full circle with their own
+ * real number inside. Fixed pixel size (`--pause-clock-size`, `style.css`)
+ * regardless of 1 vs 2 digits — R2's own `renderPauseBadge` (a variable-
+ * width text badge that could reshape the row) is gone; this occupies a
+ * stable slot in the time column no matter the duration (CDC section 8).
+ * `role="img"`/`aria-label` carry the real meaning for assistive tech —
+ * the dial's own fill is never the only way to know the duration (CDC
+ * section 78).
  */
 function renderPauseBadge(waypoint: CanonicalWaypoint): string {
   if (waypoint.pauseDurationMinutes === null) return ''
-  return `<span class="tag tag--pause">Pause ${waypoint.pauseDurationMinutes} min</span>`
+  const minutes = waypoint.pauseDurationMinutes
+  const fraction = Math.min(1, minutes / 60)
+  return `<span class="pause-clock" style="--pause-fraction: ${fraction}" role="img" aria-label="Pause ${minutes} minutes"><span class="pause-clock__face" aria-hidden="true"></span><span class="pause-clock__label" aria-hidden="true">${minutes}'</span></span>`
 }
 
 /**
@@ -395,7 +408,10 @@ function renderPauseCandidateRow(
   openingStatus: CandidateOpeningStatusViewModel | undefined,
 ): string {
   const isActive = activePause !== undefined
-  const durationMinutes = activePause === undefined ? 15 : Math.round(activePause.durationSeconds / 60)
+  // R3 section 13: an old bundle's own `durationSeconds` may not be a
+  // multiple of 5 — normalized here at display time, never migrated
+  // destructively.
+  const durationMinutes = activePause === undefined ? 15 : normalizePauseDurationMinutes(Math.round(activePause.durationSeconds / 60))
   const badgeLabel = recommendation === undefined ? null : pauseRecommendationBadgeLabel(recommendation.level)
   const hint = badgeLabel === null
     ? ''

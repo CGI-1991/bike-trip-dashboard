@@ -150,6 +150,22 @@ async function flush() {
   await new Promise((resolve) => setTimeout(resolve, 50))
 }
 
+/**
+ * R3 sections 52-54: every `open-trip` dispatch below kicks off
+ * `startAutomaticEnrichment` fire-and-forget (`void startAutomaticEnrichment`
+ * in `openOverview`/`openDetail`) — even with `noopDeps`'s empty provider
+ * set, its own short IndexedDB round-trip can still be mid-flight when
+ * `db.close()` runs under full-suite CPU contention, surfacing well after
+ * the test itself as an `InvalidStateError` unhandled rejection (never a
+ * real production issue — plain test-cleanup ordering). Waiting on the real
+ * completion signal (`isAutomaticEnrichmentInFlight`) rather than guessing
+ * a trailing sleep removes the race outright.
+ */
+async function waitUntil(predicate, timeoutMs = 2_000) {
+  const deadline = Date.now() + timeoutMs
+  while (!predicate() && Date.now() < deadline) await flush()
+}
+
 test('"Ouvrir" on a trip card calls onNavigateToView("today") — CDC Jalon B4.2 section 5 (Ouvrir voyage = sélectionner + Aperçu)', async () => {
   const db = await openTestDatabase()
   try {
@@ -157,6 +173,10 @@ test('"Ouvrir" on a trip card calls onNavigateToView("today") — CDC Jalon B4.2
     await createTripRepository(db).saveTripBundle(bundle)
     const navigated = []
     const container = createFakeContainer()
+    // `onNavigateToView` is provided here, so `open-trip` only ever calls it
+    // — `openOverview`/`startAutomaticEnrichment` are never reached in this
+    // specific test (see the `open-trip` handler's own branch), so there is
+    // no background pass to wait out before closing the database.
     initializeTripsManager(container, noopDeps(db, { onNavigateToView: (view) => navigated.push(view) }))
     await flush()
 
@@ -181,7 +201,7 @@ test('saving the manual pause editor patches only the pauses/stats/timeline subt
     container.register('[data-day-detail-timeline]', fakeSubElement())
     container.register('.day-pause-editor__row', [fakePauseRow('town-ui', { checked: true, durationMinutes: 20 })])
 
-    initializeTripsManager(container, noopDeps(db))
+    const handle = initializeTripsManager(container, noopDeps(db))
     await flush()
     // "Ouvrir" → Aperçu (mode: 'overview'), same path as a real user, then
     // "Voir l'étape" for day-alpha — avoids depending on
@@ -196,7 +216,10 @@ test('saving the manual pause editor patches only the pauses/stats/timeline subt
     assert.ok(setCountAfterMount > 0, 'the initial Étape mount does set the root container once')
 
     container.dispatch('click', { target: fakeActionElement({ action: 'save-manual-pauses' }) })
-    await flush()
+    // R3 sections 52-54: same real-signal wait as the G/H test below —
+    // removes the same fixed-`flush()` race against the save's own
+    // IndexedDB round-trip under full-suite CPU contention.
+    await waitUntil(() => pausesElement.outerSetCount > 0)
 
     assert.equal(container.innerHTMLSetCount, setCountAfterMount, 'saving the manual pause editor must never reset the whole Étape screen (the "reload feel" bug this pass fixes)')
     assert.ok(pausesElement.outerSetCount > 0, 'the pauses subtree itself must still be refreshed')
@@ -207,6 +230,8 @@ test('saving the manual pause editor patches only the pauses/stats/timeline subt
     const stageSettings = saved.settings.stages.find((entry) => entry.stageId === 'stage-alpha')
     assert.equal(stageSettings.pausePlanMode, 'custom')
     assert.deepEqual(stageSettings.pauses.map((pause) => [pause.routePointId, pause.durationSeconds]), [['town-ui', 1_200]])
+    await waitUntil(() => !handle.isAutomaticEnrichmentInFlight(bundle.metadata.id))
+    await handle.waitForWeatherIdle()
   } finally {
     db.close()
   }
@@ -225,14 +250,19 @@ test('G/H (R2.1 section 5): an unchecked row is never saved as a pause — 0 pau
     container.register('[data-day-detail-timeline]', fakeSubElement())
     container.register('.day-pause-editor__row', [fakePauseRow('town-ui', { checked: false })])
 
-    initializeTripsManager(container, noopDeps(db))
+    const handle = initializeTripsManager(container, noopDeps(db))
     await flush()
     container.dispatch('click', { target: fakeActionElement({ action: 'open-trip', tripId: bundle.metadata.id }) })
     await flush()
     container.dispatch('click', { target: fakeActionElement({ action: 'open-day-detail', dayId: 'day-alpha' }) })
     await flush()
     container.dispatch('click', { target: fakeActionElement({ action: 'save-manual-pauses' }) })
-    await flush()
+    // R3 sections 52-54: a fixed `flush()` (50ms) before asserting the
+    // patched subtree raced the real save chain (a real IndexedDB
+    // round-trip) under full-suite CPU contention — observed as an empty
+    // `pausesElement.outerHTML`. Waiting on the actual signal (the subtree
+    // patch itself landing) removes the race outright.
+    await waitUntil(() => pausesElement.outerSetCount > 0)
 
     // G: never blocked — the save actually went through and patched the
     // pauses subtree, no error/validation stopped it.
@@ -242,6 +272,8 @@ test('G/H (R2.1 section 5): an unchecked row is never saved as a pause — 0 pau
     const stageSettings = saved.settings.stages.find((entry) => entry.stageId === 'stage-alpha')
     assert.equal(stageSettings.pausePlanMode, 'custom')
     assert.deepEqual(stageSettings.pauses, [])
+    await waitUntil(() => !handle.isAutomaticEnrichmentInFlight(bundle.metadata.id))
+    await handle.waitForWeatherIdle()
   } finally {
     db.close()
   }
@@ -255,7 +287,7 @@ test('opening a trip (e.g. via the bottom nav) while the wizard is still open te
     const bundle = createGenericTripBundle()
     await createTripRepository(db).saveTripBundle(bundle)
     const container = createFakeContainer()
-    initializeTripsManager(container, noopDeps(db))
+    const handle = initializeTripsManager(container, noopDeps(db))
     await flush()
 
     container.dispatch('click', { target: fakeActionElement({ action: 'create-trip' }) })
@@ -269,6 +301,8 @@ test('opening a trip (e.g. via the bottom nav) while the wizard is still open te
 
     assert.equal(container.listenerCount('input'), 0, 'the wizard\'s own listeners must be torn down once we navigate away, or its stale state could still react to a later click')
     assert.match(container.innerHTML, /data-trip-overview/, 'Aperçu for the trip we actually opened is now showing')
+    await waitUntil(() => !handle.isAutomaticEnrichmentInFlight(bundle.metadata.id))
+    await handle.waitForWeatherIdle()
   } finally {
     db.close()
   }
@@ -315,7 +349,7 @@ test('"Rétablir Auto" reverts a custom stage to the trip-wide default without a
     container.register('[data-day-detail-stats]', fakeSubElement())
     container.register('[data-day-detail-timeline]', fakeSubElement())
 
-    initializeTripsManager(container, noopDeps(db))
+    const handle = initializeTripsManager(container, noopDeps(db))
     await flush()
     container.dispatch('click', { target: fakeActionElement({ action: 'open-trip', tripId: bundle.metadata.id }) })
     await flush()
@@ -329,6 +363,8 @@ test('"Rétablir Auto" reverts a custom stage to the trip-wide default without a
     assert.equal(container.innerHTMLSetCount, setCountAfterMount, 'reverting to automatic must never reset the whole Étape screen')
     const saved = await createTripRepository(db).loadTripBundle(bundle.metadata.id)
     assert.equal(saved.settings.stages.find((entry) => entry.stageId === 'stage-alpha'), undefined, 'the per-stage override is dropped, inheriting the trip-wide default again')
+    await waitUntil(() => !handle.isAutomaticEnrichmentInFlight(bundle.metadata.id))
+    await handle.waitForWeatherIdle()
   } finally {
     db.close()
   }

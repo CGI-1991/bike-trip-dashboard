@@ -108,14 +108,23 @@ test('BL/BN: opening Aperçu while automatic enrichment is still pending settles
     // unaffected by this specific provider resolving — the diff gate must
     // therefore produce ZERO additional `innerHTML` assignments here.
     resolveFindCandidates({ candidates: [], durationMs: 1, rawCandidateCount: 0, httpStatus: 200, payloadBytes: 0, startedAt: '2028-01-01T00:00:00.000Z', finishedAt: '2028-01-01T00:00:00.001Z' })
-    await flush(300)
+    // R3 sections 52-54: waits on the real completion signal
+    // (`isAutomaticEnrichmentInFlight`) rather than two guessed `flush`
+    // durations stacked back to back — this is exactly what used to leave
+    // the enrichment pass's own trailing chain (`refreshIfShowing`'s
+    // diff-gated `renderOverview`, itself a real IndexedDB round-trip)
+    // still mid-flight against an already-closed database under heavier
+    // full-suite load, surfacing as an `InvalidStateError` unhandled
+    // rejection well after this test had already ended.
+    await waitUntil(() => !handle.isAutomaticEnrichmentInFlight(bundle.metadata.id))
     assert.equal(container.innerHTMLSetCount, setCountAfterOpen, 'no visible "Chargement…" flash, no map teardown/rebuild when nothing about the overview changed')
-    // Long enough for the enrichment pass's own trailing chain
-    // (`refreshIfShowing`'s diff-gated `renderOverview`, itself a real
-    // IndexedDB round-trip) to fully settle before the database closes
-    // below — otherwise that trailing async work can still be mid-flight
-    // against an already-closed database under heavier full-suite load.
-    await flush(700)
+    // `renderOverview`'s own trailing `refreshWeather` call never awaits the
+    // weather coordinator's fetch/cache round-trip either (by design — a
+    // screen renders immediately, weather patches in once it settles) —
+    // the same class of trailing background work as `startAutomaticEnrichment`,
+    // just a second, independent chain. Waited out explicitly before
+    // closing the database below.
+    await handle.waitForWeatherIdle()
   } finally {
     db.close()
   }
@@ -155,19 +164,27 @@ test('BM: when enrichment genuinely changes something Aperçu shows (e.g. route 
     if (resolveRouteEnrichment === undefined) {
       // This fixture's stages may already have resolvable geometry with no
       // enrichment actually attempted — a legitimate, harmless outcome; the
-      // no-op-diff behaviour is already covered by the test above.
-      return
+      // no-op-diff behaviour is already covered by the test above. Still
+      // waits out the same trailing background work below before `finally`
+      // closes the database — `startAutomaticEnrichment` itself may still
+      // be mid-flight on another phase even when this particular provider
+      // was never reached.
+    } else {
+      await createTripRepository(db).saveTripBundle({
+        ...bundle,
+        stages: bundle.stages.map((stage) => (stage.id === bundle.stages[1]?.id ? { ...stage, distanceKm: 999 } : stage)),
+      })
+      resolveRouteEnrichment({ stageId: bundle.stages[1]?.id, source: 'provider', status: 'success', durationMs: 1 })
+      await waitUntil(() => container.innerHTMLSetCount > setCountAfterOpen)
+      assert.ok(container.innerHTMLSetCount > setCountAfterOpen, 'a genuine content change still reaches the screen — the diff gate never permanently freezes Aperçu')
     }
-    await createTripRepository(db).saveTripBundle({
-      ...bundle,
-      stages: bundle.stages.map((stage) => (stage.id === bundle.stages[1]?.id ? { ...stage, distanceKm: 999 } : stage)),
-    })
-    resolveRouteEnrichment({ stageId: bundle.stages[1]?.id, source: 'provider', status: 'success', durationMs: 1 })
-    await waitUntil(() => container.innerHTMLSetCount > setCountAfterOpen)
-    assert.ok(container.innerHTMLSetCount > setCountAfterOpen, 'a genuine content change still reaches the screen — the diff gate never permanently freezes Aperçu')
-    // Let the rest of the enrichment pass's own trailing chain settle before
-    // the database closes below (same rationale as the test above).
-    await flush(700)
+    // R3 sections 52-54: wait on the real completion signals (same
+    // rationale as the test above) rather than a guessed trailing `flush`
+    // duration, before the database closes below — reached on EITHER
+    // branch above, since `startAutomaticEnrichment`/the weather
+    // coordinator can both still be mid-flight regardless of which one.
+    await waitUntil(() => !handle.isAutomaticEnrichmentInFlight(bundle.metadata.id))
+    await handle.waitForWeatherIdle()
   } finally {
     db.close()
   }

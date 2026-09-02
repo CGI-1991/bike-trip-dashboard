@@ -3208,11 +3208,53 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .day-detail__timeline-body strong { overflow-wrap: anywhere; }
 .day-detail__timeline-meta { color: var(--ink-soft); font-size: .78rem; }
 .day-detail__timeline-time { color: var(--ink-soft); font-size: .78rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
-/* R2.1 section 11: the pause badge now stacks under the clock time, in the
+/* R2.1 section 11: the pause indicator stacks under the clock time, in the
  * same left column — a paused stop keeps the exact same card geometry as
  * one without (never a full-width badge reshaping the row). */
 .day-detail__timeline-time-col { display: grid; gap: 2px; justify-items: start; }
-.tag--pause { justify-self: start; color: var(--forest-800); background: var(--forest-50); }
+/*
+ * R3 sections 5-8/14: the compact pause clock dial — a fixed-size circle
+ * (`--pause-clock-size`), a `conic-gradient` filled sector (clockwise from
+ * 12 o'clock) standing in for a `<progress>`-like ring the way a physical
+ * stopwatch reads, and the duration in minutes centred on top for the
+ * actual, precise value (the fill alone never carries it — the dial reads
+ * "full" for anything ≥ 60 min, section 7). Replaces the old
+ * `.tag--pause`/`tag--pause` full-width badge outright — never reshapes the
+ * row (`justify-self: start` keeps it left-aligned under the clock time,
+ * same as the badge it replaces).
+ */
+.pause-clock {
+  --pause-clock-size: 26px;
+  justify-self: start;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--pause-clock-size);
+  height: var(--pause-clock-size);
+  flex: 0 0 auto;
+}
+.pause-clock__face {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(var(--forest-700) calc(var(--pause-fraction, 1) * 360deg), var(--forest-100) 0);
+}
+.pause-clock__label {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(var(--pause-clock-size) - 7px);
+  height: calc(var(--pause-clock-size) - 7px);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: .62rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
 /* R2 section 1 (correction R1): météo is never expandable in the Parcours
  * timeline — every point, alert or not, is the exact same non-interactive
  * line/font-size; an alert only ever gets colour + weight (never a chevron,
@@ -3350,7 +3392,6 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   .trip-day-card__prep-spinner { animation: none; }
 }
 .trip-detail__prep-summary { margin: -6px 0 0; color: var(--ink-soft); font-size: .78rem; }
-.trip-day-card__preparation-feedback { margin: 4px 0 0; padding: 6px 8px; color: var(--ink-soft); background: var(--surface-muted); border-radius: var(--radius-sm); font-size: .78rem; }
 /* C2.5 sections 16-17: compact, non-blocking — partial/error data stays
  * fully visible above this banner, "Réessayer" sits right next to it. */
 .day-detail__prep-banner { margin-top: 10px; padding: 9px 10px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; color: var(--warning-text); background: var(--warning-bg); border: 1px solid var(--warning-border); border-radius: var(--radius-sm); font-size: .82rem; }
