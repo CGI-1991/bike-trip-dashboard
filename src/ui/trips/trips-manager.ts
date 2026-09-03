@@ -49,6 +49,33 @@ import { createImportWizard } from './import-wizard.ts'
 import type { ImportWizardResult } from './import-wizard.ts'
 import { createTripEditor } from './trip-editor.ts'
 import { renderStagePreparationIndicator, renderStageRetryRow, renderTripDetail } from './trip-detail-view.ts'
+import { createEditGuard } from './edit-guard.ts'
+import type { EditContext, EditGuardDecision } from './edit-guard.ts'
+import { defaultConfirmDiscardChanges } from './confirm-discard-changes.ts'
+
+/**
+ * DER-DES-DER section 61 — the actions that LEAVE the current edit context
+ * and therefore go through the guard first: moving to another day, to
+ * another screen, or to another trip.
+ *
+ * An explicit allowlist rather than "everything not inside the form",
+ * because the boundary that matters is semantic, not structural: the
+ * location picker lives outside the Infos form in the DOM but is part of
+ * editing it, while "Enregistrer"/"Annuler" sit inside it yet resolve the
+ * context themselves. Both would be classified wrongly by a containment
+ * test.
+ */
+const EXTERNAL_ACTIONS: ReadonlySet<string> = new Set([
+  'previous-day',
+  'next-day',
+  'back-to-list',
+  'open-trip',
+  'open-day-detail',
+  'open-trip-detail',
+  'edit-trip',
+  'create-trip',
+  'delete-trip',
+])
 import { buildTripOverview } from './trip-overview-view.ts'
 import type { TripOverview } from './trip-overview-view.ts'
 import { createTripDetailAutoScrollSession, scrollTripDayCardIntoView } from '../trip-detail-auto-scroll.ts'
@@ -91,6 +118,12 @@ export interface TripsManagerDeps {
    */
   readonly practicalPlacesProvider?: PracticalPlacesProvider
   readonly onRouteEnrichmentDiagnostic?: (progress: RouteEnrichmentProgress) => void
+  /**
+   * DER-DES-DER section 57 — the three-way "unsaved changes" prompt.
+   * Defaults to a real modal `<dialog>` (`confirm-discard-changes.ts`);
+   * injected so the whole guard flow is testable with no DOM.
+   */
+  readonly confirmDiscardChanges?: () => Promise<EditGuardDecision> | EditGuardDecision
   /**
    * Drives the top-level app nav (URL hash + bottom-nav highlighting) when
    * this component navigates on its own initiative — e.g. "Ouvrir" on a
@@ -1123,6 +1156,253 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
    * failed/never finished — an already-cached stage is never re-fetched.
    * One call per click, no automatic retry loop (section 17/AA).
    */
+  /**
+   * DER-DES-DER sections 55-65 — one edit context at a time, and never a
+   * silently lost edit. The guard itself is pure state
+   * (`edit-guard.ts`); everything DOM-shaped lives in the three helpers
+   * below, and the three-way prompt comes from `deps.confirmDiscardChanges`
+   * so a test can answer it without a browser.
+   */
+  const editGuard = createEditGuard(async () => {
+    const ask = deps.confirmDiscardChanges ?? defaultConfirmDiscardChanges
+    return await ask()
+  })
+  /** Set only while re-dispatching a click the guard has just cleared — see the `EXTERNAL_ACTIONS` branch. */
+  let bypassEditGuard = false
+
+  /** The fields of one panel, for the guard's value snapshot — inputs, selects and textareas alike. */
+  function panelFields(selector: string): readonly (HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement)[] {
+    const panel = container.querySelector<HTMLElement>(selector)
+    if (panel === null) return []
+    return [...panel.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>('input, select, textarea')]
+  }
+
+  /** Section 64: the Infos edit form — dirty on any field change, closes back to the read view. */
+  function infosEditContext(tripId: TripId, dayId: TripDayId): EditContext {
+    return {
+      id: 'infos',
+      host: { fields: () => panelFields('[data-day-infos-edit]') },
+      save: () => saveDayInfos(tripId, dayId),
+      close: () => closeInfosEditView(),
+    }
+  }
+
+  /** Section 63: the Pauses panel — dirty on a checkbox, duration or anchor change. */
+  function pausesEditContext(tripId: TripId, dayId: TripDayId): EditContext {
+    return {
+      id: 'pauses',
+      host: { fields: () => panelFields('#day-bottom-panel-pauses') },
+      save: () => saveManualPauses(tripId, dayId),
+      close: () => closeBottomPanels(),
+    }
+  }
+
+  function closeInfosEditView(): void {
+    const readView = container.querySelector<HTMLElement>('[data-day-infos-read]')
+    const editView = container.querySelector<HTMLElement>('[data-day-infos-edit]')
+    if (editView !== null) editView.hidden = true
+    if (readView !== null) readView.hidden = false
+  }
+
+  /** Section 65: closing is a `hidden` toggle, never a re-render — scroll, tab and map state all stay put. */
+  function closeBottomPanels(): void {
+    for (const panel of container.querySelectorAll<HTMLElement>('[data-bottom-panel]')) panel.hidden = true
+    for (const toggle of container.querySelectorAll<HTMLButtonElement>('[data-action="toggle-bottom-panel"]')) toggle.setAttribute('aria-expanded', 'false')
+  }
+
+  /** Resolves the stage id backing the currently-open Étape screen — the pause editor's own wrapper carries it via `data-stage-id`. */
+  function findCurrentStageId(): RideStageId | undefined {
+    const value = container.querySelector<HTMLElement>('[data-day-detail-pauses]')?.dataset.stageId
+    return value === undefined ? undefined : (value as RideStageId)
+  }
+
+  /**
+   * The Infos panel's own save, extracted from the click handler so the
+   * edit guard (DER-DES-DER sections 57-58/64) can run the exact same code
+   * path when the visitor answers "Enregistrer" on their way out.
+   */
+  async function saveDayInfos(tripId: TripId, dayId: TripDayId): Promise<void> {
+    // Section 64: an explicit save resolves the context — the panel closes
+    // itself below (`patchInfosPanel` re-renders it in read mode), so there
+    // is nothing left for the guard to ask about on the way out.
+    editGuard.clear()
+    const textarea = container.querySelector<HTMLTextAreaElement>('[data-field="day-notes"]')
+    const nameField = container.querySelector<HTMLInputElement>('[data-field="lodging-name"]')
+    const addressField = container.querySelector<HTMLInputElement>('[data-field="lodging-address"]')
+    const mapsField = container.querySelector<HTMLInputElement>('[data-field="lodging-maps-url"]')
+    const websiteField = container.querySelector<HTMLInputElement>('[data-field="lodging-website"]')
+    const bookingReferenceField = container.querySelector<HTMLInputElement>('[data-field="lodging-booking-reference"]')
+    const notes = trimmedOrNull(textarea?.value ?? '')
+    const name = trimmedOrNull(nameField?.value ?? '')
+    const address = trimmedOrNull(addressField?.value ?? '')
+    const mapsUrl = trimmedOrNull(mapsField?.value ?? '')
+    const website = trimmedOrNull(websiteField?.value ?? '')
+    const bookingReference = trimmedOrNull(bookingReferenceField?.value ?? '')
+    // R2/R2.1 sections 2/36-37: only present in the DOM for a transfer
+    // day's own Infos edit form — `undefined` (never `null`, TripDay's own
+    // optional shape) whenever the field isn't rendered at all (ride/off)
+    // or was cleared by the user.
+    const transferModeField = container.querySelector<HTMLSelectElement>('[data-field="transfer-mode"]')
+    const transferDepartureField = container.querySelector<HTMLInputElement>('[data-field="transfer-departure-time"]')
+    const transferArrivalField = container.querySelector<HTMLInputElement>('[data-field="transfer-arrival-time"]')
+    const transferOperatorField = container.querySelector<HTMLInputElement>('[data-field="transfer-operator"]')
+    const transferLinkField = container.querySelector<HTMLInputElement>('[data-field="transfer-link"]')
+    const transferTicketLinkField = container.querySelector<HTMLInputElement>('[data-field="transfer-ticket-link"]')
+    const transferMode = transferModeField === null ? undefined : trimmedOrNull(transferModeField.value) ?? undefined
+    const transferDepartureTime = transferDepartureField === null ? undefined : trimmedOrNull(transferDepartureField.value) ?? undefined
+    const transferArrivalTime = transferArrivalField === null ? undefined : trimmedOrNull(transferArrivalField.value) ?? undefined
+    const transferOperator = transferOperatorField === null ? undefined : trimmedOrNull(transferOperatorField.value) ?? undefined
+    const transferLink = transferLinkField === null ? undefined : trimmedOrNull(transferLinkField.value) ?? undefined
+    const transferTicketLink = transferTicketLinkField === null ? undefined : trimmedOrNull(transferTicketLinkField.value) ?? undefined
+    // R2.1 sections 40-41: the manual location-name override — present for
+    // OFF (`location-start` only) and transfer (`location-start`/`-end`)
+    // days, absent for ride. `null` (never `undefined` — `TripDay`'s own
+    // `startLocationName`/`endLocationName` are non-optional) clears it
+    // back to "use the automatic one"; absent from the DOM entirely
+    // (ride days) leaves the field out of the patch, untouched.
+    const locationStartField = container.querySelector<HTMLInputElement>('[data-field="location-start"]')
+    const locationEndField = container.querySelector<HTMLInputElement>('[data-field="location-end"]')
+    const locationStartName = locationStartField === null ? undefined : trimmedOrNull(locationStartField.value)
+    const locationEndName = locationEndField === null ? undefined : trimmedOrNull(locationEndField.value)
+    // CDC Jalon B4.3 section 36: clearing every lodging field and saving
+    // removes the lodging — no separate "Supprimer" action needed. R2.1
+    // section 32: a `before_next` transfer never renders lodging fields
+    // at all (see `renderInfosPanel`'s `showLodging`) — its own
+    // `accommodationId` (if any legacy value lingers) is left untouched
+    // rather than treated as "every field cleared".
+    const lodgingFieldsRendered = nameField !== null || mapsField !== null || websiteField !== null || addressField !== null || bookingReferenceField !== null
+    const clearLodging = lodgingFieldsRendered && name === null && mapsUrl === null && website === null && address === null && bookingReference === null
+    const updated = await mutateTripBundle(tripId, (bundle) => {
+      const day = bundle.days.find((candidate) => candidate.id === dayId)
+      if (day === undefined) return bundle
+      // R2.1 sections 33-34: an `after_previous` transfer's notes/
+      // lodging are saved onto the previous day it shares them with,
+      // never a second, orphaned copy on the transfer day itself — the
+      // transfer-specific fields below always stay on `dayId`, even
+      // when that differs from the info day.
+      const infoDayId = resolveSharedInfoDayId(bundle, day)
+      const infoDay = bundle.days.find((candidate) => candidate.id === infoDayId)
+      const existingAccommodationId = infoDay?.accommodationId ?? null
+      // Transfer mode/heures/opérateur/lien AND the manual location-name
+      // override (R2.1 sections 40-41) all belong to `dayId` itself,
+      // never `infoDayId` — a shared transfer still has its own journey
+      // and its own place.
+      const dayOwnPatch = {
+        transferMode, transferDepartureTime, transferArrivalTime, transferOperator, transferLink, transferTicketLink,
+        ...(locationStartName === undefined ? {} : { startLocationName: locationStartName }),
+        ...(locationEndName === undefined ? {} : { endLocationName: locationEndName }),
+      }
+      if (!lodgingFieldsRendered) {
+        return {
+          ...bundle,
+          days: bundle.days.map((candidate) => {
+            const isInfoDay = candidate.id === infoDayId
+            const isOwnDay = candidate.id === dayId
+            if (!isInfoDay && !isOwnDay) return candidate
+            return {
+              ...candidate,
+              ...(isInfoDay ? { notes } : {}),
+              ...(isOwnDay ? dayOwnPatch : {}),
+            }
+          }),
+        }
+      }
+      if (clearLodging) {
+        return {
+          ...bundle,
+          accommodations: bundle.accommodations.filter((entry) => entry.id !== existingAccommodationId),
+          days: bundle.days.map((candidate) => {
+            const isInfoDay = candidate.id === infoDayId
+            const isOwnDay = candidate.id === dayId
+            if (!isInfoDay && !isOwnDay) return candidate
+            return {
+              ...candidate,
+              ...(isInfoDay ? { notes, accommodationId: null } : {}),
+              ...(isOwnDay ? dayOwnPatch : {}),
+            }
+          }),
+        }
+      }
+      const accommodationId = (existingAccommodationId ?? deps.idFactory()) as AccommodationId
+      const record = {
+        id: accommodationId, name: name ?? 'Hébergement', type: 'hotel' as const, address, latitude: null, longitude: null,
+        mapsUrl, website, phone: null, bookingReference, notes: null, confirmed: true,
+        provenance: { sourceType: 'user' as const, sourceId: null, fetchedAt: null, engineVersion: 'trips-manager-lodging@1', confidence: null, manuallyOverridden: true },
+      }
+      const accommodations = existingAccommodationId === null ? [...bundle.accommodations, record] : bundle.accommodations.map((entry) => (entry.id === existingAccommodationId ? record : entry))
+      return {
+        ...bundle, accommodations,
+        days: bundle.days.map((candidate) => {
+          const isInfoDay = candidate.id === infoDayId
+          const isOwnDay = candidate.id === dayId
+          if (!isInfoDay && !isOwnDay) return candidate
+          return {
+            ...candidate,
+            ...(isInfoDay ? { notes, accommodationId } : {}),
+            ...(isOwnDay ? dayOwnPatch : {}),
+          }
+        }),
+      }
+    })
+    if (updated !== null) {
+      patchInfosPanel(updated, dayId)
+      patchDaySummary(updated, dayId)
+    }
+  }
+  /**
+   * The Pauses panel's own save, extracted from the click handler so the
+   * edit guard (DER-DES-DER sections 57-58) can run the exact same code path
+   * when the visitor answers "Enregistrer" on their way out — never a second,
+   * divergent save that could drift from this one.
+   */
+  async function saveManualPauses(tripId: TripId, dayId: TripDayId): Promise<void> {
+    // Section 63: an explicit save resolves the context, and the panel
+    // re-collapses at the end of this function.
+    editGuard.clear()
+    const stageId = findCurrentStageId()
+    if (stageId === undefined) return
+    const rows = container.querySelectorAll<HTMLElement>('.day-pause-editor__row')
+    const existingPauses = new Map<string, StagePauseSetting>()
+    const tripRepository = createTripRepository(deps.database)
+    const bundle = await tripRepository.loadTripBundle(tripId)
+    const current = bundle?.settings.stages.find((entry) => entry.stageId === stageId)
+    for (const pause of current?.pauses ?? []) if (pause.routePointId !== null) existingPauses.set(pause.routePointId, pause)
+    const nextPauses: StagePauseSetting[] = []
+    rows.forEach((row) => {
+      const candidateId = row.dataset.candidateId
+      const checkbox = row.querySelector<HTMLInputElement>('[data-field="pause-active"]')
+      const durationInput = row.querySelector<HTMLInputElement>('[data-field="pause-duration"]')
+      if (candidateId === undefined || checkbox === null || !checkbox.checked) return
+      // R3 sections 9-12: normalized to the nearest 5-minute step at save
+      // time — the `<input step="5">` already steers a mouse/keyboard-arrow
+      // user there, but a typed/pasted value could still slip through
+      // un-stepped. A genuine `0` (or negative/non-finite) stays `0`, same as
+      // before — `normalizePauseDurationMinutes` itself never rounds a
+      // non-positive value up to a fabricated 5.
+      const minutes = durationInput !== null && Number.isFinite(durationInput.valueAsNumber) ? normalizePauseDurationMinutes(durationInput.valueAsNumber) : 15
+      const existing = existingPauses.get(candidateId)
+      nextPauses.push({
+        id: existing?.id ?? deps.idFactory(), active: true, routePointId: candidateId as RoutePointId,
+        durationSeconds: minutes * 60, order: nextPauses.length, origin: existing?.origin ?? 'custom',
+      })
+    })
+    // C2.5 sections 26-27: a duration-only change never touches Postpass
+    // (already true today — `patchDayDetail` below only ever recomputes
+    // timing/ETA/opening-status, all pure/in-memory); moving a pause to a
+    // different anchor DOES need a targeted re-search, for this one stage
+    // only (`reenrichStagePracticalPlaces` below).
+    const invalidation = deriveStageInvalidation([...existingPauses.values()], nextPauses)
+    const updated = await saveStagePauseSettings(tripId, stageId, { stageId, pausePlanMode: 'custom', pauses: withContiguousOrder(nextPauses) })
+    if (updated === null) return
+    patchDayDetail(updated, dayId)
+    // Re-collapse the panel after save (CDC Jalon B4.3 section 31 / section
+    // 63: "après save → refermer Pauses") — scroll/focus stay put since only
+    // the pauses subtree was patched.
+    const details = container.querySelector<HTMLDetailsElement>('[data-day-pause-editor]')
+    if (details !== null) details.open = false
+    if (invalidation.anchorsChanged) void reenrichStagePracticalPlaces(tripId, dayId, updated)
+  }
+
   function retryStagePreparation(tripId: TripId, dayId?: TripDayId): void {
     // Scoped strictly to the user's own click (unlike `refreshIfShowing`,
     // which also fires from the routine, unawaited enrichment every
@@ -1214,6 +1494,10 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   }
 
   async function openDay(tripId: TripId, dayId: TripDayId, origin: DayOrigin): Promise<void> {
+    // Any navigation that gets this far has already been through the guard
+    // (`EXTERNAL_ACTIONS`); the render below replaces the panel DOM outright,
+    // so the guard must not keep pointing at fields that no longer exist.
+    editGuard.clear()
     mode = { kind: 'day', tripId, dayId, origin }
     await renderDay(tripId, dayId)
   }
@@ -1246,6 +1530,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
 
   /** Global "Mes voyages" nav click (CDC hardening section 14): always returns to the trip list, whatever screen was open — the reason none of Aperçu/Voyage/Étape carries its own "Retour à Mes voyages" button. */
   function goToList(): void {
+    editGuard.clear()
     mode = { kind: 'list' }
     void renderList()
   }
@@ -1423,7 +1708,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     downloadBlob(zip, `${safeName}_GPX.zip`)
   }
 
-  container.addEventListener('click', (event) => {
+  function handleContainerClick(event: { readonly target: EventTarget | null }): void {
     const target = event.target
     if (!(target instanceof Element)) return
 
@@ -1461,26 +1746,46 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       const panel = container.querySelector<HTMLElement>(`#${CSS.escape(bottomToggle.getAttribute('aria-controls') ?? '')}`)
       if (panel === null) return
       const opening = panel.hidden
-      for (const otherPanel of container.querySelectorAll<HTMLElement>('[data-bottom-panel]')) otherPanel.hidden = true
-      for (const otherToggle of container.querySelectorAll<HTMLButtonElement>('[data-action="toggle-bottom-panel"]')) otherToggle.setAttribute('aria-expanded', 'false')
-      if (opening) {
+      const applyToggle = (): void => {
+        closeBottomPanels()
+        if (!opening) return
         panel.hidden = false
         bottomToggle.setAttribute('aria-expanded', 'true')
+        // Section 62: Météo is consultation only — registered with no fields,
+        // so it can never be dirty and leaving it never prompts.
+        if (mode.kind === 'day') {
+          editGuard.open(panel.id === 'day-bottom-panel-pauses'
+            ? pausesEditContext(mode.tripId, mode.dayId)
+            : { id: 'weather', host: { fields: () => [] }, save: () => {}, close: () => closeBottomPanels() })
+        }
       }
+      // Sections 55/61: Pauses ↔ Météo is one of the transitions the guard
+      // covers — leaving a DIRTY Pauses panel for Météo asks first. With
+      // nothing pending the toggle stays synchronous and instant.
+      if (editGuard.tryLeaveWithoutPrompt()) applyToggle()
+      else void editGuard.requestLeave().then((allowed) => { if (allowed) applyToggle() })
       return
     }
     if (target.closest('[data-action="edit-day-infos"]') !== null) {
-      const readView = container.querySelector<HTMLElement>('[data-day-infos-read]')
-      const editView = container.querySelector<HTMLElement>('[data-day-infos-edit]')
-      if (readView !== null) readView.hidden = true
-      if (editView !== null) editView.hidden = false
+      const openInfosEditView = (): void => {
+        const readView = container.querySelector<HTMLElement>('[data-day-infos-read]')
+        const editView = container.querySelector<HTMLElement>('[data-day-infos-edit]')
+        if (readView !== null) readView.hidden = true
+        if (editView !== null) editView.hidden = false
+        if (mode.kind === 'day') editGuard.open(infosEditContext(mode.tripId, mode.dayId))
+      }
+      // Section 55: entering the Infos form is itself a context switch — a
+      // dirty Pauses panel is settled first.
+      if (editGuard.tryLeaveWithoutPrompt()) openInfosEditView()
+      else void editGuard.requestLeave().then((allowed) => { if (allowed) openInfosEditView() })
       return
     }
     if (target.closest('[data-action="cancel-edit-day-infos"]') !== null) {
-      const readView = container.querySelector<HTMLElement>('[data-day-infos-read]')
-      const editView = container.querySelector<HTMLElement>('[data-day-infos-edit]')
-      if (editView !== null) editView.hidden = true
-      if (readView !== null) readView.hidden = false
+      // An explicit "Annuler" IS the visitor's answer — never prompt on top
+      // of it (section 59's outcome, chosen deliberately rather than on the
+      // way out).
+      editGuard.clear()
+      closeInfosEditView()
       return
     }
 
@@ -1489,6 +1794,32 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     const action = button.dataset.action
     const tripId = button.dataset.tripId
     const dayId = button.dataset.dayId
+
+    // Section 61: every action that LEAVES the current edit context goes
+    // through the guard first. A click inside the open form (its own fields,
+    // its own Enregistrer/Annuler, the location picker it owns) is not a
+    // departure and must never prompt — hence an explicit list of the
+    // departures rather than "anything not in the form".
+    if (action !== undefined && EXTERNAL_ACTIONS.has(action) && !bypassEditGuard && !editGuard.tryLeaveWithoutPrompt()) {
+      const originalTarget = target
+      void (async () => {
+        if (!(await editGuard.requestLeave())) return
+        // Replay the same click now that the context is settled — by calling
+        // this handler directly rather than synthesizing a DOM `click()`, so
+        // it works identically whether or not the element is still attached.
+        // `bypassEditGuard` makes that second pass skip this branch outright
+        // rather than re-entering it — the guard is empty by then, so
+        // without the flag `tryLeaveWithoutPrompt` would allow it straight
+        // through and replay forever.
+        bypassEditGuard = true
+        try {
+          handleContainerClick({ target: originalTarget })
+        } finally {
+          bypassEditGuard = false
+        }
+      })()
+      return
+    }
 
     if (action === 'create-trip') {
       openWizard()
@@ -1585,51 +1916,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
         if (bundle !== null) patchDayDetail(bundle, dayId)
       })()
     } else if (action === 'save-manual-pauses' && mode.kind === 'day') {
-      const { tripId, dayId } = mode
-      const stageId = findCurrentStageId()
-      if (stageId === undefined) return
-      const rows = container.querySelectorAll<HTMLElement>('.day-pause-editor__row')
-      const existingPauses = new Map<string, StagePauseSetting>()
-      void (async () => {
-        const tripRepository = createTripRepository(deps.database)
-        const bundle = await tripRepository.loadTripBundle(tripId)
-        const current = bundle?.settings.stages.find((entry) => entry.stageId === stageId)
-        for (const pause of current?.pauses ?? []) if (pause.routePointId !== null) existingPauses.set(pause.routePointId, pause)
-        const nextPauses: StagePauseSetting[] = []
-        rows.forEach((row) => {
-          const candidateId = row.dataset.candidateId
-          const checkbox = row.querySelector<HTMLInputElement>('[data-field="pause-active"]')
-          const durationInput = row.querySelector<HTMLInputElement>('[data-field="pause-duration"]')
-          if (candidateId === undefined || checkbox === null || !checkbox.checked) return
-          // R3 sections 9-12: normalized to the nearest 5-minute step at
-          // save time — the `<input step="5">` already steers a mouse/
-          // keyboard-arrow user there, but a typed/pasted value could still
-          // slip through un-stepped. A genuine `0` (or negative/non-finite)
-          // stays `0`, same as before — `normalizePauseDurationMinutes`
-          // itself never rounds a non-positive value up to a fabricated 5.
-          const minutes = durationInput !== null && Number.isFinite(durationInput.valueAsNumber) ? normalizePauseDurationMinutes(durationInput.valueAsNumber) : 15
-          const existing = existingPauses.get(candidateId)
-          nextPauses.push({
-            id: existing?.id ?? deps.idFactory(), active: true, routePointId: candidateId as RoutePointId,
-            durationSeconds: minutes * 60, order: nextPauses.length, origin: existing?.origin ?? 'custom',
-          })
-        })
-        // C2.5 sections 26-27: a duration-only change never touches
-        // Postpass (already true today — `patchDayDetail` below only ever
-        // recomputes timing/ETA/opening-status, all pure/in-memory); moving
-        // a pause to a different anchor DOES need a targeted re-search, for
-        // this one stage only (`reenrichStagePracticalPlaces` below).
-        const invalidation = deriveStageInvalidation([...existingPauses.values()], nextPauses)
-        const updated = await saveStagePauseSettings(tripId, stageId, { stageId, pausePlanMode: 'custom', pauses: withContiguousOrder(nextPauses) })
-        if (updated !== null) {
-          patchDayDetail(updated, dayId)
-          // Re-collapse the panel after save (CDC Jalon B4.3 section 31) —
-          // scroll/focus stay put since only the pauses subtree was patched.
-          const details = container.querySelector<HTMLDetailsElement>('[data-day-pause-editor]')
-          if (details !== null) details.open = false
-          if (invalidation.anchorsChanged) void reenrichStagePracticalPlaces(tripId, dayId, updated)
-        }
-      })()
+      void saveManualPauses(mode.tripId, mode.dayId)
     } else if (action === 'edit-day-departure-time' && mode.kind === 'day') {
       // The reveal itself is a pure `hidden` toggle (CDC D1.2 section 11) —
       // `wireDepartureTimeInput` (called once per mount/patch) already
@@ -1659,131 +1946,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
         if (updated !== null) patchDayDetail(updated, dayId)
       })()
     } else if (action === 'save-day-infos' && mode.kind === 'day') {
-      const { tripId, dayId } = mode
-      const textarea = container.querySelector<HTMLTextAreaElement>('[data-field="day-notes"]')
-      const nameField = container.querySelector<HTMLInputElement>('[data-field="lodging-name"]')
-      const addressField = container.querySelector<HTMLInputElement>('[data-field="lodging-address"]')
-      const mapsField = container.querySelector<HTMLInputElement>('[data-field="lodging-maps-url"]')
-      const websiteField = container.querySelector<HTMLInputElement>('[data-field="lodging-website"]')
-      const bookingReferenceField = container.querySelector<HTMLInputElement>('[data-field="lodging-booking-reference"]')
-      const notes = trimmedOrNull(textarea?.value ?? '')
-      const name = trimmedOrNull(nameField?.value ?? '')
-      const address = trimmedOrNull(addressField?.value ?? '')
-      const mapsUrl = trimmedOrNull(mapsField?.value ?? '')
-      const website = trimmedOrNull(websiteField?.value ?? '')
-      const bookingReference = trimmedOrNull(bookingReferenceField?.value ?? '')
-      // R2/R2.1 sections 2/36-37: only present in the DOM for a transfer
-      // day's own Infos edit form — `undefined` (never `null`, TripDay's own
-      // optional shape) whenever the field isn't rendered at all (ride/off)
-      // or was cleared by the user.
-      const transferModeField = container.querySelector<HTMLSelectElement>('[data-field="transfer-mode"]')
-      const transferDepartureField = container.querySelector<HTMLInputElement>('[data-field="transfer-departure-time"]')
-      const transferArrivalField = container.querySelector<HTMLInputElement>('[data-field="transfer-arrival-time"]')
-      const transferOperatorField = container.querySelector<HTMLInputElement>('[data-field="transfer-operator"]')
-      const transferLinkField = container.querySelector<HTMLInputElement>('[data-field="transfer-link"]')
-      const transferTicketLinkField = container.querySelector<HTMLInputElement>('[data-field="transfer-ticket-link"]')
-      const transferMode = transferModeField === null ? undefined : trimmedOrNull(transferModeField.value) ?? undefined
-      const transferDepartureTime = transferDepartureField === null ? undefined : trimmedOrNull(transferDepartureField.value) ?? undefined
-      const transferArrivalTime = transferArrivalField === null ? undefined : trimmedOrNull(transferArrivalField.value) ?? undefined
-      const transferOperator = transferOperatorField === null ? undefined : trimmedOrNull(transferOperatorField.value) ?? undefined
-      const transferLink = transferLinkField === null ? undefined : trimmedOrNull(transferLinkField.value) ?? undefined
-      const transferTicketLink = transferTicketLinkField === null ? undefined : trimmedOrNull(transferTicketLinkField.value) ?? undefined
-      // R2.1 sections 40-41: the manual location-name override — present for
-      // OFF (`location-start` only) and transfer (`location-start`/`-end`)
-      // days, absent for ride. `null` (never `undefined` — `TripDay`'s own
-      // `startLocationName`/`endLocationName` are non-optional) clears it
-      // back to "use the automatic one"; absent from the DOM entirely
-      // (ride days) leaves the field out of the patch, untouched.
-      const locationStartField = container.querySelector<HTMLInputElement>('[data-field="location-start"]')
-      const locationEndField = container.querySelector<HTMLInputElement>('[data-field="location-end"]')
-      const locationStartName = locationStartField === null ? undefined : trimmedOrNull(locationStartField.value)
-      const locationEndName = locationEndField === null ? undefined : trimmedOrNull(locationEndField.value)
-      // CDC Jalon B4.3 section 36: clearing every lodging field and saving
-      // removes the lodging — no separate "Supprimer" action needed. R2.1
-      // section 32: a `before_next` transfer never renders lodging fields
-      // at all (see `renderInfosPanel`'s `showLodging`) — its own
-      // `accommodationId` (if any legacy value lingers) is left untouched
-      // rather than treated as "every field cleared".
-      const lodgingFieldsRendered = nameField !== null || mapsField !== null || websiteField !== null || addressField !== null || bookingReferenceField !== null
-      const clearLodging = lodgingFieldsRendered && name === null && mapsUrl === null && website === null && address === null && bookingReference === null
-      void (async () => {
-        const updated = await mutateTripBundle(tripId, (bundle) => {
-          const day = bundle.days.find((candidate) => candidate.id === dayId)
-          if (day === undefined) return bundle
-          // R2.1 sections 33-34: an `after_previous` transfer's notes/
-          // lodging are saved onto the previous day it shares them with,
-          // never a second, orphaned copy on the transfer day itself — the
-          // transfer-specific fields below always stay on `dayId`, even
-          // when that differs from the info day.
-          const infoDayId = resolveSharedInfoDayId(bundle, day)
-          const infoDay = bundle.days.find((candidate) => candidate.id === infoDayId)
-          const existingAccommodationId = infoDay?.accommodationId ?? null
-          // Transfer mode/heures/opérateur/lien AND the manual location-name
-          // override (R2.1 sections 40-41) all belong to `dayId` itself,
-          // never `infoDayId` — a shared transfer still has its own journey
-          // and its own place.
-          const dayOwnPatch = {
-            transferMode, transferDepartureTime, transferArrivalTime, transferOperator, transferLink, transferTicketLink,
-            ...(locationStartName === undefined ? {} : { startLocationName: locationStartName }),
-            ...(locationEndName === undefined ? {} : { endLocationName: locationEndName }),
-          }
-          if (!lodgingFieldsRendered) {
-            return {
-              ...bundle,
-              days: bundle.days.map((candidate) => {
-                const isInfoDay = candidate.id === infoDayId
-                const isOwnDay = candidate.id === dayId
-                if (!isInfoDay && !isOwnDay) return candidate
-                return {
-                  ...candidate,
-                  ...(isInfoDay ? { notes } : {}),
-                  ...(isOwnDay ? dayOwnPatch : {}),
-                }
-              }),
-            }
-          }
-          if (clearLodging) {
-            return {
-              ...bundle,
-              accommodations: bundle.accommodations.filter((entry) => entry.id !== existingAccommodationId),
-              days: bundle.days.map((candidate) => {
-                const isInfoDay = candidate.id === infoDayId
-                const isOwnDay = candidate.id === dayId
-                if (!isInfoDay && !isOwnDay) return candidate
-                return {
-                  ...candidate,
-                  ...(isInfoDay ? { notes, accommodationId: null } : {}),
-                  ...(isOwnDay ? dayOwnPatch : {}),
-                }
-              }),
-            }
-          }
-          const accommodationId = (existingAccommodationId ?? deps.idFactory()) as AccommodationId
-          const record = {
-            id: accommodationId, name: name ?? 'Hébergement', type: 'hotel' as const, address, latitude: null, longitude: null,
-            mapsUrl, website, phone: null, bookingReference, notes: null, confirmed: true,
-            provenance: { sourceType: 'user' as const, sourceId: null, fetchedAt: null, engineVersion: 'trips-manager-lodging@1', confidence: null, manuallyOverridden: true },
-          }
-          const accommodations = existingAccommodationId === null ? [...bundle.accommodations, record] : bundle.accommodations.map((entry) => (entry.id === existingAccommodationId ? record : entry))
-          return {
-            ...bundle, accommodations,
-            days: bundle.days.map((candidate) => {
-              const isInfoDay = candidate.id === infoDayId
-              const isOwnDay = candidate.id === dayId
-              if (!isInfoDay && !isOwnDay) return candidate
-              return {
-                ...candidate,
-                ...(isInfoDay ? { notes, accommodationId } : {}),
-                ...(isOwnDay ? dayOwnPatch : {}),
-              }
-            }),
-          }
-        })
-        if (updated !== null) {
-          patchInfosPanel(updated, dayId)
-          patchDaySummary(updated, dayId)
-        }
-      })()
+      void saveDayInfos(mode.tripId, mode.dayId)
     } else if (action === 'start-choose-location' && mode.kind === 'day') {
       // R3 sections 30-35: opens the shared picker block, mounts a real,
       // synchronous, always-interactive map via `deps.mountLocationPicker`
@@ -1935,13 +2098,9 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
         if (bundle !== null) await downloadTripGpxArchive(tripId, bundle.metadata.name)
       })()
     }
+  }
 
-    /** Resolves the stage id backing the currently-open Étape screen — the pause editor's own wrapper carries it via `data-stage-id`. */
-    function findCurrentStageId(): RideStageId | undefined {
-      const value = container.querySelector<HTMLElement>('[data-day-detail-pauses]')?.dataset.stageId
-      return value === undefined ? undefined : (value as RideStageId)
-    }
-  })
+  container.addEventListener('click', handleContainerClick)
 
   /** Roving Enter/Space activation for `role="button"` elements that aren't real `<button>`s (trip cards, the Aperçu highlighted-day card) — only when focus is directly on the role=button element itself, never re-triggered for a nested real button (which already handles its own keys natively). */
   container.addEventListener('keydown', (event) => {

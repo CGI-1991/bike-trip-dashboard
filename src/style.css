@@ -3411,6 +3411,24 @@ button:disabled { cursor: not-allowed; opacity: .55; }
  * enough not to compete with the card itself.
  */
 /*
+ * DER-DES-DER section 57 — the three-way "unsaved changes" prompt. Compact
+ * and thumb-friendly: the three actions stack on a phone rather than
+ * squeezing onto one line.
+ */
+.discard-changes-dialog {
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 20px;
+  border: none;
+  border-radius: 14px;
+  background: var(--surface, #fff);
+  color: inherit;
+}
+.discard-changes-dialog::backdrop { background: rgb(0 0 0 / .45); }
+.discard-changes-dialog h2 { margin: 0 0 8px; font-size: 1.05rem; }
+.discard-changes-dialog p { margin: 0 0 16px; color: var(--ink-soft); font-size: .9rem; }
+.discard-changes-dialog__actions { display: flex; flex-direction: column; gap: 8px; }
+
+/*
  * DER-DES-DER section 75 — a transfer endpoint the trip's own chronology
  * already fixes: shown as a value with a short hint, never as an input.
  */

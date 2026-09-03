@@ -8,6 +8,7 @@ import type { TripPreferencesFieldError, TripPreferencesUpdate } from '../../tri
 import { deriveTripTerrainContext } from '../../analysis/terrain-context.ts'
 import { createTripRepository } from '../../storage/indexeddb/trip-repository.ts'
 import { resolveOffLocation, resolveTransferLocations } from '../../analysis/day-location-fill.ts'
+import { resetEnrichmentForRecalculation } from '../../route-enrichment/settled-stages.ts'
 import { formatShortDate } from '../date-format.ts'
 import { renderTerrainToggle } from './terrain-toggle.ts'
 import type { IsoDate, SourceFileId, TransferTiming, TripBundle, TripDayId, TripId } from '../../trip-core/index.ts'
@@ -80,6 +81,9 @@ export function createTripEditor(
   let tripName = ''
   let errorMessage: string | null = null
   let fieldErrors: readonly TripPreferencesFieldError[] = []
+  /** DER-DES-DER sections 34-36 — in-flight guard + the short confirmation feedback for "Recalculer les données du parcours". */
+  let recalculating = false
+  let recalculationMessage: string | null = null
   /**
    * D3.1 sections 1/3-4/17: "Informations" (name/date/speed/terrain) is a
    * genuinely separate category from "Structure" (the GPX/OFF/transfer list
@@ -307,6 +311,41 @@ export function createTripEditor(
     render()
   }
 
+  /**
+   * DER-DES-DER sections 34-37 — "Recalculer les données du parcours".
+   *
+   * Section 36 asks for a confirmation first, in plain terms. Section 33's
+   * "invalidation explicite" then happens through the one function that owns
+   * that concept (`resetEnrichmentForRecalculation`): every provider drops
+   * back to `pending` and forgets its settled fingerprints, which is exactly
+   * what makes the next automatic pass re-query every stage. The pass itself
+   * is not started here — reopening the trip runs it, through the same single
+   * orchestration entry point everything else uses (section 38: never a
+   * second, parallel enrichment path).
+   */
+  async function recalculate(): Promise<void> {
+    if (recalculating || stage === 'saving') return
+    if (!window.confirm('Recalculer les lieux, services et pauses du voyage ?\n\nLes données automatiques seront rafraîchies à la prochaine ouverture du voyage. Vos saisies manuelles sont conservées.')) return
+    recalculating = true
+    recalculationMessage = null
+    render()
+    try {
+      const repository = createTripRepository(deps.database)
+      const bundle = await repository.loadTripBundle(tripId)
+      if (bundle === null) {
+        recalculationMessage = 'Voyage introuvable.'
+        return
+      }
+      await repository.saveTripBundle(resetEnrichmentForRecalculation(bundle))
+      recalculationMessage = 'Les données seront rafraîchies à la prochaine ouverture du voyage.'
+    } catch {
+      recalculationMessage = 'Le recalcul n’a pas pu être préparé. Réessayez plus tard.'
+    } finally {
+      recalculating = false
+      render()
+    }
+  }
+
   async function save(): Promise<void> {
     if (!canSave()) return
     if (isStructureDirty()) await saveStructural()
@@ -423,6 +462,30 @@ export function createTripEditor(
     </section>`
   }
 
+  /**
+   * DER-DES-DER sections 34-37 — the ONE explicit way to make the app
+   * re-query everything it has already settled.
+   *
+   * A trip prepared months in advance is the case this exists for (section
+   * 35): OSM has moved on, a shop closed, a village gained a fountain. Since
+   * the pipeline became genuinely one-shot (sections 31-33), nothing else
+   * ever re-queries a settled stage — so this is deliberately discreet and
+   * deliberately reachable, tucked under Réglages avancés rather than
+   * anywhere a rider could hit it by accident in the field.
+   *
+   * Section 37: it clears provider BOOKKEEPING only. Custom pauses, notes,
+   * lodging, reservations, transfers, location overrides and departure times
+   * live elsewhere in the bundle and are structurally out of its reach — the
+   * hint says so plainly, in the user's own terms.
+   */
+  function renderRecalculationAction(): string {
+    return `<div class='wizard-advanced__action'>
+      <button class='button button--quiet' type='button' data-editor-action='recalculate' ${stage === 'saving' || recalculating ? 'disabled' : ''}>Recalculer les données du parcours</button>
+      <p class='field__hint'>Relance la recherche des lieux, services et pauses automatiques. Vos saisies (pauses choisies, notes, logement, réservations) sont conservées.</p>
+      ${recalculationMessage === null ? '' : `<p class='field__hint' role='status'>${escapeHtml(recalculationMessage)}</p>`}
+    </div>`
+  }
+
   function render(): void {
     if (stage === 'loading') {
       container.innerHTML = `<p role='status'>Chargement du voyage…</p>`
@@ -450,6 +513,7 @@ export function createTripEditor(
       <details class='wizard-advanced'><summary>Réglages avancés</summary>
         ${renderTerrainToggle(terrainOverride)}
         <p class='field__hint'>Change uniquement le seuil utilisé pour distinguer les montées principales des secondaires.</p>
+        ${renderRecalculationAction()}
       </details>
       ${errorMessage === null ? '' : `<p class='wizard-error' role='alert'>${escapeHtml(errorMessage)}</p>`}
       ${stage === 'saving' ? `<p role='status'>${escapeHtml(savingMessage)}</p>` : ''}
@@ -607,6 +671,7 @@ export function createTripEditor(
     else if (action === 'insert-transfer') insertAfter(position, 'transfer')
     else if (action === 'remove') remove(position)
     else if (action === 'save') void save()
+    else if (action === 'recalculate') void recalculate()
     else if (action === 'cancel') onCancelled()
   }, { signal: controller.signal })
 
