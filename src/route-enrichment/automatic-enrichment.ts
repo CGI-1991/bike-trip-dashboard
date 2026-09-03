@@ -30,6 +30,21 @@ export interface AutomaticEnrichmentInput {
   readonly idFactory: () => string
   readonly now: () => string
   readonly onProgress?: (progress: AutomaticEnrichmentProgress) => void
+  /**
+   * DER-DES-DER sections 38-39 — cooperative cancellation. Exactly ONE trip
+   * may have an active enrichment orchestration at a time: opening trip B
+   * makes this return `false` for trip A, which then stops cleanly at its
+   * next stage/phase boundary.
+   *
+   * Cooperative rather than an `AbortController` on purpose: every phase
+   * already persists what it has finished (the practical-places pass saves
+   * stage by stage), so stopping between units keeps everything acquired,
+   * needs no rollback, and leaves the trip in a state a later reopen simply
+   * resumes from (section 40). Omitted = never cancelled.
+   */
+  readonly shouldContinue?: () => boolean
+  /** Sections 42/49 — passed through to both Postpass phases; the manual "Réessayer" uses the smaller retry length. */
+  readonly segmentLengthKm?: number
 }
 
 export interface AutomaticEnrichmentReport {
@@ -56,8 +71,9 @@ export async function runStoredTripAutomaticEnrichment(input: AutomaticEnrichmen
   let endpointAttempted = false
   let routeAttempted = false
   let practicalPlacesAttempted = false
+  const active = () => input.shouldContinue?.() ?? true
 
-  if (input.geocodingProvider !== undefined && tripNeedsEndpointGeocoding(bundle)) {
+  if (active() && input.geocodingProvider !== undefined && tripNeedsEndpointGeocoding(bundle)) {
     endpointAttempted = true
     input.onProgress?.({ phase: 'endpoints' })
     await enrichStoredTripEndpoints({
@@ -71,7 +87,7 @@ export async function runStoredTripAutomaticEnrichment(input: AutomaticEnrichmen
     if (bundle === null) return { bundle: null, endpointAttempted, routeAttempted, practicalPlacesAttempted, partial: true }
   }
 
-  if (input.routeEnrichmentProvider !== undefined && tripNeedsRouteEnrichment(bundle)) {
+  if (active() && input.routeEnrichmentProvider !== undefined && tripNeedsRouteEnrichment(bundle)) {
     routeAttempted = true
     await enrichStoredTripRoute({
       database: input.database,
@@ -80,12 +96,14 @@ export async function runStoredTripAutomaticEnrichment(input: AutomaticEnrichmen
       idFactory: input.idFactory,
       now: input.now,
       onProgress: (detail) => input.onProgress?.({ phase: 'route', detail }),
+      ...(input.shouldContinue === undefined ? {} : { shouldContinue: input.shouldContinue }),
+      ...(input.segmentLengthKm === undefined ? {} : { segmentLengthKm: input.segmentLengthKm }),
     })
     bundle = await repository.loadTripBundle(input.tripId)
     if (bundle === null) return { bundle: null, endpointAttempted, routeAttempted, practicalPlacesAttempted, partial: true }
   }
 
-  if (input.practicalPlacesProvider !== undefined && tripNeedsPracticalPlacesEnrichment(bundle)) {
+  if (active() && input.practicalPlacesProvider !== undefined && tripNeedsPracticalPlacesEnrichment(bundle)) {
     practicalPlacesAttempted = true
     await enrichStoredTripPracticalPlaces({
       database: input.database,
@@ -93,6 +111,8 @@ export async function runStoredTripAutomaticEnrichment(input: AutomaticEnrichmen
       provider: input.practicalPlacesProvider,
       now: input.now,
       onProgress: (detail) => input.onProgress?.({ phase: 'practical-places', detail }),
+      ...(input.shouldContinue === undefined ? {} : { shouldContinue: input.shouldContinue }),
+      ...(input.segmentLengthKm === undefined ? {} : { segmentLengthKm: input.segmentLengthKm }),
     })
     bundle = await repository.loadTripBundle(input.tripId)
   }

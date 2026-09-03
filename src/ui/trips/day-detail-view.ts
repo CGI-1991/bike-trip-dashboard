@@ -778,20 +778,21 @@ export function buildDayDetail(bundle: TripBundle, dayId: TripDayId, options: Da
 
 /**
  * C2.5 sections 16-17 / R1 section 4: a compact, non-blocking banner —
- * partial/error data is shown, never hidden, with a real retry action right
- * there. Short, actionable, no technical vocabulary (CDC R1: "pas de
- * vocabulaire technique") — `partial` says what's actually missing in plain
- * terms rather than a generic "préparation" sentence; `error` stays terse
- * since nothing more specific is known at that point.
+ * partial/error data is shown, never hidden. Short, actionable, no technical
+ * vocabulary (CDC R1: "pas de vocabulaire technique").
+ *
+ * DER-DES-DER sections 51-52: the "Réessayer" BUTTON is gone from here. It
+ * used to exist in two places at once — this banner and the Voyage screen's
+ * own stage card — which made the same action look like two different
+ * features and put a network-triggering control on the screen the rider uses
+ * in the field. There is now exactly ONE place to retry a stage: its card on
+ * the Voyage screen. The Étape screen keeps the honest information ("what is
+ * missing") and drops the action, pointing at where it lives instead.
  */
-function renderPreparationBanner(bundle: TripBundle, dayId: TripDayId, preparationStatus: StagePreparationStatus | null): string {
+function renderPreparationBanner(preparationStatus: StagePreparationStatus | null): string {
   if (preparationStatus !== 'partial' && preparationStatus !== 'error') return ''
   const label = preparationStatus === 'partial' ? 'Certaines données pratiques manquent.' : 'Préparation incomplète.'
-  // RC2 final-closeout section 14 — `data-day-id` lets the click handler
-  // target a real, single-stage retry (`reenrichStagePracticalPlaces`) when
-  // this specific stage's own issue is POI-only, instead of always falling
-  // back to the whole-trip `retryStagePreparation`.
-  return `<div class="day-detail__prep-banner" role="status"><span>${escapeHtml(label)}</span><button class="button button--quiet" type="button" data-action="retry-stage-preparation" data-trip-id="${escapeHtml(bundle.metadata.id)}" data-day-id="${escapeHtml(dayId)}">Réessayer</button></div>`
+  return `<div class="day-detail__prep-banner" role="status"><span>${escapeHtml(label)} Vous pouvez relancer la préparation depuis la liste des étapes.</span></div>`
 }
 
 function transferTimingLabel(timing: TransferTiming | undefined): string {
@@ -1084,7 +1085,7 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
     </div>
     <section class="card day-detail__stats-card" data-day-detail-stats-card>
       ${statsHtml}
-      ${renderPreparationBanner(bundle, day.id, preparationStatus)}
+      ${renderPreparationBanner(preparationStatus)}
     </section>
     <section class="card day-detail__map-profile-card" data-day-detail-map-profile-card>
       <div class="route-map route-map--action" data-day-detail-map data-explore-map role="button" tabindex="0" aria-label="Ouvrir la carte de l’étape en plein écran"></div>

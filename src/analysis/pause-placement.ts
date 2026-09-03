@@ -10,9 +10,8 @@
  * leaving it at that raw fraction of the route.
  */
 
-import type { Route } from '../trip-core/index.ts'
 import { distributeAutomaticPauses } from './pauses.ts'
-import { pointAtDistance, routeGeometryWithDistances } from './canonical-waypoints.ts'
+import { redistributePauseDurations } from './pause-duration.ts'
 import type { CanonicalWaypoint, CanonicalWaypointKind } from './canonical-waypoints.ts'
 
 /** No pause anchor within this fraction of the total distance from start/end (CDC: "pas de pause trop proche du départ/arrivée"). */
@@ -36,7 +35,14 @@ export interface PlacedPause {
   readonly name: string
   readonly distanceKm: number
   readonly durationMinutes: number
-  /** The canonical waypoint this pause is anchored to, or `null` for a synthetic fallback point on the route (no suitable anchor nearby). */
+  /**
+   * The canonical waypoint this pause is anchored to. NEVER `null` for an
+   * automatic pause (DER-DES-DER sections 21-23): a pause is a real place
+   * the ride actually stops at, so a slot with no suitable anchor nearby
+   * simply produces no pause at all rather than a synthetic point named
+   * after the slot ("Pause du matin"/etc.). The field stays nullable only
+   * because manual/custom placement shares this shape.
+   */
   readonly waypointId: string | null
 }
 
@@ -48,9 +54,17 @@ export function isAnchorCandidate(waypoint: CanonicalWaypoint): boolean {
 /**
  * Places the automatic pause budget on the best available canonical
  * waypoints. Deterministic: same inputs always produce the same output, no
- * `Date.now()`/`Math.random()` involved. Falls back to
- * `distributeAutomaticPauses`'s own fixed-fraction position (clamped inside
- * the start/end buffer) when no suitable anchor exists nearby.
+ * `Date.now()`/`Math.random()` involved.
+ *
+ * DER-DES-DER sections 21-23: a slot with no suitable anchor nearby yields
+ * NO pause. The 25/50/75 % ideal positions stay an internal scoring device
+ * ("un slot idéal ne devient jamais un lieu") — they are never promoted to a
+ * visible place of their own. A stage whose structural enrichment has not
+ * landed yet therefore has no city/town/village/col waypoint to anchor on
+ * and simply gets no automatic pause (section 12), which is exactly the
+ * intent: prefer no pause over a fabricated one. When fewer real places
+ * exist than the budget suggests, the remaining minutes are redistributed
+ * over the pauses that DID find a home (section 23) rather than dropped.
  */
 export function placeAutomaticPauses(totalBreakMinutes: number, totalDistanceKm: number, waypoints: readonly CanonicalWaypoint[]): readonly PlacedPause[] {
   const idealAnchors = distributeAutomaticPauses(totalDistanceKm, totalBreakMinutes)
@@ -72,42 +86,38 @@ export function placeAutomaticPauses(totalBreakMinutes: number, totalDistanceKm:
         || Math.abs(left.trackDistanceKm - ideal.distanceKm) - Math.abs(right.trackDistanceKm - ideal.distanceKm)
         || left.id.localeCompare(right.id))
     const best = usable[0]
-    if (best !== undefined) {
-      placed.push({ id: ideal.id, name: best.name, distanceKm: best.trackDistanceKm, durationMinutes: ideal.durationMinutes, waypointId: best.id })
-    } else {
-      const fallbackDistanceKm = Math.min(Math.max(ideal.distanceKm, minEdgeKm), totalDistanceKm - minEdgeKm)
-      placed.push({ id: ideal.id, name: ideal.name, distanceKm: fallbackDistanceKm, durationMinutes: ideal.durationMinutes, waypointId: null })
-    }
+    // No real place near this slot → no pause for it at all (sections 21-23).
+    if (best === undefined) continue
+    placed.push({ id: ideal.id, name: best.name, distanceKm: best.trackDistanceKm, durationMinutes: ideal.durationMinutes, waypointId: best.id })
   }
 
-  return placed.slice().sort((left, right) => left.distanceKm - right.distanceKm)
+  const redistributed = redistributePauseDurations(placed.map((pause) => pause.durationMinutes), totalBreakMinutes)
+  return placed
+    .map((pause, index) => ({ ...pause, durationMinutes: redistributed[index] ?? pause.durationMinutes }))
+    .filter((pause) => pause.durationMinutes > 0)
+    .sort((left, right) => left.distanceKm - right.distanceKm)
 }
 
 /**
- * Merges placed pauses back into the canonical waypoint list: an
- * anchored pause fills `pauseDurationMinutes` on its existing waypoint; a
- * synthetic (unanchored) pause becomes its own new `kind: 'pause'` waypoint,
- * positioned by interpolating the route geometry at its distance.
+ * Merges placed pauses back into the canonical waypoint list: each pause
+ * simply fills `pauseDurationMinutes` on the real waypoint it is anchored to.
+ *
+ * DER-DES-DER section 22: this used to also materialize an unanchored pause
+ * as its own synthetic `kind: 'pause'` waypoint (named after the slot —
+ * "Pause du matin"/etc.). Neither `placeAutomaticPauses` nor
+ * `selectPauseRecommendations` can produce one any more, and a manual pause
+ * is resolved from an existing waypoint by construction, so a pause never
+ * invents a place: it only ever marks one the route already passes through.
+ * An unanchored pause reaching here is therefore simply ignored rather than
+ * silently reintroducing a fabricated point.
  */
-export function applyPausesToWaypoints(waypoints: readonly CanonicalWaypoint[], pauses: readonly PlacedPause[], route: Route): readonly CanonicalWaypoint[] {
+export function applyPausesToWaypoints(waypoints: readonly CanonicalWaypoint[], pauses: readonly PlacedPause[]): readonly CanonicalWaypoint[] {
   const byWaypointId = new Map(pauses.filter((pause) => pause.waypointId !== null).map((pause) => [pause.waypointId as string, pause]))
-  const updated = waypoints.map((waypoint) => {
-    const pause = byWaypointId.get(waypoint.id)
-    return pause === undefined ? waypoint : { ...waypoint, pauseDurationMinutes: pause.durationMinutes }
-  })
-
-  const geometryWithDistances = routeGeometryWithDistances(route)
-  const synthetic: CanonicalWaypoint[] = pauses
-    .filter((pause) => pause.waypointId === null)
-    .map((pause) => {
-      const position = geometryWithDistances === null ? null : pointAtDistance(geometryWithDistances.geometry, geometryWithDistances.distances, pause.distanceKm)
-      return {
-        id: `pause:${pause.id}`, kind: 'pause', importance: 'minor', visibleByDefault: true, name: pause.name,
-        trackDistanceKm: pause.distanceKm, latitude: position?.latitude ?? 0, longitude: position?.longitude ?? 0,
-        elevationM: position?.altitudeM ?? null, climbId: null, pauseDurationMinutes: pause.durationMinutes,
-        elapsedMinutes: null, clockTime: null,
-      }
+  return waypoints
+    .map((waypoint) => {
+      const pause = byWaypointId.get(waypoint.id)
+      return pause === undefined ? waypoint : { ...waypoint, pauseDurationMinutes: pause.durationMinutes }
     })
-
-  return [...updated, ...synthetic].sort((left, right) => left.trackDistanceKm - right.trackDistanceKm)
+    .slice()
+    .sort((left, right) => left.trackDistanceKm - right.trackDistanceKm)
 }

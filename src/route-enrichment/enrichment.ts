@@ -6,6 +6,8 @@ import type { Climb, EnrichmentProviderState, RideStage, Route, RouteGeometryPoi
 import { routePointId } from '../trip-core/index.ts'
 import { cumulativeGeometryDistances } from './chunking.ts'
 import { routeFingerprint, routeGeometry } from './route-fingerprint.ts'
+import { buildRouteSegments, MAX_POSTPASS_SEGMENT_KM } from './segmentation.ts'
+import { providerHasPendingStages, withSettledFingerprints } from './settled-stages.ts'
 import { structuralSearchGeometry } from './search-geometry.ts'
 import {
   KNOWN_ROUTE_FEATURE_TYPES,
@@ -65,6 +67,16 @@ export interface EnrichTripRouteInput {
   readonly idFactory: () => string
   readonly now: () => string
   readonly onProgress?: (progress: RouteEnrichmentProgress) => void
+  /**
+   * DER-DES-DER sections 42/49 — the maximum route length one Postpass query
+   * may cover. Defaults to `MAX_POSTPASS_SEGMENT_KM` (60 km); the manual
+   * "Réessayer" passes `RETRY_POSTPASS_SEGMENT_KM` (30 km) so a stage whose
+   * 60 km segments timed out is retried with genuinely smaller queries rather
+   * than the same slow one again.
+   */
+  readonly segmentLengthKm?: number
+  /** DER-DES-DER sections 38-39 — checked between stages; `false` stops the pass cleanly, keeping every stage already collected. */
+  readonly shouldContinue?: () => boolean
 }
 
 export interface EnrichStoredTripRouteInput extends Omit<EnrichTripRouteInput, 'bundle' | 'cache'> {
@@ -259,18 +271,12 @@ async function fetchStage(
   attemptedAt: string,
   stageIndex: number,
   stageCount: number,
+  segmentLengthKm: number,
   onProgress?: (progress: RouteEnrichmentProgress) => void,
 ): Promise<{ readonly result: StageResult; readonly cacheHits: number }> {
   const searchGeometry = structuralSearchGeometry(route)
   if (searchGeometry === null) throw new Error(`Géométrie indisponible pour l’étape ${stage.id}.`)
-  const sentGeometry = searchGeometry.geometry
   const fingerprint = routeFingerprint(bundle, route)
-  const identity = {
-    providerId: provider.id,
-    routeFingerprint: fingerprint,
-    enrichmentType: 'structural-points',
-    engineVersion: ROUTE_ENRICHMENT_ENGINE_VERSION,
-  }
 
   function resultFromCandidates(
     candidates: readonly OsmRouteFeatureCandidate[],
@@ -278,6 +284,9 @@ async function fetchStage(
     durationMs: number,
     rawCandidateCount: number,
     networkRequests: number,
+    successRequests: number,
+    errorRequests: number,
+    sentPointCount: number,
   ): StageResult {
     // Defense-in-depth (V1 final scope hardening): a provider is only
     // trusted at the TS type level — filter out anything outside the
@@ -302,59 +311,97 @@ async function fetchStage(
       geometry,
       localities,
       landmarks,
-      successRequests: 1,
-      errorRequests: 0,
+      successRequests,
+      errorRequests,
       networkRequests,
       source,
       durationMs,
       rawCandidateCount,
       retainedCandidateCount,
       rejectedCandidateCount: Math.max(0, rawCandidateCount - retainedCandidateCount),
-      sentPointCount: sentGeometry.length,
+      sentPointCount,
     }
   }
 
-  const cached = await cache.get<OsmRouteFeatureCandidate>(identity).catch(() => null)
-  if (cached !== null) {
-    const result = resultFromCandidates(cached.results, 'cache', 0, cached.results.length, 0)
-    onProgress?.({
-      stageIndex, stageCount, stageId: stage.id, source: 'cache', status: 'cache', errorCount: 0,
-      durationMs: 0, rawCandidateCount: result.rawCandidateCount, retainedCandidateCount: result.retainedCandidateCount,
-      rejectedCandidateCount: result.rejectedCandidateCount, sentPointCount: result.sentPointCount,
-    })
-    return { result, cacheHits: 1 }
-  }
+  // DER-DES-DER sections 41-46: split the search along the route's own
+  // cumulative distance so no single Postpass query ever covers more than
+  // `segmentLengthKm`. A stage at or under that length yields exactly one
+  // segment spanning the whole route, so short stages behave exactly as they
+  // did before segmentation existed.
+  const segments = buildRouteSegments(searchGeometry.geometry, segmentLengthKm)
+  const collected: OsmRouteFeatureCandidate[] = []
+  let cacheHits = 0
+  let networkRequests = 0
+  let errorRequests = 0
+  let durationMs = 0
+  let rawCandidateCount = 0
+  let sentPointCount = 0
 
-  try {
-    const response = await provider.findStructuralCandidates({
-      stageId: stage.id,
+  for (const segment of segments) {
+    // The segment key enters the cache identity, so each segment is cached
+    // independently — which is exactly what makes section 48's "Réessayer ne
+    // reprend que les segments incomplets" fall out for free: a retry replays
+    // the successful segments from cache and only hits the network for the
+    // ones that actually failed. No extra per-segment bookkeeping needed.
+    const identity = {
+      providerId: provider.id,
       routeFingerprint: fingerprint,
-      geometry: sentGeometry,
-      routeLengthKm: stage.distanceKm ?? route.segments[0]?.distanceKm ?? null,
-      localityCollectionRadiusMeters: STRUCTURAL_LOCALITY_COLLECTION_RADIUS_METERS,
-      landmarkCollectionRadiusMeters: STRUCTURAL_LANDMARK_COLLECTION_RADIUS_METERS,
-    })
-    await cache.put(identity, response.candidates, attemptedAt)
-    const result = resultFromCandidates(response.candidates, 'network', response.durationMs, response.rawCandidateCount, 1)
-    onProgress?.({
-      stageIndex, stageCount, stageId: stage.id, source: 'network', status: 'success', errorCount: 0,
-      durationMs: result.durationMs, rawCandidateCount: result.rawCandidateCount, retainedCandidateCount: result.retainedCandidateCount,
-      rejectedCandidateCount: result.rejectedCandidateCount, sentPointCount: result.sentPointCount,
-    })
-    return { result, cacheHits: 0 }
-  } catch {
-    const result: StageResult = {
-      stage, route, geometry, localities: [], landmarks: [], successRequests: 0, errorRequests: 1,
-      networkRequests: 1, source: 'network', durationMs: 0, rawCandidateCount: 0, retainedCandidateCount: 0,
-      rejectedCandidateCount: 0, sentPointCount: sentGeometry.length,
+      enrichmentType: 'structural-points',
+      chunkKey: segments.length === 1 ? undefined : segment.key,
+      engineVersion: ROUTE_ENRICHMENT_ENGINE_VERSION,
     }
-    onProgress?.({
-      stageIndex, stageCount, stageId: stage.id, source: 'network', status: 'error', errorCount: 1,
-      durationMs: 0, rawCandidateCount: 0, retainedCandidateCount: 0, rejectedCandidateCount: 0,
-      sentPointCount: result.sentPointCount,
-    })
-    return { result, cacheHits: 0 }
+    sentPointCount += segment.geometry.length
+    const cached = await cache.get<OsmRouteFeatureCandidate>(identity).catch(() => null)
+    if (cached !== null) {
+      collected.push(...cached.results)
+      rawCandidateCount += cached.results.length
+      cacheHits += 1
+      continue
+    }
+    try {
+      const response = await provider.findStructuralCandidates({
+        stageId: stage.id,
+        routeFingerprint: fingerprint,
+        geometry: segment.geometry,
+        routeLengthKm: segment.endDistanceKm - segment.startDistanceKm,
+        localityCollectionRadiusMeters: STRUCTURAL_LOCALITY_COLLECTION_RADIUS_METERS,
+        landmarkCollectionRadiusMeters: STRUCTURAL_LANDMARK_COLLECTION_RADIUS_METERS,
+      })
+      await cache.put(identity, response.candidates, attemptedAt)
+      collected.push(...response.candidates)
+      rawCandidateCount += response.rawCandidateCount
+      durationMs += response.durationMs
+      networkRequests += 1
+    } catch {
+      // Section 47: one failed segment never fails the stage. The segments
+      // that DID succeed are kept (and cached), and the loop moves on.
+      errorRequests += 1
+      networkRequests += 1
+    }
   }
+
+  // Section 47: a stage with ANY failed segment is reported as incomplete
+  // (one `errorRequests`), so `applyResults` keeps whatever that stage
+  // already had instead of wiping it, and the trip's aggregate reads
+  // `partial` — which is what surfaces "À compléter / Réessayer" on exactly
+  // that stage. The segments that did succeed are still merged in.
+  const anySucceeded = segments.length > errorRequests
+  const source = networkRequests === 0 ? 'cache' : 'network'
+  // `locateAndDeduplicate` (below, inside `resultFromCandidates`) already
+  // keys on `osmType:osmId`, so section 44's deliberate overlap duplicates
+  // collapse there — no separate merge step needed.
+  const result = resultFromCandidates(
+    collected, source, durationMs, rawCandidateCount, networkRequests,
+    anySucceeded ? 1 : 0, errorRequests > 0 ? 1 : 0, sentPointCount,
+  )
+  onProgress?.({
+    stageIndex, stageCount, stageId: stage.id, source,
+    status: !anySucceeded ? 'error' : source === 'cache' ? 'cache' : 'success',
+    errorCount: errorRequests,
+    durationMs: result.durationMs, rawCandidateCount: result.rawCandidateCount, retainedCandidateCount: result.retainedCandidateCount,
+    rejectedCandidateCount: result.rejectedCandidateCount, sentPointCount: result.sentPointCount,
+  })
+  return { result, cacheHits }
 }
 
 function featurePoint(feature: LocatedFeature, route: Route, idFactory: () => string, attemptedAt: string): RoutePoint | null {
@@ -423,7 +470,7 @@ function applyResults(bundle: TripBundle, results: readonly StageResult[], idFac
   const rawCandidates = results.reduce((total, result) => total + result.rawCandidateCount, 0)
   const retainedCandidates = results.reduce((total, result) => total + result.retainedCandidateCount, 0)
   const existing = bundle.enrichmentMetadata.providers.find((state) => state.provider === ROUTE_ENRICHMENT_PROVIDER_STATE)
-  const providerState: EnrichmentProviderState = {
+  const baseState: EnrichmentProviderState = {
     provider: ROUTE_ENRICHMENT_PROVIDER_STATE,
     lastAttemptedAt: attemptedAt,
     lastSuccessAt: successes > 0 ? attemptedAt : existing?.lastSuccessAt ?? null,
@@ -431,7 +478,12 @@ function applyResults(bundle: TripBundle, results: readonly StageResult[], idFac
     message: errors === 0
       ? `Postpass · ${networks === 0 ? 'cache' : 'network'} · ${durationMs} ms · ${rawCandidates} candidat(s) / ${retainedCandidates} retenu(s).`
       : `${errors} étape(s) Postpass restent à reprendre ; les résultats acquis sont conservés.`,
+    ...(existing?.settledFingerprints === undefined ? {} : { settledFingerprints: existing.settledFingerprints }),
   }
+  // Sections 31-33: every stage this pass actually reached is now settled —
+  // including the ones that errored (section 50: a timeout never schedules an
+  // automatic retry, it waits for the explicit "Réessayer").
+  const providerState = withSettledFingerprints(bundle, baseState, results.map((result) => routeFingerprint(bundle, result.route)))
   return {
     ...bundle,
     metadata: { ...bundle.metadata, updatedAt: attemptedAt },
@@ -439,14 +491,21 @@ function applyResults(bundle: TripBundle, results: readonly StageResult[], idFac
     climbs,
     routePoints,
     enrichmentMetadata: {
+      ...bundle.enrichmentMetadata,
       providers: [...bundle.enrichmentMetadata.providers.filter((state) => state.provider !== ROUTE_ENRICHMENT_PROVIDER_STATE), providerState],
     },
   }
 }
 
+/**
+ * DER-DES-DER sections 31-33: "does this trip still have structural work to
+ * do?" is now answered from the explicit per-stage settled record, not from
+ * `status !== 'success'`. A stage that timed out counts as settled — merely
+ * reopening the trip never re-queries it (only "Réessayer" or "Recalculer"
+ * does), while a stage whose GPX changed becomes pending again on its own.
+ */
 export function tripNeedsRouteEnrichment(bundle: TripBundle): boolean {
-  if (!bundle.routes.some((route) => routeGeometry(route) !== null)) return false
-  return bundle.enrichmentMetadata.providers.find((state) => state.provider === ROUTE_ENRICHMENT_PROVIDER_STATE)?.status !== 'success'
+  return providerHasPendingStages(bundle, ROUTE_ENRICHMENT_PROVIDER_STATE)
 }
 
 export async function enrichTripRoute(input: EnrichTripRouteInput): Promise<RouteEnrichmentReport> {
@@ -456,11 +515,15 @@ export async function enrichTripRoute(input: EnrichTripRouteInput): Promise<Rout
   let requestCount = 0
   let cacheHitCount = 0
   for (let stageIndex = 0; stageIndex < input.bundle.stages.length; stageIndex++) {
+    // Sections 38-39: another trip took over — stop here. Everything already
+    // collected is still applied and saved below (no rollback), and the
+    // stages never reached simply stay unsettled for a later pass.
+    if (!(input.shouldContinue?.() ?? true)) break
     const stage = input.bundle.stages[stageIndex]
     const route = stage === undefined ? undefined : routeById.get(stage.sourceRouteId)
     const geometry = route === undefined ? null : routeGeometry(route)
     if (stage === undefined || route === undefined || geometry === null) continue
-    const fetched = await fetchStage(input.bundle, stage, route, geometry, input.provider, input.cache, attemptedAt, stageIndex, input.bundle.stages.length, input.onProgress)
+    const fetched = await fetchStage(input.bundle, stage, route, geometry, input.provider, input.cache, attemptedAt, stageIndex, input.bundle.stages.length, input.segmentLengthKm ?? MAX_POSTPASS_SEGMENT_KM, input.onProgress)
     results.push(fetched.result)
     requestCount += fetched.result.networkRequests
     cacheHitCount += fetched.cacheHits
@@ -491,6 +554,8 @@ export async function enrichStoredTripRoute(input: EnrichStoredTripRouteInput): 
     idFactory: input.idFactory,
     now: input.now,
     onProgress: input.onProgress,
+    ...(input.segmentLengthKm === undefined ? {} : { segmentLengthKm: input.segmentLengthKm }),
+    ...(input.shouldContinue === undefined ? {} : { shouldContinue: input.shouldContinue }),
   })
   const latest = await repository.loadTripBundle(input.tripId)
   if (latest === null || latest.metadata.updatedAt !== original.metadata.updatedAt) return { ...report, bundle: latest ?? report.bundle, saved: false }

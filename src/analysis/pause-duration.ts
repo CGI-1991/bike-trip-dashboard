@@ -22,3 +22,25 @@ export function normalizePauseDurationMinutes(minutes: number): number {
   if (!Number.isFinite(minutes) || minutes <= 0) return 0
   return Math.round(minutes / PAUSE_DURATION_STEP_MINUTES) * PAUSE_DURATION_STEP_MINUTES
 }
+
+/**
+ * DER-DES-DER section 23: when fewer real places exist than the pause budget
+ * suggested slots for, the orphaned minutes are spread over the pauses that
+ * DID find a home rather than silently dropped — "faire 2 pauses" with a
+ * sensible split, never a third artificial one to balance the books.
+ *
+ * Proportional to each kept slot's own share (so the lunch slot stays the
+ * long one), then normalized back to the 5-minute step — which is exactly
+ * the "légère différence par rapport au budget total théorique" the CDC
+ * sanctions. A no-op when nothing was dropped (`kept >= budget`), so the
+ * ordinary full-placement path keeps `distributeAutomaticPauses`'s own
+ * already-tested durations byte-for-byte.
+ */
+export function redistributePauseDurations(keptDurations: readonly number[], totalBudgetMinutes: number): readonly number[] {
+  const kept = keptDurations.reduce((total, duration) => total + duration, 0)
+  if (keptDurations.length === 0 || !(totalBudgetMinutes > 0) || !(kept > 0) || kept >= totalBudgetMinutes) {
+    return keptDurations.map(normalizePauseDurationMinutes)
+  }
+  const scale = totalBudgetMinutes / kept
+  return keptDurations.map((duration) => normalizePauseDurationMinutes(duration * scale))
+}

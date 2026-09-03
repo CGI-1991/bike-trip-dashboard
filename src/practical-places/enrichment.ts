@@ -1,5 +1,9 @@
 import { computeStagePracticalPlaceAnchors } from './anchors.ts'
+import { cumulativeGeometryDistances } from '../route-enrichment/chunking.ts'
 import { routeFingerprint, routeGeometry } from '../route-enrichment/route-fingerprint.ts'
+import { buildRouteSegments, MAX_POSTPASS_SEGMENT_KM } from '../route-enrichment/segmentation.ts'
+import type { RouteSegment } from '../route-enrichment/segmentation.ts'
+import { providerHasPendingStages, stageFingerprint, withSettledFingerprints } from '../route-enrichment/settled-stages.ts'
 import { PRACTICAL_PLACES_ANCHOR_RADIUS_METERS, PRACTICAL_PLACES_CORRIDOR_RADIUS_METERS } from './postpass-provider.ts'
 import { createPracticalPlacesCacheRepository } from '../storage/indexeddb/practical-places-cache-repository.ts'
 import type { PracticalPlacesCacheRepository } from '../storage/indexeddb/practical-places-cache-repository.ts'
@@ -60,6 +64,19 @@ export interface EnrichTripPracticalPlacesInput {
   readonly cache: PracticalPlacesCacheRepository
   readonly now: () => string
   readonly onProgress?: (progress: PracticalPlacesProgress) => void
+  /**
+   * DER-DES-DER sections 42/46/49 — maximum route length covered by one
+   * corridor query. Defaults to `MAX_POSTPASS_SEGMENT_KM` (60 km); the manual
+   * "Réessayer" passes the smaller `RETRY_POSTPASS_SEGMENT_KM` (30 km).
+   */
+  readonly segmentLengthKm?: number
+  /**
+   * DER-DES-DER sections 38-40 — checked before each stage's own lookup.
+   * `false` stops the pass cleanly: every stage already persisted stays
+   * persisted (no rollback), and the stages never reached stay unsettled, so
+   * a later reopen resumes at exactly the right place.
+   */
+  readonly shouldContinue?: () => boolean
 }
 
 export interface EnrichStoredTripPracticalPlacesInput extends Omit<EnrichTripPracticalPlacesInput, 'bundle' | 'cache'> {
@@ -75,14 +92,27 @@ export interface EnrichStoredTripPracticalPlacesInput extends Omit<EnrichTripPra
   readonly onlyDayId?: TripDayId
 }
 
-function pendingLookups(bundle: TripBundle): readonly Omit<StageLookup, 'candidates' | 'status' | 'fromCache'>[] {
+/**
+ * The stages still to look up, in strict chronological (`bundle.stages`)
+ * order — never reordered by "today"/priority (DER-DES-DER section 15).
+ *
+ * Section 40: a stage already settled under its current route fingerprint is
+ * skipped outright, so reopening a partially-enriched trip resumes at the
+ * first stage that genuinely still needs work instead of walking the whole
+ * trip again. `includeSettled` re-admits them for the explicit retry paths
+ * (`onlyDayId`) and for the pure in-memory batch API, whose callers decide
+ * for themselves what to pass in.
+ */
+function pendingLookups(bundle: TripBundle, includeSettled = false): readonly Omit<StageLookup, 'candidates' | 'status' | 'fromCache'>[] {
   const routes = new Map(bundle.routes.map((route) => [route.id, route]))
   const days = new Map(bundle.days.map((day) => [day.id, day]))
+  const settled = new Set(bundle.enrichmentMetadata.providers.find((state) => state.provider === PRACTICAL_PLACES_PROVIDER_STATE)?.settledFingerprints ?? [])
   return bundle.stages.flatMap((stage) => {
     const route = routes.get(stage.sourceRouteId)
     const day = days.get(stage.dayId)
     const geometry = route === undefined ? null : routeGeometry(route)
     if (route === undefined || day === undefined || geometry === null) return []
+    if (!includeSettled && settled.has(stageFingerprint(bundle, route))) return []
     return [{ stage, day, route, geometry, anchors: computeStagePracticalPlaceAnchors(bundle, stage, route) }]
   })
 }
@@ -121,37 +151,121 @@ async function resolveLookup(
   attemptedAt: string,
   stageIndex: number,
   stageCount: number,
+  segmentLengthKm: number,
   onProgress?: (progress: PracticalPlacesProgress) => void,
 ): Promise<StageLookup> {
-  const identity = {
-    providerId: provider.id,
-    routeFingerprint: routeFingerprint(bundle, lookup.route),
-    enrichmentType: 'practical-places',
-    chunkKey: `anchors:${anchorsFingerprint(lookup.anchors)}`,
-    engineVersion: PRACTICAL_PLACES_ENGINE_VERSION,
+  const fingerprint = routeFingerprint(bundle, lookup.route)
+  const anchorsKey = anchorsFingerprint(lookup.anchors)
+  // DER-DES-DER section 46: the corridor search is split the same way the
+  // structural one is, and for the same reason — a 200 km corridor is a
+  // single huge query that reliably times out. Anchors are partitioned onto
+  // the segment that actually contains them, so each query stays local.
+  const segments = buildRouteSegments(lookup.geometry, segmentLengthKm)
+  const distances = cumulativeGeometryDistances(lookup.geometry)
+
+  const collected: PracticalPlaceCandidate[] = []
+  let anySucceeded = false
+  let anyFailed = false
+  let allFromCache = true
+
+  for (const segment of segments) {
+    const identity = {
+      providerId: provider.id,
+      routeFingerprint: fingerprint,
+      enrichmentType: 'practical-places',
+      // Single-segment stages keep their historical cache key byte-for-byte,
+      // so no existing cached stage is invalidated by segmentation landing.
+      chunkKey: segments.length === 1 ? `anchors:${anchorsKey}` : `anchors:${anchorsKey}|${segment.key}`,
+      engineVersion: PRACTICAL_PLACES_ENGINE_VERSION,
+    }
+    const cached = await cache.get(identity).catch(() => null)
+    if (cached !== null) {
+      collected.push(...cached.results)
+      anySucceeded = true
+      continue
+    }
+    allFromCache = false
+    try {
+      const result = await provider.findCandidates({
+        stageId: lookup.stage.id,
+        routeFingerprint: fingerprint,
+        geometry: segment.geometry,
+        routeLengthKm: segments.length === 1
+          ? lookup.stage.distanceKm ?? lookup.route.segments[0]?.distanceKm ?? null
+          : segment.endDistanceKm - segment.startDistanceKm,
+        anchors: anchorsForSegment(lookup.anchors, lookup.geometry, distances, segment, segments.length),
+        corridorRadiusMeters: PRACTICAL_PLACES_CORRIDOR_RADIUS_METERS,
+        anchorRadiusMeters: PRACTICAL_PLACES_ANCHOR_RADIUS_METERS,
+      })
+      await cache.put(identity, result.candidates, attemptedAt)
+      collected.push(...result.candidates)
+      anySucceeded = true
+    } catch {
+      // Section 47: a failed segment never fails the stage — the ones that
+      // succeeded are kept and cached, and this loop moves on.
+      anyFailed = true
+    }
   }
-  const cached = await cache.get(identity).catch(() => null)
-  if (cached !== null) {
-    onProgress?.({ stageIndex, stageCount, fromCache: true, status: 'cache', errorCount: 0 })
-    return { ...lookup, candidates: cached.results, status: cached.results.length === 0 ? 'no-result' : 'success', fromCache: true }
-  }
-  try {
-    const result = await provider.findCandidates({
-      stageId: lookup.stage.id,
-      routeFingerprint: identity.routeFingerprint,
-      geometry: lookup.geometry,
-      routeLengthKm: lookup.stage.distanceKm ?? lookup.route.segments[0]?.distanceKm ?? null,
-      anchors: lookup.anchors,
-      corridorRadiusMeters: PRACTICAL_PLACES_CORRIDOR_RADIUS_METERS,
-      anchorRadiusMeters: PRACTICAL_PLACES_ANCHOR_RADIUS_METERS,
-    })
-    await cache.put(identity, result.candidates, attemptedAt)
-    onProgress?.({ stageIndex, stageCount, fromCache: false, status: 'success', errorCount: 0 })
-    return { ...lookup, candidates: result.candidates, status: result.candidates.length === 0 ? 'no-result' : 'success', fromCache: false }
-  } catch {
+
+  if (!anySucceeded) {
     onProgress?.({ stageIndex, stageCount, fromCache: false, status: 'error', errorCount: 1 })
     return { ...lookup, candidates: [], status: 'error', fromCache: false }
   }
+  // A stage with a failed segment stays `error` for status purposes (so it
+  // keeps its "À compléter / Réessayer" affordance) but its acquired
+  // candidates are still returned and merged — nothing collected is thrown
+  // away.
+  onProgress?.({
+    stageIndex, stageCount, fromCache: allFromCache,
+    status: anyFailed ? 'error' : allFromCache ? 'cache' : 'success',
+    errorCount: anyFailed ? 1 : 0,
+  })
+  return {
+    ...lookup,
+    candidates: collected,
+    status: anyFailed ? 'error' : collected.length === 0 ? 'no-result' : 'success',
+    fromCache: allFromCache,
+  }
+}
+
+/**
+ * Section 46: an anchor-based search ("supermarché autour de ce village")
+ * stays local by nature, so each anchor is sent with the ONE segment whose
+ * distance range contains it — never repeated on every segment, which would
+ * multiply the query cost by the segment count for no benefit. A single-
+ * segment stage keeps the whole anchor list, exactly as before.
+ */
+function anchorsForSegment(
+  anchors: readonly PracticalPlaceAnchor[],
+  geometry: readonly RouteGeometryPoint[],
+  distances: readonly number[],
+  segment: RouteSegment,
+  segmentCount: number,
+): readonly PracticalPlaceAnchor[] {
+  if (segmentCount === 1) return anchors
+  return anchors.filter((anchor) => {
+    const distanceKm = nearestGeometryDistanceKm(anchor, geometry, distances)
+    return distanceKm >= segment.startDistanceKm && distanceKm <= segment.endDistanceKm
+  })
+}
+
+function nearestGeometryDistanceKm(
+  anchor: PracticalPlaceAnchor,
+  geometry: readonly RouteGeometryPoint[],
+  distances: readonly number[],
+): number {
+  let bestIndex = 0
+  let bestSquared = Number.POSITIVE_INFINITY
+  for (let index = 0; index < geometry.length; index++) {
+    const point = geometry[index]
+    if (point === undefined) continue
+    const squared = (point.latitude - anchor.latitude) ** 2 + (point.longitude - anchor.longitude) ** 2
+    if (squared < bestSquared) {
+      bestSquared = squared
+      bestIndex = index
+    }
+  }
+  return distances[bestIndex] ?? 0
 }
 
 function isAutomaticPracticalPlace(place: PracticalPlace): boolean {
@@ -195,7 +309,34 @@ function providerState(lookups: readonly StageLookup[], attemptedAt: string, exi
     lastSuccessAt: successes > 0 ? attemptedAt : existing?.lastSuccessAt ?? null,
     status: errors === 0 ? 'success' : successes > 0 ? 'partial' : 'error',
     message: errors === 0 ? null : `${errors} étape(s) restent à rechercher ; les lieux acquis sont conservés.`,
+    // DER-DES-DER sections 31-33: the settled record is bookkeeping that
+    // outlives any single pass — recomputing the aggregate must never drop it.
+    ...(existing?.settledFingerprints === undefined ? {} : { settledFingerprints: existing.settledFingerprints }),
   }
+}
+
+/**
+ * DER-DES-DER sections 31/40 — marks one stage settled for this provider the
+ * moment its own lookup has been applied and persisted, WITHOUT touching the
+ * provider's `status` (that aggregate is only ever finalized once a full pass
+ * has completed — see `finalizeAggregate*` below).
+ *
+ * This is what makes the pipeline genuinely resumable: a pass interrupted
+ * after E1 leaves E1 settled, so the next trip open picks up at E2 instead of
+ * re-querying everything (section 40), and a fully-settled trip queries
+ * nothing at all on reopen (section 31).
+ */
+function withStageSettled(bundle: TripBundle, route: Route, attemptedAt: string): readonly EnrichmentProviderState[] {
+  const existing = bundle.enrichmentMetadata.providers.find((state) => state.provider === PRACTICAL_PLACES_PROVIDER_STATE)
+  const base: EnrichmentProviderState = existing ?? {
+    provider: PRACTICAL_PLACES_PROVIDER_STATE,
+    lastAttemptedAt: attemptedAt,
+    lastSuccessAt: null,
+    status: 'pending',
+    message: null,
+  }
+  const updated = withSettledFingerprints(bundle, base, [stageFingerprint(bundle, route)])
+  return [...bundle.enrichmentMetadata.providers.filter((state) => state.provider !== PRACTICAL_PLACES_PROVIDER_STATE), updated]
 }
 
 /**
@@ -243,15 +384,17 @@ function applyPracticalPlacesForLookups(bundle: TripBundle, lookups: readonly St
 function applyLookups(bundle: TripBundle, lookups: readonly StageLookup[], geometryByStageId: Map<string, readonly RouteGeometryPoint[]>, anchorsByStageId: Map<string, readonly PracticalPlaceAnchor[]>, provider: PracticalPlacesProvider, attemptedAt: string): TripBundle {
   const practicalPlaces = applyPracticalPlacesForLookups(bundle, lookups, geometryByStageId, anchorsByStageId, provider, attemptedAt)
   const stageErrors = mergeStageErrors(bundle.enrichmentMetadata.practicalPlacesStageErrors, lookups)
+  const aggregate = withSettledFingerprints(
+    bundle,
+    providerState(lookups, attemptedAt, bundle.enrichmentMetadata.providers.find((state) => state.provider === PRACTICAL_PLACES_PROVIDER_STATE)),
+    lookups.map((lookup) => stageFingerprint(bundle, lookup.route)),
+  )
   return {
     ...bundle,
     metadata: { ...bundle.metadata, updatedAt: attemptedAt },
     practicalPlaces,
     enrichmentMetadata: {
-      providers: [
-        ...bundle.enrichmentMetadata.providers.filter((state) => state.provider !== PRACTICAL_PLACES_PROVIDER_STATE),
-        providerState(lookups, attemptedAt, bundle.enrichmentMetadata.providers.find((state) => state.provider === PRACTICAL_PLACES_PROVIDER_STATE)),
-      ],
+      providers: [...bundle.enrichmentMetadata.providers.filter((state) => state.provider !== PRACTICAL_PLACES_PROVIDER_STATE), aggregate],
       ...(stageErrors.length === 0 ? {} : { practicalPlacesStageErrors: stageErrors }),
     },
   }
@@ -277,50 +420,39 @@ function applyStageLookup(bundle: TripBundle, lookup: StageLookup, geometry: rea
     metadata: { ...bundle.metadata, updatedAt: attemptedAt },
     practicalPlaces,
     enrichmentMetadata: {
-      providers: bundle.enrichmentMetadata.providers,
+      providers: withStageSettled(bundle, lookup.route, attemptedAt),
       ...(stageErrors.length === 0 ? {} : { practicalPlacesStageErrors: stageErrors }),
     },
   }
 }
 
-/** Finalizes the trip-wide aggregate once a full pass over every pending stage has completed this call — identical math to the pure batch path. */
-function finalizeAggregateFromLookups(bundle: TripBundle, lookups: readonly StageLookup[], attemptedAt: string): TripBundle {
-  return {
-    ...bundle,
-    metadata: { ...bundle.metadata, updatedAt: attemptedAt },
-    enrichmentMetadata: {
-      ...bundle.enrichmentMetadata,
-      providers: [
-        ...bundle.enrichmentMetadata.providers.filter((state) => state.provider !== PRACTICAL_PLACES_PROVIDER_STATE),
-        providerState(lookups, attemptedAt, bundle.enrichmentMetadata.providers.find((state) => state.provider === PRACTICAL_PLACES_PROVIDER_STATE)),
-      ],
-    },
-  }
-}
-
 /**
- * Finalizes the trip-wide aggregate after a TARGETED single-stage retry
- * (`onlyDayId`, section 14) — safe only because a targeted retry is only
- * ever reachable once a first full pass has already settled every pending
- * stage's own entry at least once (a pause-anchor change on an
- * already-enriched stage, or a "Réessayer" click on a stage a full pass
- * already flagged partial/error), so `practicalPlacesStageErrors` already
- * reflects every OTHER pending stage's real last-known outcome — recomputing
- * the aggregate from its size against the current pending count is never a
- * premature "success" the way it would be mid-way through a trip's very
- * first pass.
+ * Finalizes the trip-wide aggregate at the very end of a pass, from the
+ * PERSISTED per-stage error list rather than from the lookups this
+ * particular call happened to perform.
+ *
+ * DER-DES-DER sections 31/40 collapsed two near-identical finalizers into
+ * this one. `applyStageLookup` maintains `practicalPlacesStageErrors` stage
+ * by stage as it goes, so by the last index of any pass — a first full pass,
+ * a resumed pass covering only the stages that were still missing, or a
+ * targeted single-stage retry — every enrichable stage is settled and that
+ * list is the authoritative record of which ones are still incomplete.
+ * Computing the aggregate from it is therefore correct in all three cases,
+ * and can never report a premature "success" for a stage this pass never
+ * touched.
  */
-function finalizeAggregateFromStageErrors(bundle: TripBundle, totalPendingStageIds: readonly TripDayId[], attemptedAt: string): TripBundle {
-  const pendingSet = new Set(totalPendingStageIds)
+function finalizeAggregateFromStageErrors(bundle: TripBundle, allStageDayIds: readonly TripDayId[], attemptedAt: string): TripBundle {
+  const pendingSet = new Set(allStageDayIds)
   const errors = (bundle.enrichmentMetadata.practicalPlacesStageErrors ?? []).filter((dayId) => pendingSet.has(dayId)).length
   const existing = bundle.enrichmentMetadata.providers.find((state) => state.provider === PRACTICAL_PLACES_PROVIDER_STATE)
-  const successes = totalPendingStageIds.length - errors
+  const successes = allStageDayIds.length - errors
   const aggregate: EnrichmentProviderState = {
     provider: PRACTICAL_PLACES_PROVIDER_STATE,
     lastAttemptedAt: attemptedAt,
     lastSuccessAt: successes > 0 ? attemptedAt : existing?.lastSuccessAt ?? null,
     status: errors === 0 ? 'success' : successes > 0 ? 'partial' : 'error',
     message: errors === 0 ? null : `${errors} étape(s) restent à rechercher ; les lieux acquis sont conservés.`,
+    ...(existing?.settledFingerprints === undefined ? {} : { settledFingerprints: existing.settledFingerprints }),
   }
   return {
     ...bundle,
@@ -340,21 +472,31 @@ export function tripCanSearchPracticalPlaces(bundle: TripBundle): boolean {
   })
 }
 
-/** CDC C2 section 15's "needed" gate (mirrors `route-enrichment/automatic-enrichment.ts::tripNeedsRouteEnrichment`) — `true` until the whole trip's practical-places pass has fully succeeded once; a mounted Étape screen never triggers a fresh search on its own (tests AR/AS), since by the time it opens this has already resolved at trip-open time. */
+/**
+ * CDC C2 section 15's "needed" gate — now answered from the explicit
+ * per-stage settled record (DER-DES-DER sections 31-33) rather than from
+ * `status !== 'success'`: a stage that timed out is settled, so reopening the
+ * trip no longer re-queries it on every single open (only "Réessayer" or
+ * "Recalculer" does), while a stage whose GPX changed becomes pending again
+ * on its own. A mounted Étape screen still never triggers a search of its own.
+ */
 export function tripNeedsPracticalPlacesEnrichment(bundle: TripBundle): boolean {
-  if (!tripCanSearchPracticalPlaces(bundle)) return false
-  return bundle.enrichmentMetadata.providers.find((state) => state.provider === PRACTICAL_PLACES_PROVIDER_STATE)?.status !== 'success'
+  return providerHasPendingStages(bundle, PRACTICAL_PLACES_PROVIDER_STATE)
 }
 
 export async function enrichTripPracticalPlaces(input: EnrichTripPracticalPlacesInput): Promise<PracticalPlacesEnrichmentReport> {
   const attemptedAt = input.now()
   const lookups: StageLookup[] = []
-  const pending = pendingLookups(input.bundle)
+  // The pure in-memory API's contract is unchanged: it processes every stage
+  // of the bundle it is handed. Skipping already-settled stages (section 40's
+  // resume) belongs to the stored/progressive path below, which is the one
+  // the app's own trip-open orchestration actually uses.
+  const pending = pendingLookups(input.bundle, true)
   const geometryByStageId = new Map(pending.map((lookup) => [lookup.stage.id, lookup.geometry]))
   const anchorsByStageId = new Map(pending.map((lookup) => [lookup.stage.id, lookup.anchors]))
   for (let index = 0; index < pending.length; index++) {
     const lookup = pending[index]
-    if (lookup !== undefined) lookups.push(await resolveLookup(input.bundle, lookup, input.provider, input.cache, attemptedAt, index, pending.length, input.onProgress))
+    if (lookup !== undefined) lookups.push(await resolveLookup(input.bundle, lookup, input.provider, input.cache, attemptedAt, index, pending.length, input.segmentLengthKm ?? MAX_POSTPASS_SEGMENT_KM, input.onProgress))
   }
   const bundle = applyLookups(input.bundle, lookups, geometryByStageId, anchorsByStageId, input.provider, attemptedAt)
   return {
@@ -390,15 +532,27 @@ export async function enrichStoredTripPracticalPlaces(input: EnrichStoredTripPra
   const initial = await repository.loadTripBundle(input.tripId)
   if (initial === null) return null
 
-  const allPending = pendingLookups(initial)
-  const targets = input.onlyDayId === undefined ? allPending : allPending.filter((lookup) => lookup.day.id === input.onlyDayId)
-  const totalPendingStageIds = allPending.map((lookup) => lookup.day.id)
+  // A targeted retry deliberately re-runs a stage that IS already settled
+  // (that is what "Réessayer" means); the ordinary pass skips settled stages
+  // so it resumes where it left off (sections 31/40).
+  const everyStage = pendingLookups(initial, true)
+  const targets = input.onlyDayId === undefined
+    ? pendingLookups(initial)
+    : everyStage.filter((lookup) => lookup.day.id === input.onlyDayId)
+  // The aggregate is always computed against EVERY enrichable stage, never
+  // just the ones this particular pass happened to touch — otherwise a
+  // resumed pass covering only E2/E3 would report "success" while E1's
+  // earlier failure is still recorded.
+  const allStageDayIds = everyStage.map((lookup) => lookup.day.id)
 
   let bundle = initial
   const lookups: StageLookup[] = []
   let anySaved = false
 
   for (let index = 0; index < targets.length; index++) {
+    // Sections 38-39: another trip took over — stop here, keeping every
+    // stage this pass already saved.
+    if (!(input.shouldContinue?.() ?? true)) break
     const target = targets[index]
     if (target === undefined) continue
     // Reload right before this stage's own work: picks up whatever the
@@ -409,13 +563,11 @@ export async function enrichStoredTripPracticalPlaces(input: EnrichStoredTripPra
     if (base === null) break
     bundle = base
     const attemptedAt = input.now()
-    const lookup = await resolveLookup(bundle, target, input.provider, cache, attemptedAt, index, targets.length, input.onProgress)
+    const lookup = await resolveLookup(bundle, target, input.provider, cache, attemptedAt, index, targets.length, input.segmentLengthKm ?? MAX_POSTPASS_SEGMENT_KM, input.onProgress)
     lookups.push(lookup)
     const applied = applyStageLookup(bundle, lookup, target.geometry, target.anchors, input.provider, attemptedAt)
     const isLastOfPass = index === targets.length - 1
-    const withAggregate = isLastOfPass
-      ? (input.onlyDayId === undefined ? finalizeAggregateFromLookups(applied, lookups, attemptedAt) : finalizeAggregateFromStageErrors(applied, totalPendingStageIds, attemptedAt))
-      : applied
+    const withAggregate = isLastOfPass ? finalizeAggregateFromStageErrors(applied, allStageDayIds, attemptedAt) : applied
 
     // Optimistic concurrency, scoped to this one stage's save: never clobber
     // an edit that landed since `base` was read.

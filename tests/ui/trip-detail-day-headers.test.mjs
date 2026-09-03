@@ -97,19 +97,33 @@ test('a ride day card shows distance, D+, departure time and estimated arrival',
 test('a ride day with no route geometry shows an em dash for departure/arrival rather than a fabricated time', () => {
   const bundle = createGenericTripBundle()
   const html = renderTripDetail(bundle)
-  // `data-day-id="day-delta"` appears twice in the card (the button itself,
-  // and the weather-mount span) — grab the whole <li>…</li> block, not just
-  // the text between the first two occurrences.
-  const deltaCard = html.match(/<li>\s*<button[^>]*data-day-id="day-delta"[\s\S]*?<\/button>\s*<\/li>/)?.[0] ?? ''
+  // `data-day-id="day-delta"` appears several times in the card (the button
+  // itself, the weather mount, and the retry slot) — grab the card
+  // `<button>…</button>` block itself, not just the text between the first
+  // two occurrences.
+  const deltaCard = html.match(/<button[^>]*data-day-id="day-delta"[\s\S]*?<\/button>/)?.[0] ?? ''
   assert.match(deltaCard, /<span class="visually-hidden">ETA <\/span>—<\/strong>/)
 })
 
 test('a stage switched to manual pause mode changes the Voyage screen\'s estimated arrival time (CDC Jalon B4 section 15/16)', () => {
-  const automaticBundle = createGenericTripBundle()
-  const manualBundle = createGenericTripBundle()
+  // DER-DES-DER section 21: a pause — automatic or manual — only ever lands
+  // on a real waypoint, so both sides of this comparison need one. The
+  // fixture's route1 otherwise carries nothing but its start/end points.
+  const withMidwayVillage = () => {
+    const bundle = createGenericTripBundle()
+    const village = {
+      ...bundle.routePoints[0], id: 'point-midway-village', type: 'passage', name: 'Midway',
+      trackDistanceKm: 30, latitude: 45.2, longitude: 6.35, osmFeatureType: 'village',
+    }
+    bundle.routePoints = [...bundle.routePoints, village]
+    bundle.stages[0] = { ...bundle.stages[0], routePointIds: [...bundle.stages[0].routePointIds, village.id] }
+    return bundle
+  }
+  const automaticBundle = withMidwayVillage()
+  const manualBundle = withMidwayVillage()
   manualBundle.settings.stages[0] = {
     stageId: manualBundle.stages[0].id, pausePlanMode: 'custom',
-    pauses: [{ id: 'pause-manual-1', active: true, routePointId: manualBundle.routePoints[0].id, durationSeconds: 3_600, order: 0, origin: 'custom' }],
+    pauses: [{ id: 'pause-manual-1', active: true, routePointId: 'point-midway-village', durationSeconds: 3_600, order: 0, origin: 'custom' }],
   }
   const etaOf = (html) => html.match(/<span class="visually-hidden">ETA <\/span>(\d{2}:\d{2})<\/strong>/)[1]
   const automaticArrival = etaOf(renderTripDetail(automaticBundle))
@@ -184,4 +198,44 @@ test('L: a very long place name still renders as a single ellipsis-truncated lin
   // wherever the card is measured — the grid never collapses/reflows it.
   const alphaCard = html.match(/<li>\s*<button[^>]*data-day-id="day-alpha"[\s\S]*?<\/button>\s*<\/li>/)?.[0] ?? ''
   assert.match(alphaCard, /<span class="trip-day-card__schedule">\s*<span class="trip-day-card__status">/)
+})
+
+// --- DER-DES-DER sections 52-53: the retry lives ONLY on the Voyage card ----
+
+function withStatus(dayId, status) {
+  return { stagePreparationStatuses: new Map([[dayId, status]]) }
+}
+
+test('BG: a partial stage shows "À compléter" + "Réessayer" on its own Voyage card, targeting that stage', () => {
+  const bundle = createGenericTripBundle()
+  const html = renderTripDetail(bundle, withStatus('day-alpha', 'partial'))
+  assert.match(html, /<p class="trip-day-card__retry"><span>À compléter<\/span>/)
+  assert.match(html, /data-action="retry-stage-preparation"[^>]*data-day-id="day-alpha"[^>]*>Réessayer<\/button>/)
+})
+
+test('BG: an errored stage gets the same single action', () => {
+  const html = renderTripDetail(createGenericTripBundle(), withStatus('day-alpha', 'error'))
+  assert.match(html, /data-action="retry-stage-preparation"[^>]*data-day-id="day-alpha"/)
+})
+
+test('section 53: a ready, pending or running stage stays silent — no "À compléter", no retry', () => {
+  for (const status of ['ready', 'pending', 'running', 'stale', null]) {
+    const html = renderTripDetail(createGenericTripBundle(), withStatus('day-alpha', status))
+    assert.doesNotMatch(html, /retry-stage-preparation/, `status ${status} should not offer a retry`)
+    assert.doesNotMatch(html, /À compléter/, `status ${status} should stay silent`)
+  }
+})
+
+test('section 53: only the affected stage gets the action — a healthy sibling ride day stays untouched', () => {
+  const bundle = createGenericTripBundle()
+  const html = renderTripDetail(bundle, { stagePreparationStatuses: new Map([['day-alpha', 'error'], ['day-delta', 'ready']]) })
+  assert.equal((html.match(/data-action="retry-stage-preparation"/g) ?? []).length, 1)
+  assert.doesNotMatch(html, /retry-stage-preparation"[^>]*data-day-id="day-delta"/)
+})
+
+test('the retry action is never nested inside the card button — a button inside a button is invalid and would swallow the card click', () => {
+  const html = renderTripDetail(createGenericTripBundle(), withStatus('day-alpha', 'error'))
+  const cardButton = html.match(/<button[^>]*data-action="open-day-detail"[^>]*data-day-id="day-alpha"[\s\S]*?<\/button>/)?.[0] ?? ''
+  assert.ok(cardButton.length > 0, 'the card button was found')
+  assert.doesNotMatch(cardButton, /retry-stage-preparation/)
 })

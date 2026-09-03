@@ -106,7 +106,56 @@ test('network failure is non-blocking and leaves previously enriched practical p
   assert.equal(failed.networkErrorCount, 1)
   assert.deepEqual(failed.bundle.practicalPlaces, beforeFailure)
   assert.equal(failed.bundle.enrichmentMetadata.providers.find((state) => state.provider === 'postpass-practical-places')?.status, 'error')
-  assert.equal(tripNeedsPracticalPlacesEnrichment(failed.bundle), true)
+  // DER-DES-DER sections 31/50: a stage that failed is SETTLED — the trip no
+  // longer re-queries it automatically on every reopen. The failure stays
+  // visible (status 'error' + the per-stage list) and is recovered by the
+  // explicit "Réessayer", never by an automatic retry loop.
+  assert.equal(tripNeedsPracticalPlacesEnrichment(failed.bundle), false, 'AC/AD/AE: reopening the trip triggers no further provider call')
+})
+
+test('AC: a fully settled trip needs no further pass at all — reopening it is 0 provider calls', async () => {
+  const memoryCache = { async get() { return null }, async put() {} }
+  const enriched = await enrichTripPracticalPlaces({
+    bundle: createGenericTripBundle(),
+    cache: memoryCache,
+    provider: provider(async () => result([candidate({ osmId: 'settled' })])),
+    now: () => '2028-08-03T10:00:00.000Z',
+  })
+  assert.equal(tripNeedsPracticalPlacesEnrichment(enriched.bundle), false)
+  const settled = enriched.bundle.enrichmentMetadata.providers.find((state) => state.provider === 'postpass-practical-places')?.settledFingerprints
+  assert.ok(Array.isArray(settled) && settled.length === 1, 'section 32: an explicit settled record, not an inference from the absence of an error')
+})
+
+test('section 33: replacing a stage\'s route geometry makes that stage pending again — the only kind of cause that invalidates a settled stage', async () => {
+  const memoryCache = { async get() { return null }, async put() {} }
+  const enriched = await enrichTripPracticalPlaces({
+    bundle: createGenericTripBundle(),
+    cache: memoryCache,
+    provider: provider(async () => result([candidate({ osmId: 'settled' })])),
+    now: () => '2028-08-03T10:00:00.000Z',
+  })
+  assert.equal(tripNeedsPracticalPlacesEnrichment(enriched.bundle), false)
+  const replaced = structuredClone(enriched.bundle)
+  replaced.sourceFiles[0].sha256 = 'b'.repeat(64) // a genuinely different GPX for route1
+  assert.equal(tripNeedsPracticalPlacesEnrichment(replaced), true, 'a new GPX for that route = a new fingerprint = genuinely pending again')
+})
+
+test('AG/AH/AI: a settled trip stays settled across unrelated edits — departure time, pause duration and Infos never make it pending', async () => {
+  const memoryCache = { async get() { return null }, async put() {} }
+  const enriched = await enrichTripPracticalPlaces({
+    bundle: createGenericTripBundle(),
+    cache: memoryCache,
+    provider: provider(async () => result([candidate({ osmId: 'settled' })])),
+    now: () => '2028-08-03T10:00:00.000Z',
+  })
+  const edited = structuredClone(enriched.bundle)
+  edited.settings.days[0].departureTime = '06:30'
+  edited.settings.stages = [{
+    stageId: edited.stages[0].id, pausePlanMode: 'custom',
+    pauses: [{ id: 'p1', active: true, routePointId: edited.routePoints[0].id, durationSeconds: 900, order: 0, origin: 'custom' }],
+  }]
+  edited.days[0].notes = 'Réserver le gîte'
+  assert.equal(tripNeedsPracticalPlacesEnrichment(edited), false, 'sections 27-28/31: none of these is a Postpass trigger')
 })
 
 test('a stage-scoped failure preserves the other stage\'s successful result (partial status), and only the failed stage is retried', async () => {
@@ -136,7 +185,10 @@ test('a stage-scoped failure preserves the other stage\'s successful result (par
   assert.equal(first.networkErrorCount, 1)
   assert.equal(first.placeCount, 1)
   assert.equal(first.bundle.enrichmentMetadata.providers.find((state) => state.provider === 'postpass-practical-places')?.status, 'partial')
-  assert.equal(tripNeedsPracticalPlacesEnrichment(first.bundle), true, 'a partial result still needs a follow-up pass')
+  // Sections 31/50: the partial state stays VISIBLE (status 'partial', so the
+  // Voyage screen still offers "Réessayer" on that stage) but no longer
+  // schedules an automatic follow-up on the next trip open.
+  assert.equal(tripNeedsPracticalPlacesEnrichment(first.bundle), false, 'no automatic retry — the recovery below is an explicit one')
 
   const callsBeforeRetry = calls
   const second = await enrichTripPracticalPlaces({
@@ -307,13 +359,26 @@ test('section 18: a stage-scoped POI failure is recorded per-stage in practicalP
     })
     assert.deepEqual(report.bundle.enrichmentMetadata.practicalPlacesStageErrors, [bundle.stages[1].dayId])
 
-    // A subsequent successful full pass clears it again.
-    const second = await enrichStoredTripPracticalPlaces({
+    // DER-DES-DER sections 31/40/50: reopening the trip runs NOTHING — both
+    // stages are settled, the failed one included.
+    const callsAfterFirstPass = calls
+    const reopened = await enrichStoredTripPracticalPlaces({
       database, tripId: bundle.metadata.id,
       provider: provider(async () => { calls++; return result([candidate({ osmId: `call-${calls}` })]) }),
       now: () => '2028-08-04T10:00:00.000Z',
     })
-    assert.equal(second.bundle.enrichmentMetadata.practicalPlacesStageErrors, undefined, 'cleared once every pending stage settles successfully — never left dangling')
+    assert.equal(calls, callsAfterFirstPass, 'AC: 0 provider calls on reopen')
+    assert.equal(reopened.stageCount, 0)
+
+    // The explicit targeted retry is what clears it.
+    const retried = await enrichStoredTripPracticalPlaces({
+      database, tripId: bundle.metadata.id, onlyDayId: bundle.stages[1].dayId,
+      provider: provider(async () => { calls++; return result([candidate({ osmId: `call-${calls}` })]) }),
+      now: () => '2028-08-05T10:00:00.000Z',
+    })
+    assert.equal(calls, callsAfterFirstPass + 1, 'exactly one call, for the retried stage only')
+    assert.equal(retried.bundle.enrichmentMetadata.practicalPlacesStageErrors, undefined, 'cleared once the failed stage finally settles successfully')
+    assert.equal(retried.bundle.enrichmentMetadata.providers.find((state) => state.provider === 'postpass-practical-places')?.status, 'success')
   } finally {
     database.close()
   }

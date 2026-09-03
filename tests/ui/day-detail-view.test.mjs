@@ -49,12 +49,13 @@ test('builds a real identity bandeau (Jx/short date left, départ → arrivée l
   assert.match(detail.html, /62,4 km/)
   assert.match(detail.html, /\+780 m/)
   assert.match(detail.html, /−410 m/)
-  // Stage-alpha carries a 1800s (30 min) automatic pause budget with no
-  // structural anchor available in this fixture, so it lands on synthetic
-  // pause waypoints between the start and end — start/end themselves stay first/last.
+  // DER-DES-DER sections 7/12/21-22: stage-alpha carries a 1800 s (30 min)
+  // automatic pause BUDGET, but this fixture has no structural anchor for it
+  // to land on (no structural enrichment yet), so no pause is placed at all —
+  // a budget is not a plan (section 6), and a slot never becomes a place.
   assert.equal(detail.waypoints[0].kind, 'start')
   assert.equal(detail.waypoints.at(-1).kind, 'end')
-  assert.ok(detail.waypoints.some((waypoint) => waypoint.kind === 'pause'))
+  assert.ok(detail.waypoints.every((waypoint) => waypoint.kind !== 'pause'), 'never a fabricated pause waypoint')
   assert.match(detail.html, /<h3>Pauses<\/h3>/)
   assert.equal(detail.stageLabel, 'J1 — Riverside → Hilltown')
 })
@@ -1398,19 +1399,34 @@ test('every day type resolves through buildDayDetail — the precondition for a 
 // --- R1 section 4 ("erreurs/partial"), tests C/D: short, plain-language, ---
 // --- actionable banners — no technical vocabulary, a real Réessayer. -------
 
-test('R1 test C: a partial-preparation ride day shows a short, actionable banner — no "préparation"/technical wording', () => {
+test('R1 test C: a partial-preparation ride day shows a short banner — no "préparation"/technical wording', () => {
   const bundle = createGenericTripBundle()
   const detail = buildDayDetail(bundle, 'day-alpha', { preparationStatus: 'partial' })
-  assert.match(detail.html, /<div class="day-detail__prep-banner" role="status"><span>Certaines données pratiques manquent\.<\/span>/)
-  assert.match(detail.html, /data-action="retry-stage-preparation"[^>]*>Réessayer<\/button>/)
+  assert.match(detail.html, /<div class="day-detail__prep-banner" role="status"><span>Certaines données pratiques manquent\./)
   assert.doesNotMatch(detail.html, /postpass|provider|enrichment/i)
 })
 
-test('R1 test D: an errored ride day shows a short banner with a retry action', () => {
+test('R1 test D: an errored ride day shows a short banner', () => {
   const bundle = createGenericTripBundle()
   const detail = buildDayDetail(bundle, 'day-alpha', { preparationStatus: 'error' })
-  assert.match(detail.html, /<div class="day-detail__prep-banner" role="status"><span>Préparation incomplète\.<\/span>/)
-  assert.match(detail.html, /data-action="retry-stage-preparation"[^>]*>Réessayer<\/button>/)
+  assert.match(detail.html, /<div class="day-detail__prep-banner" role="status"><span>Préparation incomplète\./)
+})
+
+// --- DER-DES-DER sections 51-52: the retry lives in exactly one place -------
+
+test('BH: the Étape screen carries NO "Réessayer" action at all, whatever its preparation status', () => {
+  const bundle = createGenericTripBundle()
+  for (const preparationStatus of ['pending', 'running', 'partial', 'error', 'stale', 'ready']) {
+    const detail = buildDayDetail(bundle, 'day-alpha', { preparationStatus })
+    assert.doesNotMatch(detail.html, /retry-stage-preparation/, `status ${preparationStatus} still offers a retry on the Étape screen`)
+    assert.doesNotMatch(detail.html, />Réessayer</, `status ${preparationStatus} still shows a Réessayer button`)
+  }
+})
+
+test('BH: an incomplete Étape still SAYS what is missing, and points at where the retry lives', () => {
+  const bundle = createGenericTripBundle()
+  const detail = buildDayDetail(bundle, 'day-alpha', { preparationStatus: 'partial' })
+  assert.match(detail.html, /Vous pouvez relancer la préparation depuis la liste des étapes\./)
 })
 
 test('a ready ride day shows no preparation banner at all', () => {

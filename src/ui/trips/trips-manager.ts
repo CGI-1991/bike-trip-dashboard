@@ -12,6 +12,8 @@ import { enrichStoredTripEndpoints, tripNeedsEndpointGeocoding } from '../../geo
 import type { GeocodingProvider } from '../../geocoding/types.ts'
 import type { RouteEnrichmentProgress, RouteEnrichmentProvider } from '../../route-enrichment/types.ts'
 import { runStoredTripAutomaticEnrichment, tripNeedsAutomaticEnrichment } from '../../route-enrichment/automatic-enrichment.ts'
+import { RETRY_POSTPASS_SEGMENT_KM } from '../../route-enrichment/segmentation.ts'
+import { unsettleStageForRetry } from '../../route-enrichment/settled-stages.ts'
 import { buildPracticalPlaceViewModels } from '../../practical-places/view-model.ts'
 import type { PracticalPlacesProvider } from '../../practical-places/types.ts'
 import { createSingleFlightGuard } from '../../trips-manager/single-flight.ts'
@@ -46,7 +48,7 @@ import type { DayDetail } from './day-detail-view.ts'
 import { createImportWizard } from './import-wizard.ts'
 import type { ImportWizardResult } from './import-wizard.ts'
 import { createTripEditor } from './trip-editor.ts'
-import { renderStagePreparationIndicator, renderTripDetail } from './trip-detail-view.ts'
+import { renderStagePreparationIndicator, renderStageRetryRow, renderTripDetail } from './trip-detail-view.ts'
 import { buildTripOverview } from './trip-overview-view.ts'
 import type { TripOverview } from './trip-overview-view.ts'
 import { createTripDetailAutoScrollSession, scrollTripDayCardIntoView } from '../trip-detail-auto-scroll.ts'
@@ -349,6 +351,15 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   const automaticEnrichmentGuard = createSingleFlightGuard<TripId>()
   const automaticEnrichmentProgress = new Map<TripId, string>()
   const automaticEnrichmentErrors = new Map<TripId, string>()
+  /**
+   * DER-DES-DER sections 38-39: the ONE trip currently allowed to run an
+   * enrichment orchestration. Claiming it is what stops the previous trip's
+   * pass — every enrichment loop checks `enrichmentOwner === its own tripId`
+   * between units and returns cleanly when it no longer holds the claim.
+   * Never two trips enriching in parallel (section 38), never a rollback of
+   * what the stopped trip already persisted (section 39).
+   */
+  let enrichmentOwner: TripId | null = null
   /**
    * C2.5 sections 5-22: the in-memory precision `deriveStagePreparationStatus`
    * needs beyond what's persisted (trip-wide only) — which ride day the
@@ -903,7 +914,11 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
    * synchronously, before `fn` runs at all, so that race is now structurally
    * impossible.
    */
-  async function startAutomaticEnrichment(tripId: TripId): Promise<void> {
+  async function startAutomaticEnrichment(tripId: TripId, segmentLengthKm?: number): Promise<void> {
+    // Section 39: claimed synchronously, before any await, so the previous
+    // owner sees the change at its very next unit boundary — and so a rapid
+    // A → B → A sequence can never leave two owners believing they hold it.
+    enrichmentOwner = tripId
     await automaticEnrichmentGuard.run(tripId, async () => {
       const requestId = deps.idFactory()
       // `import.meta.env` is injected by Vite at build/dev time and is
@@ -941,6 +956,8 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
           practicalPlacesProvider: deps.practicalPlacesProvider,
           idFactory: deps.idFactory,
           now: deps.now,
+          shouldContinue: () => enrichmentOwner === tripId,
+          ...(segmentLengthKm === undefined ? {} : { segmentLengthKm }),
           onProgress: (progress) => {
             let runningDayId: TripDayId | null = null
             if (progress.phase === 'endpoints') {
@@ -985,6 +1002,9 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
         if (import.meta.env?.DEV) console.debug('[automatic-enrichment] finish', { tripId, requestId })
         automaticEnrichmentProgress.delete(tripId)
         runningStageByTrip.delete(tripId)
+        // Only release the claim if this run still holds it — a newer trip
+        // may already have taken over while this one was winding down.
+        if (enrichmentOwner === tripId) enrichmentOwner = null
         await refreshIfShowing(tripId)
       }
     })
@@ -1033,10 +1053,15 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     const context = stagePreparationContext(tripId)
     for (const dayId of dayIds) {
       if (dayId === null) continue
+      const status = deriveStagePreparationStatus(bundle, dayId, context)
       const button = container.querySelector<HTMLElement>(`[data-day-id="${escapeSelectorValue(dayId)}"]`)
       const slot = button?.querySelector<HTMLElement>('[data-trip-day-prep-slot]') ?? null
-      if (slot === null) continue
-      slot.innerHTML = renderStagePreparationIndicator(deriveStagePreparationStatus(bundle, dayId, context))
+      if (slot !== null) slot.innerHTML = renderStagePreparationIndicator(status)
+      // DER-DES-DER sections 52-53: the retry row lives OUTSIDE the card
+      // button (invalid nesting otherwise), so it has its own always-present
+      // mount and is patched the same targeted way — never a full rebuild.
+      const retrySlot = container.querySelector<HTMLElement>(`[data-trip-day-retry-slot][data-day-id="${escapeSelectorValue(dayId)}"]`)
+      if (retrySlot !== null) retrySlot.innerHTML = renderStageRetryRow(tripId, dayId, status)
     }
     patchStagePreparationSummary(bundle, context)
   }
@@ -1098,18 +1123,35 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
    * failed/never finished — an already-cached stage is never re-fetched.
    * One call per click, no automatic retry loop (section 17/AA).
    */
-  function retryStagePreparation(tripId: TripId): void {
+  function retryStagePreparation(tripId: TripId, dayId?: TripDayId): void {
     // Scoped strictly to the user's own click (unlike `refreshIfShowing`,
     // which also fires from the routine, unawaited enrichment every
     // trip-open kicks off) — only reconciles the day-detail screen if it's
     // still the SAME day, of the SAME trip, once this specific run settles.
     const dayIdToReconcile = mode.kind === 'day' && mode.tripId === tripId ? mode.dayId : null
-    void startAutomaticEnrichment(tripId).then(async () => {
+    void (async () => {
+      // DER-DES-DER sections 48/52: a settled stage is skipped by every
+      // automatic pass, so an explicit retry must first forget THAT stage's
+      // settled record — and only that stage's, so the retry never turns
+      // into a whole-trip re-query.
+      if (dayId !== undefined) {
+        const repository = createTripRepository(deps.database)
+        const current = await repository.loadTripBundle(tripId)
+        if (current !== null) {
+          const unsettled = unsettleStageForRetry(current, dayId)
+          if (unsettled !== current) await repository.saveTripBundle(unsettled)
+        }
+      }
+      // Section 49: a retry uses genuinely smaller Postpass segments rather
+      // than replaying the same slow query that just timed out. Segments that
+      // did succeed are served from cache, so only the failing area is
+      // actually re-queried (section 48).
+      await startAutomaticEnrichment(tripId, RETRY_POSTPASS_SEGMENT_KM)
       if (dayIdToReconcile === null) return
       if (mode.kind !== 'day' || mode.tripId !== tripId || mode.dayId !== dayIdToReconcile) return
       const bundle = await createTripRepository(deps.database).loadTripBundle(tripId)
       if (bundle !== null) patchDayDetail(bundle, dayIdToReconcile)
-    })
+    })()
   }
 
   /** Re-renders whichever of Aperçu/Voyage is currently open for `tripId` — enrichment can finish while the user is on either screen. */
@@ -1522,7 +1564,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
             await reenrichStagePracticalPlaces(tripId as TripId, dayId as TripDayId, bundle)
             return
           }
-          retryStagePreparation(tripId as TripId)
+          retryStagePreparation(tripId as TripId, dayId as TripDayId)
         })()
       } else {
         retryStagePreparation(tripId as TripId)

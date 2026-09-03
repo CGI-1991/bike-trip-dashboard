@@ -33,6 +33,7 @@ import { createRouteClockTime } from '../route/time.ts'
 import type { Climb } from '../trip-core/index.ts'
 import { isAnchorCandidate } from './pause-placement.ts'
 import { PAUSE_MIN_EDGE_BUFFER_FRACTION, PAUSE_MIN_SPACING_FRACTION, PAUSE_SEARCH_WINDOW_FRACTION } from './pause-placement.ts'
+import { redistributePauseDurations } from './pause-duration.ts'
 import { distributeAutomaticPauses } from './pauses.ts'
 import type { CanonicalWaypoint, CanonicalWaypointKind } from './canonical-waypoints.ts'
 
@@ -63,9 +64,15 @@ export type PauseRecommendationReasonCode =
   | 'rain-shelter'
   | 'heat-water'
 
-export type PauseRecommendationLevel = 'recommended' | 'good' | 'fallback'
+/**
+ * DER-DES-DER section 22: `'fallback'` was removed along with the synthetic
+ * recommendation it labelled — every recommendation now sits on a real
+ * canonical waypoint, so there is no "this is only a placeholder position"
+ * level left to express.
+ */
+export type PauseRecommendationLevel = 'recommended' | 'good'
 
-export type PauseCandidateOrigin = 'locality' | 'climb-summit' | 'poi' | 'synthetic'
+export type PauseCandidateOrigin = 'locality' | 'climb-summit' | 'poi'
 
 /** A minimal, engine-owned POI shape (CDC section 8) — never the full `PracticalPlace`/provider tag structure; the caller (`waypoint-timeline.ts`) projects it from `bundle.practicalPlaces`, already filtered to the six UX categories. */
 export interface PauseCandidatePlace {
@@ -427,9 +434,7 @@ export function scorePauseCandidate(candidate: PauseCandidate, context: ScoringC
 // --- selection (CDC section 6/19/25) ----------------------------------------
 
 function levelFor(score: PauseCandidateScore): PauseRecommendationLevel {
-  if (score.candidate.origin === 'synthetic') return 'fallback'
-  if (score.score >= BASE_SCORE + 15) return 'recommended'
-  return 'good'
+  return score.score >= BASE_SCORE + 15 ? 'recommended' : 'good'
 }
 
 /**
@@ -467,9 +472,9 @@ export function selectPauseRecommendations(
       // waypoint to anchor it). It still fully participates in SCORING a
       // real anchor nearby (`buildPauseCandidates`'s own merge step, CDC
       // section 16 "POI = service utile associé"); it just never wins a
-      // slot on its own. A slot with no real anchor nearby falls through to
-      // the 'fallback' synthetic-position branch below, named after the
-      // slot itself ("Pause du matin"/etc.) — never a POI category name.
+      // slot on its own. DER-DES-DER section 24 keeps this exact guard: a
+      // slot with no real anchor nearby now simply produces no pause (see
+      // below) rather than a fabricated one under any name.
       && candidate.waypointId !== null
       && selectedDistances.every((distanceKm) => Math.abs(distanceKm - candidate.distanceKm) >= minSpacingKm))
 
@@ -481,26 +486,33 @@ export function selectPauseRecommendations(
         || left.candidate.id.localeCompare(right.candidate.id))
 
     const best = scored[0]
+    // DER-DES-DER sections 21-23: no real place near this slot → NO pause.
+    // This used to push a synthetic recommendation at the raw ideal fraction,
+    // named after the slot itself ("Pause du matin"/"Pause principale"/
+    // "Pause de l'après-midi") — the exact fabricated-place output this
+    // milestone removes. The slot stays an internal scoring device only.
     if (best === undefined) {
-      const fallbackDistanceKm = Math.min(Math.max(ideal.distanceKm, minEdgeKm), totalDistanceKm - minEdgeKm)
-      recommendations.push({
-        slotId: ideal.id, distanceKm: fallbackDistanceKm, durationMinutes: ideal.durationMinutes, waypointId: null,
-        name: ideal.name, level: 'fallback', reasons: [], primaryPoiIds: [], alternates: [],
-      })
-    } else {
-      usedCandidateIds.add(best.candidate.id)
-      selectedDistances.push(best.candidate.distanceKm)
-      const alternates = scored.slice(1, 3)
-      recommendations.push({
-        slotId: ideal.id, distanceKm: best.candidate.distanceKm, durationMinutes: ideal.durationMinutes,
-        waypointId: best.candidate.waypointId, name: best.candidate.name, level: levelFor(best),
-        reasons: best.reasons, primaryPoiIds: servicesScore(context, best.candidate).primaryPoiIds, alternates,
-      })
+      priorPauseMinutes += ideal.durationMinutes
+      continue
     }
+    usedCandidateIds.add(best.candidate.id)
+    selectedDistances.push(best.candidate.distanceKm)
+    const alternates = scored.slice(1, 3)
+    recommendations.push({
+      slotId: ideal.id, distanceKm: best.candidate.distanceKm, durationMinutes: ideal.durationMinutes,
+      waypointId: best.candidate.waypointId, name: best.candidate.name, level: levelFor(best),
+      reasons: best.reasons, primaryPoiIds: servicesScore(context, best.candidate).primaryPoiIds, alternates,
+    })
     priorPauseMinutes += ideal.durationMinutes
   }
 
+  // Section 23: the dropped slots' minutes go to the pauses that did find a
+  // real home, rather than quietly shrinking the day's total break time.
+  const budget = idealAnchors.reduce((total, anchor) => total + anchor.durationMinutes, 0)
+  const redistributed = redistributePauseDurations(recommendations.map((recommendation) => recommendation.durationMinutes), budget)
   return recommendations
+    .map((recommendation, index) => ({ ...recommendation, durationMinutes: redistributed[index] ?? recommendation.durationMinutes }))
+    .filter((recommendation) => recommendation.durationMinutes > 0)
 }
 
 /**

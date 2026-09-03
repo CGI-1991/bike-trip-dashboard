@@ -33,6 +33,25 @@ export interface EnrichmentProviderState {
   readonly lastSuccessAt: IsoDateTime | null
   readonly status: EnrichmentProviderStatus
   readonly message: string | null
+  /**
+   * DER-DES-DER sections 31-33 — the `routeFingerprint` of every stage this
+   * provider has already SETTLED (attempted to completion at least once,
+   * whether it succeeded, found nothing, or failed). This is the explicit
+   * "already done" record section 32 asks for, replacing the old inference
+   * from `status !== 'success'`: a stage that timed out is settled too, so
+   * merely reopening the trip never silently re-runs it (section 50: no
+   * automatic retry — only the explicit "Réessayer", or the manual
+   * "Recalculer les données du parcours", ever runs it again).
+   *
+   * Keyed by route fingerprint rather than stage id so section 33's real
+   * invalidation causes are structural by construction: replacing the GPX
+   * (or otherwise changing the route geometry) changes the fingerprint, and
+   * that stage — only that stage — becomes pending again. Purely additive
+   * and optional: `undefined` means "no explicit record yet" and falls back
+   * to the historical status-based gate, so an existing bundle self-heals on
+   * its next pass and no already-complete fixture gains the key at all.
+   */
+  readonly settledFingerprints?: readonly string[]
 }
 
 /** Bundle-level view of external enrichment (OSM, Open-Meteo, ...) freshness. */

@@ -66,24 +66,36 @@ test('start and end are always anchors', () => {
   assert.ok(anchors.some((anchor) => anchor.latitude === 45.4 && anchor.longitude === 6), 'arrivée')
 })
 
-test('V: a col with no pause never becomes an anchor of its own — it never creates a commerce search zone', () => {
+// --- DER-DES-DER sections 16-18: anchors are structural, never pause-derived
+
+test('P/R: a structural col is an anchor in its own right — the POI search no longer waits for a pause to exist there', () => {
   const anchors = computeStagePracticalPlaceAnchors(bundle(), stage, route)
-  assert.equal(anchors.some((anchor) => anchor.latitude === 45.2), false)
-  // Only départ + arrivée in this no-pause scenario.
-  assert.equal(anchors.length, 2)
+  assert.ok(anchors.some((anchor) => anchor.latitude === 45.2 && anchor.longitude === 6), 'the col is a real place the route passes through')
+  assert.equal(anchors.length, 3, 'départ + col + arrivée')
 })
 
-test('a col that DOES carry a manual pause becomes an anchor — a genuine stop, not a bare landmark', () => {
-  const withPause = bundle({
-    settings: {
-      stages: [{
-        stageId: 'stage-1', pausePlanMode: 'custom',
-        pauses: [{ id: 'pause-1', active: true, routePointId: 'point-col', durationSeconds: 600, order: 0, origin: 'manual' }],
-      }],
-    },
-  })
-  const anchors = computeStagePracticalPlaceAnchors(withPause, stage, route)
-  assert.ok(anchors.some((anchor) => anchor.latitude === 45.2 && anchor.longitude === 6), 'the paused col is now an anchor')
+test('P: the anchor set is identical with and without a pause plan — POI lookup no longer depends on pauses at all', () => {
+  const withoutPause = computeStagePracticalPlaceAnchors(bundle(), stage, route)
+  const withPause = computeStagePracticalPlaceAnchors(
+    bundle({
+      settings: {
+        stages: [{
+          stageId: 'stage-1', pausePlanMode: 'custom',
+          pauses: [{ id: 'pause-1', active: true, routePointId: 'point-col', durationSeconds: 600, order: 0, origin: 'manual' }],
+        }],
+      },
+    }),
+    stage,
+    route,
+  )
+  assert.deepEqual(withPause, withoutPause, 'section 16: the pause plan is an OUTPUT of enrichment, never an input to it')
+})
+
+test('T: a POI never creates an anchor — anchors come only from the stage\'s own structural geography', () => {
+  // The bundle carries no `practicalPlaces` at all here, and the anchor set
+  // is already complete: départ, col, arrivée. POI enrich these places
+  // (scoring), they never add a place of their own.
+  const anchors = computeStagePracticalPlaceAnchors(bundle(), stage, route)
   assert.equal(anchors.length, 3)
 })
 

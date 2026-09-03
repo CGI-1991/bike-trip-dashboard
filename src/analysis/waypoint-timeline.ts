@@ -207,7 +207,7 @@ export function computeStageWaypoints(input: ComputeStageWaypointsInput): readon
         })
         .filter((pause): pause is PlacedPause => pause !== null)
     : resolveAutomaticPlacedPauses(totalBreakMinutes, totalDistanceKm, baseWaypoints, climbs, geometry, distances, input.automaticPauseEnrichment, movingElapsedAt, departureMinutes)
-  const withPauses = applyPausesToWaypoints(baseWaypoints, placedPauses, route)
+  const withPauses = applyPausesToWaypoints(baseWaypoints, placedPauses)
 
   if (!hasValidTiming || movingElapsedAt === undefined || departureMinutes === undefined) return withPauses
 

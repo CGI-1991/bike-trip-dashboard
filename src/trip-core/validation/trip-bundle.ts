@@ -886,6 +886,20 @@ export function validateTripBundle(value: unknown): ValidationResult<TripBundle>
       if (provider.lastSuccessAt !== null && !isIsoDateTime(provider.lastSuccessAt)) issues.push(issue(`${path}.lastSuccessAt`, 'invalid-datetime', 'lastSuccessAt invalide.'))
       if (!isOneOf(provider.status, ENRICHMENT_PROVIDER_STATUSES)) issues.push(issue(`${path}.status`, 'invalid-enum', 'status invalide.'))
       if (provider.message !== null && !isNonEmptyString(provider.message)) issues.push(issue(`${path}.message`, 'invalid-value', 'message doit être une chaîne non vide ou null.'))
+      // DER-DES-DER sections 31-33: optional and additive — absent on every
+      // bundle written before this field, which then simply falls back to
+      // the historical status-based gate.
+      if (provider.settledFingerprints !== undefined) {
+        if (!Array.isArray(provider.settledFingerprints)) {
+          issues.push(issue(`${path}.settledFingerprints`, 'invalid-type', 'settledFingerprints doit être un tableau.'))
+        } else {
+          provider.settledFingerprints.forEach((fingerprint: unknown, fingerprintIndex: number) => {
+            if (!isNonEmptyString(fingerprint)) {
+              issues.push(issue(`${path}.settledFingerprints[${fingerprintIndex}]`, 'invalid-value', 'settledFingerprints doit contenir des chaînes non vides.'))
+            }
+          })
+        }
+      }
     })
     // RC2 final-closeout section 18: optional, additive — absent entirely on
     // every bundle that predates this field (or has no outstanding per-stage

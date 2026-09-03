@@ -3404,6 +3404,22 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .trip-detail__prep-summary { margin: -6px 0 0; color: var(--ink-soft); font-size: .78rem; }
 /* RC2 final-closeout sections 19-20: "Mes voyages" own discreet indicator — same muted convention as the Voyage screen's own summary line above. */
 .trip-card__prep { margin: -4px 0 0; color: var(--ink-soft); font-size: .78rem; }
+
+/*
+ * DER-DES-DER sections 52-53 — the single "Réessayer" affordance, on the
+ * stage's own Voyage card. Sits just under the card it belongs to, quiet
+ * enough not to compete with the card itself.
+ */
+.trip-day-card__retry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 2px 0 0;
+  padding: 4px 12px 0;
+  color: var(--ink-soft);
+  font-size: .78rem;
+}
 /* C2.5 sections 16-17: compact, non-blocking — partial/error data stays
  * fully visible above this banner, "Réessayer" sits right next to it. */
 .day-detail__prep-banner { margin-top: 10px; padding: 9px 10px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; color: var(--warning-text); background: var(--warning-bg); border: 1px solid var(--warning-border); border-radius: var(--radius-sm); font-size: .82rem; }

@@ -69,6 +69,24 @@ export function renderStagePreparationIndicator(status: StagePreparationStatus |
   return `<span class="trip-day-card__prep trip-day-card__prep--${status}" data-trip-day-prep data-status="${status}" role="img" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}">${inner}</span>`
 }
 
+/**
+ * DER-DES-DER sections 52-53 — the ONE place a stage's preparation can be
+ * retried: its own card on the Voyage screen. Rendered as a sibling of the
+ * card `<button>` (never nested inside it — a button inside a button is
+ * invalid, and a nested control would also swallow the card's own "open this
+ * day" click).
+ *
+ * Section 53's whole status vocabulary, in one place: an actively-processing
+ * stage shows a spinner (the indicator above), a waiting or ready stage shows
+ * nothing at all, and only a genuinely incomplete one gets this short
+ * "À compléter" line plus the action. No technical vocabulary, no toast, no
+ * modal — one quiet button.
+ */
+export function renderStageRetryRow(tripId: string, dayId: string, status: StagePreparationStatus | null | undefined): string {
+  if (status !== 'partial' && status !== 'error') return ''
+  return `<p class="trip-day-card__retry"><span>À compléter</span><button class="button button--quiet" type="button" data-action="retry-stage-preparation" data-trip-id="${escapeHtml(tripId)}" data-day-id="${escapeHtml(dayId)}">Réessayer</button></p>`
+}
+
 function escapeHtml(value: string): string {
   return value
     .replaceAll('&', '&amp;')
@@ -126,6 +144,7 @@ function renderRideDayCard(bundle: TripBundle, day: TripBundle['days'][number], 
         <strong><span class="visually-hidden">ETA </span>${eta ?? '—'}</strong>
       </span>
     </button>
+    <span data-trip-day-retry-slot data-day-id="${escapeHtml(day.id)}">${renderStageRetryRow(bundle.metadata.id, day.id, prepStatus)}</span>
   </li>`
 }
 

@@ -73,16 +73,36 @@ test('elapsed time never decreases along the route, ordered by track distance', 
 })
 
 test('the pause budget is fully reflected in the arrival time, on top of moving time alone', () => {
-  const without = computeStageWaypoints({ stage: stage({ pauseDurationSeconds: 0 }), route: route(), routePoints: [], climbs: [], settings })
-  const withBreaks = computeStageWaypoints({ stage: stage({ pauseDurationSeconds: 600 }), route: route(), routePoints: [], climbs: [], settings })
+  // DER-DES-DER section 21: the budget only reaches the arrival time through
+  // a pause anchored on a REAL place, so this needs a structural waypoint to
+  // anchor onto (it used to rely on the synthetic fallback pause).
+  const routePoints = [point({ id: 'city1', name: 'Ville', osmFeatureType: 'city', trackDistanceKm: 8 })]
+  const withPointsStage = (pauseDurationSeconds) => stage({ pauseDurationSeconds, routePointIds: ['city1'] })
+  const without = computeStageWaypoints({ stage: withPointsStage(0), route: route(), routePoints, climbs: [], settings })
+  const withBreaks = computeStageWaypoints({ stage: withPointsStage(600), route: route(), routePoints, climbs: [], settings })
   const endWithout = without.find((waypoint) => waypoint.kind === 'end')
   const endWith = withBreaks.find((waypoint) => waypoint.kind === 'end')
   assert.ok(Math.abs((endWith.elapsedMinutes - endWithout.elapsedMinutes) - 10) < 0.01)
 })
 
-test('a synthetic pause waypoint is inserted when its budget cannot anchor to a real waypoint', () => {
+// --- DER-DES-DER sections 7/12/21-22 ---------------------------------------
+
+test('B/C: no synthetic "pause" waypoint is ever inserted — a budget with no real place to land on simply places no pause', () => {
   const waypoints = computeStageWaypoints({ stage: stage({ pauseDurationSeconds: 600 }), route: route(), routePoints: [], climbs: [], settings })
-  assert.ok(waypoints.some((waypoint) => waypoint.kind === 'pause' && waypoint.pauseDurationMinutes !== null))
+  assert.ok(waypoints.length > 0, 'the stage still has its départ/arrivée waypoints')
+  assert.ok(waypoints.every((waypoint) => waypoint.kind !== 'pause'), 'never a fabricated kind:"pause" waypoint')
+  assert.ok(waypoints.every((waypoint) => waypoint.pauseDurationMinutes === null), 'and no pause at all until a real place exists')
+})
+
+test('section 12: once a structural locality exists, the same budget does anchor a real pause onto it', () => {
+  const waypoints = computeStageWaypoints({
+    stage: stage({ pauseDurationSeconds: 600, routePointIds: ['city1'] }), route: route(), climbs: [], settings,
+    routePoints: [point({ id: 'city1', name: 'Ville', osmFeatureType: 'city', trackDistanceKm: 8 })],
+  })
+  const paused = waypoints.filter((waypoint) => waypoint.pauseDurationMinutes !== null)
+  assert.equal(paused.length, 1)
+  assert.equal(paused[0].name, 'Ville')
+  assert.notEqual(paused[0].kind, 'pause')
 })
 
 test('returns an empty list when the route has no usable geometry', () => {

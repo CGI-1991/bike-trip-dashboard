@@ -36,6 +36,22 @@ function baseWaypoints() {
   ]
 }
 
+/**
+ * DER-DES-DER sections 21-23: a slot with no real place near it now produces
+ * NO pause (rather than a synthetic one named after the slot). Tests that
+ * only ever cared about "the engine still runs end to end" therefore need a
+ * real anchor near each of the three slots (25/50/75 km) to keep asserting a
+ * full three-pause plan.
+ */
+function threeAnchoredWaypoints() {
+  return [
+    ...baseWaypoints(),
+    waypoint({ id: 'town-morning', trackDistanceKm: 25, name: 'Ville matin' }),
+    waypoint({ id: 'town-main', trackDistanceKm: 50, name: 'Ville midi' }),
+    waypoint({ id: 'town-afternoon', trackDistanceKm: 75, name: 'Ville après-midi' }),
+  ]
+}
+
 function findRecommendation(recommendations, slotId) {
   return recommendations.find((recommendation) => recommendation.slotId === slotId)
 }
@@ -81,17 +97,16 @@ test('A: a locality with an open bakery beats an equidistant locality with no se
 // must never itself become an automatic pause's name — the "Service"
 // generic-lieu bug. ----------------------------------------------------------
 
-test('R2.1: a standalone POI with no nearby waypoint anchor never wins the slot — falls back to the slot\'s own name, never "Service"/a POI category name', () => {
+test('N/R2.1: a standalone POI with no nearby waypoint anchor never wins the slot — and now produces no pause at all, never "Service"/a slot name', () => {
   const waypoints = baseWaypoints() // start/end only — no locality/col anywhere near the "main" ideal slot (50 km)
   const recommendations = recommendAutomaticPauses({
     totalBreakMinutes: TOTAL_BREAK_MINUTES, totalDistanceKm: TOTAL_DISTANCE_KM, waypoints, climbs: [],
     places: [place({ id: 'bakery-1', name: null, trackDistanceKm: 50, openingHours: null })],
   })
-  const main = findRecommendation(recommendations, 'main')
-  assert.equal(main.waypointId, null)
-  assert.equal(main.level, 'fallback')
-  assert.equal(main.name, 'Pause principale', 'the slot\'s own label, never the POI\'s (missing) name/category')
-  assert.notEqual(main.name, 'Service')
+  // Section 24: a lone bakery/supermarket is a SERVICE, never a place to
+  // anchor a pause on. With no real locality near the slot there is simply
+  // no pause — neither a "Service"-named one nor a slot-named one.
+  assert.deepEqual(recommendations, [])
 })
 
 test('R2.1: a standalone POI still enriches/scores a REAL nearby anchor (CDC "POI = service utile associé") — this merge behaviour is unaffected', () => {
@@ -102,7 +117,7 @@ test('R2.1: a standalone POI still enriches/scores a REAL nearby anchor (CDC "PO
   })
   const main = findRecommendation(recommendations, 'main')
   assert.equal(main.waypointId, 'town-bakery')
-  assert.notEqual(main.level, 'fallback')
+  assert.equal(main.name, 'Ville', 'S/T: the POI enriches the real place; the place keeps its own name')
 })
 
 test('B: a closed bakery never scores like an open one', () => {
@@ -240,11 +255,14 @@ test('J: a candidate far outside the search window is never selected just becaus
     totalBreakMinutes: TOTAL_BREAK_MINUTES, totalDistanceKm: TOTAL_DISTANCE_KM, waypoints, climbs: [],
     places: [place({ id: 'bakery-1', trackDistanceKm: 90 }), place({ id: 'water-1', category: 'water', trackDistanceKm: 90 }), place({ id: 'toilet-1', category: 'toilet', trackDistanceKm: 90 })],
   })
-  const main = findRecommendation(recommendations, 'main')
-  assert.notEqual(main.waypointId, 'far-but-serviced')
+  // Sections 21-23: the "main" slot (50 km) has no real place within its
+  // window, so it yields no pause at all — and certainly never steals the
+  // well-serviced but far-away 90 km anchor.
+  assert.equal(findRecommendation(recommendations, 'main'), undefined)
+  assert.ok(recommendations.every((recommendation) => recommendation.waypointId !== 'far-but-serviced'))
 })
 
-test('K: the edge buffer near départ/arrivée is respected — a candidate inside it is excluded, and the fallback clamps exactly to the boundary', () => {
+test('K: the edge buffer near départ/arrivée is respected — a candidate inside it is excluded, and the slot then yields no pause at all', () => {
   const candidates = buildPauseCandidates([...baseWaypoints(), waypoint({ id: 'near-start', trackDistanceKm: 3, name: 'Trop tôt' })], [])
   const recommendations = selectPauseRecommendations(
     candidates,
@@ -252,9 +270,9 @@ test('K: the edge buffer near départ/arrivée is respected — a candidate insi
     TOTAL_DISTANCE_KM,
     () => ({ climbs: [] }),
   )
-  const only = recommendations[0]
-  assert.notEqual(only.waypointId, 'near-start', 'a candidate inside the edge buffer is never selected')
-  assert.equal(only.distanceKm, TOTAL_DISTANCE_KM * 0.08, 'the fallback position is clamped exactly to the edge buffer')
+  // Sections 21-23: the excluded candidate no longer degrades into a
+  // synthetic pause clamped to the buffer boundary — it produces nothing.
+  assert.deepEqual(recommendations, [])
 })
 
 test('L: minimum spacing between two selected pauses is respected', () => {
@@ -271,7 +289,8 @@ test('L: minimum spacing between two selected pauses is respected', () => {
     () => ({ climbs: [] }),
   )
   assert.equal(recommendations[0].waypointId, 'a')
-  assert.notEqual(recommendations[1].waypointId, 'b')
+  // Slot 2 has no other real place within spacing → no second pause at all.
+  assert.equal(recommendations.length, 1)
 })
 
 test('M: no duplicate candidate is ever produced for the same waypoint', () => {
@@ -283,30 +302,54 @@ test('M: no duplicate candidate is ever produced for the same waypoint', () => {
 
 // --- N-Q: fallback (section 65) ----------------------------------------------
 
-test('N: with no POI at all, pauses are still produced', () => {
-  const recommendations = recommendAutomaticPauses({ totalBreakMinutes: TOTAL_BREAK_MINUTES, totalDistanceKm: TOTAL_DISTANCE_KM, waypoints: baseWaypoints(), climbs: [] })
+test('N: with no POI at all, pauses are still produced — the real localities alone are enough', () => {
+  const recommendations = recommendAutomaticPauses({ totalBreakMinutes: TOTAL_BREAK_MINUTES, totalDistanceKm: TOTAL_DISTANCE_KM, waypoints: threeAnchoredWaypoints(), climbs: [] })
   assert.equal(recommendations.length, 3)
+  for (const recommendation of recommendations) assert.notEqual(recommendation.waypointId, null)
 })
 
 test('O: with no weather at all, recommendations are still produced', () => {
-  const waypoints = [...baseWaypoints(), waypoint({ id: 'town', trackDistanceKm: 50 })]
-  const recommendations = recommendAutomaticPauses({ totalBreakMinutes: TOTAL_BREAK_MINUTES, totalDistanceKm: TOTAL_DISTANCE_KM, waypoints, climbs: [], weather: null })
+  const recommendations = recommendAutomaticPauses({ totalBreakMinutes: TOTAL_BREAK_MINUTES, totalDistanceKm: TOTAL_DISTANCE_KM, waypoints: threeAnchoredWaypoints(), climbs: [], weather: null })
   assert.equal(recommendations.length, 3)
 })
 
 test('P: with no usable terrain data (no climbs, no altitude sampler), recommendations are still produced', () => {
-  const waypoints = [...baseWaypoints(), waypoint({ id: 'town', trackDistanceKm: 50 })]
-  const recommendations = recommendAutomaticPauses({ totalBreakMinutes: TOTAL_BREAK_MINUTES, totalDistanceKm: TOTAL_DISTANCE_KM, waypoints, climbs: [] })
+  const recommendations = recommendAutomaticPauses({ totalBreakMinutes: TOTAL_BREAK_MINUTES, totalDistanceKm: TOTAL_DISTANCE_KM, waypoints: threeAnchoredWaypoints(), climbs: [] })
   assert.equal(recommendations.length, 3)
 })
 
-test('Q: with no anchor and no POI at all, every slot falls back to a synthetic position — never zero pauses', () => {
+// --- DER-DES-DER sections 12/21-23: no real place → no pause ---------------
+
+test('Q/B/K/L/M: with no structural anchor and no POI at all, NO pause is recommended — never a synthetic slot-named one', () => {
   const recommendations = recommendAutomaticPauses({ totalBreakMinutes: TOTAL_BREAK_MINUTES, totalDistanceKm: TOTAL_DISTANCE_KM, waypoints: baseWaypoints(), climbs: [] })
-  assert.equal(recommendations.length, 3)
+  assert.deepEqual(recommendations, [], 'a stage with only départ/arrivée known yet gets no automatic pause at all')
+})
+
+test('O: every recommendation anchors to a real waypoint — `waypointId` is never null', () => {
+  const recommendations = recommendAutomaticPauses({ totalBreakMinutes: TOTAL_BREAK_MINUTES, totalDistanceKm: TOTAL_DISTANCE_KM, waypoints: threeAnchoredWaypoints(), climbs: [] })
+  assert.ok(recommendations.length > 0)
+  for (const recommendation of recommendations) assert.notEqual(recommendation.waypointId, null)
+})
+
+test('K/L/M: no recommendation is ever named after a pause slot ("Pause du matin"/"principale"/"de l\'après-midi")', () => {
+  const recommendations = recommendAutomaticPauses({
+    totalBreakMinutes: TOTAL_BREAK_MINUTES, totalDistanceKm: TOTAL_DISTANCE_KM,
+    waypoints: [...baseWaypoints(), waypoint({ id: 'town-main', trackDistanceKm: 50, name: 'Ville midi' })], climbs: [],
+  })
   for (const recommendation of recommendations) {
-    assert.equal(recommendation.waypointId, null)
-    assert.equal(recommendation.level, 'fallback')
+    assert.ok(!/^Pause (du matin|principale|de l’après-midi|de l'après-midi)$/u.test(recommendation.name), `fabricated slot name: ${recommendation.name}`)
   }
+  assert.deepEqual(recommendations.map((recommendation) => recommendation.name), ['Ville midi'])
+})
+
+test('section 23: the two unplaceable slots\' minutes are redistributed onto the single real pause', () => {
+  const recommendations = recommendAutomaticPauses({
+    totalBreakMinutes: TOTAL_BREAK_MINUTES, totalDistanceKm: TOTAL_DISTANCE_KM,
+    waypoints: [...baseWaypoints(), waypoint({ id: 'town-main', trackDistanceKm: 50, name: 'Ville midi' })], climbs: [],
+  })
+  assert.equal(recommendations.length, 1)
+  assert.equal(recommendations[0].durationMinutes, TOTAL_BREAK_MINUTES, 'the whole 40-minute budget lands on the one real place')
+  assert.equal(recommendations[0].durationMinutes % 5, 0)
 })
 
 // --- T: weather absence never breaks validity (section 67) ------------------
