@@ -95,17 +95,27 @@ test('"not-applicable" shows nothing at all — never an empty/confusing recomme
   assert.doesNotMatch(html1, /weather-decision__recommendation/)
 })
 
-test('the 5 scenarios render inside a repliable "Comparer les horaires" section, offsets labelled −2 h/−1 h/Actuel/+1 h/+2 h (section 24)', () => {
+// Opening Météo shows the five scenarios immediately. They used to sit
+// behind a collapsed "Comparer les horaires" accordion, so reaching them
+// took a second tap — hiding the very thing the panel exists for.
+test('the 5 scenarios are visible as soon as the panel renders, offsets labelled −2 h/−1 h/Actuel/+1 h/+2 h', () => {
   const container = fakeElement()
   renderGenericStageWeatherPanel(container, baseModel({ departureScenarios: fiveScenarios() }), false)
-  assert.match(container.innerHTML, /<details class="weather-decision__compare" data-weather-compare>/)
-  assert.match(container.innerHTML, /<summary>Comparer les horaires<\/summary>/)
+  assert.match(container.innerHTML, /<section class="weather-decision__compare" data-weather-compare>/)
   for (const label of ['−2 h', '−1 h', 'Actuel', '+1 h', '+2 h']) {
     const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     assert.match(container.innerHTML, new RegExp(`<strong>${escaped}</strong>`), `missing offset label ${label}`)
   }
   assert.match(container.innerHTML, /Départ 06:00 · Arrivée 10:00/)
   assert.match(container.innerHTML, /Départ 08:00 · Arrivée 12:00/)
+})
+
+test('there is no intermediate accordion left at all — no <details>, no "Comparer les horaires"', () => {
+  const container = fakeElement()
+  renderGenericStageWeatherPanel(container, baseModel({ departureScenarios: fiveScenarios() }), false)
+  assert.doesNotMatch(container.innerHTML, /Comparer les horaires/)
+  assert.doesNotMatch(container.innerHTML, /<details[^>]*data-weather-compare/)
+  assert.doesNotMatch(container.innerHTML, /<summary>/)
 })
 
 test('each non-current coherent scenario offers its own "Choisir HH:MM" — the current one and incoherent ones never do (section 25)', () => {

@@ -63,6 +63,14 @@ import { defaultConfirmDiscardChanges } from './confirm-discard-changes.ts'
  * context themselves. Both would be classified wrongly by a containment
  * test.
  */
+/**
+ * How long to wait after an `online` event before resuming. Mobile networks
+ * flap: a handful of `online`/`offline` events in quick succession is normal,
+ * and reacting to each would be the retry storm this milestone is trying to
+ * avoid.
+ */
+const ONLINE_RESUME_DEBOUNCE_MS = 2_000
+
 const EXTERNAL_ACTIONS: ReadonlySet<string> = new Set([
   'previous-day',
   'next-day',
@@ -1025,7 +1033,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
             patchStagePreparationIndicators(tripId, bundle, [previousRunningDayId, runningDayId])
           },
         })
-        if (report.partial) automaticEnrichmentErrors.set(tripId, 'Certaines données seront complétées lors d’une prochaine ouverture.')
+        if (report.partial) automaticEnrichmentErrors.set(tripId, 'Certaines données seront complétées automatiquement.')
       } catch (error) {
         automaticEnrichmentErrors.set(tripId, error instanceof Error ? error.message : 'Certaines données seront complétées ultérieurement.')
       } finally {
@@ -1038,6 +1046,32 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
         await refreshIfShowing(tripId)
       }
     })
+  }
+
+  /**
+   * Picks work back up when connectivity returns.
+   *
+   * Being offline is the one thing the engine genuinely cannot work around,
+   * so it is also the one thing worth reacting to: everything else it
+   * resolves on its own. Deliberately narrow — one debounced attempt, for
+   * the trip currently open only, and only if that trip actually has
+   * something outstanding. `startAutomaticEnrichment` is single-flight per
+   * trip, so a burst of `online` events (they are not rare on mobile)
+   * collapses into at most one pass.
+   */
+  function scheduleOnlineResume(): void {
+    if (onlineResumeTimer !== null) return
+    onlineResumeTimer = setTimeout(() => {
+      onlineResumeTimer = null
+      const tripId = currentTripId()
+      if (tripId === null) return
+      void startAutomaticEnrichment(tripId)
+    }, ONLINE_RESUME_DEBOUNCE_MS)
+  }
+
+  /** The trip whose screen is open right now, if any — never a background trip. */
+  function currentTripId(): TripId | null {
+    return mode.kind === 'overview' || mode.kind === 'detail' || mode.kind === 'day' ? mode.tripId : null
   }
 
   /** C2.5 sections 5-9: every ride day's derived status, keyed by `TripDay.id` — the exact map `renderTripDetail`'s `stagePreparationStatuses` option expects. */
@@ -1166,6 +1200,8 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   })
   /** Set only while re-dispatching a click the guard has just cleared — see the `EXTERNAL_ACTIONS` branch. */
   let bypassEditGuard = false
+  /** Pending debounce for `scheduleOnlineResume` — at most one in flight. */
+  let onlineResumeTimer: ReturnType<typeof setTimeout> | null = null
 
   /** The fields of one panel, for the guard's value snapshot — inputs, selects and textareas alike. */
   function panelFields(selector: string): readonly (HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement)[] {
@@ -2046,6 +2082,12 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   }
 
   container.addEventListener('click', handleContainerClick)
+
+  // Connectivity returning is the only external event worth reacting to:
+  // every other kind of failure the engine resolves by itself.
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+    window.addEventListener('online', scheduleOnlineResume)
+  }
 
   /** Roving Enter/Space activation for `role="button"` elements that aren't real `<button>`s (trip cards, the Aperçu highlighted-day card) — only when focus is directly on the role=button element itself, never re-triggered for a nested real button (which already handles its own keys natively). */
   container.addEventListener('keydown', (event) => {

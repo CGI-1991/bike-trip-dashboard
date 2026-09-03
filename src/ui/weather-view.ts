@@ -236,13 +236,19 @@ function renderScenarioRow(scenario: DepartureWeatherScenario, isRecommended: bo
 }
 
 /**
- * Section 24: a repliable "Comparer les horaires" section carrying all 5
- * scenarios — collapsed by default (`<details>`, no JS needed to open/close
- * it), exactly the historical RGA shape. CDC D1.1 section 15: always
- * presented in `model.departureScenarios`' own chronological order
- * (-2h/-1h/actuel/+1h/+2h — that array is never re-sorted, see
+ * All five departure scenarios, shown directly.
+ *
+ * These used to sit behind a collapsed "Comparer les horaires" accordion, so
+ * reaching them took two taps: one to open Météo, another to open the
+ * comparison inside it. But comparing departure times IS what the weather
+ * panel is for — the thing it was hiding was its own purpose. Opening Météo
+ * now shows the synthesis, the alerts, any recommendation, and the five
+ * scenarios together.
+ *
+ * Always in `model.departureScenarios`' own chronological order
+ * (−2 h/−1 h/Actuel/+1 h/+2 h — that array is never re-sorted, see
  * `view-model.ts`), whichever one `model.recommendation` marks as
- * recommended — the "Suggéré" badge moves to that row, the row itself never
+ * recommended: the "Suggéré" badge moves to that row, the row itself never
  * does.
  */
 function renderScenarioComparison(model: GenericDayWeatherViewModel): string {
@@ -253,10 +259,9 @@ function renderScenarioComparison(model: GenericDayWeatherViewModel): string {
   const rows = model.departureScenarios
     .map((scenario) => renderScenarioRow(scenario, recommendedOffsetMinutes !== null && scenario.offsetMinutes === recommendedOffsetMinutes))
     .join('')
-  return `<details class="weather-decision__compare" data-weather-compare>
-    <summary>Comparer les horaires</summary>
+  return `<section class="weather-decision__compare" data-weather-compare>
     <ul class="weather-decision__scenarios">${rows}</ul>
-  </details>`
+  </section>`
 }
 
 /**

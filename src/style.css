@@ -3634,9 +3634,10 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 /* Sections 20-27/29 closeout: the weather decision card — a real, visible
    red/orange banner (section 23, never a small badge lost among values), the
    one-sentence recommendation + apply/modify actions (sections 20-21/25),
-   the compact non-native confirmation panel (section 26), and the repliable
-   "Comparer les horaires" comparison (section 24). Sits right after the
-   eyebrow, before the plain synthesis (section 22's ordering). */
+   the compact non-native confirmation panel (section 26), and the five
+   departure scenarios shown directly (no longer behind a "Comparer les
+   horaires" accordion — comparing departure times is what this panel is
+   for). Sits right after the eyebrow, before the plain synthesis. */
 .weather-decision { display: grid; gap: 10px; margin-bottom: 10px; }
 .weather-decision__banner { padding: 11px; border-radius: 9px; font-weight: 700; }
 .weather-decision__banner--orange { color: var(--warning-text); background: var(--warning-bg); border: 1px solid var(--warning-border); }
@@ -3658,7 +3659,6 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .weather-alerts-summary__suggestion { color: var(--ink-soft); font-size: .85rem; }
 .weather-decision__recommendation { display: grid; gap: 8px; padding: 10px; background: var(--surface-muted); border-radius: 9px; }
 .weather-decision__actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.weather-decision__compare summary { cursor: pointer; font-weight: 800; padding: 6px 0; }
 .weather-decision__scenarios { display: grid; gap: 8px; margin-top: 8px; padding: 0; list-style: none; }
 .weather-decision__scenario { padding: 9px; display: grid; gap: 3px; background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--line-strong); border-radius: 9px; }
 .weather-decision__scenario--orange { border-left-color: var(--warning-border); }

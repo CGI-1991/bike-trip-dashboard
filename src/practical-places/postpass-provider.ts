@@ -15,6 +15,7 @@
  *   `anchorRadiusMeters` around the nearest one.
  */
 
+import { EnrichmentHttpError, EnrichmentTimeoutError } from '../route-enrichment/enrichment-failure.ts'
 import { DEFAULT_POSTPASS_TIMEOUT_MS, DEFAULT_POSTPASS_URL, buildPostpassLineString } from '../route-enrichment/postpass-provider.ts'
 import type { PracticalPlaceCategory } from '../trip-core/index.ts'
 import type { PracticalPlaceAnchor, PracticalPlaceCandidate, PracticalPlacesProvider, PracticalPlacesResult, PracticalPlacesSearch } from './types.ts'
@@ -68,14 +69,6 @@ export interface PostpassPracticalPlacesProviderOptions {
   readonly now?: () => string
   readonly nowMs?: () => number
   readonly onDiagnostic?: (diagnostic: PracticalPlacesPostpassDiagnostic) => void
-}
-
-class PostpassHttpError extends Error {
-  readonly status: number
-  constructor(status: number) {
-    super(`Postpass a répondu avec le statut HTTP ${status}.`)
-    this.status = status
-  }
 }
 
 function validCoordinate(value: number, limit: number): boolean {
@@ -293,7 +286,7 @@ export function createPostpassPracticalPlacesProvider(options: PostpassPractical
         status = response.status
         const responseAt = now()
         emit({ stage: 'response', ...baseDiagnostic, finishedAt: responseAt, durationMs: Math.max(0, nowMs() - startedMs), httpStatus: status, rawCandidateCount: null, message: null })
-        if (!response.ok) throw new PostpassHttpError(response.status)
+        if (!response.ok) throw new EnrichmentHttpError(response.status)
         const parsed = parsePostpassPracticalPlacesFeatureCollection(await response.json())
         const finishedAt = now()
         const durationMs = Math.max(0, nowMs() - startedMs)
@@ -301,7 +294,7 @@ export function createPostpassPracticalPlacesProvider(options: PostpassPractical
         return { ...parsed, durationMs, httpStatus: status, payloadBytes, startedAt, finishedAt }
       } catch (error) {
         const timedOut = controller.signal.aborted && !externalSignal?.aborted
-        const finalError = timedOut ? new Error(`Postpass n’a pas répondu dans le délai de ${requestTimeoutMs} ms.`) : error
+        const finalError = timedOut ? new EnrichmentTimeoutError(requestTimeoutMs) : error
         emit({
           stage: 'error', ...baseDiagnostic, finishedAt: now(), durationMs: Math.max(0, nowMs() - startedMs), httpStatus: status,
           rawCandidateCount: null, message: finalError instanceof Error ? finalError.message : String(finalError),
