@@ -1,31 +1,16 @@
 /**
- * C2.5 FINAL sections 5-10: a per-ride-day preparation status, derived
- * (never persisted as its own field — section 21, "éviter une grosse
- * migration") from whatever the trip already carries. `enrichmentMetadata.
- * providers` (`trip-core/model/generated-metadata.ts`) is trip-wide, not
- * per-stage, so during an active session the caller (`trips-manager.ts`)
- * supplies the extra in-memory precision this module can't get from the
- * bundle alone: which stage is currently `running` (from the enrichment
- * engine's own per-stage progress index) and which stages were marked
- * `stale` by a local mutation (a pause anchor change, section 27). After a
- * reload, both of those are empty — the derived status naturally falls back
- * to whatever the trip-wide provider state says (never a phantom
- * `'running'`, section 20).
+ * A per-ride-day preparation status, derived from the trip's own micro-job
+ * record (`route-enrichment/enrichment-jobs.ts`) plus whatever the caller
+ * knows about THIS session: which stage the engine is working on right now,
+ * and which stages a local mutation marked stale. After a reload both of
+ * those are empty and the status falls back to the persisted record alone —
+ * never a phantom "running".
  *
- * OFF/transfer days have no Postpass status at all (section 5) —
- * `deriveStagePreparationStatus` returns `null` for them.
+ * OFF/transfer days have no enrichment status at all; they return `null`.
  *
- * R3 sections 41-42: this status is display-only — it no longer gates
- * whether a ride day can be opened at all (the removed `isDayDetailOpenable`
- * used to block `'pending'`/`'running'` from `trips-manager.ts`'s
- * `open-day-detail` handler). A ride's route/profil/timing/timeline come
- * straight from its already-imported GPX, entirely independent of Postpass
- * — gating the whole screen on a trip-wide enrichment pass that processes
- * every stage strictly sequentially meant EVERY ride day stayed blocked for
- * the whole pass's duration, not just the one stage actually being
- * enriched (the real root cause behind "reste bloqué En cours"). The one
- * legitimate reason a ride stays unopenable is `buildDayDetail` itself
- * returning `null` — its stage/route genuinely can't be resolved at all.
+ * This status is display-only. It has never gated whether a ride day can be
+ * opened: a ride's route, profile, timing and timeline come straight from its
+ * imported GPX and do not depend on enrichment at all.
  */
 
 import { deriveTripTemporalState } from './trip-day-temporal-state.ts'
@@ -44,7 +29,7 @@ export type StagePreparationStatus = 'pending' | 'running' | 'ready' | 'stale' |
 export interface StagePreparationContext {
   /** The ride day whose enrichment the engine is actively working on right now, if any (derived from the engine's own per-stage progress index) — `null` when no automatic-enrichment pass is currently running for this trip. */
   readonly runningDayId: TripDayId | null
-  /** Days a local mutation (e.g. a pause anchor change) has marked stale, pending a targeted re-enrichment (section 24/27) — cleared once that re-enrichment settles. */
+  /** Days a local mutation (e.g. a pause anchor change) has marked stale, pending a targeted re-enrichment — cleared once that settles. */
   readonly staleDayIds: ReadonlySet<TripDayId>
   /** Whether each provider is even configured in this deployment/test — without this, a bundle whose `enrichmentMetadata` was seeded with `'not-configured'` (the case for every environment that never injects a provider) would be indistinguishable from "not attempted yet" and would gate the detail forever. */
   readonly routeEnrichmentConfigured: boolean
@@ -58,32 +43,6 @@ export const NO_STAGE_PREPARATION_CONTEXT: StagePreparationContext = {
   practicalPlacesConfigured: false,
 }
 
-/**
- * `null` for OFF/transfer, or when `dayId` doesn't resolve to a ride day at
- * all — every other case yields exactly one of the six terminal/in-progress
- * statuses (section 5). `runningDayId`/`staleDayIds` take priority over the
- * persisted trip-wide provider state, since they reflect what's actually
- * happening in *this* session right now.
- */
-/**
- * RC2 final-closeout section 18 — the practical-places (POI) dimension's
- * contribution to `relevant` below, refined to THIS one ride day when
- * precise per-stage data is available (`enrichmentMetadata.
- * practicalPlacesStageErrors`, populated by the progressive per-stage
- * `practical-places/enrichment.ts` pass): when the trip-wide aggregate is
- * `success`/`not-configured`/`pending`, every stage shares it exactly like
- * before (nothing to refine — either everything's fine, or nothing's been
- * attempted). Only when the aggregate says `partial`/`error` — today, EVERY
- * ride day inherits that single trip-wide verdict alike, the literal cause
- * of "toutes les vignettes semblent En cours/À compléter" — do we consult
- * the per-stage list: this exact day errored → `error`, any other day →
- * `success` (its own POI are fine; the trip-wide flag is about a sibling
- * stage). A bundle enriched before this field existed (`undefined`, never
- * an empty array) has no per-stage detail yet — falls back to the coarse
- * trip-wide value for every stage, exactly like before, and self-heals the
- * next time automatic enrichment runs for this trip (always cache-first,
- * always triggered again on next open since the aggregate isn't `success`).
- */
 /**
  * A ride day's own preparation status, read from the micro-job record.
  *
@@ -125,12 +84,8 @@ export function deriveStagePreparationStatus(bundle: TripBundle, dayId: TripDayI
 }
 
 /**
- * RC2 final-closeout sections 19-20 — the "Mes voyages" card's own discreet,
- * jargon-free indicator: `null` once every ride day is `ready` (or the trip
- * has none at all) — nothing to show, silence when healthy, exactly like
- * every other status surface in this app. Otherwise the same ready/total
- * count `patchStagePreparationSummary` already shows on the Voyage screen,
- * reused here rather than a second, divergent computation.
+ * The "Mes voyages" card's own discreet, jargon-free indicator: a ready/total
+ * count while a trip is being prepared, and nothing at all otherwise.
  */
 export interface TripPreparationSummary {
   readonly ready: number
@@ -138,14 +93,10 @@ export interface TripPreparationSummary {
 }
 
 export function computeTripPreparationSummary(bundle: TripBundle, context: StagePreparationContext = NO_STAGE_PREPARATION_CONTEXT): TripPreparationSummary | null {
-  // DER-DES-DER section 54: only the trip whose preparation is ACTUALLY
-  // running right now may show this indicator; every other trip stays
-  // silent. Before the pipeline became one-shot, "not fully ready" and
-  // "still working on it" were effectively the same thing; now a trip can
-  // sit settled-but-incomplete indefinitely, and showing "3/8" on its card
-  // forever would be permanent noise for something no longer in progress.
-  // That state belongs to the stage's own card in the Voyage screen
-  // ("À compléter / Réessayer", sections 52-53), not to "Mes voyages".
+  // Only the trip whose preparation is ACTUALLY running right now shows
+  // this; every other trip's card stays silent. A trip that is merely
+  // incomplete is not "in progress", and a permanent "3/8" on its card would
+  // be noise about something nothing is currently doing.
   if (context.runningDayId === null) return null
   const rideDayIds = bundle.days.filter((day) => day.type === 'ride' && day.stageId !== null).map((day) => day.id)
   const total = rideDayIds.length

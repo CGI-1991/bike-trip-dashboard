@@ -31,8 +31,6 @@ export interface TripDetailRenderOptions {
   readonly stagePreparationStatuses?: ReadonlyMap<TripDayId, StagePreparationStatus | null>
 }
 
-// C2.5 section 11: compact, non-intrusive, never Postpass/HTTP/provider
-// jargon — one glyph + an accessible label, nothing else.
 // One glyph plus an accessible label, and no technical vocabulary at all.
 // Nothing here mentions a retry any more: the engine resumes on its own, so
 // there is no action for the user to take and nothing to advertise.
@@ -52,7 +50,7 @@ const STAGE_PREP_LABELS: Readonly<Record<StagePreparationStatus, string>> = {
  * stage, or the caller never supplied a status map at all) renders nothing.
  * Always a plain, non-interactive `<span>` — the whole card is already a
  * real `<button>` (`data-action="open-day-detail"`), and nested interactive
- * controls inside a `<button>` are invalid HTML; the "Réessayer" action for
+ * controls inside a `<button>` are invalid HTML; the status note for
  * `partial`/`error` (section 17) lives on the Étape screen itself instead
  * (`day-detail-view.ts`), never nested in this list card.
  *

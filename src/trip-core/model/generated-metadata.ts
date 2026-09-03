@@ -57,22 +57,14 @@ export interface EnrichmentProviderState {
   readonly status: EnrichmentProviderStatus
   readonly message: string | null
   /**
-   * DER-DES-DER sections 31-33 — the `routeFingerprint` of every stage this
-   * provider has already SETTLED (attempted to completion at least once,
-   * whether it succeeded, found nothing, or failed). This is the explicit
-   * "already done" record section 32 asks for, replacing the old inference
-   * from `status !== 'success'`: a stage that timed out is settled too, so
-   * merely reopening the trip never silently re-runs it (section 50: no
-   * automatic retry — only the explicit "Réessayer", or the manual
-   * "Recalculer les données du parcours", ever runs it again).
+   * LEGACY, read-only. The previous model's completion record: the
+   * `routeFingerprint` of every stage this provider had ATTEMPTED — errors
+   * included, which is why it could not be trusted to mean "finished".
    *
-   * Keyed by route fingerprint rather than stage id so section 33's real
-   * invalidation causes are structural by construction: replacing the GPX
-   * (or otherwise changing the route geometry) changes the fingerprint, and
-   * that stage — only that stage — becomes pending again. Purely additive
-   * and optional: `undefined` means "no explicit record yet" and falls back
-   * to the historical status-based gate, so an existing bundle self-heals on
-   * its next pass and no already-complete fixture gains the key at all.
+   * Nothing writes it any more. It is still read once, by
+   * `settled-stages.ts`, to decide whether a trip saved under that model can
+   * be migrated straight to complete or has to be re-checked. Completion
+   * itself now lives in `TripEnrichmentMetadata.enrichmentJobs`.
    */
   readonly settledFingerprints?: readonly string[]
 }
@@ -81,17 +73,13 @@ export interface EnrichmentProviderState {
 export interface TripEnrichmentMetadata {
   readonly providers: readonly EnrichmentProviderState[]
   /**
-   * RC2 final-closeout section 18 — the ride days whose practical-places
-   * (POI) lookup specifically errored/timed out on the last progressive
-   * per-stage pass (`practical-places/enrichment.ts`), still pending a
-   * targeted retry. Purely additive and optional: absent (or empty) means
-   * "no known per-stage POI issue", so an already-fully-enriched bundle
-   * (including every existing golden/canonical fixture) never gains this
-   * key at all. This is what lets `deriveStagePreparationStatus` show
-   * "À compléter / Réessayer" on exactly the stage(s) that actually need
-   * it, instead of the whole trip's aggregate `postpass-practical-places`
-   * provider status (a single value for the entire trip) flagging every
-   * ride day as `partial` while only one stage genuinely failed.
+   * The ride days whose POI phase is not finished, as of the last pass.
+   *
+   * A convenience index over `enrichmentJobs` for the surfaces that only need
+   * "is this day's POI work done?" without walking every micro-job. Absent
+   * (never an empty array) means no day has outstanding POI work, so an
+   * already-complete bundle — every golden fixture included — never gains
+   * this key at all.
    */
   readonly practicalPlacesStageErrors?: readonly TripDayId[]
   /**

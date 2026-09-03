@@ -9,6 +9,8 @@ import { deriveTripTerrainContext } from '../../analysis/terrain-context.ts'
 import { createTripRepository } from '../../storage/indexeddb/trip-repository.ts'
 import { resolveOffLocation, resolveTransferLocations } from '../../analysis/day-location-fill.ts'
 import { resetEnrichmentForRecalculation } from '../../route-enrichment/settled-stages.ts'
+import { enrichableStageFingerprints } from '../../route-enrichment/enrichment-jobs.ts'
+import { createRouteEnrichmentCacheRepository } from '../../storage/indexeddb/route-enrichment-cache-repository.ts'
 import { formatShortDate } from '../date-format.ts'
 import { renderTerrainToggle } from './terrain-toggle.ts'
 import type { IsoDate, SourceFileId, TransferTiming, TripBundle, TripDayId, TripId } from '../../trip-core/index.ts'
@@ -336,6 +338,12 @@ export function createTripEditor(
         recalculationMessage = 'Voyage introuvable.'
         return
       }
+      // Clearing the job record alone would achieve nothing: every request
+      // would be answered from the provider cache with exactly what it
+      // returned before. This action exists to pick up changes in OSM
+      // itself, so the cached answers for this trip's routes go too.
+      await createRouteEnrichmentCacheRepository(deps.database)
+        .clearForRouteFingerprints(enrichableStageFingerprints(bundle))
       await repository.saveTripBundle(resetEnrichmentForRecalculation(bundle))
       recalculationMessage = 'Les données seront rafraîchies à la prochaine ouverture du voyage.'
     } catch {

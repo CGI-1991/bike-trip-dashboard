@@ -55,7 +55,7 @@ import type { StagePreparationStatus } from '../../trips-manager/stage-preparati
 import type { Accommodation, Climb, RideStageSettings, RouteGeometryPoint, RoutePointId, SourceFileId, TransferTiming, TripBundle, TripDay, TripDayId } from '../../trip-core/index.ts'
 
 export interface DayDetailOptions {
-  /** C2.5 sections 16-17: `partial`/`error` shows a compact "Réessayer" banner in the stats card — every other status (or none supplied) renders no banner at all, exactly as before this feature existed. */
+  /** An incomplete or connection-blocked stage shows a compact status line in the stats card; every other status (or none supplied) renders nothing at all. */
   readonly preparationStatus?: StagePreparationStatus | null
 }
 

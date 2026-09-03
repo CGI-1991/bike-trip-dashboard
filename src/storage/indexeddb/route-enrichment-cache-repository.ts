@@ -29,6 +29,15 @@ export interface RouteEnrichmentCacheEntry<T> {
 export interface RouteEnrichmentCacheRepository {
   get<T>(identity: RouteEnrichmentCacheIdentity): Promise<RouteEnrichmentCacheEntry<T> | null>
   put<T>(identity: RouteEnrichmentCacheIdentity, results: readonly T[], storedAt: string): Promise<void>
+  /**
+   * Forgets every cached answer for the given route fingerprints.
+   *
+   * Needed by "Recalculer les données du parcours" and nothing else: that
+   * action exists to pick up changes in OSM itself, so clearing the job
+   * record alone would achieve nothing — every request would be served from
+   * this cache and return exactly what it returned before.
+   */
+  clearForRouteFingerprints(routeFingerprints: readonly string[]): Promise<void>
 }
 
 function key(identity: RouteEnrichmentCacheIdentity): string {
@@ -63,6 +72,18 @@ export function createRouteEnrichmentCacheRepository(database: IDBDatabase): Rou
       await runInTransaction(database, [OBJECT_STORE_NAMES.providerCache], 'readwrite', (transaction) =>
         promisifyRequest(transaction.objectStore(OBJECT_STORE_NAMES.providerCache).put(record)).then(() => undefined),
       )
+    },
+    async clearForRouteFingerprints(routeFingerprints: readonly string[]) {
+      if (routeFingerprints.length === 0) return
+      const wanted = new Set(routeFingerprints)
+      await runInTransaction(database, [OBJECT_STORE_NAMES.providerCache], 'readwrite', async (transaction) => {
+        const store = transaction.objectStore(OBJECT_STORE_NAMES.providerCache)
+        const all = await promisifyRequest(store.getAll())
+        for (const value of all) {
+          if (!isRecord(value) || !wanted.has(value.routeFingerprint)) continue
+          await promisifyRequest(store.delete(value.cacheKey))
+        }
+      })
     },
   }
 }

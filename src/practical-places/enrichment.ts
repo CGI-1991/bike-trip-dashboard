@@ -88,11 +88,10 @@ export interface EnrichStoredTripPracticalPlacesInput extends Omit<EnrichTripPra
   readonly database: IDBDatabase
   readonly tripId: TripId
   /**
-   * RC2 final-closeout section 14 — when set, only this one ride day's stage
-   * is (re-)processed (a targeted "Réessayer"/pause-anchor-change retry),
-   * instead of every currently-pending stage. Omitted for the ordinary
-   * trip-open pass, which still covers every pending stage, one at a time,
-   * in chronological order.
+   * When set, only this one ride day's stage is (re-)processed — used when a
+   * pause anchor moves and that stage's POI search genuinely needs redoing.
+   * Omitted for the ordinary trip-open pass, which covers every stage with
+   * outstanding work, one at a time, in chronological order.
    */
   readonly onlyDayId?: TripDayId
 }
@@ -135,10 +134,10 @@ function anchorsFingerprint(anchors: readonly PracticalPlaceAnchor[]): string {
 }
 
 /**
- * One Postpass request per stage (CDC C2 section 11 — never one per anchor,
- * never per-chunk like the retired Overpass engine): a cache hit skips the
- * network entirely; a network failure returns `status: 'error'` so
- * `applyLookups` below preserves whatever this stage already had.
+ * Works through one stage's outstanding POI micro-jobs. A cache hit skips the
+ * network entirely; a stretch that cannot be answered leaves the stage
+ * incomplete rather than failing it, and whatever WAS found is still merged
+ * in — nothing acquired is thrown away.
  */
 async function resolveLookup(
   bundle: TripBundle,
@@ -469,7 +468,6 @@ function finalizeAggregateFromStageErrors(bundle: TripBundle, allStageDayIds: re
     lastSuccessAt: successes > 0 ? attemptedAt : existing?.lastSuccessAt ?? null,
     status: errors === 0 ? 'success' : successes > 0 ? 'partial' : 'error',
     message: errors === 0 ? null : `${errors} étape(s) restent à rechercher ; les lieux acquis sont conservés.`,
-    ...(existing?.settledFingerprints === undefined ? {} : { settledFingerprints: existing.settledFingerprints }),
   }
   return {
     ...bundle,

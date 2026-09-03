@@ -191,6 +191,16 @@ export function enrichableStageIds(bundle: TripBundle): readonly RideStageId[] {
     .map((stage) => stage.id)
 }
 
+/** The route fingerprints of every enrichable stage — what a cache clear scoped to this trip needs. */
+export function enrichableStageFingerprints(bundle: TripBundle): readonly string[] {
+  const fingerprints = new Set<string>()
+  for (const stageId of enrichableStageIds(bundle)) {
+    const fingerprint = stageFingerprintFor(bundle, stageId)
+    if (fingerprint !== null) fingerprints.add(fingerprint)
+  }
+  return [...fingerprints]
+}
+
 export function stageFingerprintFor(bundle: TripBundle, stageId: RideStageId): string | null {
   const stage = bundle.stages.find((candidate) => candidate.id === stageId)
   const route = stage === undefined ? undefined : bundle.routes.find((candidate) => candidate.id === stage.sourceRouteId)
