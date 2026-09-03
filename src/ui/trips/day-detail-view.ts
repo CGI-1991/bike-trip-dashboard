@@ -813,9 +813,14 @@ export function buildDayDetail(bundle: TripBundle, dayId: TripDayId, options: Da
  * missing") and drops the action, pointing at where it lives instead.
  */
 function renderPreparationBanner(preparationStatus: StagePreparationStatus | null): string {
-  if (preparationStatus !== 'partial' && preparationStatus !== 'error') return ''
-  const label = preparationStatus === 'partial' ? 'Certaines données pratiques manquent.' : 'Préparation incomplète.'
-  return `<div class="day-detail__prep-banner" role="status"><span>${escapeHtml(label)} Vous pouvez relancer la préparation depuis la liste des étapes.</span></div>`
+  if (preparationStatus !== 'partial' && preparationStatus !== 'error' && preparationStatus !== 'waiting-for-network') return ''
+  // Says what is happening, and nothing the user has to act on. The engine
+  // resumes by itself; the only thing worth distinguishing is the case it
+  // cannot resolve without a connection.
+  const label = preparationStatus === 'waiting-for-network'
+    ? 'Les données de cette étape seront complétées une fois la connexion rétablie.'
+    : 'Préparation de cette étape en cours. Les données se compléteront automatiquement.'
+  return `<div class="day-detail__prep-banner" role="status"><span>${escapeHtml(label)}</span></div>`
 }
 
 function transferTimingLabel(timing: TransferTiming | undefined): string {

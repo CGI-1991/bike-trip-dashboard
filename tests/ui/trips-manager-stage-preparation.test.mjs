@@ -146,35 +146,27 @@ test('AB/AC: a practical-places progress tick patches only that stage\'s own ind
     // — no arbitrary sleep to tune, just the real condition this assertion
     // cares about.
     await waitUntil(() => pendingCalls.length >= 1)
-    assert.equal(pendingCalls.length, 1, 'stages are still requested one at a time (section 7) — the second is only reached once the first settles')
+    assert.equal(pendingCalls.length, 1, 'requests are issued one at a time — the next is only reached once the current one settles')
 
-    // Resolve the FIRST stage's request — this is exactly the per-stage tick
-    // that used to fire a full `renderDetail()` rebuild. The pass is not
-    // over yet (a second stage remains), so nothing should reconcile the
-    // whole screen at this point. Waiting for the SECOND call to actually
-    // land (rather than a fixed `flush()`) both removes the same race as
-    // above AND is a strictly stronger check: `innerHTMLSetCount` is
-    // asserted unchanged across the whole window up to that point, not
-    // just an arbitrary 30ms slice of it.
-    pendingCalls[0]()
-    await waitUntil(() => pendingCalls.length >= 2)
-    assert.equal(pendingCalls.length, 2, 'the second (and last) stage is now being requested')
-    assert.equal(container.innerHTMLSetCount, setCountAfterOpen, 'a mid-pass tick must never reassign the whole screen\'s innerHTML')
-    assert.ok(alphaIndicator.setCount > 0 || deltaIndicator.setCount > 0, 'the resolved stage\'s own indicator IS patched — something useful still happens, just not a full rebuild')
+    // Drive the whole pass to completion, one request at a time. Every one
+    // of them is a mid-pass tick: none may reassign the whole screen. (A
+    // stage is covered by several micro-segments now, so the number of
+    // requests is a property of the route, not something to hard-code.)
+    let resolved = 0
+    while (resolved < pendingCalls.length) {
+      const next = pendingCalls[resolved]
+      resolved += 1
+      next()
+      // Either another request lands, or the pass finishes and reconciles.
+      await waitUntil(() => pendingCalls.length > resolved || container.innerHTMLSetCount > setCountAfterOpen)
+      if (container.innerHTMLSetCount > setCountAfterOpen) break
+      assert.equal(container.innerHTMLSetCount, setCountAfterOpen, "a mid-pass tick must never reassign the whole screen's innerHTML")
+    }
+    assert.ok(resolved > 1, 'the pass really did issue several requests')
+    assert.ok(alphaIndicator.setCount > 0 || deltaIndicator.setCount > 0, "the resolved stages' own indicators ARE patched — something useful still happens, just not a full rebuild")
 
-    // Resolve the LAST stage — the whole pass now settles, and exactly one
-    // final reconciliation (`renderDetail`'s own loading-placeholder +
-    // real-content pair of assignments) is expected, never more. Already a
-    // condition-based poll (never a blind sleep) — but its ORIGINAL
-    // predicate (`> setCountAfterOpen`) was itself the real remaining
-    // source of the AB/AC flake: it's satisfied by the FIRST of the two
-    // expected assignments alone, so under full-suite contention the poll
-    // could return, and the very next line assert, in the narrow gap
-    // between the placeholder wipe and the real-content assignment —
-    // observing `setCountAfterOpen + 1`, not `+ 2` (exactly the `7 !== 8`
-    // failure mode). Waiting on the actual expected total removes this
-    // race outright, no timeout tuning involved.
-    pendingCalls[1]()
+    // Once the whole pass settles, exactly one full reconciliation happens
+    // (`renderDetail`'s loading-placeholder + real-content pair), never more.
     await waitUntil(() => container.innerHTMLSetCount >= setCountAfterOpen + 2)
     assert.equal(container.innerHTMLSetCount, setCountAfterOpen + 2, 'exactly one full reconciliation once the whole pass has settled — never more')
     // Both `startAutomaticEnrichment` and its trailing `refreshWeather` are
@@ -237,20 +229,21 @@ test('S: a ride day still mid-Postpass-pass (pending/running) opens exactly like
   }
 })
 
-test('RC2 final-closeout sections 14-15: "Réessayer" targets only the stage practicalPlacesStageErrors names — the sibling stage is never re-requested', async () => {
+test('opening a trip that still has outstanding work resumes it automatically — and asks only for what is missing', async () => {
   const db = await openTestDatabase()
   try {
     const bundle = createGenericTripBundle()
     const route2 = bundle.routes.find((route) => route.id === bundle.stages[1].sourceRouteId)
     route2.geometry = { full: null, simplified: [{ latitude: 45.5, longitude: 6.7, altitudeM: 900 }, { latitude: 45.6, longitude: 6.9, altitudeM: 1100 }] }
-    // The trip-wide aggregate already reads "success" (so opening the trip
-    // triggers no automatic pass of its own — isolates this test to the
-    // retry click's own behaviour) while `practicalPlacesStageErrors` still
-    // names day-delta specifically, exactly the state a progressive
-    // per-stage pass leaves behind right after a targeted fix elsewhere.
+    // The state a previous pass leaves behind when one stage completed and
+    // the other did not. Under the old model this was a dead end until the
+    // user pressed "Réessayer"; now simply opening the trip resolves it.
     bundle.enrichmentMetadata = {
-      providers: [{ provider: 'postpass-practical-places', status: 'success', lastAttemptedAt: '2027-05-01T08:00:00.000Z', lastSuccessAt: '2027-05-01T08:00:00.000Z', message: null }],
-      practicalPlacesStageErrors: ['day-delta'],
+      providers: [{ provider: 'postpass-practical-places', status: 'partial', lastAttemptedAt: '2027-05-01T08:00:00.000Z', lastSuccessAt: '2027-05-01T08:00:00.000Z', message: null }],
+      enrichmentJobs: [
+        { stageId: bundle.stages[0].id, routeFingerprint: `sha256:${bundle.sourceFiles[0].sha256}`, jobs: [{ kind: 'practical', startKm: 0, endKm: 40, status: 'success', attempts: 1 }] },
+        { stageId: bundle.stages[1].id, routeFingerprint: `sha256:${bundle.sourceFiles[1].sha256}`, jobs: [{ kind: 'practical', startKm: 0, endKm: 20, status: 'pending', attempts: 1 }] },
+      ],
     }
     await createTripRepository(db).saveTripBundle(bundle)
     const container = createFakeContainer()
@@ -271,19 +264,19 @@ test('RC2 final-closeout sections 14-15: "Réessayer" targets only the stage pra
     await flush()
     await handle.goToDetailForActiveTrip()
     await waitUntil(() => !handle.isAutomaticEnrichmentInFlight(bundle.metadata.id))
-    assert.equal(seenStageIds.length, 0, 'nothing needed on open — the trip-wide aggregate already says success')
 
-    container.dispatch('click', { target: fakeActionElement({ action: 'retry-stage-preparation', tripId: bundle.metadata.id, dayId: 'day-delta' }) })
-    await waitUntil(() => seenStageIds.length >= 1)
-    await flush(50)
-    assert.deepEqual(seenStageIds, [bundle.stages[1].id], 'only day-delta\'s own stage was retried — day-alpha was never touched')
+    assert.deepEqual(
+      [...new Set(seenStageIds)],
+      [bundle.stages[1].id],
+      'only the stage that still had outstanding work — the completed one is never re-requested, and no user action was needed',
+    )
     await handle.waitForWeatherIdle()
   } finally {
     db.close()
   }
 })
 
-test('RC2 final-closeout sections 14-15: "Réessayer" falls back to the whole-trip retry (never crashes) when this stage has no POI-specific issue on record', async () => {
+test('a "retry-stage-preparation" click is inert — the action no longer exists anywhere in the UI', async () => {
   const db = await openTestDatabase()
   try {
     const bundle = createGenericTripBundle()
@@ -298,8 +291,9 @@ test('RC2 final-closeout sections 14-15: "Réessayer" falls back to the whole-tr
     await handle.goToDetailForActiveTrip()
     await waitUntil(() => !handle.isAutomaticEnrichmentInFlight(bundle.metadata.id))
 
+    // Dispatching the retired action must simply do nothing — no crash.
     container.dispatch('click', { target: fakeActionElement({ action: 'retry-stage-preparation', tripId: bundle.metadata.id, dayId: 'day-alpha' }) })
-    await flush(100)
+    await flush(50)
     await waitUntil(() => !handle.isAutomaticEnrichmentInFlight(bundle.metadata.id))
     await handle.waitForWeatherIdle()
   } finally {

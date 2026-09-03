@@ -29,9 +29,17 @@
  */
 
 import { deriveTripTemporalState } from './trip-day-temporal-state.ts'
-import type { EnrichmentProviderStatus, TripBundle, TripDayId } from '../trip-core/index.ts'
+import { stageJobsFor } from '../route-enrichment/enrichment-jobs.ts'
+import type { EnrichmentJobPhase } from '../route-enrichment/enrichment-jobs.ts'
+import type { TripBundle, TripDayId } from '../trip-core/index.ts'
 
-export type StagePreparationStatus = 'pending' | 'running' | 'ready' | 'stale' | 'partial' | 'error'
+/**
+ * `error` is retained only so existing callers keep type-checking; the
+ * engine no longer produces it. A stretch of route that could not be
+ * answered is outstanding work (`partial`/`pending`), not a terminal
+ * failure — that distinction is the whole point of the micro-job model.
+ */
+export type StagePreparationStatus = 'pending' | 'running' | 'ready' | 'stale' | 'partial' | 'error' | 'waiting-for-network'
 
 export interface StagePreparationContext {
   /** The ride day whose enrichment the engine is actively working on right now, if any (derived from the engine's own per-stage progress index) — `null` when no automatic-enrichment pass is currently running for this trip. */
@@ -76,35 +84,44 @@ export const NO_STAGE_PREPARATION_CONTEXT: StagePreparationContext = {
  * next time automatic enrichment runs for this trip (always cache-first,
  * always triggered again on next open since the aggregate isn't `success`).
  */
-function effectivePracticalPlacesStatus(bundle: TripBundle, dayId: TripDayId, aggregate: EnrichmentProviderStatus): EnrichmentProviderStatus {
-  if (aggregate !== 'partial' && aggregate !== 'error') return aggregate
-  const stageErrors = bundle.enrichmentMetadata.practicalPlacesStageErrors
-  if (stageErrors === undefined) return aggregate
-  return stageErrors.includes(dayId) ? 'error' : 'success'
-}
-
+/**
+ * A ride day's own preparation status, read from the micro-job record.
+ *
+ * The record is the only honest source: it says, per phase and per stretch
+ * of route, what has really been answered. Deriving from the trip-wide
+ * provider status instead — as this used to — made every stage of a trip
+ * share one verdict, so a single incomplete stage marked them all.
+ *
+ * `waiting-for-network` is surfaced as its own status because it is the one
+ * case the app cannot resolve by itself, and therefore the one the user
+ * benefits from seeing.
+ */
 export function deriveStagePreparationStatus(bundle: TripBundle, dayId: TripDayId, context: StagePreparationContext = NO_STAGE_PREPARATION_CONTEXT): StagePreparationStatus | null {
   const day = bundle.days.find((candidate) => candidate.id === dayId)
   if (day === undefined || day.type !== 'ride' || day.stageId === null) return null
   if (context.runningDayId === dayId) return 'running'
   if (context.staleDayIds.has(dayId)) return 'stale'
-
-  const relevant: EnrichmentProviderStatus[] = []
-  if (context.routeEnrichmentConfigured) {
-    relevant.push(bundle.enrichmentMetadata.providers.find((state) => state.provider === 'postpass-route-enrichment')?.status ?? 'not-configured')
-  }
-  if (context.practicalPlacesConfigured) {
-    const aggregate = bundle.enrichmentMetadata.providers.find((state) => state.provider === 'postpass-practical-places')?.status ?? 'not-configured'
-    relevant.push(effectivePracticalPlacesStatus(bundle, dayId, aggregate))
-  }
   // Nothing is even configured for this deployment/test — never a
   // permanently pending ride with no way to ever become ready.
-  if (relevant.length === 0) return 'ready'
-  if (relevant.some((status) => status === 'pending')) return 'running'
-  if (relevant.some((status) => status === 'not-configured')) return 'pending'
-  if (relevant.every((status) => status === 'success')) return 'ready'
-  if (relevant.some((status) => status === 'success' || status === 'partial')) return 'partial'
-  return 'error'
+  if (!context.routeEnrichmentConfigured && !context.practicalPlacesConfigured) return 'ready'
+
+  const record = stageJobsFor(bundle, day.stageId)
+  if (record === undefined) {
+    // No job record at all: either a bundle that predates it (migrated on the
+    // next pass) or a trip whose enrichment has not started. Both read as
+    // "not yet", never as ready.
+    return 'pending'
+  }
+  const phases: EnrichmentJobPhase[] = [
+    ...(context.routeEnrichmentConfigured ? (['structural'] as const) : []),
+    ...(context.practicalPlacesConfigured ? (['practical'] as const) : []),
+  ]
+  const jobs = record.jobs.filter((job) => phases.includes(job.kind))
+  if (jobs.length === 0) return 'pending'
+  if (jobs.some((job) => job.status === 'waiting-for-network')) return 'waiting-for-network'
+  if (jobs.every((job) => job.status === 'success' || job.status === 'empty')) return 'ready'
+  if (jobs.some((job) => job.status === 'success' || job.status === 'empty')) return 'partial'
+  return 'pending'
 }
 
 /**

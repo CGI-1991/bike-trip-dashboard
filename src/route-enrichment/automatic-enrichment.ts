@@ -6,6 +6,8 @@ import type { PracticalPlacesProvider } from '../practical-places/types.ts'
 import { createTripRepository } from '../storage/indexeddb/trip-repository.ts'
 import type { TripBundle, TripId } from '../trip-core/index.ts'
 import { enrichStoredTripRoute, tripNeedsRouteEnrichment } from './enrichment.ts'
+import { isStructuralGloballyComplete } from './enrichment-jobs.ts'
+import { migrateEnrichmentJobs } from './settled-stages.ts'
 import type { RouteEnrichmentProgress, RouteEnrichmentProvider } from './types.ts'
 
 export type AutomaticEnrichmentProgress =
@@ -43,8 +45,6 @@ export interface AutomaticEnrichmentInput {
    * resumes from (section 40). Omitted = never cancelled.
    */
   readonly shouldContinue?: () => boolean
-  /** Sections 42/49 — passed through to both Postpass phases; the manual "Réessayer" uses the smaller retry length. */
-  readonly segmentLengthKm?: number
 }
 
 export interface AutomaticEnrichmentReport {
@@ -59,9 +59,10 @@ export function tripNeedsAutomaticEnrichment(
   bundle: TripBundle,
   providers: Pick<AutomaticEnrichmentInput, 'geocodingProvider' | 'routeEnrichmentProvider' | 'practicalPlacesProvider'>,
 ): boolean {
-  return (providers.geocodingProvider !== undefined && tripNeedsEndpointGeocoding(bundle))
-    || (providers.routeEnrichmentProvider !== undefined && tripNeedsRouteEnrichment(bundle))
-    || (providers.practicalPlacesProvider !== undefined && tripNeedsPracticalPlacesEnrichment(bundle))
+  const migrated = migrateEnrichmentJobs(bundle)
+  return (providers.geocodingProvider !== undefined && tripNeedsEndpointGeocoding(migrated))
+    || (providers.routeEnrichmentProvider !== undefined && tripNeedsRouteEnrichment(migrated))
+    || (providers.practicalPlacesProvider !== undefined && tripNeedsPracticalPlacesEnrichment(migrated))
 }
 
 export async function runStoredTripAutomaticEnrichment(input: AutomaticEnrichmentInput): Promise<AutomaticEnrichmentReport> {
@@ -97,10 +98,22 @@ export async function runStoredTripAutomaticEnrichment(input: AutomaticEnrichmen
       now: input.now,
       onProgress: (detail) => input.onProgress?.({ phase: 'route', detail }),
       ...(input.shouldContinue === undefined ? {} : { shouldContinue: input.shouldContinue }),
-      ...(input.segmentLengthKm === undefined ? {} : { segmentLengthKm: input.segmentLengthKm }),
     })
     bundle = await repository.loadTripBundle(input.tripId)
     if (bundle === null) return { bundle: null, endpointAttempted, routeAttempted, practicalPlacesAttempted, partial: true }
+  }
+
+  // The hard gate between the two Postpass phases. POI are searched around
+  // the real places the structural phase found, so no stage may start its
+  // POI work until EVERY ride stage knows all of its places. Checked here as
+  // well as inside `enrichStoredTripPracticalPlaces` so the ordering is
+  // visible at the orchestration level, not only enforced deep inside.
+  //
+  // Only meaningful when a structural provider exists: with none configured,
+  // structural completion is unreachable by construction and gating on it
+  // would block POI forever rather than ordering them.
+  if (input.routeEnrichmentProvider !== undefined && !isStructuralGloballyComplete(migrateEnrichmentJobs(bundle))) {
+    return { bundle, endpointAttempted, routeAttempted, practicalPlacesAttempted, partial: true }
   }
 
   if (active() && input.practicalPlacesProvider !== undefined && tripNeedsPracticalPlacesEnrichment(bundle)) {
@@ -112,7 +125,6 @@ export async function runStoredTripAutomaticEnrichment(input: AutomaticEnrichmen
       now: input.now,
       onProgress: (detail) => input.onProgress?.({ phase: 'practical-places', detail }),
       ...(input.shouldContinue === undefined ? {} : { shouldContinue: input.shouldContinue }),
-      ...(input.segmentLengthKm === undefined ? {} : { segmentLengthKm: input.segmentLengthKm }),
     })
     bundle = await repository.loadTripBundle(input.tripId)
   }

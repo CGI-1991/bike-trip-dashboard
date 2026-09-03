@@ -6,21 +6,43 @@ import {
   computeTripPreparationSummary,
   deriveStagePreparationStatus,
 } from '../../src/trips-manager/stage-preparation.ts'
+import { stageFingerprintFor } from '../../src/route-enrichment/enrichment-jobs.ts'
 import { createGenericTripBundle } from '../trip-core/support/generic-trip-fixture.mjs'
 
 // Fixture days: day-alpha (ride, 2027-05-10), day-bravo (off, 2027-05-11),
 // day-charlie (transfer, 2027-05-12), day-delta (ride, 2027-05-13).
 
-function withProviderStatus(bundle, provider, status) {
+/**
+ * A stage's preparation status is now derived from its micro-job record —
+ * the only thing that can honestly say what has and has not been answered.
+ * These helpers write that record directly.
+ */
+function withJobs(bundle, stageId, kind, statuses) {
+  const others = (bundle.enrichmentMetadata.enrichmentJobs ?? []).filter((entry) => entry.stageId !== stageId)
+  const existing = (bundle.enrichmentMetadata.enrichmentJobs ?? []).find((entry) => entry.stageId === stageId)
+  const kept = (existing?.jobs ?? []).filter((job) => job.kind !== kind)
+  const added = statuses.map((status, index) => ({ kind, startKm: index * 10, endKm: (index + 1) * 10, status, attempts: 1 }))
   return {
     ...bundle,
     enrichmentMetadata: {
-      providers: [
-        ...bundle.enrichmentMetadata.providers.filter((state) => state.provider !== provider),
-        { provider, lastAttemptedAt: null, lastSuccessAt: null, status, message: null },
-      ],
+      ...bundle.enrichmentMetadata,
+      enrichmentJobs: [...others, {
+        stageId,
+        routeFingerprint: stageFingerprintFor(bundle, stageId),
+        jobs: [...kept, ...added],
+      }],
     },
   }
+}
+
+/** Both phases of one stage, all micro-jobs in the same state. */
+function withStageJobStatus(bundle, stageId, status) {
+  return withJobs(withJobs(bundle, stageId, 'structural', [status]), stageId, 'practical', [status])
+}
+
+/** Every enrichable stage of the trip in the same state. */
+function withAllStagesJobStatus(bundle, status) {
+  return bundle.stages.reduce((current, stage) => withStageJobStatus(current, stage.id, status), bundle)
 }
 
 const BOTH_CONFIGURED = { routeEnrichmentConfigured: true, practicalPlacesConfigured: true }
@@ -34,41 +56,58 @@ test('H: a ride day whose providers were never attempted is "pending"', () => {
 })
 
 test('I: a ride day the orchestrator is actively working on is "running", regardless of persisted state', () => {
-  const bundle = withProviderStatus(withProviderStatus(createGenericTripBundle(), 'postpass-route-enrichment', 'success'), 'postpass-practical-places', 'success')
+  const bundle = withAllStagesJobStatus(createGenericTripBundle(), 'success')
   const status = deriveStagePreparationStatus(bundle, 'day-alpha', { runningDayId: 'day-alpha', staleDayIds: new Set(), ...BOTH_CONFIGURED })
   assert.equal(status, 'running')
 })
 
-test('J: both providers succeeded → "ready"', () => {
-  let bundle = createGenericTripBundle()
-  bundle = withProviderStatus(bundle, 'postpass-route-enrichment', 'success')
-  bundle = withProviderStatus(bundle, 'postpass-practical-places', 'success')
+test('J: every micro-job of both phases answered → "ready"', () => {
+  const bundle = withAllStagesJobStatus(createGenericTripBundle(), 'success')
   const status = deriveStagePreparationStatus(bundle, 'day-alpha', { runningDayId: null, staleDayIds: new Set(), ...BOTH_CONFIGURED })
   assert.equal(status, 'ready')
 })
 
-test('K: one provider partial, none in error → "partial"', () => {
+test('J: a confirmed-empty answer counts as answered — an empty stretch of countryside is a real result', () => {
+  const bundle = withAllStagesJobStatus(createGenericTripBundle(), 'empty')
+  assert.equal(deriveStagePreparationStatus(bundle, 'day-alpha', { runningDayId: null, staleDayIds: new Set(), ...BOTH_CONFIGURED }), 'ready')
+})
+
+test('K: some micro-jobs answered and some still outstanding → "partial"', () => {
   let bundle = createGenericTripBundle()
-  bundle = withProviderStatus(bundle, 'postpass-route-enrichment', 'success')
-  bundle = withProviderStatus(bundle, 'postpass-practical-places', 'partial')
+  bundle = withJobs(bundle, 'stage-alpha', 'structural', ['success', 'success'])
+  bundle = withJobs(bundle, 'stage-alpha', 'practical', ['success', 'pending'])
   const status = deriveStagePreparationStatus(bundle, 'day-alpha', { runningDayId: null, staleDayIds: new Set(), ...BOTH_CONFIGURED })
   assert.equal(status, 'partial')
 })
 
-test('L: a provider in error with no success anywhere → "error"', () => {
-  let bundle = createGenericTripBundle()
-  bundle = withProviderStatus(bundle, 'postpass-route-enrichment', 'error')
-  bundle = withProviderStatus(bundle, 'postpass-practical-places', 'error')
+test('nothing answered yet → "pending", never "error" — outstanding work is not a failure', () => {
+  const bundle = withAllStagesJobStatus(createGenericTripBundle(), 'pending')
   const status = deriveStagePreparationStatus(bundle, 'day-alpha', { runningDayId: null, staleDayIds: new Set(), ...BOTH_CONFIGURED })
-  assert.equal(status, 'error')
+  assert.equal(status, 'pending')
 })
 
-test('M: a day a local mutation marked stale reports "stale" even though its persisted state is still "success"', () => {
+test('a stage blocked on connectivity says so — the one case the app cannot resolve by itself', () => {
   let bundle = createGenericTripBundle()
-  bundle = withProviderStatus(bundle, 'postpass-route-enrichment', 'success')
-  bundle = withProviderStatus(bundle, 'postpass-practical-places', 'success')
+  bundle = withJobs(bundle, 'stage-alpha', 'structural', ['success', 'waiting-for-network'])
+  bundle = withJobs(bundle, 'stage-alpha', 'practical', ['pending'])
+  const status = deriveStagePreparationStatus(bundle, 'day-alpha', { runningDayId: null, staleDayIds: new Set(), ...BOTH_CONFIGURED })
+  assert.equal(status, 'waiting-for-network')
+})
+
+test('M: a day a local mutation marked stale reports "stale" even though its record says complete', () => {
+  const bundle = withAllStagesJobStatus(createGenericTripBundle(), 'success')
   const status = deriveStagePreparationStatus(bundle, 'day-alpha', { runningDayId: null, staleDayIds: new Set(['day-alpha']), ...BOTH_CONFIGURED })
   assert.equal(status, 'stale')
+})
+
+test('only the configured phases count — with no POI provider, a stage is ready on its structural work alone', () => {
+  let bundle = createGenericTripBundle()
+  bundle = withJobs(bundle, 'stage-alpha', 'structural', ['success'])
+  bundle = withJobs(bundle, 'stage-alpha', 'practical', ['pending'])
+  const status = deriveStagePreparationStatus(bundle, 'day-alpha', {
+    runningDayId: null, staleDayIds: new Set(), routeEnrichmentConfigured: true, practicalPlacesConfigured: false,
+  })
+  assert.equal(status, 'ready')
 })
 
 test('OFF/transfer days have no Postpass status at all — always null, never gated', () => {
@@ -83,55 +122,42 @@ test('no provider configured in this deployment/test → "ready" (never a perman
   assert.equal(status, 'ready')
 })
 
-// --- RC2 final-closeout section 18: per-stage POI precision on a trip-wide "partial" ---
+// --- per-stage precision: one incomplete stage never marks its siblings ----
 
-function withStageErrors(bundle, stageErrors) {
-  return { ...bundle, enrichmentMetadata: { ...bundle.enrichmentMetadata, practicalPlacesStageErrors: stageErrors } }
-}
-
-test('RC2 section 18: practicalPlacesStageErrors pinpoints only the genuinely-failing stage — the sibling ride day reads "ready", not "partial"', () => {
+test('one incomplete stage never marks its siblings — each reads its own record', () => {
   let bundle = createGenericTripBundle()
-  bundle = withProviderStatus(bundle, 'postpass-route-enrichment', 'success')
-  bundle = withProviderStatus(bundle, 'postpass-practical-places', 'partial')
-  bundle = withStageErrors(bundle, ['day-delta'])
+  bundle = withStageJobStatus(bundle, 'stage-alpha', 'success')
+  bundle = withJobs(bundle, 'stage-delta', 'structural', ['success'])
+  bundle = withJobs(bundle, 'stage-delta', 'practical', ['success', 'pending'])
   const context = { runningDayId: null, staleDayIds: new Set(), ...BOTH_CONFIGURED }
-  assert.equal(deriveStagePreparationStatus(bundle, 'day-alpha', context), 'ready', 'day-alpha\'s own POI succeeded — silent, never "toutes les vignettes semblent partial"')
-  assert.equal(deriveStagePreparationStatus(bundle, 'day-delta', context), 'partial', 'only day-delta is actually still missing something')
+  assert.equal(deriveStagePreparationStatus(bundle, 'day-alpha', context), 'ready', "day-alpha's own work is finished — silent")
+  assert.equal(deriveStagePreparationStatus(bundle, 'day-delta', context), 'partial', 'only day-delta still has something to do')
 })
 
-test('RC2 section 18: an empty practicalPlacesStageErrors (every stage settled) reads "ready" everywhere, even while the trip-wide aggregate is still "partial"', () => {
-  let bundle = createGenericTripBundle()
-  bundle = withProviderStatus(bundle, 'postpass-route-enrichment', 'success')
-  bundle = withProviderStatus(bundle, 'postpass-practical-places', 'partial')
-  bundle = withStageErrors(bundle, [])
+test('every stage complete reads ready everywhere', () => {
+  const bundle = withAllStagesJobStatus(createGenericTripBundle(), 'success')
   const context = { runningDayId: null, staleDayIds: new Set(), ...BOTH_CONFIGURED }
   assert.equal(deriveStagePreparationStatus(bundle, 'day-alpha', context), 'ready')
   assert.equal(deriveStagePreparationStatus(bundle, 'day-delta', context), 'ready')
 })
 
-test('RC2 section 18: a legacy bundle with no practicalPlacesStageErrors at all falls back to the coarse trip-wide value for every stage, exactly like before', () => {
-  let bundle = createGenericTripBundle()
-  bundle = withProviderStatus(bundle, 'postpass-route-enrichment', 'success')
-  bundle = withProviderStatus(bundle, 'postpass-practical-places', 'partial')
+test('a bundle with no job record at all reads pending — never ready by default', () => {
+  const bundle = createGenericTripBundle()
   const context = { runningDayId: null, staleDayIds: new Set(), ...BOTH_CONFIGURED }
-  assert.equal(deriveStagePreparationStatus(bundle, 'day-alpha', context), 'partial')
-  assert.equal(deriveStagePreparationStatus(bundle, 'day-delta', context), 'partial')
+  assert.equal(deriveStagePreparationStatus(bundle, 'day-alpha', context), 'pending')
+  assert.equal(deriveStagePreparationStatus(bundle, 'day-delta', context), 'pending')
 })
 
 // --- RC2 final-closeout sections 19-20: "Mes voyages" preparation summary ---
 
 test('computeTripPreparationSummary: null once every ride day is ready — silence when healthy', () => {
-  let bundle = createGenericTripBundle()
-  bundle = withProviderStatus(bundle, 'postpass-route-enrichment', 'success')
-  bundle = withProviderStatus(bundle, 'postpass-practical-places', 'success')
+  const bundle = withAllStagesJobStatus(createGenericTripBundle(), 'success')
   assert.equal(computeTripPreparationSummary(bundle, { runningDayId: null, staleDayIds: new Set(), ...BOTH_CONFIGURED }), null)
 })
 
 test('computeTripPreparationSummary: a ready/total count while the trip is actively being prepared', () => {
-  let bundle = createGenericTripBundle()
-  bundle = withProviderStatus(bundle, 'postpass-route-enrichment', 'success')
-  bundle = withProviderStatus(bundle, 'postpass-practical-places', 'partial')
-  bundle = withStageErrors(bundle, ['day-delta'])
+  let bundle = withStageJobStatus(createGenericTripBundle(), 'stage-alpha', 'success')
+  bundle = withStageJobStatus(bundle, 'stage-delta', 'pending')
   const summary = computeTripPreparationSummary(bundle, { runningDayId: 'day-delta', staleDayIds: new Set(), ...BOTH_CONFIGURED })
   assert.deepEqual(summary, { ready: 1, total: 2 })
 })
@@ -139,10 +165,8 @@ test('computeTripPreparationSummary: a ready/total count while the trip is activ
 // DER-DES-DER section 54: only the trip actually being enriched right now
 // may show this — every other trip's card stays silent.
 test('section 54: no summary at all when nothing is running, even for a trip left incomplete', () => {
-  let bundle = createGenericTripBundle()
-  bundle = withProviderStatus(bundle, 'postpass-route-enrichment', 'success')
-  bundle = withProviderStatus(bundle, 'postpass-practical-places', 'partial')
-  bundle = withStageErrors(bundle, ['day-delta'])
+  let bundle = withStageJobStatus(createGenericTripBundle(), 'stage-alpha', 'success')
+  bundle = withStageJobStatus(bundle, 'stage-delta', 'pending')
   assert.equal(
     computeTripPreparationSummary(bundle, { runningDayId: null, staleDayIds: new Set(), ...BOTH_CONFIGURED }),
     null,

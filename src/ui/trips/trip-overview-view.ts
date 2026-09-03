@@ -9,6 +9,7 @@
 
 import { computeStageWaypoints, resolveStagePauseSettings } from '../../analysis/waypoint-timeline.ts'
 import { resolveEffectiveMountainMode } from '../../analysis/terrain-context.ts'
+import { stageAutomaticPausesAllowed } from '../../route-enrichment/enrichment-jobs.ts'
 import type { LatLngTuple } from '../route-map-model.ts'
 import { routeGeometry } from '../../route-enrichment/route-fingerprint.ts'
 import { isSignificantWaypoint } from '../../analysis/canonical-waypoints.ts'
@@ -224,6 +225,10 @@ export function buildTripOverview(bundle: TripBundle, now: Date | string | null)
       stage, route: route as NonNullable<typeof route>, routePoints: bundle.routePoints, climbs: bundle.climbs, settings,
       manualPauses: pauseResolution.mode === 'custom' ? pauseResolution.manualPauses : undefined,
       mountainMode: resolveEffectiveMountainMode(bundle),
+      // Aperçu must never show a pause plan derived from a stage that is
+      // only half enriched — that is precisely the false "looks ready"
+      // signal this gate exists to prevent.
+      automaticPausesAllowed: stageAutomaticPausesAllowed(bundle, stage.id),
     })
     const geometryTuples = geometry.map((point) => [point.latitude, point.longitude] as const)
     fullMapStages.push({ waypoints: waypoints.filter((waypoint) => isSignificantWaypoint(waypoint)), geometry: geometryTuples })

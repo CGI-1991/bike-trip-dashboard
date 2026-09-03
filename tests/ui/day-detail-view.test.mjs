@@ -1429,34 +1429,30 @@ test('every day type resolves through buildDayDetail — the precondition for a 
 // --- R1 section 4 ("erreurs/partial"), tests C/D: short, plain-language, ---
 // --- actionable banners — no technical vocabulary, a real Réessayer. -------
 
-test('R1 test C: a partial-preparation ride day shows a short banner — no "préparation"/technical wording', () => {
+test('an incomplete ride day says preparation is under way — no technical wording, and nothing to click', () => {
   const bundle = createGenericTripBundle()
   const detail = buildDayDetail(bundle, 'day-alpha', { preparationStatus: 'partial' })
-  assert.match(detail.html, /<div class="day-detail__prep-banner" role="status"><span>Certaines données pratiques manquent\./)
-  assert.doesNotMatch(detail.html, /postpass|provider|enrichment/i)
+  assert.match(detail.html, /<div class="day-detail__prep-banner" role="status"><span>Préparation de cette étape en cours\./)
+  assert.match(detail.html, /se compléteront automatiquement/, 'and says it will resolve itself')
+  assert.doesNotMatch(detail.html, /postpass|provider|enrichment|timeout|segment/i)
 })
 
-test('R1 test D: an errored ride day shows a short banner', () => {
+test('a ride day blocked on connectivity says so instead', () => {
   const bundle = createGenericTripBundle()
-  const detail = buildDayDetail(bundle, 'day-alpha', { preparationStatus: 'error' })
-  assert.match(detail.html, /<div class="day-detail__prep-banner" role="status"><span>Préparation incomplète\./)
+  const detail = buildDayDetail(bundle, 'day-alpha', { preparationStatus: 'waiting-for-network' })
+  assert.match(detail.html, /une fois la connexion rétablie/)
 })
 
-// --- DER-DES-DER sections 51-52: the retry lives in exactly one place -------
+// --- the Retry button is gone from every screen ----------------------------
 
-test('BH: the Étape screen carries NO "Réessayer" action at all, whatever its preparation status', () => {
+test('the Étape screen carries NO "Réessayer" action at all, whatever its preparation status', () => {
   const bundle = createGenericTripBundle()
-  for (const preparationStatus of ['pending', 'running', 'partial', 'error', 'stale', 'ready']) {
+  for (const preparationStatus of ['pending', 'running', 'partial', 'error', 'stale', 'ready', 'waiting-for-network']) {
     const detail = buildDayDetail(bundle, 'day-alpha', { preparationStatus })
     assert.doesNotMatch(detail.html, /retry-stage-preparation/, `status ${preparationStatus} still offers a retry on the Étape screen`)
     assert.doesNotMatch(detail.html, />Réessayer</, `status ${preparationStatus} still shows a Réessayer button`)
+    assert.doesNotMatch(detail.html, /relancer la préparation/, `status ${preparationStatus} still points at a retry elsewhere`)
   }
-})
-
-test('BH: an incomplete Étape still SAYS what is missing, and points at where the retry lives', () => {
-  const bundle = createGenericTripBundle()
-  const detail = buildDayDetail(bundle, 'day-alpha', { preparationStatus: 'partial' })
-  assert.match(detail.html, /Vous pouvez relancer la préparation depuis la liste des étapes\./)
 })
 
 test('a ready ride day shows no preparation banner at all', () => {

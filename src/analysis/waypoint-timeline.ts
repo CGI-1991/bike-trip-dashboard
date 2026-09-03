@@ -100,6 +100,22 @@ export interface ComputeStageWaypointsInput {
    * touches a saved manual pause (CDC section 3/32).
    */
   readonly automaticPauseEnrichment?: AutomaticPauseEnrichmentInput
+  /**
+   * Whether this stage may show an AUTOMATIC pause plan at all.
+   *
+   * A pause plan is a claim about the whole stage: these are the best places
+   * to stop along it. Computed from half a stage's geography it is not a
+   * worse plan, it is a misleading one — it looks finished while silently
+   * ignoring everything past the point enrichment reached. So until the
+   * stage's structural and POI work is genuinely complete, no automatic
+   * pause is produced at all.
+   *
+   * Custom pauses are unaffected: the traveller's own choices are never
+   * gated on enrichment. `undefined` means "allowed", which keeps every
+   * caller that has no bundle to consult (pure unit tests, the timing
+   * curve) behaving as before.
+   */
+  readonly automaticPausesAllowed?: boolean
 }
 
 /** CDC C3 section 4/8/20 — the extra, entirely optional signals `recommendAutomaticPauses` can use beyond terrain/timing. */
@@ -206,7 +222,9 @@ export function computeStageWaypoints(input: ComputeStageWaypointsInput): readon
           return { id: pause.id, name: anchor.name, distanceKm: anchor.trackDistanceKm, durationMinutes: pause.durationMinutes, waypointId: anchor.id }
         })
         .filter((pause): pause is PlacedPause => pause !== null)
-    : resolveAutomaticPlacedPauses(totalBreakMinutes, totalDistanceKm, baseWaypoints, climbs, geometry, distances, input.automaticPauseEnrichment, movingElapsedAt, departureMinutes)
+    : input.automaticPausesAllowed === false
+      ? []
+      : resolveAutomaticPlacedPauses(totalBreakMinutes, totalDistanceKm, baseWaypoints, climbs, geometry, distances, input.automaticPauseEnrichment, movingElapsedAt, departureMinutes)
   const withPauses = applyPausesToWaypoints(baseWaypoints, placedPauses)
 
   if (!hasValidTiming || movingElapsedAt === undefined || departureMinutes === undefined) return withPauses
@@ -236,6 +254,8 @@ export function computeStageWaypoints(input: ComputeStageWaypointsInput): readon
  */
 export function computeStagePauseRecommendations(input: ComputeStageWaypointsInput): readonly PauseRecommendation[] {
   if (input.manualPauses !== undefined || input.automaticPauseEnrichment === undefined) return []
+  // Nothing to explain while the stage has no automatic plan to explain.
+  if (input.automaticPausesAllowed === false) return []
   const { stage, route, routePoints, climbs, settings, mountainMode } = input
   const baseWaypoints = buildCanonicalWaypoints({ stage, route, routePoints, climbs, mountainMode })
   if (baseWaypoints.length === 0) return []
@@ -340,7 +360,9 @@ export function computeStageTimingCurve(input: ComputeStageWaypointsInput): Stag
           return { id: pause.id, name: anchor.name, distanceKm: anchor.trackDistanceKm, durationMinutes: pause.durationMinutes, waypointId: anchor.id }
         })
         .filter((pause): pause is PlacedPause => pause !== null)
-    : resolveAutomaticPlacedPauses(totalBreakMinutes, totalDistanceKm, baseWaypoints, climbs, geometry, distances, input.automaticPauseEnrichment, movingElapsedAt, departureMinutes)
+    : input.automaticPausesAllowed === false
+      ? []
+      : resolveAutomaticPlacedPauses(totalBreakMinutes, totalDistanceKm, baseWaypoints, climbs, geometry, distances, input.automaticPauseEnrichment, movingElapsedAt, departureMinutes)
   const pauseAnchors: readonly PauseAnchor[] = placedPauses.map((pause) => ({ id: pause.id, name: pause.name, distanceKm: pause.distanceKm, durationMinutes: pause.durationMinutes }))
 
   const clamp = (distanceKm: number) => Math.min(totalDistanceKm, Math.max(0, distanceKm))

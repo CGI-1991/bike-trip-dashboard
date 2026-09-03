@@ -200,42 +200,42 @@ test('L: a very long place name still renders as a single ellipsis-truncated lin
   assert.match(alphaCard, /<span class="trip-day-card__schedule">\s*<span class="trip-day-card__status">/)
 })
 
-// --- DER-DES-DER sections 52-53: the retry lives ONLY on the Voyage card ----
+// --- the Retry button is gone: the engine resumes on its own ---------------
 
 function withStatus(dayId, status) {
   return { stagePreparationStatuses: new Map([[dayId, status]]) }
 }
 
-test('BG: a partial stage shows "À compléter" + "Réessayer" on its own Voyage card, targeting that stage', () => {
-  const bundle = createGenericTripBundle()
-  const html = renderTripDetail(bundle, withStatus('day-alpha', 'partial'))
-  assert.match(html, /<p class="trip-day-card__retry"><span>À compléter<\/span>/)
-  assert.match(html, /data-action="retry-stage-preparation"[^>]*data-day-id="day-alpha"[^>]*>Réessayer<\/button>/)
-})
-
-test('BG: an errored stage gets the same single action', () => {
-  const html = renderTripDetail(createGenericTripBundle(), withStatus('day-alpha', 'error'))
-  assert.match(html, /data-action="retry-stage-preparation"[^>]*data-day-id="day-alpha"/)
-})
-
-test('section 53: a ready, pending or running stage stays silent — no "À compléter", no retry', () => {
-  for (const status of ['ready', 'pending', 'running', 'stale', null]) {
+test('no stage card offers a "Réessayer" action any more, whatever its status', () => {
+  for (const status of ['ready', 'pending', 'running', 'stale', 'partial', 'error', 'waiting-for-network', null]) {
     const html = renderTripDetail(createGenericTripBundle(), withStatus('day-alpha', status))
-    assert.doesNotMatch(html, /retry-stage-preparation/, `status ${status} should not offer a retry`)
-    assert.doesNotMatch(html, /À compléter/, `status ${status} should stay silent`)
+    assert.doesNotMatch(html, /retry-stage-preparation/, `status ${status} still offers a retry`)
+    assert.doesNotMatch(html, />Réessayer</, `status ${status} still shows a Réessayer button`)
+    assert.doesNotMatch(html, /À compléter/, `status ${status} still shows the old "to complete" wording`)
   }
 })
 
-test('section 53: only the affected stage gets the action — a healthy sibling ride day stays untouched', () => {
-  const bundle = createGenericTripBundle()
-  const html = renderTripDetail(bundle, { stagePreparationStatuses: new Map([['day-alpha', 'error'], ['day-delta', 'ready']]) })
-  assert.equal((html.match(/data-action="retry-stage-preparation"/g) ?? []).length, 1)
-  assert.doesNotMatch(html, /retry-stage-preparation"[^>]*data-day-id="day-delta"/)
+test('an incomplete stage says only that preparation is under way — no action, no technical vocabulary', () => {
+  const html = renderTripDetail(createGenericTripBundle(), withStatus('day-alpha', 'partial'))
+  assert.match(html, /<p class="trip-day-card__prep-note" role="status">Préparation…<\/p>/)
+  assert.doesNotMatch(html, /Postpass|timeout|segment|provider|cache/i)
 })
 
-test('the retry action is never nested inside the card button — a button inside a button is invalid and would swallow the card click', () => {
-  const html = renderTripDetail(createGenericTripBundle(), withStatus('day-alpha', 'error'))
+test('a stage blocked on connectivity says so — the one thing the app cannot fix by itself', () => {
+  const html = renderTripDetail(createGenericTripBundle(), withStatus('day-alpha', 'waiting-for-network'))
+  assert.match(html, /En attente de connexion/)
+})
+
+test('a ready, pending or running stage stays silent', () => {
+  for (const status of ['ready', 'pending', 'running', 'stale', null]) {
+    const html = renderTripDetail(createGenericTripBundle(), withStatus('day-alpha', status))
+    assert.doesNotMatch(html, /trip-day-card__prep-note/, `status ${status} should stay silent`)
+  }
+})
+
+test('the status note is never nested inside the card button — a block element there would be invalid', () => {
+  const html = renderTripDetail(createGenericTripBundle(), withStatus('day-alpha', 'partial'))
   const cardButton = html.match(/<button[^>]*data-action="open-day-detail"[^>]*data-day-id="day-alpha"[\s\S]*?<\/button>/)?.[0] ?? ''
   assert.ok(cardButton.length > 0, 'the card button was found')
-  assert.doesNotMatch(cardButton, /retry-stage-preparation/)
+  assert.doesNotMatch(cardButton, /trip-day-card__prep-note/)
 })

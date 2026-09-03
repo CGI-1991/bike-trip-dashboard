@@ -45,6 +45,8 @@ const ACCOMMODATION_TYPES = [
 const DATA_SOURCE_TYPES = ['user', 'gpx', 'osm', 'open-meteo', 'generated', 'migrated'] as const
 const ENRICHMENT_PROVIDERS = ['gpx', 'osm', 'osm-practical-places', 'osm-route-enrichment', 'postpass-route-enrichment', 'postpass-practical-places', 'open-meteo'] as const
 const ENRICHMENT_PROVIDER_STATUSES = ['not-configured', 'pending', 'success', 'partial', 'error'] as const
+const ENRICHMENT_JOB_PHASES = ['structural', 'practical'] as const
+const ENRICHMENT_JOB_STATUSES = ['pending', 'success', 'empty', 'waiting-for-network'] as const
 const DERIVED_DATA_STATUSES = ['not-generated', 'stale', 'partial', 'fresh'] as const
 const CONFIDENCE_LEVELS = ['high', 'medium', 'low'] as const
 const PAUSE_PLAN_MODES = ['automatic', 'custom'] as const
@@ -901,6 +903,40 @@ export function validateTripBundle(value: unknown): ValidationResult<TripBundle>
         }
       }
     })
+    // The per-micro-segment completion record. Optional and additive: a
+    // bundle written before it existed simply has none and is migrated on
+    // read, so this never rejects a historical bundle.
+    if (enrichmentMetadata.enrichmentJobs !== undefined) {
+      if (!Array.isArray(enrichmentMetadata.enrichmentJobs)) {
+        issues.push(issue('enrichmentMetadata.enrichmentJobs', 'invalid-type', 'enrichmentJobs doit être un tableau.'))
+      } else {
+        enrichmentMetadata.enrichmentJobs.forEach((entry: unknown, index: number) => {
+          const path = `enrichmentMetadata.enrichmentJobs[${index}]`
+          if (!isPlainObject(entry)) {
+            issues.push(issue(path, 'invalid-type', 'Entrée de jobs invalide.'))
+            return
+          }
+          if (!isNonEmptyString(entry.stageId)) issues.push(issue(`${path}.stageId`, 'invalid-value', 'stageId invalide.'))
+          if (!isNonEmptyString(entry.routeFingerprint)) issues.push(issue(`${path}.routeFingerprint`, 'invalid-value', 'routeFingerprint invalide.'))
+          if (!Array.isArray(entry.jobs)) {
+            issues.push(issue(`${path}.jobs`, 'invalid-type', 'jobs doit être un tableau.'))
+            return
+          }
+          entry.jobs.forEach((job: unknown, jobIndex: number) => {
+            const jobPath = `${path}.jobs[${jobIndex}]`
+            if (!isPlainObject(job)) {
+              issues.push(issue(jobPath, 'invalid-type', 'Job invalide.'))
+              return
+            }
+            if (!isOneOf(job.kind, ENRICHMENT_JOB_PHASES)) issues.push(issue(`${jobPath}.kind`, 'invalid-enum', 'kind invalide.'))
+            if (!isOneOf(job.status, ENRICHMENT_JOB_STATUSES)) issues.push(issue(`${jobPath}.status`, 'invalid-enum', 'status invalide.'))
+            if (typeof job.startKm !== 'number' || !Number.isFinite(job.startKm) || job.startKm < 0) issues.push(issue(`${jobPath}.startKm`, 'invalid-value', 'startKm invalide.'))
+            if (typeof job.endKm !== 'number' || !Number.isFinite(job.endKm) || job.endKm < 0) issues.push(issue(`${jobPath}.endKm`, 'invalid-value', 'endKm invalide.'))
+            if (typeof job.attempts !== 'number' || !Number.isFinite(job.attempts) || job.attempts < 0) issues.push(issue(`${jobPath}.attempts`, 'invalid-value', 'attempts invalide.'))
+          })
+        })
+      }
+    }
     // RC2 final-closeout section 18: optional, additive — absent entirely on
     // every bundle that predates this field (or has no outstanding per-stage
     // POI issue), so this never rejects an already-valid historical bundle.

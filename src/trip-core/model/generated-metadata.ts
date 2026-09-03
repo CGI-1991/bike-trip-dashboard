@@ -1,6 +1,29 @@
 import type { IsoDateTime } from './common.ts'
-import type { TripDayId } from './ids.ts'
+import type { RideStageId, TripDayId } from './ids.ts'
 import type { DataSourceType } from './provenance.ts'
+
+/**
+ * Mirrors `route-enrichment/enrichment-jobs.ts`'s own types. Declared here
+ * rather than imported so the core model keeps no dependency on the
+ * enrichment layer — the same direction every other field in `TripBundle`
+ * points.
+ */
+export type EnrichmentJobPhase = 'structural' | 'practical'
+export type EnrichmentJobStatus = 'pending' | 'success' | 'empty' | 'waiting-for-network'
+
+export interface EnrichmentJob {
+  readonly kind: EnrichmentJobPhase
+  readonly startKm: number
+  readonly endKm: number
+  readonly status: EnrichmentJobStatus
+  readonly attempts: number
+}
+
+export interface StageEnrichmentJobs {
+  readonly stageId: RideStageId
+  readonly routeFingerprint: string
+  readonly jobs: readonly EnrichmentJob[]
+}
 
 /**
  * Adaptation note: the recommended file list has a single
@@ -71,6 +94,20 @@ export interface TripEnrichmentMetadata {
    * ride day as `partial` while only one stage genuinely failed.
    */
   readonly practicalPlacesStageErrors?: readonly TripDayId[]
+  /**
+   * What enrichment work has actually been COMPLETED, one micro-segment at a
+   * time (`route-enrichment/enrichment-jobs.ts`).
+   *
+   * This is the record the whole pipeline's completion logic reads. It
+   * replaces `EnrichmentProviderState.settledFingerprints`, which recorded
+   * completion per stage and could therefore not tell "this stage finished"
+   * apart from "this stage was attempted and half of it timed out" — the
+   * cause of stages that stayed enriched over their first stretch only.
+   *
+   * Optional and additive: a bundle without it is migrated on first read
+   * (`settled-stages.ts`), so no existing trip has to be recreated.
+   */
+  readonly enrichmentJobs?: readonly StageEnrichmentJobs[]
 }
 
 /** Freshness of the locally derived data (distances, D+/D-, ETA, climbs...). */

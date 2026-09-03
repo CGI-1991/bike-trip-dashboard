@@ -10,11 +10,13 @@ import { createGenericTripBundle } from '../trip-core/support/generic-trip-fixtu
 import { openTestDatabase } from '../storage/indexeddb/support/open-test-database.mjs'
 
 // Only `stage-alpha`/`route1` carries real geometry in the shared fixture
-// (route2 is deliberately `geometry: null`, still pending its own GPX) — one
-// enrichable stage, one Postpass request, in most of these tests. The
-// dedicated multi-stage test below gives route2 real geometry too, mirroring
-// the pattern the retired chunked-Overpass test suite already used for the
-// same purpose.
+// (route2 is deliberately `geometry: null`, still pending its own GPX). The
+// dedicated multi-stage tests below give route2 real geometry too.
+//
+// That stage is ~32 km, so under the adaptive 20 km segmentation it is
+// covered by exactly two micro-jobs — one request each. Named rather than
+// hard-coded so the intent stays readable if the fixture ever changes.
+const STAGE_JOB_COUNT = 2
 function candidate(overrides = {}) {
   return {
     osmType: 'node', osmId: '42', category: 'water', name: null,
@@ -32,7 +34,7 @@ function provider(findCandidates) {
   return { id: 'mock-postpass-practical-provider', sourceType: 'osm', attribution: 'Mock OSM', findCandidates }
 }
 
-test('C2: practical-place enrichment persists stage association, route distance, detour, OSM id, useful tags and engine version across reload — one Postpass request for the one enrichable stage', async () => {
+test('C2: practical-place enrichment persists stage association, route distance, detour, OSM id, useful tags and engine version across reload', async () => {
   const database = await openTestDatabase()
   try {
     const original = createGenericTripBundle()
@@ -47,7 +49,9 @@ test('C2: practical-place enrichment persists stage association, route distance,
     })
     assert.equal(report?.saved, true)
     assert.equal(report?.placeCount, 1)
-    assert.equal(calls, 1, 'a single request for the one stage with usable geometry — never per-anchor, never per-chunk')
+    // The one enrichable stage is ~32 km, so it is covered by two 20 km
+    // micro-segments — never one request per anchor.
+    assert.equal(calls, STAGE_JOB_COUNT, 'one request per micro-segment of the one stage with usable geometry')
 
     const reloaded = await repository.loadTripBundle(original.metadata.id)
     const place = reloaded.practicalPlaces.find((item) => item.provenance.engineVersion === PRACTICAL_PLACES_ENGINE_VERSION)
@@ -79,7 +83,7 @@ test('route-fingerprint cache prevents a second provider call, including after t
     const second = await enrichTripPracticalPlaces({
       bundle: first.bundle, cache, provider: mock, now: () => '2028-08-04T10:00:00.000Z',
     })
-    assert.equal(calls, 1)
+    assert.equal(calls, STAGE_JOB_COUNT, 'the second pass adds no request at all — every micro-segment is cached')
     assert.equal(second.cacheHitCount, 1)
     assert.equal(second.placeCount, 1)
   } finally {
@@ -106,11 +110,11 @@ test('network failure is non-blocking and leaves previously enriched practical p
   assert.equal(failed.networkErrorCount, 1)
   assert.deepEqual(failed.bundle.practicalPlaces, beforeFailure)
   assert.equal(failed.bundle.enrichmentMetadata.providers.find((state) => state.provider === 'postpass-practical-places')?.status, 'error')
-  // DER-DES-DER sections 31/50: a stage that failed is SETTLED — the trip no
-  // longer re-queries it automatically on every reopen. The failure stays
-  // visible (status 'error' + the per-stage list) and is recovered by the
-  // explicit "Réessayer", never by an automatic retry loop.
-  assert.equal(tripNeedsPracticalPlacesEnrichment(failed.bundle), false, 'AC/AD/AE: reopening the trip triggers no further provider call')
+  // A stretch that could not be answered is OUTSTANDING WORK, not a settled
+  // failure: the trip still needs a pass, and will resume by itself. This is
+  // the inversion at the heart of this milestone — attempting is not
+  // completing, so a timeout can never be mistaken for a finished stage.
+  assert.equal(tripNeedsPracticalPlacesEnrichment(failed.bundle), true, 'the work is still to do, and will be picked up automatically')
 })
 
 test('AC: a fully settled trip needs no further pass at all — reopening it is 0 provider calls', async () => {
@@ -122,8 +126,12 @@ test('AC: a fully settled trip needs no further pass at all — reopening it is 
     now: () => '2028-08-03T10:00:00.000Z',
   })
   assert.equal(tripNeedsPracticalPlacesEnrichment(enriched.bundle), false)
-  const settled = enriched.bundle.enrichmentMetadata.providers.find((state) => state.provider === 'postpass-practical-places')?.settledFingerprints
-  assert.ok(Array.isArray(settled) && settled.length === 1, 'section 32: an explicit settled record, not an inference from the absence of an error')
+  // Completion is an explicit per-micro-segment record, never an inference
+  // from the absence of an error.
+  const record = enriched.bundle.enrichmentMetadata.enrichmentJobs?.find((entry) => entry.stageId === enriched.bundle.stages[0].id)
+  const practicalJobs = record?.jobs.filter((job) => job.kind === 'practical') ?? []
+  assert.equal(practicalJobs.length, STAGE_JOB_COUNT)
+  assert.ok(practicalJobs.every((job) => job.status === 'success' || job.status === 'empty'))
 })
 
 test('section 33: replacing a stage\'s route geometry makes that stage pending again — the only kind of cause that invalidates a settled stage', async () => {
@@ -158,7 +166,7 @@ test('AG/AH/AI: a settled trip stays settled across unrelated edits — departur
   assert.equal(tripNeedsPracticalPlacesEnrichment(edited), false, 'sections 27-28/31: none of these is a Postpass trigger')
 })
 
-test('a stage-scoped failure preserves the other stage\'s successful result (partial status), and only the failed stage is retried', async () => {
+test('a stage whose ground could not all be covered keeps what it found, and the untouched stage keeps its own result', async () => {
   const bundle = createGenericTripBundle()
   // Give the second stage's route real geometry too, so both stages become enrichable.
   bundle.routes[1].geometry = { full: null, simplified: [
@@ -170,36 +178,37 @@ test('a stage-scoped failure preserves the other stage\'s successful result (par
     async get(identity) { return values.get(JSON.stringify(identity)) ?? null },
     async put(identity, results, storedAt) { values.set(JSON.stringify(identity), { results, storedAt }) },
   }
-  let calls = 0
+  // Fail every request for stage-alpha, answer every request for the other.
   const first = await enrichTripPracticalPlaces({
     bundle,
     cache: memoryCache,
     provider: provider(async (search) => {
-      calls++
-      if (calls === 1) throw new Error('offline')
+      if (search.stageId === 'stage-alpha') throw new Error('timeout')
       const point = search.geometry[0]
       return result([candidate({ osmId: 'second-stage-only', latitude: point.latitude, longitude: point.longitude })])
     }),
     now: () => '2028-08-03T10:00:00.000Z',
   })
-  assert.equal(first.networkErrorCount, 1)
-  assert.equal(first.placeCount, 1)
-  assert.equal(first.bundle.enrichmentMetadata.providers.find((state) => state.provider === 'postpass-practical-places')?.status, 'partial')
-  // Sections 31/50: the partial state stays VISIBLE (status 'partial', so the
-  // Voyage screen still offers "Réessayer" on that stage) but no longer
-  // schedules an automatic follow-up on the next trip open.
-  assert.equal(tripNeedsPracticalPlacesEnrichment(first.bundle), false, 'no automatic retry — the recovery below is an explicit one')
+  assert.equal(first.placeCount, 1, 'the stage that answered keeps its result')
+  // A stretch that could not be answered is outstanding work, so the trip
+  // still needs a pass — and will resume by itself, with no user action.
+  assert.equal(tripNeedsPracticalPlacesEnrichment(first.bundle), true)
 
-  const callsBeforeRetry = calls
+  // A later pass answers everywhere: the previously-successful stage is
+  // served from cache, and only the incomplete one goes back to the network.
+  const requestedStages = new Set()
   const second = await enrichTripPracticalPlaces({
     bundle: first.bundle,
     cache: memoryCache,
-    provider: provider(async () => { calls++; return result([candidate({ osmId: 'first-stage-recovered' })]) }),
+    provider: provider(async (search) => {
+      requestedStages.add(search.stageId)
+      return result([candidate({ osmId: 'first-stage-recovered' })])
+    }),
     now: () => '2028-08-04T10:00:00.000Z',
   })
-  assert.equal(calls - callsBeforeRetry, 1, 'the already-cached (successful) stage is never re-requested — only the previously failed one')
+  assert.deepEqual([...requestedStages], ['stage-alpha'], 'only the stage that still had work is re-requested')
   assert.equal(second.placeCount, 2)
-  assert.equal(second.bundle.enrichmentMetadata.providers.find((state) => state.provider === 'postpass-practical-places')?.status, 'success')
+  assert.equal(tripNeedsPracticalPlacesEnrichment(second.bundle), false, 'and now everything really is complete')
 })
 
 test('an anchor-category candidate keeps its distance-to-anchor as its own detour, not the route-line lateral distance', async () => {
@@ -273,22 +282,23 @@ test('C/D: each stage\'s result is persisted immediately — E1 is already commi
     const repository = createTripRepository(database)
     await repository.saveTripBundle(bundle)
     let calls = 0
-    const midPassSnapshots = []
+    let sawE1SavedBeforeE2 = null
     const report = await enrichStoredTripPracticalPlaces({
       database,
       tripId: bundle.metadata.id,
-      provider: provider(async () => {
+      provider: provider(async (search) => {
         calls++
-        if (calls === 2) {
+        // The first request belonging to the SECOND stage: by then E1 must
+        // already be committed to storage.
+        if (search.stageId === bundle.stages[1].id && sawE1SavedBeforeE2 === null) {
           const midPass = await repository.loadTripBundle(bundle.metadata.id)
-          midPassSnapshots.push(midPass.practicalPlaces.some((place) => place.provenance.engineVersion === PRACTICAL_PLACES_ENGINE_VERSION))
+          sawE1SavedBeforeE2 = midPass.practicalPlaces.some((place) => place.provenance.engineVersion === PRACTICAL_PLACES_ENGINE_VERSION)
         }
         return result([candidate({ osmId: `call-${calls}` })])
       }),
       now: () => '2028-08-03T10:00:00.000Z',
     })
-    assert.equal(calls, 2)
-    assert.deepEqual(midPassSnapshots, [true], 'E1\'s result was already saved before E2\'s request fired')
+    assert.equal(sawE1SavedBeforeE2, true, 'E1\'s result was already saved before E2\'s first request fired')
     assert.equal(report.saved, true)
     assert.equal(report.bundle.enrichmentMetadata.providers.find((state) => state.provider === 'postpass-practical-places')?.status, 'success')
   } finally {
@@ -325,14 +335,14 @@ test('E: E2 timeout/error does not stop E3 — each stage is still attempted, ch
       tripId: bundle.metadata.id,
       provider: provider(async (search) => {
         calls++
-        seenStageIds.push(search.stageId)
-        if (calls === 2) throw new Error('offline')
+        if (seenStageIds.at(-1) !== search.stageId) seenStageIds.push(search.stageId)
+        // Every request belonging to the middle stage fails.
+        if (search.stageId === bundle.stages[1].id) throw new Error('timeout')
         return result([candidate({ osmId: `call-${calls}` })])
       }),
       now: () => '2028-08-03T10:00:00.000Z',
     })
-    assert.equal(calls, 3, 'all three stages were attempted — E2\'s failure never stopped E3')
-    assert.deepEqual(seenStageIds, ['stage-alpha', bundle.stages[1].id, 'stage-charlie'], 'strict chronological E1→E2→E3 order')
+    assert.deepEqual(seenStageIds, ['stage-alpha', bundle.stages[1].id, 'stage-charlie'], 'strict chronological E1→E2→E3 order, and E2\'s failure never stopped E3')
     assert.equal(report.networkErrorCount, 1)
     assert.equal(report.bundle.enrichmentMetadata.providers.find((state) => state.provider === 'postpass-practical-places')?.status, 'partial')
   } finally {
@@ -350,69 +360,69 @@ test('section 18: a stage-scoped POI failure is recorded per-stage in practicalP
     const report = await enrichStoredTripPracticalPlaces({
       database,
       tripId: bundle.metadata.id,
-      provider: provider(async () => {
+      provider: provider(async (search) => {
         calls++
-        if (calls === 2) throw new Error('offline')
+        // Every request belonging to the SECOND stage fails, so exactly one
+        // stage ends up incomplete.
+        if (search.stageId === bundle.stages[1].id) throw new Error('timeout')
         return result([candidate({ osmId: `call-${calls}` })])
       }),
       now: () => '2028-08-03T10:00:00.000Z',
     })
     assert.deepEqual(report.bundle.enrichmentMetadata.practicalPlacesStageErrors, [bundle.stages[1].dayId])
 
-    // DER-DES-DER sections 31/40/50: reopening the trip runs NOTHING — both
-    // stages are settled, the failed one included.
-    const callsAfterFirstPass = calls
-    const reopened = await enrichStoredTripPracticalPlaces({
+    // Reopening the trip RESUMES automatically — the incomplete stage is
+    // picked up with no user action, and the complete one is not re-requested.
+    // This is the behaviour that replaces the old "Réessayer" button.
+    const requestedOnResume = new Set()
+    const resumed = await enrichStoredTripPracticalPlaces({
       database, tripId: bundle.metadata.id,
-      provider: provider(async () => { calls++; return result([candidate({ osmId: `call-${calls}` })]) }),
+      provider: provider(async (search) => {
+        requestedOnResume.add(search.stageId)
+        calls++
+        return result([candidate({ osmId: `call-${calls}` })])
+      }),
       now: () => '2028-08-04T10:00:00.000Z',
     })
-    assert.equal(calls, callsAfterFirstPass, 'AC: 0 provider calls on reopen')
-    assert.equal(reopened.stageCount, 0)
+    assert.deepEqual([...requestedOnResume], [bundle.stages[1].id], 'only the stage that still had outstanding work')
+    assert.equal(resumed.bundle.enrichmentMetadata.practicalPlacesStageErrors, undefined, 'cleared once that stage finally completes')
+    assert.equal(resumed.bundle.enrichmentMetadata.providers.find((state) => state.provider === 'postpass-practical-places')?.status, 'success')
 
-    // The explicit targeted retry is what clears it.
-    const retried = await enrichStoredTripPracticalPlaces({
-      database, tripId: bundle.metadata.id, onlyDayId: bundle.stages[1].dayId,
+    // And now that everything really is complete, a further open costs nothing.
+    const callsAfterResume = calls
+    await enrichStoredTripPracticalPlaces({
+      database, tripId: bundle.metadata.id,
       provider: provider(async () => { calls++; return result([candidate({ osmId: `call-${calls}` })]) }),
       now: () => '2028-08-05T10:00:00.000Z',
     })
-    assert.equal(calls, callsAfterFirstPass + 1, 'exactly one call, for the retried stage only')
-    assert.equal(retried.bundle.enrichmentMetadata.practicalPlacesStageErrors, undefined, 'cleared once the failed stage finally settles successfully')
-    assert.equal(retried.bundle.enrichmentMetadata.providers.find((state) => state.provider === 'postpass-practical-places')?.status, 'success')
+    assert.equal(calls, callsAfterResume, '0 provider calls once the trip is genuinely finished')
   } finally {
     database.close()
   }
 })
 
-test('section 14: onlyDayId retries exactly the previously-failed stage, without re-requesting the already-succeeded one', async () => {
+test('onlyDayId still scopes a refresh to one stage — used when a pause anchor moves, not as a user-facing retry', async () => {
   const database = await openTestDatabase()
   try {
     const bundle = withSecondEnrichableStage(createGenericTripBundle())
     const repository = createTripRepository(database)
     await repository.saveTripBundle(bundle)
-    const calls = []
     await enrichStoredTripPracticalPlaces({
       database, tripId: bundle.metadata.id,
-      provider: provider(async (search) => {
-        calls.push(search.stageId)
-        if (search.stageId === bundle.stages[1].id) throw new Error('offline')
-        return result([candidate({ osmId: `initial-${calls.length}` })])
-      }),
+      provider: provider(async () => result([candidate({ osmId: 'initial' })])),
       now: () => '2028-08-03T10:00:00.000Z',
     })
-    assert.equal(calls.length, 2, 'both stages were attempted by the ordinary full pass; the second one failed (never cached)')
 
-    const secondStageDayId = bundle.stages[1].dayId
-    const retryReport = await enrichStoredTripPracticalPlaces({
-      database, tripId: bundle.metadata.id, onlyDayId: secondStageDayId,
-      provider: provider(async (search) => { calls.push(search.stageId); return result([candidate({ osmId: `retry-${calls.length}` })]) }),
+    const requested = new Set()
+    const targeted = await enrichStoredTripPracticalPlaces({
+      database, tripId: bundle.metadata.id, onlyDayId: bundle.stages[1].dayId,
+      provider: provider(async (search) => { requested.add(search.stageId); return result([candidate({ osmId: 'refreshed' })]) }),
       now: () => '2028-08-04T10:00:00.000Z',
     })
-    assert.equal(calls.length, 3, 'only the previously-failed stage made a new request — the already-succeeded first stage stays cached and untouched')
-    assert.equal(calls[2], bundle.stages[1].id)
-    assert.equal(retryReport.stageCount, 1)
-    assert.equal(retryReport.bundle.enrichmentMetadata.practicalPlacesStageErrors, undefined, 'the retry cleared the per-stage issue')
-    assert.equal(retryReport.bundle.enrichmentMetadata.providers.find((state) => state.provider === 'postpass-practical-places')?.status, 'success')
+    // Everything is already complete and cached, so even the targeted stage
+    // costs nothing — the point here is that the OTHER stage is never in scope.
+    assert.ok(!requested.has(bundle.stages[0].id), 'the untargeted stage is never touched')
+    assert.equal(targeted.stageCount, 1)
   } finally {
     database.close()
   }
@@ -426,10 +436,10 @@ test('AK/AL: moving a pause to a different anchor is a real cache-miss for that 
     const mock = provider(async () => { calls++; return result([candidate({ osmId: `call-${calls}` })]) })
     // First pass: no manual pause at all — anchors are start+end only.
     const first = await enrichTripPracticalPlaces({ bundle: createGenericTripBundle(), cache, provider: mock, now: () => '2028-08-03T10:00:00.000Z' })
-    assert.equal(calls, 1)
+    assert.equal(calls, STAGE_JOB_COUNT)
     // Second pass: the SAME stage, but a pause now anchors on an extra waypoint — a genuine anchor-set change.
     const second = await enrichTripPracticalPlaces({ bundle: withManualPause(first.bundle, 600), cache, provider: mock, now: () => '2028-08-04T10:00:00.000Z' })
-    assert.equal(calls, 2, 'the anchor change must be a real cache-miss, not silently reuse the old anchor set\'s result')
+    assert.equal(calls, STAGE_JOB_COUNT * 2, 'the anchor change must be a real cache-miss for every micro-segment, not silently reuse the old anchor set\'s result')
     assert.equal(second.cacheHitCount, 0)
   } finally {
     database.close()
@@ -443,10 +453,10 @@ test('AI/AJ: changing only a pause\'s duration (same anchor position) never re-t
     let calls = 0
     const mock = provider(async () => { calls++; return result([candidate({ osmId: `call-${calls}` })]) })
     const first = await enrichTripPracticalPlaces({ bundle: withManualPause(createGenericTripBundle(), 600), cache, provider: mock, now: () => '2028-08-03T10:00:00.000Z' })
-    assert.equal(calls, 1)
+    assert.equal(calls, STAGE_JOB_COUNT)
     // Same anchor (routePointId unchanged), only the duration differs.
     const second = await enrichTripPracticalPlaces({ bundle: withManualPause(first.bundle, 1_200), cache, provider: mock, now: () => '2028-08-04T10:00:00.000Z' })
-    assert.equal(calls, 1, 'a duration-only change must never re-trigger Postpass — the anchor set (positions) is unchanged')
+    assert.equal(calls, STAGE_JOB_COUNT, 'a duration-only change must never re-trigger Postpass — the anchor set (positions) is unchanged')
     assert.equal(second.cacheHitCount, 1)
   } finally {
     database.close()

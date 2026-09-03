@@ -33,13 +33,17 @@ export interface TripDetailRenderOptions {
 
 // C2.5 section 11: compact, non-intrusive, never Postpass/HTTP/provider
 // jargon — one glyph + an accessible label, nothing else.
+// One glyph plus an accessible label, and no technical vocabulary at all.
+// Nothing here mentions a retry any more: the engine resumes on its own, so
+// there is no action for the user to take and nothing to advertise.
 const STAGE_PREP_LABELS: Readonly<Record<StagePreparationStatus, string>> = {
   pending: 'En attente de préparation',
   running: 'Préparation en cours',
   ready: 'Étape prête',
   stale: 'Mise à jour en cours',
-  partial: 'Préparation incomplète — Réessayer disponible',
-  error: 'Préparation en erreur — Réessayer disponible',
+  partial: 'Préparation en cours',
+  error: 'Préparation en cours',
+  'waiting-for-network': 'En attente de connexion',
 }
 
 /**
@@ -63,28 +67,36 @@ const STAGE_PREP_LABELS: Readonly<Record<StagePreparationStatus, string>> = {
 export function renderStagePreparationIndicator(status: StagePreparationStatus | null | undefined): string {
   if (status === null || status === undefined || status === 'ready') return ''
   const label = STAGE_PREP_LABELS[status]
-  const inner = status === 'running' || status === 'stale'
-    ? '<span class="trip-day-card__prep-spinner" aria-hidden="true"></span>'
-    : `<span aria-hidden="true">${status === 'pending' ? '○' : '⚠'}</span>`
+  // No warning glyph any more. An incomplete stage is work in progress, not
+  // a fault the user has to look at — the only genuinely different case is
+  // having no connection, and that one says so in words.
+  const inner = status === 'pending'
+    ? '<span aria-hidden="true">○</span>'
+    : status === 'waiting-for-network'
+      ? '<span aria-hidden="true">⌛</span>'
+      : '<span class="trip-day-card__prep-spinner" aria-hidden="true"></span>'
   return `<span class="trip-day-card__prep trip-day-card__prep--${status}" data-trip-day-prep data-status="${status}" role="img" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}">${inner}</span>`
 }
 
 /**
- * DER-DES-DER sections 52-53 — the ONE place a stage's preparation can be
- * retried: its own card on the Voyage screen. Rendered as a sibling of the
- * card `<button>` (never nested inside it — a button inside a button is
- * invalid, and a nested control would also swallow the card's own "open this
- * day" click).
+ * The one line a stage may show about its own preparation, and it is never
+ * an action.
  *
- * Section 53's whole status vocabulary, in one place: an actively-processing
- * stage shows a spinner (the indicator above), a waiting or ready stage shows
- * nothing at all, and only a genuinely incomplete one gets this short
- * "À compléter" line plus the action. No technical vocabulary, no toast, no
- * modal — one quiet button.
+ * There used to be a "Réessayer" button here. It existed because the engine
+ * could give up on a stretch of route and needed a human to ask again — the
+ * user was, in effect, part of the retry loop. The engine now subdivides a
+ * too-heavy request, keeps every piece it completes, and picks up where it
+ * left off on its own, so there is nothing left for that button to do that
+ * the app is not already doing.
+ *
+ * What remains is honest status, in the user's own terms: work still to do
+ * reads as preparation, and work blocked on connectivity says so, because
+ * that is the one case the app genuinely cannot resolve by itself.
  */
-export function renderStageRetryRow(tripId: string, dayId: string, status: StagePreparationStatus | null | undefined): string {
-  if (status !== 'partial' && status !== 'error') return ''
-  return `<p class="trip-day-card__retry"><span>À compléter</span><button class="button button--quiet" type="button" data-action="retry-stage-preparation" data-trip-id="${escapeHtml(tripId)}" data-day-id="${escapeHtml(dayId)}">Réessayer</button></p>`
+export function renderStagePreparationNote(status: StagePreparationStatus | null | undefined): string {
+  if (status !== 'partial' && status !== 'error' && status !== 'waiting-for-network') return ''
+  const label = status === 'waiting-for-network' ? 'En attente de connexion' : 'Préparation…'
+  return `<p class="trip-day-card__prep-note" role="status">${escapeHtml(label)}</p>`
 }
 
 function escapeHtml(value: string): string {
@@ -144,7 +156,7 @@ function renderRideDayCard(bundle: TripBundle, day: TripBundle['days'][number], 
         <strong><span class="visually-hidden">ETA </span>${eta ?? '—'}</strong>
       </span>
     </button>
-    <span data-trip-day-retry-slot data-day-id="${escapeHtml(day.id)}">${renderStageRetryRow(bundle.metadata.id, day.id, prepStatus)}</span>
+    <span data-trip-day-note-slot data-day-id="${escapeHtml(day.id)}">${renderStagePreparationNote(prepStatus)}</span>
   </li>`
 }
 

@@ -3435,13 +3435,10 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .field__linked-value { margin: 0; padding: 8px 0; font-weight: 600; }
 .field__linked-hint { display: block; margin-top: -4px; color: var(--ink-soft); font-size: .78rem; }
 
-.trip-day-card__retry {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+/* A quiet status line under a stage card — never an action. */
+.trip-day-card__prep-note {
   margin: 2px 0 0;
-  padding: 4px 12px 0;
+  padding: 2px 12px 0;
   color: var(--ink-soft);
   font-size: .78rem;
 }
