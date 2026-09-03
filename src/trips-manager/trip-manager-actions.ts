@@ -9,6 +9,7 @@ import { clearActiveTripId, getActiveTripId, setActiveTripId } from '../storage/
 import { createTripRepository } from '../storage/indexeddb/trip-repository.ts'
 import type { IsoDate, TripId } from '../trip-core/index.ts'
 import { selectMostRelevantTrip } from './active-trip-selection.ts'
+import type { StagePreparationContext } from './stage-preparation.ts'
 import { summarizeTripBundle } from './trip-summary.ts'
 import type { TripListEntry } from './trip-summary.ts'
 
@@ -16,12 +17,19 @@ function asIsoDate(value: string): IsoDate {
   return value as IsoDate
 }
 
-/** Every stored trip, newest storage order from `listTrips()` re-summarized for the list view. `null` bundles (a load race) are silently skipped, never shown as a broken row. */
-export async function listTripSummaries(database: IDBDatabase): Promise<readonly TripListEntry[]> {
+/**
+ * Every stored trip, newest storage order from `listTrips()` re-summarized
+ * for the list view. `null` bundles (a load race) are silently skipped,
+ * never shown as a broken row. `resolveContext` (RC2 final-closeout
+ * sections 19-20) supplies each trip's own live preparation context —
+ * omitted by every caller that isn't rendering "Mes voyages" itself, which
+ * simply never shows a preparation indicator.
+ */
+export async function listTripSummaries(database: IDBDatabase, resolveContext?: (tripId: TripId) => StagePreparationContext): Promise<readonly TripListEntry[]> {
   const tripRepository = createTripRepository(database)
   const metadataList = await tripRepository.listTrips()
   const bundles = await Promise.all(metadataList.map((metadata) => tripRepository.loadTripBundle(metadata.id)))
-  return bundles.filter((bundle) => bundle !== null).map((bundle) => summarizeTripBundle(bundle))
+  return bundles.filter((bundle) => bundle !== null).map((bundle) => summarizeTripBundle(bundle, resolveContext?.(bundle.metadata.id)))
 }
 
 export function setActiveTrip(tripId: TripId): boolean {

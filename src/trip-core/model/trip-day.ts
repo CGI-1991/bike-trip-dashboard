@@ -81,11 +81,19 @@ export interface TripDay {
   readonly transferArrivalTime?: string
   /**
    * R2.1 section 37: a short, mode-appropriate compagnie/opérateur label
-   * ("SNCF", "FlixBus"…) and a booking/ticket link — both entirely optional,
-   * free text, never inferred. Meaningless for non-`transfer` days.
+   * ("SNCF", "FlixBus"…) and a booking/reservation link — both entirely
+   * optional, free text, never inferred. Meaningless for non-`transfer` days.
    */
   readonly transferOperator?: string
   readonly transferLink?: string
+  /**
+   * RC2 final-closeout sections 38-39/45: the actual ticket/boarding-pass
+   * link — distinct from `transferLink` (the booking/reservation itself,
+   * e.g. a confirmation page). Both are optional, independent, free-text
+   * URLs; either, both, or neither may be set. Purely additive, like every
+   * other field here. Meaningless for non-`transfer` days.
+   */
+  readonly transferTicketLink?: string
   /**
    * R2.1 sections 40-41: "Choisir sur la carte" — a manual coordinate
    * override for `startLocationName`/`endLocationName` when neither a

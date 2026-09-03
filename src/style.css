@@ -3294,6 +3294,8 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .day-infos__lodging { display: grid; gap: 10px; }
 .day-infos__lodging-display { display: grid; gap: 6px; }
 .day-infos__lodging-links { display: flex; flex-wrap: wrap; gap: 8px; }
+/* RC2 final-closeout sections 37/40/45: address/booking-reference stay plain text — only Réservation/Billet/Itinéraire/Logement are actionable buttons. */
+.day-infos__lodging-detail { margin: 0; color: var(--ink-soft); font-size: .85rem; }
 .day-infos__lodging-form summary { cursor: pointer; font-weight: 800; padding: 6px 0; }
 .day-infos__lodging-form { display: grid; gap: 10px; }
 .day-infos__lodging-actions { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -3400,6 +3402,8 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   .trip-day-card__prep-spinner { animation: none; }
 }
 .trip-detail__prep-summary { margin: -6px 0 0; color: var(--ink-soft); font-size: .78rem; }
+/* RC2 final-closeout sections 19-20: "Mes voyages" own discreet indicator — same muted convention as the Voyage screen's own summary line above. */
+.trip-card__prep { margin: -4px 0 0; color: var(--ink-soft); font-size: .78rem; }
 /* C2.5 sections 16-17: compact, non-blocking — partial/error data stays
  * fully visible above this banner, "Réessayer" sits right next to it. */
 .day-detail__prep-banner { margin-top: 10px; padding: 9px 10px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; color: var(--warning-text); background: var(--warning-bg); border: 1px solid var(--warning-border); border-radius: var(--radius-sm); font-size: .82rem; }

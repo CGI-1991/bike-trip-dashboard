@@ -1,4 +1,5 @@
 import type { IsoDateTime } from './common.ts'
+import type { TripDayId } from './ids.ts'
 import type { DataSourceType } from './provenance.ts'
 
 /**
@@ -37,6 +38,20 @@ export interface EnrichmentProviderState {
 /** Bundle-level view of external enrichment (OSM, Open-Meteo, ...) freshness. */
 export interface TripEnrichmentMetadata {
   readonly providers: readonly EnrichmentProviderState[]
+  /**
+   * RC2 final-closeout section 18 — the ride days whose practical-places
+   * (POI) lookup specifically errored/timed out on the last progressive
+   * per-stage pass (`practical-places/enrichment.ts`), still pending a
+   * targeted retry. Purely additive and optional: absent (or empty) means
+   * "no known per-stage POI issue", so an already-fully-enriched bundle
+   * (including every existing golden/canonical fixture) never gains this
+   * key at all. This is what lets `deriveStagePreparationStatus` show
+   * "À compléter / Réessayer" on exactly the stage(s) that actually need
+   * it, instead of the whole trip's aggregate `postpass-practical-places`
+   * provider status (a single value for the entire trip) flagging every
+   * ride day as `partial` while only one stage genuinely failed.
+   */
+  readonly practicalPlacesStageErrors?: readonly TripDayId[]
 }
 
 /** Freshness of the locally derived data (distances, D+/D-, ETA, climbs...). */

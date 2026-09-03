@@ -48,6 +48,7 @@ import { buildPauseCandidates } from '../../analysis/pause-recommendation.ts'
 import { parseClockToMinutes } from '../../analysis/timing.ts'
 import { normalizePauseDurationMinutes } from '../../analysis/pause-duration.ts'
 import { formatTransferDuration, formatTransferModeAndTimes } from './transfer-summary-format.ts'
+import { resolveMapsDirectionsUrl, resolveMapsSearchUrl } from '../maps-link.ts'
 import { TRANSFER_MODE_LABELS } from './transfer-mode-labels.ts'
 import { TRANSFER_MODES } from '../../trip-core/index.ts'
 import type { StagePreparationStatus } from '../../trips-manager/stage-preparation.ts'
@@ -116,28 +117,29 @@ const KIND_MARKERS: Readonly<Record<CanonicalWaypointKind, string>> = {
 }
 
 /**
- * R3 sections 5-8/14: a compact, fixed-size clock dial replaces the old
- * full-width "Pause N min" badge/banner — a filled circular sector (CSS
- * `conic-gradient`, clockwise from 12 o'clock, exactly like a stopwatch)
- * with the duration in minutes at its centre, always as `N'` (never
- * `1h15` — stays legible up to at least 99'). `--pause-fraction` is
- * `min(1, minutes / 60)`: a pause ≥ 60 min shows a fully filled dial (CDC
- * section 7: "le cercle peut être considéré comme entièrement rempli") —
- * the exact value is never guessed from the dial itself, only from the
- * centred text, so 65'/75'/90'/95' all render a full circle with their own
- * real number inside. Fixed pixel size (`--pause-clock-size`, `style.css`)
- * regardless of 1 vs 2 digits — R2's own `renderPauseBadge` (a variable-
- * width text badge that could reshape the row) is gone; this occupies a
- * stable slot in the time column no matter the duration (CDC section 8).
- * `role="img"`/`aria-label` carry the real meaning for assistive tech —
- * the dial's own fill is never the only way to know the duration (CDC
- * section 78).
+ * R3 sections 5-8/14, RC2 section 28: a compact, fixed-size clock dial
+ * replaces the old full-width "Pause N min" badge/banner — a filled
+ * circular sector (CSS `conic-gradient`, clockwise from 12 o'clock, exactly
+ * like a stopwatch) with the duration in minutes at its centre, as a bare
+ * number `N` (no minute suffix — RC2 drops the trailing `'` for better
+ * optical centring; the "minutes" meaning is carried by `aria-label` only,
+ * never by the visible glyph). `--pause-fraction` is `min(1, minutes / 60)`:
+ * a pause ≥ 60 min shows a fully filled dial (CDC section 7: "le cercle peut
+ * être considéré comme entièrement rempli") — the exact value is never
+ * guessed from the dial itself, only from the centred text, so 65/75/90/95
+ * all render a full circle with their own real number inside. Fixed pixel
+ * size (`--pause-clock-size`, `style.css`) regardless of 1 vs 2 digits —
+ * R2's own `renderPauseBadge` (a variable-width text badge that could
+ * reshape the row) is gone; this occupies a stable slot in the time column
+ * no matter the duration (CDC section 8). `role="img"`/`aria-label` carry
+ * the real meaning for assistive tech — the dial's own fill is never the
+ * only way to know the duration (CDC section 78).
  */
 function renderPauseBadge(waypoint: CanonicalWaypoint): string {
   if (waypoint.pauseDurationMinutes === null) return ''
   const minutes = waypoint.pauseDurationMinutes
   const fraction = Math.min(1, minutes / 60)
-  return `<span class="pause-clock" style="--pause-fraction: ${fraction}" role="img" aria-label="Pause ${minutes} minutes"><span class="pause-clock__face" aria-hidden="true"></span><span class="pause-clock__label" aria-hidden="true">${minutes}'</span></span>`
+  return `<span class="pause-clock" style="--pause-fraction: ${fraction}" role="img" aria-label="Pause ${minutes} minutes"><span class="pause-clock__face" aria-hidden="true"></span><span class="pause-clock__label" aria-hidden="true">${minutes}</span></span>`
 }
 
 /**
@@ -543,15 +545,36 @@ function renderWeatherPanel(): string {
   </section>`
 }
 
-/** Read-only lodging display (CDC Jalon B4.3 section 35) — name + Maps/site buttons only, never a form. Nothing rendered at all when no lodging is set, per section 35: no large empty block. */
+/**
+ * Read-only lodging display (CDC Jalon B4.3 section 35, RC2 final-closeout
+ * sections 37/40/45-49) — name + address/réservation (plain text) + Maps/
+ * site buttons, never a form. Nothing rendered at all when no lodging is
+ * set, per section 35: no large empty block. The Maps action follows the
+ * shared priority hierarchy (explicit URL > address > coordinates,
+ * `maps-link.ts`) rather than only ever appearing when `mapsUrl` itself is
+ * set — a lodging with just a text address still gets a working action
+ * (section 49: never force the visitor to hand-craft a URL themselves).
+ */
 function renderLodgingReadView(accommodation: Accommodation | undefined): string {
   if (accommodation === undefined) return ''
-  const mapsLink = accommodation.mapsUrl === null ? '' : `<a class="button button--primary" href="${escapeHtml(accommodation.mapsUrl)}" target="_blank" rel="noopener">Ouvrir dans Maps</a>`
-  const websiteLink = accommodation.website === null ? '' : `<a class="button button--quiet" href="${escapeHtml(accommodation.website)}" target="_blank" rel="noopener">Voir le site</a>`
+  const mapsUrl = resolveMapsSearchUrl({
+    explicitUrl: accommodation.mapsUrl,
+    address: accommodation.address,
+    coordinates: accommodation.latitude === null || accommodation.longitude === null ? null : { latitude: accommodation.latitude, longitude: accommodation.longitude },
+  })
+  const mapsLink = mapsUrl === null ? '' : `<a class="button button--primary" href="${escapeHtml(mapsUrl)}" target="_blank" rel="noopener">Ouvrir dans Maps</a>`
+  // RC2 final-closeout section 46: two distinct URLs stay two distinct
+  // actions, but the rare case where the same URL was pasted into both
+  // fields collapses to the one Maps action, never a duplicate button.
+  const websiteLink = accommodation.website === null || accommodation.website === mapsUrl
+    ? ''
+    : `<a class="button button--quiet" href="${escapeHtml(accommodation.website)}" target="_blank" rel="noopener">Voir le site</a>`
   const links = [mapsLink, websiteLink].join('')
   return `<div class="day-infos__lodging-display">
     <p class="eyebrow">Hébergement</p>
     ${accommodation.name === '' ? '' : `<h4>${escapeHtml(accommodation.name)}</h4>`}
+    ${accommodation.address === null ? '' : `<p class="day-infos__lodging-detail">${escapeHtml(accommodation.address)}</p>`}
+    ${accommodation.bookingReference === null ? '' : `<p class="day-infos__lodging-detail">Réservation : ${escapeHtml(accommodation.bookingReference)}</p>`}
     ${links === '' ? '' : `<div class="day-infos__lodging-links">${links}</div>`}
   </div>`
 }
@@ -636,7 +659,8 @@ function renderInfosPanel(day: TripBundle['days'][number], accommodation: Accomm
       <label for="transfer-arrival-time">Arrivée</label><div class="field__control field__time-control"><input id="transfer-arrival-time" type="time" data-field="transfer-arrival-time" value="${escapeHtml(day.transferArrivalTime ?? '')}"></div>
     </div>
     <div class="field" data-field-group="transfer-operator"${day.transferMode === 'bike' ? ' hidden' : ''}><label for="transfer-operator">Compagnie / opérateur</label><div class="field__control"><input id="transfer-operator" type="text" data-field="transfer-operator" value="${escapeHtml(day.transferOperator ?? '')}" placeholder="SNCF, FlixBus…"></div></div>
-    <div class="field"><label for="transfer-link">Lien réservation</label><div class="field__control"><input id="transfer-link" type="url" data-field="transfer-link" value="${escapeHtml(day.transferLink ?? '')}" placeholder="https://…"></div></div>`
+    <div class="field"><label for="transfer-link">Lien réservation</label><div class="field__control"><input id="transfer-link" type="url" data-field="transfer-link" value="${escapeHtml(day.transferLink ?? '')}" placeholder="https://…"></div></div>
+    <div class="field"><label for="transfer-ticket-link">Lien billet</label><div class="field__control"><input id="transfer-ticket-link" type="url" data-field="transfer-ticket-link" value="${escapeHtml(day.transferTicketLink ?? '')}" placeholder="https://…"></div></div>`
 
   // R2.1 sections 40-41 / R3 sections 30-35: a manual location label — the
   // always-available fallback once neither a neighbouring stage nor a
@@ -677,8 +701,10 @@ function renderInfosPanel(day: TripBundle['days'][number], accommodation: Accomm
     <div class="field"><label for="day-notes">Notes</label><div class="field__control"><textarea id="day-notes" data-field="day-notes" rows="5" placeholder="Conseils, description, logistique, choses à faire…">${escapeHtml(infoDay.notes ?? '')}</textarea></div></div>
     ${showLodging ? `
     <div class="field"><label for="lodging-name">Nom du logement</label><div class="field__control"><input id="lodging-name" type="text" data-field="lodging-name" value="${escapeHtml(accommodation?.name ?? '')}" placeholder="Hôtel, gîte, camping…"></div></div>
+    <div class="field"><label for="lodging-address">Adresse</label><div class="field__control"><input id="lodging-address" type="text" data-field="lodging-address" value="${escapeHtml(accommodation?.address ?? '')}" placeholder="Adresse du logement"></div></div>
     <div class="field"><label for="lodging-maps-url">URL Maps</label><div class="field__control"><input id="lodging-maps-url" type="url" data-field="lodging-maps-url" value="${escapeHtml(accommodation?.mapsUrl ?? '')}" placeholder="https://maps.google.com/…"></div></div>
-    <div class="field"><label for="lodging-website">URL du site</label><div class="field__control"><input id="lodging-website" type="url" data-field="lodging-website" value="${escapeHtml(accommodation?.website ?? '')}" placeholder="https://…"></div></div>` : ''}
+    <div class="field"><label for="lodging-website">URL du site</label><div class="field__control"><input id="lodging-website" type="url" data-field="lodging-website" value="${escapeHtml(accommodation?.website ?? '')}" placeholder="https://…"></div></div>
+    <div class="field"><label for="lodging-booking-reference">Réservation (référence)</label><div class="field__control"><input id="lodging-booking-reference" type="text" data-field="lodging-booking-reference" value="${escapeHtml(accommodation?.bookingReference ?? '')}" placeholder="Numéro de réservation"></div></div>` : ''}
     <div class="day-infos__notes-actions">
       <button class="button button--primary" type="button" data-action="save-day-infos">Enregistrer</button>
       <button class="button button--quiet" type="button" data-action="cancel-edit-day-infos">Annuler</button>
@@ -758,10 +784,14 @@ export function buildDayDetail(bundle: TripBundle, dayId: TripDayId, options: Da
  * terms rather than a generic "préparation" sentence; `error` stays terse
  * since nothing more specific is known at that point.
  */
-function renderPreparationBanner(bundle: TripBundle, preparationStatus: StagePreparationStatus | null): string {
+function renderPreparationBanner(bundle: TripBundle, dayId: TripDayId, preparationStatus: StagePreparationStatus | null): string {
   if (preparationStatus !== 'partial' && preparationStatus !== 'error') return ''
   const label = preparationStatus === 'partial' ? 'Certaines données pratiques manquent.' : 'Préparation incomplète.'
-  return `<div class="day-detail__prep-banner" role="status"><span>${escapeHtml(label)}</span><button class="button button--quiet" type="button" data-action="retry-stage-preparation" data-trip-id="${escapeHtml(bundle.metadata.id)}">Réessayer</button></div>`
+  // RC2 final-closeout section 14 — `data-day-id` lets the click handler
+  // target a real, single-stage retry (`reenrichStagePracticalPlaces`) when
+  // this specific stage's own issue is POI-only, instead of always falling
+  // back to the whole-trip `retryStagePreparation`.
+  return `<div class="day-detail__prep-banner" role="status"><span>${escapeHtml(label)}</span><button class="button button--quiet" type="button" data-action="retry-stage-preparation" data-trip-id="${escapeHtml(bundle.metadata.id)}" data-day-id="${escapeHtml(dayId)}">Réessayer</button></div>`
 }
 
 function transferTimingLabel(timing: TransferTiming | undefined): string {
@@ -887,15 +917,31 @@ function renderTransferSummary(bundle: TripBundle, day: TripDay): string {
   const route = origin === null && destination === null ? 'Origine/destination inconnues.' : `${escapeHtml(origin ?? '—')} → ${escapeHtml(destination ?? '—')}`
   const modeAndTimes = formatTransferModeAndTimes(day)
   const duration = formatTransferDuration(day)
-  // R3 sections 18-21: opérateur stays plain text (no action of its own);
-  // a configured reservation link is an evident action and must be
-  // directly reachable here — this fixes the real gap the CDC names
-  // outright ("un champ Lien de réservation peut être configuré mais ne
-  // pas apparaître dans Détail"): `transferOperator`/`transferLink` were
-  // editable from Infos since R2.1 but never had a read-side surface at
-  // all until now.
+  // R3 sections 18-21 / RC2 final-closeout sections 39/45: opérateur stays
+  // plain text (no action of its own); a configured reservation link is an
+  // evident action and must be directly reachable here — this fixes the
+  // real gap the CDC names outright ("un champ Lien de réservation peut
+  // être configuré mais ne pas apparaître dans Détail"). RC2 adds the two
+  // remaining TRAJET actions the same section lists: Billet (its own,
+  // independent link — `transferTicketLink`) and Itinéraire (a generic,
+  // mode-agnostic directions link built from the resolved origin/
+  // destination coordinates, `maps-link.ts` — never forced into cycling
+  // directions like a POI popup). Priority order matches section 45:
+  // Réservation, Billet, Itinéraire. Each is entirely independent — any
+  // subset may be configured/resolvable, never a fabricated placeholder.
   const operator = day.transferOperator ?? null
-  const link = day.transferLink ?? null
+  const reservationLink = day.transferLink ?? null
+  const ticketLink = day.transferTicketLink ?? null
+  const { origin: originCoordinates, destination: destinationCoordinates } = resolveTransferCoordinates(bundle, day)
+  const directionsUrl = resolveMapsDirectionsUrl(
+    originCoordinates === null ? null : { latitude: originCoordinates.latitude, longitude: originCoordinates.longitude },
+    destinationCoordinates === null ? null : { latitude: destinationCoordinates.latitude, longitude: destinationCoordinates.longitude },
+  )
+  const actions = [
+    reservationLink === null ? '' : `<a class="button button--quiet" href="${escapeHtml(reservationLink)}" target="_blank" rel="noopener">Réservation</a>`,
+    ticketLink === null ? '' : `<a class="button button--quiet" href="${escapeHtml(ticketLink)}" target="_blank" rel="noopener">Billet</a>`,
+    directionsUrl === null ? '' : `<a class="button button--quiet" href="${escapeHtml(directionsUrl)}" target="_blank" rel="noopener">Itinéraire</a>`,
+  ].join('')
   return `<section class="card day-detail__summary" data-day-detail-summary>
     <p class="eyebrow">Résumé</p>
     <p>${route}</p>
@@ -903,7 +949,7 @@ function renderTransferSummary(bundle: TripBundle, day: TripDay): string {
     ${modeAndTimes === null ? '' : `<p class="day-detail__summary-transfer">${escapeHtml(modeAndTimes)}</p>`}
     ${duration === null ? '' : `<p class="day-detail__summary-transfer">${escapeHtml(duration)}</p>`}
     ${operator === null ? '' : `<p class="day-detail__summary-transfer">${escapeHtml(operator)}</p>`}
-    ${link === null ? '' : `<p class="day-detail__summary-actions"><a class="button button--quiet" href="${escapeHtml(link)}" target="_blank" rel="noopener">Réservation</a></p>`}
+    ${actions === '' ? '' : `<p class="day-detail__summary-actions">${actions}</p>`}
   </section>`
 }
 
@@ -986,9 +1032,14 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
   // In manual mode, the displayed total reflects the actually-placed pauses
   // (which the user controls directly) rather than the imported automatic
   // budget estimate — the two only ever match by coincidence once edited.
+  // RC2 final-closeout section 29: re-normalized to the nearest 5-minute
+  // step at display time too — a no-op for every value this app itself ever
+  // produces (already a multiple of 5), but never shows a stray raw value
+  // (e.g. 42) for a legacy/imported `pauseDurationSeconds` that predates
+  // that rule.
   const totalPauseMinutes = pauseResolution.mode === 'custom'
     ? waypoints.reduce((total, waypoint) => total + (waypoint.pauseDurationMinutes ?? 0), 0)
-    : stage.pauseDurationSeconds === null ? null : Math.round(stage.pauseDurationSeconds / 60)
+    : stage.pauseDurationSeconds === null ? null : normalizePauseDurationMinutes(Math.round(stage.pauseDurationSeconds / 60))
   // CDC D1.2 section 11: the Départ cell is itself the editing surface — no
   // more separate "Modifier" trigger opening a second block below. Both the
   // plain display button and the (initially hidden) `<input type="time">`
@@ -1033,7 +1084,7 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
     </div>
     <section class="card day-detail__stats-card" data-day-detail-stats-card>
       ${statsHtml}
-      ${renderPreparationBanner(bundle, preparationStatus)}
+      ${renderPreparationBanner(bundle, day.id, preparationStatus)}
     </section>
     <section class="card day-detail__map-profile-card" data-day-detail-map-profile-card>
       <div class="route-map route-map--action" data-day-detail-map data-explore-map role="button" tabindex="0" aria-label="Ouvrir la carte de l’étape en plein écran"></div>

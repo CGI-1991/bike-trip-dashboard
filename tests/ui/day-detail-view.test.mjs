@@ -321,7 +321,7 @@ test('a village carrying a manual pause is shown even with the Villages filter o
   const detail = buildDayDetail(bundle, 'day-alpha')
   assert.match(detail.html, /Micro Village/, 'the village stays visible because it now carries a pause')
   assert.match(detail.html, /Pause 10 minutes/, 'the pause clock dial\'s own accessible label')
-  assert.match(detail.html, /pause-clock__label" aria-hidden="true">10'/)
+  assert.match(detail.html, /pause-clock__label" aria-hidden="true">10</)
   // Exactly one row for this point in the timeline itself (it may
   // additionally appear once more inside the manual pause editor's
   // always-present candidate list, a distinct feature — never a second
@@ -549,6 +549,33 @@ test('Infos shows the linked accommodation\'s name, Maps and website links when 
   assert.doesNotMatch(detail.html, /Voir le site/)
 })
 
+test('RC2 final-closeout sections 37/40: lodging address and booking reference show as plain text, never as an action', () => {
+  const bundle = createGenericTripBundle()
+  bundle.days[0].accommodationId = bundle.accommodations[0].id
+  bundle.accommodations[0].bookingReference = 'RES-1234'
+  const detail = buildDayDetail(bundle, 'day-alpha')
+  assert.match(detail.html, /<p class="day-infos__lodging-detail">12 Ridge Road, Hilltown<\/p>/)
+  assert.match(detail.html, /<p class="day-infos__lodging-detail">Réservation : RES-1234<\/p>/)
+})
+
+test('RC2 final-closeout section 46: an identical URL in both mapsUrl and website collapses to a single Maps action', () => {
+  const bundle = createGenericTripBundle()
+  bundle.days[0].accommodationId = bundle.accommodations[0].id
+  bundle.accommodations[0].website = bundle.accommodations[0].mapsUrl
+  const detail = buildDayDetail(bundle, 'day-alpha')
+  assert.match(detail.html, /Ouvrir dans Maps/)
+  assert.doesNotMatch(detail.html, /Voir le site/)
+})
+
+test('two genuinely distinct Maps and website URLs both stay independent actions', () => {
+  const bundle = createGenericTripBundle()
+  bundle.days[0].accommodationId = bundle.accommodations[0].id
+  bundle.accommodations[0].website = 'https://hilltown-inn.example.com'
+  const detail = buildDayDetail(bundle, 'day-alpha')
+  assert.match(detail.html, /Ouvrir dans Maps/)
+  assert.match(detail.html, /Voir le site/)
+})
+
 // --- climb mini-profile (CDC Jalon B4.2 sections 17-18) ---------------------
 
 /** stage-delta's own fixture climb sits on route-delta, which has no geometry in this fixture — attach a synthetic, OSM-named (so unambiguously "principale") climb to stage-alpha's route instead, which does. */
@@ -761,7 +788,7 @@ test('A/B (R3 sections 5-8/14): an automatic pause in the Parcours timeline is a
   assert.ok(pausedWaypoint !== undefined && pausedWaypoint.pauseDurationMinutes !== null, 'the anchor must actually receive the automatic pause for this test to be meaningful')
   assert.match(detail.timelineHtml, /class="pause-clock"/)
   assert.match(detail.timelineHtml, new RegExp(`Pause ${pausedWaypoint.pauseDurationMinutes} minutes`), 'the dial\'s own accessible label')
-  assert.match(detail.timelineHtml, new RegExp(`pause-clock__label" aria-hidden="true">${pausedWaypoint.pauseDurationMinutes}'`), 'the dial\'s own centred text — always minutes, never "1h.."')
+  assert.match(detail.timelineHtml, new RegExp(`pause-clock__label" aria-hidden="true">${pausedWaypoint.pauseDurationMinutes}<`), 'the dial\'s own centred text — always minutes, never "1h.."')
   assert.doesNotMatch(detail.timelineHtml, /tag--pause-recommended/)
   assert.doesNotMatch(detail.timelineHtml, /day-detail__pause-reason/)
   assert.doesNotMatch(detail.timelineHtml, /Bon choix/)
@@ -794,42 +821,42 @@ test('A (10 min ≈ one-sixth of the dial)', () => {
   const detail = buildDayDetail(manualPauseBundle(600), 'day-alpha')
   const dial = pauseClockOf(detail)
   assert.ok(Math.abs(dial.fraction - 10 / 60) < 1e-9)
-  assert.equal(dial.label, "10'")
+  assert.equal(dial.label, '10')
 })
 
 test('B (30 min = half circle)', () => {
   const detail = buildDayDetail(manualPauseBundle(1_800), 'day-alpha')
   const dial = pauseClockOf(detail)
   assert.equal(dial.fraction, 0.5)
-  assert.equal(dial.label, "30'")
+  assert.equal(dial.label, '30')
 })
 
 test('C (55 min ≈ almost-complete sector)', () => {
   const detail = buildDayDetail(manualPauseBundle(3_300), 'day-alpha')
   const dial = pauseClockOf(detail)
   assert.ok(Math.abs(dial.fraction - 55 / 60) < 1e-9)
-  assert.equal(dial.label, "55'")
+  assert.equal(dial.label, '55')
 })
 
 test('D (60 min = full circle)', () => {
   const detail = buildDayDetail(manualPauseBundle(3_600), 'day-alpha')
   const dial = pauseClockOf(detail)
   assert.equal(dial.fraction, 1)
-  assert.equal(dial.label, "60'")
+  assert.equal(dial.label, '60')
 })
 
-test('E (75 min = full circle + text "75\'")', () => {
+test('E (75 min = full circle + text "75", no apostrophe — RC2 section 28)', () => {
   const detail = buildDayDetail(manualPauseBundle(4_500), 'day-alpha')
   const dial = pauseClockOf(detail)
   assert.equal(dial.fraction, 1, 'never a second ring/lap — a ≥60 min pause always reads as a full dial')
-  assert.equal(dial.label, "75'")
+  assert.equal(dial.label, '75')
 })
 
-test('F (95 min = full circle + text "95\'")', () => {
+test('F (95 min = full circle + text "95", no apostrophe — RC2 section 28)', () => {
   const detail = buildDayDetail(manualPauseBundle(5_700), 'day-alpha')
   const dial = pauseClockOf(detail)
   assert.equal(dial.fraction, 1)
-  assert.equal(dial.label, "95'")
+  assert.equal(dial.label, '95')
 })
 
 test('always minutes, never "1h.." — even at 75/95 min', () => {
@@ -842,13 +869,13 @@ test('always minutes, never "1h.." — even at 75/95 min', () => {
 test('I (39 min normalizes to 40 before it ever reaches the dial — legacy compatibility)', () => {
   const detail = buildDayDetail(manualPauseBundle(39 * 60), 'day-alpha')
   const dial = pauseClockOf(detail)
-  assert.equal(dial.label, "40'")
+  assert.equal(dial.label, '40')
 })
 
 test('J (77 min normalizes to 75 before it ever reaches the dial)', () => {
   const detail = buildDayDetail(manualPauseBundle(77 * 60), 'day-alpha')
   const dial = pauseClockOf(detail)
-  assert.equal(dial.label, "75'")
+  assert.equal(dial.label, '75')
 })
 
 test('G: a paused vignette keeps the same general timeline-row geometry as an unpaused one — only the fixed-size dial differs', () => {
@@ -1135,6 +1162,26 @@ test('a dedicated/before_next transfer, an OFF day, and a ride day show no share
   }
 })
 
+// --- RC2 final-closeout sections 32-35: OFF days share the preceding day's séjour ---
+
+test('RC2 section 32/33: an OFF day with no manual location override of its own shows a shared-info hint and the preceding ride day\'s own notes', () => {
+  const bundle = createGenericTripBundle()
+  bundle.days[1].startLocationName = null // day-bravo: no override any more — same place as day-alpha's arrival
+  bundle.days[0].notes = 'Arrived and staying at the riverside lodge.'
+  const detail = buildDayDetail(bundle, 'day-bravo')
+  assert.match(detail.infosHtml, /day-infos__shared-hint/, 'day-bravo now genuinely shares day-alpha\'s séjour')
+  assert.match(detail.infosHtml, /Arrived and staying at the riverside lodge\./, 'day-alpha\'s own notes show here')
+  assert.doesNotMatch(detail.infosHtml, /Rest day in Hilltown\./, 'never day-bravo\'s own (now-orphaned) notes')
+})
+
+test('RC2 section 32: an OFF day keeps its own Infos (no shared-info hint) once it carries a manual location override — a genuinely different place', () => {
+  const bundle = createGenericTripBundle()
+  // day-bravo already carries a non-null startLocationName in the fixture
+  // ('Hilltown') — the exact signal that keeps it independent.
+  const detail = buildDayDetail(bundle, 'day-bravo')
+  assert.doesNotMatch(detail.infosHtml, /day-infos__shared-hint/)
+})
+
 test('R2.1 section 32: a before_next transfer never shows lodging fields at all — logically belongs to the following ride day, not the journey', () => {
   const bundle = createGenericTripBundle()
   bundle.days[2].transferTiming = 'before_next'
@@ -1193,6 +1240,42 @@ test('no reservation link/opérateur configured shows neither line at all — ne
   const detail = buildDayDetail(bundle, 'day-charlie')
   assert.doesNotMatch(detail.summaryHtml, /Réservation/)
   assert.doesNotMatch(detail.summaryHtml, /day-detail__summary-actions/)
+})
+
+// --- RC2 final-closeout sections 38-39/45: Billet + Itinéraire in the transfer's own Résumé ---
+
+test('AF/AG: a configured Billet link appears as its own clickable action, independent from Réservation', () => {
+  const bundle = createGenericTripBundle()
+  bundle.days[2].transferLink = 'https://sncf-connect.com/booking/abc123'
+  bundle.days[2].transferTicketLink = 'https://sncf-connect.com/ticket/xyz789'
+  const detail = buildDayDetail(bundle, 'day-charlie')
+  assert.match(detail.summaryHtml, /<a class="button button--quiet" href="https:\/\/sncf-connect\.com\/booking\/abc123" target="_blank" rel="noopener">Réservation<\/a>/)
+  assert.match(detail.summaryHtml, /<a class="button button--quiet" href="https:\/\/sncf-connect\.com\/ticket\/xyz789" target="_blank" rel="noopener">Billet<\/a>/)
+})
+
+test('a Billet link alone (no Réservation) still shows as its own action', () => {
+  const bundle = createGenericTripBundle()
+  bundle.days[2].transferTicketLink = 'https://sncf-connect.com/ticket/xyz789'
+  const detail = buildDayDetail(bundle, 'day-charlie')
+  assert.doesNotMatch(detail.summaryHtml, /Réservation/)
+  assert.match(detail.summaryHtml, /Billet/)
+})
+
+test('AH: Itinéraire appears once both origin and destination resolve, as a generic (non-cycling) directions link', () => {
+  const bundle = createGenericTripBundle()
+  // Give the second ride stage's route real geometry too, so the transfer's
+  // destination side actually resolves (route2 is geometry: null by default).
+  bundle.routes[1].geometry = { full: [{ latitude: 46, longitude: 7, altitudeM: null }, { latitude: 46.2, longitude: 7.3, altitudeM: null }], simplified: null }
+  const detail = buildDayDetail(bundle, 'day-charlie')
+  assert.match(detail.summaryHtml, /Itinéraire/)
+  assert.match(detail.summaryHtml, /www\.google\.com\/maps\/dir\/\?api=1&(amp;)?origin=/)
+  assert.doesNotMatch(detail.summaryHtml, /travelmode/, 'never forced into cycling directions — a transfer may be any mode')
+})
+
+test('Itinéraire never appears when either side of the transfer is unresolved', () => {
+  const bundle = createGenericTripBundle()
+  const detail = buildDayDetail(bundle, 'day-charlie')
+  assert.doesNotMatch(detail.summaryHtml, /Itinéraire/)
 })
 
 test('R2.1 sections 22/31: the "dedicated" transferTiming label reads "Journée indépendante", matching the CDC\'s own wording', () => {

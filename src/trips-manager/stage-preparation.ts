@@ -57,6 +57,32 @@ export const NO_STAGE_PREPARATION_CONTEXT: StagePreparationContext = {
  * persisted trip-wide provider state, since they reflect what's actually
  * happening in *this* session right now.
  */
+/**
+ * RC2 final-closeout section 18 — the practical-places (POI) dimension's
+ * contribution to `relevant` below, refined to THIS one ride day when
+ * precise per-stage data is available (`enrichmentMetadata.
+ * practicalPlacesStageErrors`, populated by the progressive per-stage
+ * `practical-places/enrichment.ts` pass): when the trip-wide aggregate is
+ * `success`/`not-configured`/`pending`, every stage shares it exactly like
+ * before (nothing to refine — either everything's fine, or nothing's been
+ * attempted). Only when the aggregate says `partial`/`error` — today, EVERY
+ * ride day inherits that single trip-wide verdict alike, the literal cause
+ * of "toutes les vignettes semblent En cours/À compléter" — do we consult
+ * the per-stage list: this exact day errored → `error`, any other day →
+ * `success` (its own POI are fine; the trip-wide flag is about a sibling
+ * stage). A bundle enriched before this field existed (`undefined`, never
+ * an empty array) has no per-stage detail yet — falls back to the coarse
+ * trip-wide value for every stage, exactly like before, and self-heals the
+ * next time automatic enrichment runs for this trip (always cache-first,
+ * always triggered again on next open since the aggregate isn't `success`).
+ */
+function effectivePracticalPlacesStatus(bundle: TripBundle, dayId: TripDayId, aggregate: EnrichmentProviderStatus): EnrichmentProviderStatus {
+  if (aggregate !== 'partial' && aggregate !== 'error') return aggregate
+  const stageErrors = bundle.enrichmentMetadata.practicalPlacesStageErrors
+  if (stageErrors === undefined) return aggregate
+  return stageErrors.includes(dayId) ? 'error' : 'success'
+}
+
 export function deriveStagePreparationStatus(bundle: TripBundle, dayId: TripDayId, context: StagePreparationContext = NO_STAGE_PREPARATION_CONTEXT): StagePreparationStatus | null {
   const day = bundle.days.find((candidate) => candidate.id === dayId)
   if (day === undefined || day.type !== 'ride' || day.stageId === null) return null
@@ -68,7 +94,8 @@ export function deriveStagePreparationStatus(bundle: TripBundle, dayId: TripDayI
     relevant.push(bundle.enrichmentMetadata.providers.find((state) => state.provider === 'postpass-route-enrichment')?.status ?? 'not-configured')
   }
   if (context.practicalPlacesConfigured) {
-    relevant.push(bundle.enrichmentMetadata.providers.find((state) => state.provider === 'postpass-practical-places')?.status ?? 'not-configured')
+    const aggregate = bundle.enrichmentMetadata.providers.find((state) => state.provider === 'postpass-practical-places')?.status ?? 'not-configured'
+    relevant.push(effectivePracticalPlacesStatus(bundle, dayId, aggregate))
   }
   // Nothing is even configured for this deployment/test — never a
   // permanently pending ride with no way to ever become ready.
@@ -78,6 +105,27 @@ export function deriveStagePreparationStatus(bundle: TripBundle, dayId: TripDayI
   if (relevant.every((status) => status === 'success')) return 'ready'
   if (relevant.some((status) => status === 'success' || status === 'partial')) return 'partial'
   return 'error'
+}
+
+/**
+ * RC2 final-closeout sections 19-20 — the "Mes voyages" card's own discreet,
+ * jargon-free indicator: `null` once every ride day is `ready` (or the trip
+ * has none at all) — nothing to show, silence when healthy, exactly like
+ * every other status surface in this app. Otherwise the same ready/total
+ * count `patchStagePreparationSummary` already shows on the Voyage screen,
+ * reused here rather than a second, divergent computation.
+ */
+export interface TripPreparationSummary {
+  readonly ready: number
+  readonly total: number
+}
+
+export function computeTripPreparationSummary(bundle: TripBundle, context: StagePreparationContext = NO_STAGE_PREPARATION_CONTEXT): TripPreparationSummary | null {
+  const rideDayIds = bundle.days.filter((day) => day.type === 'ride' && day.stageId !== null).map((day) => day.id)
+  const total = rideDayIds.length
+  if (total === 0) return null
+  const ready = rideDayIds.filter((id) => deriveStagePreparationStatus(bundle, id, context) === 'ready').length
+  return ready >= total ? null : { ready, total }
 }
 
 /**

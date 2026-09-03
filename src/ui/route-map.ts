@@ -260,19 +260,21 @@ export function createRouteMap(container: HTMLElement, model: RouteMapModel, opt
  * is valid immediately, no polling, no timing race (CDC section 34).
  *
  * `initial === null` (nothing resolvable yet, CDC section 32) falls back to
- * a wide, clearly-generic view (mainland France) purely so the map has
- * somewhere to render tiles and receive a tap — this fallback view is
- * NEVER itself treated as a chosen location (CDC section 33: "ne jamais
- * persister ce fallback comme vraie localisation sans clic utilisateur");
- * only the caller's own `onMapClick` handler ever produces a real
- * coordinate.
+ * a wide, clearly-generic view (RC2 final-closeout section 58: France AND
+ * Belgium, never France alone — this is the only realistic "no context at
+ * all" case, a transfer before the trip's first stage or after its last)
+ * purely so the map has somewhere to render tiles and receive a tap — this
+ * fallback view is NEVER itself treated as a chosen location (CDC section
+ * 33: "ne jamais persister ce fallback comme vraie localisation sans clic
+ * utilisateur"); only the caller's own `onMapClick` handler ever produces a
+ * real coordinate.
  */
 export function mountLocationPicker(container: HTMLElement, initial: { readonly latitude: number; readonly longitude: number } | null, onTileError: () => void): RouteMapInteractionHandle | null {
   const model: RouteMapModel = initial === null
     ? { coordinates: [], markers: [] }
     : { coordinates: [], markers: [{ id: 'picker-initial', category: 'start', name: 'Position actuelle', coordinate: [initial.latitude, initial.longitude], offRoute: false, pauseActive: false }] }
   const map = createRouteMap(container, model, { interactive: true, fitPadding: [24, 24], maxInitialZoom: 13 }, onTileError)
-  if (initial === null) map.setView([46.5, 2.5], 5)
+  if (initial === null) map.setView([48.6, 3.5], 5)
   return getRouteMapInteractionHandle(container)
 }
 

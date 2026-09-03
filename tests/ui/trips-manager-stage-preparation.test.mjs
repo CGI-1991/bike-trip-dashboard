@@ -237,6 +237,76 @@ test('S: a ride day still mid-Postpass-pass (pending/running) opens exactly like
   }
 })
 
+test('RC2 final-closeout sections 14-15: "Réessayer" targets only the stage practicalPlacesStageErrors names — the sibling stage is never re-requested', async () => {
+  const db = await openTestDatabase()
+  try {
+    const bundle = createGenericTripBundle()
+    const route2 = bundle.routes.find((route) => route.id === bundle.stages[1].sourceRouteId)
+    route2.geometry = { full: null, simplified: [{ latitude: 45.5, longitude: 6.7, altitudeM: 900 }, { latitude: 45.6, longitude: 6.9, altitudeM: 1100 }] }
+    // The trip-wide aggregate already reads "success" (so opening the trip
+    // triggers no automatic pass of its own — isolates this test to the
+    // retry click's own behaviour) while `practicalPlacesStageErrors` still
+    // names day-delta specifically, exactly the state a progressive
+    // per-stage pass leaves behind right after a targeted fix elsewhere.
+    bundle.enrichmentMetadata = {
+      providers: [{ provider: 'postpass-practical-places', status: 'success', lastAttemptedAt: '2027-05-01T08:00:00.000Z', lastSuccessAt: '2027-05-01T08:00:00.000Z', message: null }],
+      practicalPlacesStageErrors: ['day-delta'],
+    }
+    await createTripRepository(db).saveTripBundle(bundle)
+    const container = createFakeContainer()
+    const seenStageIds = []
+    const provider = {
+      id: 'controllable', sourceType: 'osm', attribution: 'x',
+      async findCandidates(search) {
+        seenStageIds.push(search.stageId)
+        return { candidates: [], durationMs: 1, rawCandidateCount: 0, httpStatus: 200, payloadBytes: 0, startedAt: '2028-01-01T00:00:00.000Z', finishedAt: '2028-01-01T00:00:00.001Z' }
+      },
+    }
+    const handle = initializeTripsManager(container, {
+      database: db, now: () => '2027-05-01T08:00:00.000Z', idFactory: (() => { let n = 0; return () => `id-${n++}` })(),
+      renderMap: () => {}, closeMap: () => {}, weatherProvider: stubWeatherProvider(),
+      practicalPlacesProvider: provider,
+    })
+    container.dispatch('click', { target: fakeActionElement({ action: 'open-trip', tripId: bundle.metadata.id }) })
+    await flush()
+    await handle.goToDetailForActiveTrip()
+    await waitUntil(() => !handle.isAutomaticEnrichmentInFlight(bundle.metadata.id))
+    assert.equal(seenStageIds.length, 0, 'nothing needed on open — the trip-wide aggregate already says success')
+
+    container.dispatch('click', { target: fakeActionElement({ action: 'retry-stage-preparation', tripId: bundle.metadata.id, dayId: 'day-delta' }) })
+    await waitUntil(() => seenStageIds.length >= 1)
+    await flush(50)
+    assert.deepEqual(seenStageIds, [bundle.stages[1].id], 'only day-delta\'s own stage was retried — day-alpha was never touched')
+    await handle.waitForWeatherIdle()
+  } finally {
+    db.close()
+  }
+})
+
+test('RC2 final-closeout sections 14-15: "Réessayer" falls back to the whole-trip retry (never crashes) when this stage has no POI-specific issue on record', async () => {
+  const db = await openTestDatabase()
+  try {
+    const bundle = createGenericTripBundle()
+    await createTripRepository(db).saveTripBundle(bundle)
+    const container = createFakeContainer()
+    const handle = initializeTripsManager(container, {
+      database: db, now: () => '2027-05-01T08:00:00.000Z', idFactory: (() => { let n = 0; return () => `id-${n++}` })(),
+      renderMap: () => {}, closeMap: () => {}, weatherProvider: stubWeatherProvider(),
+    })
+    container.dispatch('click', { target: fakeActionElement({ action: 'open-trip', tripId: bundle.metadata.id }) })
+    await flush()
+    await handle.goToDetailForActiveTrip()
+    await waitUntil(() => !handle.isAutomaticEnrichmentInFlight(bundle.metadata.id))
+
+    container.dispatch('click', { target: fakeActionElement({ action: 'retry-stage-preparation', tripId: bundle.metadata.id, dayId: 'day-alpha' }) })
+    await flush(100)
+    await waitUntil(() => !handle.isAutomaticEnrichmentInFlight(bundle.metadata.id))
+    await handle.waitForWeatherIdle()
+  } finally {
+    db.close()
+  }
+})
+
 test('T/U: a partial or errored Postpass status never blocks opening either — already the case before R3, still true after removing the pending/running gate', async () => {
   const db = await openTestDatabase()
   try {

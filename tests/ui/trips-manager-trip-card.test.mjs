@@ -96,6 +96,57 @@ test('R1: a "ready" trip card shows no status badge at all — that state is the
   }
 })
 
+function stubPracticalPlacesProvider() {
+  return {
+    id: 'stub-practical', sourceType: 'osm', attribution: 'x',
+    async findCandidates() {
+      return { candidates: [], durationMs: 1, rawCandidateCount: 0, httpStatus: 200, payloadBytes: 0, startedAt: '2028-01-01T00:00:00.000Z', finishedAt: '2028-01-01T00:00:00.001Z' }
+    },
+  }
+}
+
+// --- RC2 final-closeout sections 19-20/75: "Mes voyages" own preparation indicator ---
+
+test('RC2 sections 19-20: a trip mid-enrichment shows a discreet, jargon-free indicator with a ready/total count', async () => {
+  const db = await openTestDatabase()
+  try {
+    const bundle = createGenericTripBundle()
+    bundle.enrichmentMetadata = {
+      providers: [{ provider: 'postpass-practical-places', status: 'partial', lastAttemptedAt: '2027-05-01T08:00:00.000Z', lastSuccessAt: '2027-05-01T08:00:00.000Z', message: null }],
+      practicalPlacesStageErrors: ['day-delta'],
+    }
+    await createTripRepository(db).saveTripBundle(bundle)
+    const container = createFakeContainer()
+    initializeTripsManager(container, noopDeps(db, { practicalPlacesProvider: stubPracticalPlacesProvider() }))
+    await flush()
+
+    assert.match(container.innerHTML, /trip-card__prep/)
+    assert.match(container.innerHTML, /Préparation du roadbook · 1\/2/, 'day-alpha ready, day-delta not — a plain ready\/total count')
+    assert.doesNotMatch(container.innerHTML, /Postpass|cache|provider|retained/i, 'no technical/network jargon (section 20)')
+  } finally {
+    db.close()
+  }
+})
+
+test('RC2 sections 19-20: no indicator at all once every ride day is ready — silence when healthy, even with a provider configured', async () => {
+  const db = await openTestDatabase()
+  try {
+    const bundle = createGenericTripBundle()
+    bundle.enrichmentMetadata = {
+      providers: [{ provider: 'postpass-practical-places', status: 'success', lastAttemptedAt: '2027-05-01T08:00:00.000Z', lastSuccessAt: '2027-05-01T08:00:00.000Z', message: null }],
+    }
+    await createTripRepository(db).saveTripBundle(bundle)
+    const container = createFakeContainer()
+    initializeTripsManager(container, noopDeps(db, { practicalPlacesProvider: stubPracticalPlacesProvider() }))
+    await flush()
+
+    assert.doesNotMatch(container.innerHTML, /trip-card__prep/)
+    assert.doesNotMatch(container.innerHTML, /Préparation du roadbook/)
+  } finally {
+    db.close()
+  }
+})
+
 test('an undated trip shows "Non daté", never null/undefined/an ISO string', async () => {
   const db = await openTestDatabase()
   try {

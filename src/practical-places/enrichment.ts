@@ -4,7 +4,7 @@ import { PRACTICAL_PLACES_ANCHOR_RADIUS_METERS, PRACTICAL_PLACES_CORRIDOR_RADIUS
 import { createPracticalPlacesCacheRepository } from '../storage/indexeddb/practical-places-cache-repository.ts'
 import type { PracticalPlacesCacheRepository } from '../storage/indexeddb/practical-places-cache-repository.ts'
 import { createTripRepository } from '../storage/indexeddb/trip-repository.ts'
-import type { EnrichmentProviderState, PracticalPlace, RideStage, Route, RouteGeometryPoint, TripBundle, TripDay, TripId } from '../trip-core/index.ts'
+import type { EnrichmentProviderState, PracticalPlace, RideStage, Route, RouteGeometryPoint, TripBundle, TripDay, TripDayId, TripId } from '../trip-core/index.ts'
 import { practicalPlaceId } from '../trip-core/index.ts'
 import { locateAndDeduplicatePostpassPracticalPlaces } from './route-proximity.ts'
 import type { LocatedPracticalPlaceCandidate } from './route-proximity.ts'
@@ -65,6 +65,14 @@ export interface EnrichTripPracticalPlacesInput {
 export interface EnrichStoredTripPracticalPlacesInput extends Omit<EnrichTripPracticalPlacesInput, 'bundle' | 'cache'> {
   readonly database: IDBDatabase
   readonly tripId: TripId
+  /**
+   * RC2 final-closeout section 14 — when set, only this one ride day's stage
+   * is (re-)processed (a targeted "Réessayer"/pause-anchor-change retry),
+   * instead of every currently-pending stage. Omitted for the ordinary
+   * trip-open pass, which still covers every pending stage, one at a time,
+   * in chronological order.
+   */
+  readonly onlyDayId?: TripDayId
 }
 
 function pendingLookups(bundle: TripBundle): readonly Omit<StageLookup, 'candidates' | 'status' | 'fromCache'>[] {
@@ -190,7 +198,24 @@ function providerState(lookups: readonly StageLookup[], attemptedAt: string, exi
   }
 }
 
-function applyLookups(bundle: TripBundle, lookups: readonly StageLookup[], geometryByStageId: Map<string, readonly RouteGeometryPoint[]>, anchorsByStageId: Map<string, readonly PracticalPlaceAnchor[]>, provider: PracticalPlacesProvider, attemptedAt: string): TripBundle {
+/**
+ * RC2 final-closeout section 18 — merges this pass's per-stage outcomes into
+ * the persisted `practicalPlacesStageErrors` list: a stage that errored is
+ * added, a stage that settled (success or no-result) is removed; every
+ * other stage's existing entry (untouched by this pass — e.g. a targeted
+ * single-stage retry) is left exactly as it was. Order doesn't matter (it's
+ * only ever tested with `.includes`) but stays stable/deduplicated.
+ */
+function mergeStageErrors(existing: readonly TripDayId[] | undefined, lookups: readonly StageLookup[]): readonly TripDayId[] {
+  const next = new Set(existing ?? [])
+  for (const lookup of lookups) {
+    if (lookup.status === 'error') next.add(lookup.day.id)
+    else next.delete(lookup.day.id)
+  }
+  return [...next]
+}
+
+function applyPracticalPlacesForLookups(bundle: TripBundle, lookups: readonly StageLookup[], geometryByStageId: Map<string, readonly RouteGeometryPoint[]>, anchorsByStageId: Map<string, readonly PracticalPlaceAnchor[]>, provider: PracticalPlacesProvider, attemptedAt: string): readonly PracticalPlace[] {
   let practicalPlaces = [...bundle.practicalPlaces]
   for (const lookup of lookups) {
     if (lookup.status === 'error') continue
@@ -205,6 +230,19 @@ function applyLookups(bundle: TripBundle, lookups: readonly StageLookup[], geome
     for (const place of generated) byId.set(place.id, place)
     practicalPlaces = [...byId.values()]
   }
+  return practicalPlaces
+}
+
+/**
+ * The pure, in-memory batch path (`enrichTripPracticalPlaces` below) always
+ * covers every currently-pending stage in one call, so the trip-wide
+ * aggregate can be (and always was) recomputed in the same step as the
+ * per-stage data and the per-stage error list — unchanged behaviour/shape,
+ * just now also stamping `practicalPlacesStageErrors`.
+ */
+function applyLookups(bundle: TripBundle, lookups: readonly StageLookup[], geometryByStageId: Map<string, readonly RouteGeometryPoint[]>, anchorsByStageId: Map<string, readonly PracticalPlaceAnchor[]>, provider: PracticalPlacesProvider, attemptedAt: string): TripBundle {
+  const practicalPlaces = applyPracticalPlacesForLookups(bundle, lookups, geometryByStageId, anchorsByStageId, provider, attemptedAt)
+  const stageErrors = mergeStageErrors(bundle.enrichmentMetadata.practicalPlacesStageErrors, lookups)
   return {
     ...bundle,
     metadata: { ...bundle.metadata, updatedAt: attemptedAt },
@@ -214,6 +252,82 @@ function applyLookups(bundle: TripBundle, lookups: readonly StageLookup[], geome
         ...bundle.enrichmentMetadata.providers.filter((state) => state.provider !== PRACTICAL_PLACES_PROVIDER_STATE),
         providerState(lookups, attemptedAt, bundle.enrichmentMetadata.providers.find((state) => state.provider === PRACTICAL_PLACES_PROVIDER_STATE)),
       ],
+      ...(stageErrors.length === 0 ? {} : { practicalPlacesStageErrors: stageErrors }),
+    },
+  }
+}
+
+/**
+ * RC2 final-closeout sections 11-13 — the progressive, per-stage-persisted
+ * counterpart of `applyLookups`: applies exactly ONE stage's own result and
+ * updates only its own entry in `practicalPlacesStageErrors`, WITHOUT
+ * touching the trip-wide `postpass-practical-places` provider aggregate at
+ * all (that aggregate is only ever safe to recompute once a full pass over
+ * every currently-pending stage has actually happened — see
+ * `finalizeAggregateFromLookups`/`finalizeAggregateFromStageErrors` below;
+ * recomputing it from a single stage mid-pass could otherwise persist a
+ * premature "success" while sibling stages further down the same pass
+ * haven't been attempted yet at all).
+ */
+function applyStageLookup(bundle: TripBundle, lookup: StageLookup, geometry: readonly RouteGeometryPoint[], anchors: readonly PracticalPlaceAnchor[], provider: PracticalPlacesProvider, attemptedAt: string): TripBundle {
+  const practicalPlaces = applyPracticalPlacesForLookups(bundle, [lookup], new Map([[lookup.stage.id, geometry]]), new Map([[lookup.stage.id, anchors]]), provider, attemptedAt)
+  const stageErrors = mergeStageErrors(bundle.enrichmentMetadata.practicalPlacesStageErrors, [lookup])
+  return {
+    ...bundle,
+    metadata: { ...bundle.metadata, updatedAt: attemptedAt },
+    practicalPlaces,
+    enrichmentMetadata: {
+      providers: bundle.enrichmentMetadata.providers,
+      ...(stageErrors.length === 0 ? {} : { practicalPlacesStageErrors: stageErrors }),
+    },
+  }
+}
+
+/** Finalizes the trip-wide aggregate once a full pass over every pending stage has completed this call — identical math to the pure batch path. */
+function finalizeAggregateFromLookups(bundle: TripBundle, lookups: readonly StageLookup[], attemptedAt: string): TripBundle {
+  return {
+    ...bundle,
+    metadata: { ...bundle.metadata, updatedAt: attemptedAt },
+    enrichmentMetadata: {
+      ...bundle.enrichmentMetadata,
+      providers: [
+        ...bundle.enrichmentMetadata.providers.filter((state) => state.provider !== PRACTICAL_PLACES_PROVIDER_STATE),
+        providerState(lookups, attemptedAt, bundle.enrichmentMetadata.providers.find((state) => state.provider === PRACTICAL_PLACES_PROVIDER_STATE)),
+      ],
+    },
+  }
+}
+
+/**
+ * Finalizes the trip-wide aggregate after a TARGETED single-stage retry
+ * (`onlyDayId`, section 14) — safe only because a targeted retry is only
+ * ever reachable once a first full pass has already settled every pending
+ * stage's own entry at least once (a pause-anchor change on an
+ * already-enriched stage, or a "Réessayer" click on a stage a full pass
+ * already flagged partial/error), so `practicalPlacesStageErrors` already
+ * reflects every OTHER pending stage's real last-known outcome — recomputing
+ * the aggregate from its size against the current pending count is never a
+ * premature "success" the way it would be mid-way through a trip's very
+ * first pass.
+ */
+function finalizeAggregateFromStageErrors(bundle: TripBundle, totalPendingStageIds: readonly TripDayId[], attemptedAt: string): TripBundle {
+  const pendingSet = new Set(totalPendingStageIds)
+  const errors = (bundle.enrichmentMetadata.practicalPlacesStageErrors ?? []).filter((dayId) => pendingSet.has(dayId)).length
+  const existing = bundle.enrichmentMetadata.providers.find((state) => state.provider === PRACTICAL_PLACES_PROVIDER_STATE)
+  const successes = totalPendingStageIds.length - errors
+  const aggregate: EnrichmentProviderState = {
+    provider: PRACTICAL_PLACES_PROVIDER_STATE,
+    lastAttemptedAt: attemptedAt,
+    lastSuccessAt: successes > 0 ? attemptedAt : existing?.lastSuccessAt ?? null,
+    status: errors === 0 ? 'success' : successes > 0 ? 'partial' : 'error',
+    message: errors === 0 ? null : `${errors} étape(s) restent à rechercher ; les lieux acquis sont conservés.`,
+  }
+  return {
+    ...bundle,
+    metadata: { ...bundle.metadata, updatedAt: attemptedAt },
+    enrichmentMetadata: {
+      ...bundle.enrichmentMetadata,
+      providers: [...bundle.enrichmentMetadata.providers.filter((state) => state.provider !== PRACTICAL_PLACES_PROVIDER_STATE), aggregate],
     },
   }
 }
@@ -254,19 +368,79 @@ export async function enrichTripPracticalPlaces(input: EnrichTripPracticalPlaces
   }
 }
 
+/**
+ * RC2 final-closeout sections 11-13/73 — the progressive, per-stage
+ * persisted DB entry point: E1 → lookup → apply → SAVE → E2 → lookup →
+ * apply → SAVE → ..., in the trip's own chronological stage order (never
+ * "today's stage first" — CDC section 5), instead of resolving every stage
+ * in memory and saving once at the very end. A stage that times out or
+ * errors (`resolveLookup` already never lets a rejected fetch propagate)
+ * keeps whatever it already had, is recorded in
+ * `enrichmentMetadata.practicalPlacesStageErrors`, and the loop moves on to
+ * the next stage unconditionally (section 13: one slow/failed stage never
+ * blocks the rest). Each stage's save keeps the same optimistic-concurrency
+ * guard the whole-batch path always had (never overwrite an edit that
+ * landed while this stage's own request was in flight) — on a conflict this
+ * stage's fresh result is simply dropped (not lost forever: it stays
+ * eligible for a future pass) and the loop continues from the newer bundle.
+ */
 export async function enrichStoredTripPracticalPlaces(input: EnrichStoredTripPracticalPlacesInput): Promise<PracticalPlacesEnrichmentReport | null> {
   const repository = createTripRepository(input.database)
-  const original = await repository.loadTripBundle(input.tripId)
-  if (original === null) return null
-  const report = await enrichTripPracticalPlaces({
-    bundle: original,
-    provider: input.provider,
-    cache: createPracticalPlacesCacheRepository(input.database),
-    now: input.now,
-    onProgress: input.onProgress,
-  })
-  const latest = await repository.loadTripBundle(input.tripId)
-  if (latest === null || latest.metadata.updatedAt !== original.metadata.updatedAt) return { ...report, bundle: latest ?? report.bundle, saved: false }
-  await repository.saveTripBundle(report.bundle)
-  return { ...report, saved: true }
+  const cache = createPracticalPlacesCacheRepository(input.database)
+  const initial = await repository.loadTripBundle(input.tripId)
+  if (initial === null) return null
+
+  const allPending = pendingLookups(initial)
+  const targets = input.onlyDayId === undefined ? allPending : allPending.filter((lookup) => lookup.day.id === input.onlyDayId)
+  const totalPendingStageIds = allPending.map((lookup) => lookup.day.id)
+
+  let bundle = initial
+  const lookups: StageLookup[] = []
+  let anySaved = false
+
+  for (let index = 0; index < targets.length; index++) {
+    const target = targets[index]
+    if (target === undefined) continue
+    // Reload right before this stage's own work: picks up whatever the
+    // PREVIOUS stage in this same loop just saved, and any edit that landed
+    // from elsewhere (a pause change, a manual override) since the loop
+    // started.
+    const base = await repository.loadTripBundle(input.tripId)
+    if (base === null) break
+    bundle = base
+    const attemptedAt = input.now()
+    const lookup = await resolveLookup(bundle, target, input.provider, cache, attemptedAt, index, targets.length, input.onProgress)
+    lookups.push(lookup)
+    const applied = applyStageLookup(bundle, lookup, target.geometry, target.anchors, input.provider, attemptedAt)
+    const isLastOfPass = index === targets.length - 1
+    const withAggregate = isLastOfPass
+      ? (input.onlyDayId === undefined ? finalizeAggregateFromLookups(applied, lookups, attemptedAt) : finalizeAggregateFromStageErrors(applied, totalPendingStageIds, attemptedAt))
+      : applied
+
+    // Optimistic concurrency, scoped to this one stage's save: never clobber
+    // an edit that landed since `base` was read.
+    const latest = await repository.loadTripBundle(input.tripId)
+    if (latest === null) break
+    if (latest.metadata.updatedAt !== bundle.metadata.updatedAt) {
+      // Someone else changed the trip while this stage's request was in
+      // flight — drop this stage's result rather than overwrite theirs, and
+      // continue the loop from their newer bundle (section 13: the rest of
+      // the trip's stages are never blocked by this).
+      bundle = latest
+      continue
+    }
+    await repository.saveTripBundle(withAggregate)
+    bundle = withAggregate
+    anySaved = true
+  }
+
+  return {
+    bundle,
+    saved: anySaved,
+    stageCount: lookups.length,
+    requestCount: lookups.filter((lookup) => !lookup.fromCache && lookup.status !== 'error').length + lookups.filter((lookup) => lookup.status === 'error').length,
+    placeCount: bundle.practicalPlaces.filter(isAutomaticPracticalPlace).length,
+    cacheHitCount: lookups.filter((lookup) => lookup.fromCache).length,
+    networkErrorCount: lookups.filter((lookup) => lookup.status === 'error').length,
+  }
 }

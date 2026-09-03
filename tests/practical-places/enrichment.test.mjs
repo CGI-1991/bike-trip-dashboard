@@ -204,6 +204,155 @@ function withManualPause(bundle, durationSeconds) {
   }
 }
 
+// --- RC2 final-closeout sections 11-14/18/73: progressive per-stage persistence ---
+
+function withSecondEnrichableStage(bundle) {
+  bundle.routes[1].geometry = { full: null, simplified: [
+    { latitude: 46, longitude: 7, altitudeM: 800 },
+    { latitude: 46.1, longitude: 7.2, altitudeM: 1200 },
+  ] }
+  return bundle
+}
+
+test('C/D: each stage\'s result is persisted immediately — E1 is already committed to IndexedDB before E2\'s own request even starts', async () => {
+  const database = await openTestDatabase()
+  try {
+    const bundle = withSecondEnrichableStage(createGenericTripBundle())
+    const repository = createTripRepository(database)
+    await repository.saveTripBundle(bundle)
+    let calls = 0
+    const midPassSnapshots = []
+    const report = await enrichStoredTripPracticalPlaces({
+      database,
+      tripId: bundle.metadata.id,
+      provider: provider(async () => {
+        calls++
+        if (calls === 2) {
+          const midPass = await repository.loadTripBundle(bundle.metadata.id)
+          midPassSnapshots.push(midPass.practicalPlaces.some((place) => place.provenance.engineVersion === PRACTICAL_PLACES_ENGINE_VERSION))
+        }
+        return result([candidate({ osmId: `call-${calls}` })])
+      }),
+      now: () => '2028-08-03T10:00:00.000Z',
+    })
+    assert.equal(calls, 2)
+    assert.deepEqual(midPassSnapshots, [true], 'E1\'s result was already saved before E2\'s request fired')
+    assert.equal(report.saved, true)
+    assert.equal(report.bundle.enrichmentMetadata.providers.find((state) => state.provider === 'postpass-practical-places')?.status, 'success')
+  } finally {
+    database.close()
+  }
+})
+
+test('E: E2 timeout/error does not stop E3 — each stage is still attempted, chronological order preserved (F)', async () => {
+  const database = await openTestDatabase()
+  try {
+    const bundle = createGenericTripBundle()
+    withSecondEnrichableStage(bundle)
+    // A genuine third ride day + stage + route, appended after the others —
+    // asserts the whole chronological run, not just a two-stage case.
+    const thirdDayId = 'day-echo'
+    const thirdDayDate = '2027-05-14'
+    bundle.days.push({
+      ...bundle.days[0], id: thirdDayId, index: bundle.days.length, displayNumber: bundle.days.length + 1,
+      date: thirdDayDate, stageId: 'stage-charlie', accommodationId: null, notes: null,
+    })
+    bundle.metadata = { ...bundle.metadata, endDate: thirdDayDate }
+    bundle.calendar = { ...bundle.calendar, endDate: thirdDayDate }
+    bundle.stages.push({ ...bundle.stages[0], id: 'stage-charlie', dayId: thirdDayId, sourceRouteId: 'route-extra', routePointIds: [], weatherRecordIds: [] })
+    bundle.routes.push({ ...bundle.routes[0], id: 'route-extra', geometry: { full: null, simplified: [
+      { latitude: 47, longitude: 8, altitudeM: 500 },
+      { latitude: 47.1, longitude: 8.2, altitudeM: 700 },
+    ] } })
+    const repository = createTripRepository(database)
+    await repository.saveTripBundle(bundle)
+    const seenStageIds = []
+    let calls = 0
+    const report = await enrichStoredTripPracticalPlaces({
+      database,
+      tripId: bundle.metadata.id,
+      provider: provider(async (search) => {
+        calls++
+        seenStageIds.push(search.stageId)
+        if (calls === 2) throw new Error('offline')
+        return result([candidate({ osmId: `call-${calls}` })])
+      }),
+      now: () => '2028-08-03T10:00:00.000Z',
+    })
+    assert.equal(calls, 3, 'all three stages were attempted — E2\'s failure never stopped E3')
+    assert.deepEqual(seenStageIds, ['stage-alpha', bundle.stages[1].id, 'stage-charlie'], 'strict chronological E1→E2→E3 order')
+    assert.equal(report.networkErrorCount, 1)
+    assert.equal(report.bundle.enrichmentMetadata.providers.find((state) => state.provider === 'postpass-practical-places')?.status, 'partial')
+  } finally {
+    database.close()
+  }
+})
+
+test('section 18: a stage-scoped POI failure is recorded per-stage in practicalPlacesStageErrors — never the whole trip', async () => {
+  const database = await openTestDatabase()
+  try {
+    const bundle = withSecondEnrichableStage(createGenericTripBundle())
+    const repository = createTripRepository(database)
+    await repository.saveTripBundle(bundle)
+    let calls = 0
+    const report = await enrichStoredTripPracticalPlaces({
+      database,
+      tripId: bundle.metadata.id,
+      provider: provider(async () => {
+        calls++
+        if (calls === 2) throw new Error('offline')
+        return result([candidate({ osmId: `call-${calls}` })])
+      }),
+      now: () => '2028-08-03T10:00:00.000Z',
+    })
+    assert.deepEqual(report.bundle.enrichmentMetadata.practicalPlacesStageErrors, [bundle.stages[1].dayId])
+
+    // A subsequent successful full pass clears it again.
+    const second = await enrichStoredTripPracticalPlaces({
+      database, tripId: bundle.metadata.id,
+      provider: provider(async () => { calls++; return result([candidate({ osmId: `call-${calls}` })]) }),
+      now: () => '2028-08-04T10:00:00.000Z',
+    })
+    assert.equal(second.bundle.enrichmentMetadata.practicalPlacesStageErrors, undefined, 'cleared once every pending stage settles successfully — never left dangling')
+  } finally {
+    database.close()
+  }
+})
+
+test('section 14: onlyDayId retries exactly the previously-failed stage, without re-requesting the already-succeeded one', async () => {
+  const database = await openTestDatabase()
+  try {
+    const bundle = withSecondEnrichableStage(createGenericTripBundle())
+    const repository = createTripRepository(database)
+    await repository.saveTripBundle(bundle)
+    const calls = []
+    await enrichStoredTripPracticalPlaces({
+      database, tripId: bundle.metadata.id,
+      provider: provider(async (search) => {
+        calls.push(search.stageId)
+        if (search.stageId === bundle.stages[1].id) throw new Error('offline')
+        return result([candidate({ osmId: `initial-${calls.length}` })])
+      }),
+      now: () => '2028-08-03T10:00:00.000Z',
+    })
+    assert.equal(calls.length, 2, 'both stages were attempted by the ordinary full pass; the second one failed (never cached)')
+
+    const secondStageDayId = bundle.stages[1].dayId
+    const retryReport = await enrichStoredTripPracticalPlaces({
+      database, tripId: bundle.metadata.id, onlyDayId: secondStageDayId,
+      provider: provider(async (search) => { calls.push(search.stageId); return result([candidate({ osmId: `retry-${calls.length}` })]) }),
+      now: () => '2028-08-04T10:00:00.000Z',
+    })
+    assert.equal(calls.length, 3, 'only the previously-failed stage made a new request — the already-succeeded first stage stays cached and untouched')
+    assert.equal(calls[2], bundle.stages[1].id)
+    assert.equal(retryReport.stageCount, 1)
+    assert.equal(retryReport.bundle.enrichmentMetadata.practicalPlacesStageErrors, undefined, 'the retry cleared the per-stage issue')
+    assert.equal(retryReport.bundle.enrichmentMetadata.providers.find((state) => state.provider === 'postpass-practical-places')?.status, 'success')
+  } finally {
+    database.close()
+  }
+})
+
 test('AK/AL: moving a pause to a different anchor is a real cache-miss for that stage — the stale POI set is never silently reused forever', async () => {
   const database = await openTestDatabase()
   try {

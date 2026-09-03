@@ -210,22 +210,78 @@ test('resolveSharedInfoDayId: an after_previous transfer resolves to the calenda
   assert.equal(resolveSharedInfoDayId(bundle(days, []), days[1]), 'd0')
 })
 
-test('resolveSharedInfoDayId: a dedicated or before_next transfer, an OFF day, and a ride day all resolve to themselves', () => {
+test('resolveSharedInfoDayId: a dedicated or before_next transfer, and a ride day, all resolve to themselves', () => {
   const dedicated = day({ id: 'd0', index: 0, type: 'transfer', transferTiming: 'dedicated' })
   const beforeNext = day({ id: 'd1', index: 1, type: 'transfer', transferTiming: 'before_next' })
   const untimed = day({ id: 'd2', index: 2, type: 'transfer' })
-  const off = day({ id: 'd3', index: 3, type: 'off' })
   const ride = day({ id: 'd4', index: 4, type: 'ride', stageId: 's4' })
-  const days = [dedicated, beforeNext, untimed, off, ride]
+  const days = [dedicated, beforeNext, untimed, ride]
   const b = bundle(days, [])
   assert.equal(resolveSharedInfoDayId(b, dedicated), 'd0')
   assert.equal(resolveSharedInfoDayId(b, beforeNext), 'd1')
   assert.equal(resolveSharedInfoDayId(b, untimed), 'd2', 'the historical absence of transferTiming is treated as dedicated, same as countCalendarDays')
-  assert.equal(resolveSharedInfoDayId(b, off), 'd3')
   assert.equal(resolveSharedInfoDayId(b, ride), 'd4')
 })
 
 test('resolveSharedInfoDayId: an after_previous transfer with no calendar-adjacent day at all falls back to its own id, never crashes', () => {
   const days = [day({ id: 'd0', index: 0, type: 'transfer', transferTiming: 'after_previous' })]
   assert.equal(resolveSharedInfoDayId(bundle(days, []), days[0]), 'd0')
+})
+
+// --- RC2 final-closeout sections 32-35: OFF days share the previous day's séjour ---
+
+test('RC2 section 32: an OFF day with no manual location override shares Infos with the immediately preceding day', () => {
+  const days = [
+    day({ id: 'd0', index: 0, type: 'ride', stageId: 's0' }),
+    day({ id: 'd1', index: 1, type: 'off' }),
+  ]
+  assert.equal(resolveSharedInfoDayId(bundle(days, []), days[1]), 'd0', 'an OFF right after a ride day shares that ride day\'s own séjour (section 33)')
+})
+
+test('RC2 section 32: an OFF day with its own manual location override stays its own Infos owner', () => {
+  const days = [
+    day({ id: 'd0', index: 0, type: 'ride', stageId: 's0' }),
+    day({ id: 'd1', index: 1, type: 'off', startLocationName: 'Somewhere Else' }),
+  ]
+  assert.equal(resolveSharedInfoDayId(bundle(days, []), days[1]), 'd1', 'a genuinely different place never inherits a neighbour\'s séjour')
+})
+
+test('RC2 section 34: Ride → OFF → OFF — both consecutive OFF days resolve to the SAME ride day, never a chain of separate copies', () => {
+  const days = [
+    day({ id: 'd0', index: 0, type: 'ride', stageId: 's0' }),
+    day({ id: 'd1', index: 1, type: 'off' }),
+    day({ id: 'd2', index: 2, type: 'off' }),
+  ]
+  const b = bundle(days, [])
+  assert.equal(resolveSharedInfoDayId(b, days[1]), 'd0')
+  assert.equal(resolveSharedInfoDayId(b, days[2]), 'd0', 'chained transitively through the first OFF day, to the same ultimate owner')
+})
+
+test('RC2 section 34: a later OFF day with its own override breaks the chain and becomes its own new anchor for anything sharing further down', () => {
+  const days = [
+    day({ id: 'd0', index: 0, type: 'ride', stageId: 's0' }),
+    day({ id: 'd1', index: 1, type: 'off', startLocationName: 'Different Town' }),
+    day({ id: 'd2', index: 2, type: 'off' }),
+  ]
+  const b = bundle(days, [])
+  assert.equal(resolveSharedInfoDayId(b, days[1]), 'd1')
+  assert.equal(resolveSharedInfoDayId(b, days[2]), 'd1', 'shares with its own immediate predecessor, not the ride day two steps back')
+})
+
+test('RC2 section 32: an OFF day right after a before_next transfer keeps its own Infos — that transfer never carries a séjour to share', () => {
+  const days = [
+    day({ id: 'd0', index: 0, type: 'transfer', transferTiming: 'before_next' }),
+    day({ id: 'd1', index: 1, type: 'off' }),
+  ]
+  assert.equal(resolveSharedInfoDayId(bundle(days, []), days[1]), 'd1')
+})
+
+test('RC2 sections 33-34: an after_previous transfer following an OFF day chains through to that OFF day\'s own owner', () => {
+  const days = [
+    day({ id: 'd0', index: 0, type: 'ride', stageId: 's0' }),
+    day({ id: 'd1', index: 1, type: 'off' }),
+    day({ id: 'd2', index: 2, type: 'transfer', transferTiming: 'after_previous' }),
+  ]
+  const b = bundle(days, [])
+  assert.equal(resolveSharedInfoDayId(b, days[2]), 'd0')
 })

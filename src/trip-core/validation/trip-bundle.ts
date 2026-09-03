@@ -508,6 +508,8 @@ export function validateTripBundle(value: unknown): ValidationResult<TripBundle>
     // R2.1 sections 36-37/40-41: same permissive, purely additive pattern.
     if (day.transferOperator !== undefined && !isNonEmptyString(day.transferOperator)) issues.push(issue(`${path}.transferOperator`, 'invalid-value', 'transferOperator invalide.'))
     if (day.transferLink !== undefined && !isNonEmptyString(day.transferLink)) issues.push(issue(`${path}.transferLink`, 'invalid-value', 'transferLink invalide.'))
+    // RC2 final-closeout sections 38-39/45: same permissive, purely additive pattern — the ticket/boarding-pass link, distinct from transferLink.
+    if (day.transferTicketLink !== undefined && !isNonEmptyString(day.transferTicketLink)) issues.push(issue(`${path}.transferTicketLink`, 'invalid-value', 'transferTicketLink invalide.'))
     if (day.overrideStartLatitude !== undefined && !isLatitude(day.overrideStartLatitude)) issues.push(issue(`${path}.overrideStartLatitude`, 'invalid-value', 'overrideStartLatitude invalide.'))
     if (day.overrideStartLongitude !== undefined && !isLongitude(day.overrideStartLongitude)) issues.push(issue(`${path}.overrideStartLongitude`, 'invalid-value', 'overrideStartLongitude invalide.'))
     if (day.overrideEndLatitude !== undefined && !isLatitude(day.overrideEndLatitude)) issues.push(issue(`${path}.overrideEndLatitude`, 'invalid-value', 'overrideEndLatitude invalide.'))
@@ -885,6 +887,23 @@ export function validateTripBundle(value: unknown): ValidationResult<TripBundle>
       if (!isOneOf(provider.status, ENRICHMENT_PROVIDER_STATUSES)) issues.push(issue(`${path}.status`, 'invalid-enum', 'status invalide.'))
       if (provider.message !== null && !isNonEmptyString(provider.message)) issues.push(issue(`${path}.message`, 'invalid-value', 'message doit être une chaîne non vide ou null.'))
     })
+    // RC2 final-closeout section 18: optional, additive — absent entirely on
+    // every bundle that predates this field (or has no outstanding per-stage
+    // POI issue), so this never rejects an already-valid historical bundle.
+    if (enrichmentMetadata.practicalPlacesStageErrors !== undefined) {
+      if (!Array.isArray(enrichmentMetadata.practicalPlacesStageErrors)) {
+        issues.push(issue('enrichmentMetadata.practicalPlacesStageErrors', 'invalid-type', 'practicalPlacesStageErrors doit être un tableau.'))
+      } else {
+        enrichmentMetadata.practicalPlacesStageErrors.forEach((dayIdValue: unknown, index: number) => {
+          const itemPath = `enrichmentMetadata.practicalPlacesStageErrors[${index}]`
+          if (typeof dayIdValue !== 'string' || dayIdValue.trim() === '') {
+            issues.push(issue(itemPath, 'invalid-value', 'practicalPlacesStageErrors doit contenir des chaînes non vides.'))
+          } else if (!dayIds.has(dayIdValue)) {
+            issues.push(issue(itemPath, 'unknown-reference', `practicalPlacesStageErrors contient un dayId inconnu : ${dayIdValue}.`))
+          }
+        })
+      }
+    }
   }
 
   // --- generatedMetadata ----------------------------------------------------

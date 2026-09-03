@@ -15,7 +15,7 @@ import { runStoredTripAutomaticEnrichment, tripNeedsAutomaticEnrichment } from '
 import { buildPracticalPlaceViewModels } from '../../practical-places/view-model.ts'
 import type { PracticalPlacesProvider } from '../../practical-places/types.ts'
 import { createSingleFlightGuard } from '../../trips-manager/single-flight.ts'
-import { deriveStagePreparationStatus } from '../../trips-manager/stage-preparation.ts'
+import { computeTripPreparationSummary, deriveStagePreparationStatus } from '../../trips-manager/stage-preparation.ts'
 import type { StagePreparationContext, StagePreparationStatus } from '../../trips-manager/stage-preparation.ts'
 import { deriveStageInvalidation } from '../../trips-manager/pause-invalidation.ts'
 import { enrichStoredTripPracticalPlaces } from '../../practical-places/enrichment.ts'
@@ -216,6 +216,18 @@ function formatTripDateRange(trip: TripListEntry): string {
   return `${formatShortDate(trip.startDate)} → ${formatShortDate(trip.endDate)} ${trip.endDate.slice(0, 4)}`
 }
 
+/**
+ * RC2 final-closeout sections 19-20 — a discreet, jargon-free line while
+ * this trip's ride days are still being enriched (never "Postpass"/
+ * "cache"/"provider" — a plain sentence plus a bare ready/total count).
+ * `null` (every ride day ready, or none at all) renders nothing at all —
+ * silence when healthy, same convention as every other status surface here.
+ */
+function renderTripPreparationLine(summary: TripListEntry['preparationSummary']): string {
+  if (summary === null) return ''
+  return `<p class="trip-card__prep" role="status">Préparation du roadbook · ${summary.ready}/${summary.total}</p>`
+}
+
 function renderTripCard(trip: TripListEntry): string {
   const dateLabel = formatTripDateRange(trip)
   const statusLabel = TRIP_STATUS_LABELS[trip.status]
@@ -223,6 +235,7 @@ function renderTripCard(trip: TripListEntry): string {
   return `
     <li class="trip-card" data-action="open-trip" data-trip-id="${escapeHtml(trip.id)}" role="button" tabindex="0">
       <div class="trip-card__header"><h3>${escapeHtml(trip.name)}</h3>${statusBadge}</div>
+      ${renderTripPreparationLine(trip.preparationSummary)}
       <dl class="trip-card__stats">
         <div><dt>Dates</dt><dd>${escapeHtml(dateLabel)}</dd></div>
         <div><dt>Journées</dt><dd>${trip.dayCount}</dd></div>
@@ -277,6 +290,18 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   let activePickerHandle: RouteMapInteractionHandle | null = null
   let activePickerTarget: 'start' | 'end' | null = null
   let activePickerCoordinate: { readonly latitude: number; readonly longitude: number } | null = null
+  // RC2 final-closeout sections 51-55: whether the visitor has typed into
+  // the picker's own label field themselves since it was last opened — a
+  // reverse-geocode response arriving after that point never overwrites
+  // their own entry (section 52). `activePickerLabelInputController` is the
+  // AbortController behind that one listener (registered fresh on every
+  // `start-choose-location`, aborted on confirm/cancel/teardown) — the same
+  // scoped-listener convention the wizard/editor already use elsewhere in
+  // this file, never a permanent top-level `input` listener (this
+  // container's own "zero stray listeners once nothing needs them" contract
+  // — CDC Jalon B4.3 section 16 — is specifically about that).
+  let activePickerLabelEditedByVisitor = false
+  let activePickerLabelInputController: AbortController | null = null
   // The wizard/editor own their own live DOM listeners (AbortController-based)
   // separate from this container's single delegated click listener — torn
   // down by `teardownSubComponent` at the top of every full-screen render in
@@ -305,6 +330,9 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     activePickerHandle = null
     activePickerTarget = null
     activePickerCoordinate = null
+    activePickerLabelEditedByVisitor = false
+    activePickerLabelInputController?.abort()
+    activePickerLabelInputController = null
     // CDC C3.B section 44: every one of the four render* entry points
     // (list/detail/day/overview) calls this first, by which point `mode`
     // already reflects the DESTINATION screen (each `open*` helper sets it
@@ -431,7 +459,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     teardownSubComponent()
     deps.onHeaderChange?.(GENERIC_APP_HEADER_NO_ACTIVE_TRIP)
     container.innerHTML = '<p role="status">Chargement de vos voyages…</p>'
-    const trips = await listTripSummaries(deps.database)
+    const trips = await listTripSummaries(deps.database, stagePreparationContext)
 
     if (trips.length === 0) {
       container.innerHTML = `
@@ -1015,11 +1043,9 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
 
   function patchStagePreparationSummary(bundle: TripBundle, context: StagePreparationContext): void {
     const summaryEl = container.querySelector<HTMLElement>('[data-trip-prep-summary]')
-    const rideDayIds = bundle.days.filter((day) => day.type === 'ride' && day.stageId !== null).map((day) => day.id)
-    const total = rideDayIds.length
-    const ready = rideDayIds.filter((id) => deriveStagePreparationStatus(bundle, id, context) === 'ready').length
-    if (total === 0 || ready >= total) { summaryEl?.remove(); return }
-    if (summaryEl !== null) summaryEl.textContent = `${ready}/${total} étapes prêtes`
+    const summary = computeTripPreparationSummary(bundle, context)
+    if (summary === null) { summaryEl?.remove(); return }
+    if (summaryEl !== null) summaryEl.textContent = `${summary.ready}/${summary.total} étapes prêtes`
     // Else: the summary line didn't exist in the current DOM (the rare case
     // of a fully-ready trip whose one stage a local mutation then marked
     // stale, section 24-27) — inserting it live is not worth the extra
@@ -1052,6 +1078,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
           tripId,
           provider: deps.practicalPlacesProvider as PracticalPlacesProvider,
           now: deps.now,
+          onlyDayId: dayId,
         })
         const refreshed = report?.bundle ?? bundleAfterPauseSave
         stale.delete(dayId)
@@ -1480,7 +1507,26 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       // harmless no-op.
       sharedCurrentLocationService.start()
     } else if (action === 'retry-stage-preparation' && tripId !== undefined) {
-      retryStagePreparation(tripId as TripId)
+      // RC2 final-closeout sections 14-15: a real, single-stage retry when
+      // this stage's own outstanding issue is specifically the POI phase
+      // (`practicalPlacesStageErrors`, progressive per-stage enrichment) —
+      // structural (route-enrichment) issues stay on the whole-trip retry,
+      // exactly like before, since that phase intentionally stays global
+      // (section 6-7). Either path is single-flight via
+      // `automaticEnrichmentGuard` — a second click while one is already
+      // running for this trip is a harmless no-op, never a doubled request.
+      if (dayId !== undefined) {
+        void (async () => {
+          const bundle = await createTripRepository(deps.database).loadTripBundle(tripId as TripId)
+          if (bundle !== null && (bundle.enrichmentMetadata.practicalPlacesStageErrors?.includes(dayId as TripDayId) ?? false)) {
+            await reenrichStagePracticalPlaces(tripId as TripId, dayId as TripDayId, bundle)
+            return
+          }
+          retryStagePreparation(tripId as TripId)
+        })()
+      } else {
+        retryStagePreparation(tripId as TripId)
+      }
     } else if (action === 'delete-trip' && tripId !== undefined) {
       if (!window.confirm('Supprimer définitivement ce voyage et toutes ses données ?')) return
       void (async () => {
@@ -1574,12 +1620,16 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       const { tripId, dayId } = mode
       const textarea = container.querySelector<HTMLTextAreaElement>('[data-field="day-notes"]')
       const nameField = container.querySelector<HTMLInputElement>('[data-field="lodging-name"]')
+      const addressField = container.querySelector<HTMLInputElement>('[data-field="lodging-address"]')
       const mapsField = container.querySelector<HTMLInputElement>('[data-field="lodging-maps-url"]')
       const websiteField = container.querySelector<HTMLInputElement>('[data-field="lodging-website"]')
+      const bookingReferenceField = container.querySelector<HTMLInputElement>('[data-field="lodging-booking-reference"]')
       const notes = trimmedOrNull(textarea?.value ?? '')
       const name = trimmedOrNull(nameField?.value ?? '')
+      const address = trimmedOrNull(addressField?.value ?? '')
       const mapsUrl = trimmedOrNull(mapsField?.value ?? '')
       const website = trimmedOrNull(websiteField?.value ?? '')
+      const bookingReference = trimmedOrNull(bookingReferenceField?.value ?? '')
       // R2/R2.1 sections 2/36-37: only present in the DOM for a transfer
       // day's own Infos edit form — `undefined` (never `null`, TripDay's own
       // optional shape) whenever the field isn't rendered at all (ride/off)
@@ -1589,11 +1639,13 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       const transferArrivalField = container.querySelector<HTMLInputElement>('[data-field="transfer-arrival-time"]')
       const transferOperatorField = container.querySelector<HTMLInputElement>('[data-field="transfer-operator"]')
       const transferLinkField = container.querySelector<HTMLInputElement>('[data-field="transfer-link"]')
+      const transferTicketLinkField = container.querySelector<HTMLInputElement>('[data-field="transfer-ticket-link"]')
       const transferMode = transferModeField === null ? undefined : trimmedOrNull(transferModeField.value) ?? undefined
       const transferDepartureTime = transferDepartureField === null ? undefined : trimmedOrNull(transferDepartureField.value) ?? undefined
       const transferArrivalTime = transferArrivalField === null ? undefined : trimmedOrNull(transferArrivalField.value) ?? undefined
       const transferOperator = transferOperatorField === null ? undefined : trimmedOrNull(transferOperatorField.value) ?? undefined
       const transferLink = transferLinkField === null ? undefined : trimmedOrNull(transferLinkField.value) ?? undefined
+      const transferTicketLink = transferTicketLinkField === null ? undefined : trimmedOrNull(transferTicketLinkField.value) ?? undefined
       // R2.1 sections 40-41: the manual location-name override — present for
       // OFF (`location-start` only) and transfer (`location-start`/`-end`)
       // days, absent for ride. `null` (never `undefined` — `TripDay`'s own
@@ -1610,8 +1662,8 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       // at all (see `renderInfosPanel`'s `showLodging`) — its own
       // `accommodationId` (if any legacy value lingers) is left untouched
       // rather than treated as "every field cleared".
-      const lodgingFieldsRendered = nameField !== null || mapsField !== null || websiteField !== null
-      const clearLodging = lodgingFieldsRendered && name === null && mapsUrl === null && website === null
+      const lodgingFieldsRendered = nameField !== null || mapsField !== null || websiteField !== null || addressField !== null || bookingReferenceField !== null
+      const clearLodging = lodgingFieldsRendered && name === null && mapsUrl === null && website === null && address === null && bookingReference === null
       void (async () => {
         const updated = await mutateTripBundle(tripId, (bundle) => {
           const day = bundle.days.find((candidate) => candidate.id === dayId)
@@ -1629,7 +1681,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
           // never `infoDayId` — a shared transfer still has its own journey
           // and its own place.
           const dayOwnPatch = {
-            transferMode, transferDepartureTime, transferArrivalTime, transferOperator, transferLink,
+            transferMode, transferDepartureTime, transferArrivalTime, transferOperator, transferLink, transferTicketLink,
             ...(locationStartName === undefined ? {} : { startLocationName: locationStartName }),
             ...(locationEndName === undefined ? {} : { endLocationName: locationEndName }),
           }
@@ -1666,8 +1718,8 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
           }
           const accommodationId = (existingAccommodationId ?? deps.idFactory()) as AccommodationId
           const record = {
-            id: accommodationId, name: name ?? 'Hébergement', type: 'hotel' as const, address: null, latitude: null, longitude: null,
-            mapsUrl, website, phone: null, bookingReference: null, notes: null, confirmed: true,
+            id: accommodationId, name: name ?? 'Hébergement', type: 'hotel' as const, address, latitude: null, longitude: null,
+            mapsUrl, website, phone: null, bookingReference, notes: null, confirmed: true,
             provenance: { sourceType: 'user' as const, sourceId: null, fetchedAt: null, engineVersion: 'trips-manager-lodging@1', confidence: null, manuallyOverridden: true },
           }
           const accommodations = existingAccommodationId === null ? [...bundle.accommodations, record] : bundle.accommodations.map((entry) => (entry.id === existingAccommodationId ? record : entry))
@@ -1727,16 +1779,58 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
         if (labelInput !== null && labelInput !== undefined) labelInput.value = initialName ?? ''
         activePickerTarget = target
         activePickerCoordinate = null
+        activePickerLabelEditedByVisitor = false
+        activePickerLabelInputController?.abort()
+        activePickerLabelInputController = new AbortController()
+        // RC2 final-closeout sections 51-55: scoped to this one picker
+        // session (aborted on confirm/cancel/teardown below), never a
+        // permanent top-level listener — this container's own contract is
+        // zero stray `input` listeners once nothing needs one.
+        if (labelInput !== null && labelInput !== undefined) {
+          container.addEventListener('input', (event) => {
+            const inputTarget = event.target
+            if (inputTarget instanceof HTMLInputElement && inputTarget.dataset.locationPickerLabel !== undefined) {
+              activePickerLabelEditedByVisitor = true
+            }
+          }, { signal: activePickerLabelInputController.signal })
+        }
         const handle = deps.mountLocationPicker?.(mapMount, initialCoordinates === null ? null : { latitude: initialCoordinates.latitude, longitude: initialCoordinates.longitude }) ?? null
         activePickerHandle = handle
         if (handle === null) {
           if (fallback !== null && fallback !== undefined) fallback.hidden = false
           return
         }
+        // RC2 final-closeout sections 51-55: a lightweight, one-off reverse
+        // geocode of the tapped point — never the full Postpass structural
+        // pipeline, just the same `GeocodingProvider` endpoint-enrichment
+        // already reuses. Coordinates + Confirmer are always available the
+        // instant the map reports a tap (never blocked on the network,
+        // section 54); the auto-proposed name only ever replaces the label
+        // while the visitor hasn't typed into it themselves since the
+        // picker opened (`activePickerLabelEditedByVisitor`, section 52:
+        // manual entry always stays possible and is never fought over) — a
+        // per-open sequence number discards a stale response if the visitor
+        // taps a second point before the first reverse geocode resolved.
+        let pickerTapSequence = 0
         handle.onMapClick((latitude, longitude) => {
           handle.setTemporaryMarker(latitude, longitude)
           activePickerCoordinate = { latitude, longitude }
           confirmButton.disabled = false
+          const geocodingProvider = deps.geocodingProvider
+          if (geocodingProvider === undefined || labelInput === null || labelInput === undefined) return
+          const sequence = ++pickerTapSequence
+          void geocodingProvider.reverse({ latitude, longitude })
+            .then((result) => {
+              // Stale response (a later tap already superseded this one) or
+              // the visitor already typed their own name — never overwrite.
+              if (sequence !== pickerTapSequence || activePickerLabelEditedByVisitor || result === null) return
+              labelInput.value = result.name
+            })
+            .catch(() => {
+              // Section 54: reverse geocoding failure keeps the coordinates
+              // and never blocks anything — the manual label field (already
+              // usable right now) is simply left as-is.
+            })
         })
       })()
     } else if (action === 'confirm-choose-location' && mode.kind === 'day') {
@@ -1761,6 +1855,9 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
         activePickerHandle = null
         activePickerTarget = null
         activePickerCoordinate = null
+        activePickerLabelEditedByVisitor = false
+        activePickerLabelInputController?.abort()
+        activePickerLabelInputController = null
         if (picker !== null && picker !== undefined) picker.hidden = true
         if (updated !== null) {
           patchInfosPanel(updated, dayId)
@@ -1774,6 +1871,9 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       activePickerHandle = null
       activePickerTarget = null
       activePickerCoordinate = null
+      activePickerLabelEditedByVisitor = false
+      activePickerLabelInputController?.abort()
+      activePickerLabelInputController = null
       if (picker !== null) picker.hidden = true
     } else if (action === 'download-stage-gpx' && mode.kind === 'day') {
       const { tripId, dayId } = mode

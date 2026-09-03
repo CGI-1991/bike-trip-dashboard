@@ -43,7 +43,7 @@ function fakePickerDom() {
   const mapMount = Object.assign(new globalThis.HTMLElement(), {})
   const fallback = Object.assign(new globalThis.HTMLElement(), { hidden: true })
   const confirmButton = Object.assign(new globalThis.HTMLButtonElement(), { disabled: false })
-  const labelInput = Object.assign(new globalThis.HTMLInputElement(), { value: '' })
+  const labelInput = Object.assign(new globalThis.HTMLInputElement(), { value: '', dataset: { locationPickerLabel: '' } })
   const picker = {
     hidden: true,
     querySelector(selector) {
@@ -132,6 +132,89 @@ test('picking a point on the map enables Confirmer and places a temporary marker
     interaction.triggerClick(45.5, 6.7)
     assert.equal(confirmButton.disabled, false)
     assert.deepEqual(interaction.temporaryMarker, { latitude: 45.5, longitude: 6.7 })
+  } finally {
+    db.close()
+  }
+})
+
+// --- RC2 final-closeout sections 51-55/93: lightweight reverse geocoding on tap ---
+
+function fakeGeocodingProvider(reverse) {
+  return { id: 'fake-geocoding', sourceType: 'osm', attribution: 'Fake OSM', reverse }
+}
+
+test('AM/AN: tapping the map reverse-geocodes the point and proposes a locality name, without touching the full Postpass pipeline', async () => {
+  const db = await openTestDatabase()
+  try {
+    const interaction = fakeInteractionHandle()
+    const calls = []
+    // The same injected `geocodingProvider` also backs this trip's own
+    // ordinary background endpoint-enrichment pass (`openOverview`/
+    // `openDetail`'s fire-and-forget `startAutomaticEnrichment`) — it's
+    // asserted elsewhere (`endpoint-enrichment.test.mjs`) and irrelevant
+    // here, so this fake only ever answers the exact tapped coordinate;
+    // every other lookup (the stage endpoints) gets no name, exactly like a
+    // provider genuinely unable to place them.
+    const { container, confirmButton, labelInput } = await openDay(db, 'day-bravo', {
+      mountLocationPicker: () => interaction.handle,
+      geocodingProvider: fakeGeocodingProvider(async (coordinates) => {
+        calls.push(coordinates)
+        if (coordinates.latitude === 45.5 && coordinates.longitude === 6.7) return { name: 'Village Tapé', sourceId: null }
+        return null
+      }),
+    })
+    container.dispatch('click', { target: fakeActionElement({ action: 'start-choose-location', target: 'start' }) })
+    await flush(200)
+
+    interaction.triggerClick(45.5, 6.7)
+    assert.equal(confirmButton.disabled, false, 'coordinates + Confirmer are available immediately, never blocked on the network')
+    await flush(50)
+
+    assert.ok(calls.some((call) => call.latitude === 45.5 && call.longitude === 6.7), 'the tapped point was reverse-geocoded')
+    assert.equal(labelInput.value, 'Village Tapé', 'tap → coordinates → locality automatically proposed')
+  } finally {
+    db.close()
+  }
+})
+
+test('AO: a reverse-geocoding failure keeps the coordinates and never blocks confirming — manual name entry remains possible', async () => {
+  const db = await openTestDatabase()
+  try {
+    const interaction = fakeInteractionHandle()
+    const { container, confirmButton, labelInput } = await openDay(db, 'day-bravo', {
+      mountLocationPicker: () => interaction.handle,
+      geocodingProvider: fakeGeocodingProvider(async () => { throw new Error('network down') }),
+    })
+    container.dispatch('click', { target: fakeActionElement({ action: 'start-choose-location', target: 'start' }) })
+    await flush(200)
+
+    interaction.triggerClick(45.5, 6.7)
+    await flush(50)
+
+    assert.equal(confirmButton.disabled, false)
+    assert.equal(labelInput.value, 'Hilltown', 'the auto-resolved placeholder value stays — never cleared/crashed by the failed reverse geocode')
+  } finally {
+    db.close()
+  }
+})
+
+test('AP: a name the visitor typed themselves is never overwritten by a later reverse-geocode response', async () => {
+  const db = await openTestDatabase()
+  try {
+    const interaction = fakeInteractionHandle()
+    const { container, labelInput } = await openDay(db, 'day-bravo', {
+      mountLocationPicker: () => interaction.handle,
+      geocodingProvider: fakeGeocodingProvider(async () => ({ name: 'Auto Name', sourceId: null })),
+    })
+    container.dispatch('click', { target: fakeActionElement({ action: 'start-choose-location', target: 'start' }) })
+    await flush(200)
+
+    interaction.triggerClick(45.5, 6.7)
+    labelInput.value = 'Nom manuel'
+    container.dispatch('input', { target: labelInput })
+    await flush(50)
+
+    assert.equal(labelInput.value, 'Nom manuel', 'manual fallback always stays possible — the auto proposal never fights it')
   } finally {
     db.close()
   }

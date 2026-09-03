@@ -155,21 +155,46 @@ export function resolveTransferCoordinates(bundle: TripBundle, day: TripDay): Re
 }
 
 /**
- * R2.1 sections 33-34: for a transfer whose `transferTiming` is
- * `'after_previous'`, séjour information (hébergement/notes/liens) belongs
- * to the SAME logical place as the immediately preceding day — a single
- * source of truth, resolved here rather than copied on save (CDC: "préférer
- * une résolution... plutôt qu'une copie synchronisée par effets
- * secondaires"). Every other case (a `'dedicated'`/`'before_next'`
- * transfer, an OFF day, a ride day) resolves to the day itself — its own
- * Infos stay exactly as they already are. `index - 1` (not "nearest ride
- * day") on purpose: `after_previous` only ever means "the calendar-adjacent
- * day this transfer shares its date with" (CDC section 12 — a genuine gap
- * would mean this transfer isn't really `after_previous` of anything);
- * falls back to the transfer's own id if that neighbour is somehow missing.
+ * R2.1 sections 33-34 / RC2 final-closeout sections 32-35: séjour
+ * information (hébergement/notes/liens) belongs to the SAME logical place
+ * as the immediately preceding day whenever THIS day has no reason of its
+ * own to be somewhere different — a single source of truth, resolved here
+ * rather than copied on save (CDC: "préférer une résolution... plutôt
+ * qu'une copie synchronisée par effets secondaires"). Two cases share a
+ * previous day's Infos, both walked transitively (so a whole run of
+ * consecutive OFF days — RC2 section 34's "Ride → OFF → OFF" — all resolve
+ * to the same ultimate owner, never a chain of separate copies):
+ *
+ * - a transfer whose `transferTiming` is `'after_previous'` (unconditional —
+ *   this kind of transfer never carries its own lodging fields at all, R2.1
+ *   section 33);
+ * - an OFF day that has no manual location override of its own
+ *   (`startLocationName === null`, RC2 section 32 — the exact same signal
+ *   `resolveOffLocation` already uses to mean "this day is wherever the
+ *   trip's own chronology already puts it," never a second, divergent
+ *   definition). An OFF day WITH an override is a genuinely different place
+ *   (e.g. a transfer to a rest day elsewhere) and stays its own Infos owner
+ *   — sections 32/34 only ever apply to a day that IS the same place as its
+ *   neighbour, never invented for one that visibly isn't.
+ *
+ * Every other case (a `'dedicated'`/`'before_next'` transfer, an overridden
+ * OFF day, a ride day) resolves to the day itself — its own Infos stay
+ * exactly as they already are. A `'before_next'` transfer is never used as
+ * a previous-day anchor either (it carries no lodging of its own to share,
+ * R2.1 section 32) — an OFF day right after one simply keeps its own Infos
+ * rather than resolving to a day that structurally has none.
+ *
+ * `index - 1` (not "nearest ride day") on purpose: this only ever means
+ * "the calendar-adjacent day this one shares its place with" — a genuine
+ * gap means this day isn't really sharing anything; falls back to the
+ * day's own id if that neighbour is somehow missing.
  */
 export function resolveSharedInfoDayId(bundle: TripBundle, day: TripDay): TripDayId {
-  if (day.type !== 'transfer' || (day.transferTiming ?? 'dedicated') !== 'after_previous') return day.id
+  const sharesWithPrevious = (day.type === 'transfer' && (day.transferTiming ?? 'dedicated') === 'after_previous')
+    || (day.type === 'off' && day.startLocationName === null)
+  if (!sharesWithPrevious) return day.id
   const previous = bundle.days.find((candidate) => candidate.index === day.index - 1)
-  return previous?.id ?? day.id
+  if (previous === undefined) return day.id
+  if (previous.type === 'transfer' && (previous.transferTiming ?? 'dedicated') === 'before_next') return day.id
+  return resolveSharedInfoDayId(bundle, previous)
 }

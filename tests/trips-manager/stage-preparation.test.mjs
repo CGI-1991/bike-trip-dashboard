@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   computeStagePreparationOrder,
+  computeTripPreparationSummary,
   deriveStagePreparationStatus,
 } from '../../src/trips-manager/stage-preparation.ts'
 import { createGenericTripBundle } from '../trip-core/support/generic-trip-fixture.mjs'
@@ -80,6 +81,64 @@ test('no provider configured in this deployment/test → "ready" (never a perman
   const bundle = createGenericTripBundle()
   const status = deriveStagePreparationStatus(bundle, 'day-alpha', { runningDayId: null, staleDayIds: new Set(), routeEnrichmentConfigured: false, practicalPlacesConfigured: false })
   assert.equal(status, 'ready')
+})
+
+// --- RC2 final-closeout section 18: per-stage POI precision on a trip-wide "partial" ---
+
+function withStageErrors(bundle, stageErrors) {
+  return { ...bundle, enrichmentMetadata: { ...bundle.enrichmentMetadata, practicalPlacesStageErrors: stageErrors } }
+}
+
+test('RC2 section 18: practicalPlacesStageErrors pinpoints only the genuinely-failing stage — the sibling ride day reads "ready", not "partial"', () => {
+  let bundle = createGenericTripBundle()
+  bundle = withProviderStatus(bundle, 'postpass-route-enrichment', 'success')
+  bundle = withProviderStatus(bundle, 'postpass-practical-places', 'partial')
+  bundle = withStageErrors(bundle, ['day-delta'])
+  const context = { runningDayId: null, staleDayIds: new Set(), ...BOTH_CONFIGURED }
+  assert.equal(deriveStagePreparationStatus(bundle, 'day-alpha', context), 'ready', 'day-alpha\'s own POI succeeded — silent, never "toutes les vignettes semblent partial"')
+  assert.equal(deriveStagePreparationStatus(bundle, 'day-delta', context), 'partial', 'only day-delta is actually still missing something')
+})
+
+test('RC2 section 18: an empty practicalPlacesStageErrors (every stage settled) reads "ready" everywhere, even while the trip-wide aggregate is still "partial"', () => {
+  let bundle = createGenericTripBundle()
+  bundle = withProviderStatus(bundle, 'postpass-route-enrichment', 'success')
+  bundle = withProviderStatus(bundle, 'postpass-practical-places', 'partial')
+  bundle = withStageErrors(bundle, [])
+  const context = { runningDayId: null, staleDayIds: new Set(), ...BOTH_CONFIGURED }
+  assert.equal(deriveStagePreparationStatus(bundle, 'day-alpha', context), 'ready')
+  assert.equal(deriveStagePreparationStatus(bundle, 'day-delta', context), 'ready')
+})
+
+test('RC2 section 18: a legacy bundle with no practicalPlacesStageErrors at all falls back to the coarse trip-wide value for every stage, exactly like before', () => {
+  let bundle = createGenericTripBundle()
+  bundle = withProviderStatus(bundle, 'postpass-route-enrichment', 'success')
+  bundle = withProviderStatus(bundle, 'postpass-practical-places', 'partial')
+  const context = { runningDayId: null, staleDayIds: new Set(), ...BOTH_CONFIGURED }
+  assert.equal(deriveStagePreparationStatus(bundle, 'day-alpha', context), 'partial')
+  assert.equal(deriveStagePreparationStatus(bundle, 'day-delta', context), 'partial')
+})
+
+// --- RC2 final-closeout sections 19-20: "Mes voyages" preparation summary ---
+
+test('computeTripPreparationSummary: null once every ride day is ready — silence when healthy', () => {
+  let bundle = createGenericTripBundle()
+  bundle = withProviderStatus(bundle, 'postpass-route-enrichment', 'success')
+  bundle = withProviderStatus(bundle, 'postpass-practical-places', 'success')
+  assert.equal(computeTripPreparationSummary(bundle, { runningDayId: null, staleDayIds: new Set(), ...BOTH_CONFIGURED }), null)
+})
+
+test('computeTripPreparationSummary: a ready/total count while at least one ride day isn\'t ready yet', () => {
+  let bundle = createGenericTripBundle()
+  bundle = withProviderStatus(bundle, 'postpass-route-enrichment', 'success')
+  bundle = withProviderStatus(bundle, 'postpass-practical-places', 'partial')
+  bundle = withStageErrors(bundle, ['day-delta'])
+  const summary = computeTripPreparationSummary(bundle, { runningDayId: null, staleDayIds: new Set(), ...BOTH_CONFIGURED })
+  assert.deepEqual(summary, { ready: 1, total: 2 })
+})
+
+test('computeTripPreparationSummary: null for a trip with no ride day at all', () => {
+  const bundle = { ...createGenericTripBundle(), days: createGenericTripBundle().days.filter((day) => day.type !== 'ride') }
+  assert.equal(computeTripPreparationSummary(bundle, { runningDayId: null, staleDayIds: new Set(), ...BOTH_CONFIGURED }), null)
 })
 
 // --- O: reload never yields a phantom "running" ---

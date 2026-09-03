@@ -71,6 +71,7 @@ test('a dedicated transfer\'s mode/heures/opérateur/lien all save onto the tran
     container.register('[data-field="transfer-arrival-time"]', fakeField(globalThis.HTMLInputElement, '12:05'))
     container.register('[data-field="transfer-operator"]', fakeField(globalThis.HTMLInputElement, 'SNCF'))
     container.register('[data-field="transfer-link"]', fakeField(globalThis.HTMLInputElement, 'https://sncf-connect.com/booking'))
+    container.register('[data-field="transfer-ticket-link"]', fakeField(globalThis.HTMLInputElement, 'https://sncf-connect.com/ticket'))
     container.dispatch('click', { target: fakeActionElement({ action: 'save-day-infos' }) })
     await flush(200)
 
@@ -82,6 +83,28 @@ test('a dedicated transfer\'s mode/heures/opérateur/lien all save onto the tran
     assert.equal(day.transferArrivalTime, '12:05')
     assert.equal(day.transferOperator, 'SNCF')
     assert.equal(day.transferLink, 'https://sncf-connect.com/booking')
+    assert.equal(day.transferTicketLink, 'https://sncf-connect.com/ticket', 'RC2 final-closeout sections 38-39: Billet saves independently from Réservation')
+  } finally {
+    db.close()
+  }
+})
+
+test('RC2 final-closeout sections 37/40: lodging address and booking reference save alongside name/mapsUrl/website', async () => {
+  const db = await openTestDatabase()
+  try {
+    const { bundle, container } = await openDay(db, 'day-bravo')
+    container.register('[data-field="lodging-name"]', fakeField(globalThis.HTMLInputElement, 'Hilltown Gîte'))
+    container.register('[data-field="lodging-address"]', fakeField(globalThis.HTMLInputElement, '3 rue du Sommet, Hilltown'))
+    container.register('[data-field="lodging-booking-reference"]', fakeField(globalThis.HTMLInputElement, 'RES-4821'))
+    container.dispatch('click', { target: fakeActionElement({ action: 'save-day-infos' }) })
+    await flush(200)
+
+    const saved = await createTripRepository(db).loadTripBundle(bundle.metadata.id)
+    const day = saved.days.find((candidate) => candidate.id === 'day-bravo')
+    const accommodation = saved.accommodations.find((candidate) => candidate.id === day.accommodationId)
+    assert.equal(accommodation?.name, 'Hilltown Gîte')
+    assert.equal(accommodation?.address, '3 rue du Sommet, Hilltown')
+    assert.equal(accommodation?.bookingReference, 'RES-4821')
   } finally {
     db.close()
   }
@@ -115,6 +138,44 @@ test('R2.1 sections 33-34: an after_previous transfer saves its notes onto the p
     assert.equal(previous.notes, 'Shared note about Hilltown', 'the shared notes land on the previous (calendar-adjacent) day')
     assert.equal(transfer.notes, 'Train transfer, no cyclable stage.', 'the transfer day\'s own (now-orphaned) notes are left untouched, never overwritten with the shared value')
     assert.equal(transfer.transferMode, 'bus', 'the transfer\'s own mode still saves onto the transfer day itself, even though notes went elsewhere')
+  } finally {
+    db.close()
+  }
+})
+
+test('RC2 final-closeout sections 32-35: an OFF day with no manual location override saves its notes/lodging onto the preceding ride day, not a second copy of its own', async () => {
+  const db = await openTestDatabase()
+  try {
+    const bundle = createGenericTripBundle()
+    bundle.days[1].startLocationName = null // day-bravo: no override — same place as day-alpha's arrival
+    await createTripRepository(db).saveTripBundle(bundle)
+    const { container } = await (async () => {
+      const c = createFakeContainer()
+      initializeTripsManager(c, {
+        database: db, now: () => '2027-05-10T08:00:00.000Z', idFactory: (() => { let n = 0; return () => `id-${n++}` })(),
+        renderMap: () => {}, closeMap: () => {},
+      })
+      await flush()
+      c.dispatch('click', { target: fakeActionElement({ action: 'open-trip', tripId: bundle.metadata.id }) })
+      await flush()
+      c.dispatch('click', { target: fakeActionElement({ action: 'open-day-detail', dayId: 'day-bravo' }) })
+      await flush()
+      return { container: c }
+    })()
+
+    container.register('[data-field="day-notes"]', fakeField(globalThis.HTMLTextAreaElement, 'Staying an extra night here'))
+    container.register('[data-field="lodging-name"]', fakeField(globalThis.HTMLInputElement, 'Riverside Lodge'))
+    container.dispatch('click', { target: fakeActionElement({ action: 'save-day-infos' }) })
+    await flush(200)
+
+    const saved = await createTripRepository(db).loadTripBundle(bundle.metadata.id)
+    const rideDay = saved.days.find((candidate) => candidate.id === 'day-alpha')
+    const offDay = saved.days.find((candidate) => candidate.id === 'day-bravo')
+    assert.equal(rideDay.notes, 'Staying an extra night here', 'the shared notes land on the preceding ride day, the real séjour owner')
+    assert.equal(offDay.notes, 'Rest day in Hilltown.', 'the OFF day\'s own (now-orphaned) notes are left untouched, never overwritten with the shared value — same convention as an after_previous transfer')
+    assert.ok(rideDay.accommodationId !== null)
+    const accommodation = saved.accommodations.find((candidate) => candidate.id === rideDay.accommodationId)
+    assert.equal(accommodation?.name, 'Riverside Lodge')
   } finally {
     db.close()
   }
