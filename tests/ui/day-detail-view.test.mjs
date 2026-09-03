@@ -1306,15 +1306,45 @@ test('an OFF day\'s own manual override shows as the field\'s actual value, not 
   assert.match(detail.infosHtml, /<input id="location-start" type="text" data-field="location-start" value="Custom Hamlet"/)
 })
 
-test('a transfer day exposes both an origin and a destination manual field, each with its own auto-resolved placeholder', () => {
+// DER-DES-DER sections 75-76: a transfer sitting between two ride days has
+// BOTH endpoints determined by the trip's chronology, so neither is an input.
+test('section 75: a transfer between two rides shows both endpoints as read-only linked values, with a plain hint — no input, no picker', () => {
   const bundle = createGenericTripBundle()
-  // This fixture's transfer day already carries explicit overrides on both
-  // sides — clear them to exercise the genuinely unset, placeholder-only case.
+  // This fixture's transfer day carries explicit overrides on both sides —
+  // clear them so the chronology resolves them instead.
   bundle.days[2].startLocationName = null
   bundle.days[2].endLocationName = null
   const detail = buildDayDetail(bundle, 'day-charlie')
-  assert.match(detail.infosHtml, /<input id="location-start" type="text" data-field="location-start" value="" placeholder="Hilltown">/, 'the previous ride stage\'s own endLocationName ("Hilltown") is the origin placeholder')
-  assert.match(detail.infosHtml, /<input id="location-end" type="text" data-field="location-end" value="" placeholder="Lakeside">/, 'the next ride stage\'s own startLocationName ("Lakeside") is the destination placeholder')
+  assert.match(detail.infosHtml, /<p class="field__linked-value" data-linked-endpoint>Hilltown<\/p>/, 'the previous ride stage\'s own endLocationName')
+  assert.match(detail.infosHtml, /<p class="field__linked-value" data-linked-endpoint>Lakeside<\/p>/, 'the next ride stage\'s own startLocationName')
+  assert.match(detail.infosHtml, /Lié à l’étape précédente/)
+  assert.match(detail.infosHtml, /Lié à l’étape suivante/)
+  assert.doesNotMatch(detail.infosHtml, /data-field="location-start"/, 'a linked side is never editable')
+  assert.doesNotMatch(detail.infosHtml, /data-field="location-end"/)
+  assert.doesNotMatch(detail.infosHtml, /data-action="start-choose-location"/, 'and offers no picker either')
+})
+
+test('section 78: a transfer AFTER the last ride keeps its origin linked but offers a real input + picker for its manual destination', () => {
+  const bundle = createGenericTripBundle()
+  // Make day-charlie the trip's last day so nothing follows it.
+  bundle.days = bundle.days.slice(0, 3)
+  bundle.days[2].startLocationName = null
+  bundle.days[2].endLocationName = null
+  const detail = buildDayDetail(bundle, 'day-charlie')
+  assert.match(detail.infosHtml, /<p class="field__linked-value" data-linked-endpoint>Hilltown<\/p>/)
+  assert.match(detail.infosHtml, /Lié à l’étape précédente/)
+  assert.match(detail.infosHtml, /<input id="location-end" type="text" data-field="location-end" value="" placeholder="Destination">/)
+  assert.match(detail.infosHtml, /data-action="start-choose-location" data-target="end"/)
+  assert.doesNotMatch(detail.infosHtml, /data-action="start-choose-location" data-target="start"/, 'the linked side gets no picker')
+})
+
+test('a manual override on one side turns that side back into an editable input, leaving the other linked', () => {
+  const bundle = createGenericTripBundle()
+  bundle.days[2].startLocationName = 'Chez un ami'
+  bundle.days[2].endLocationName = null
+  const detail = buildDayDetail(bundle, 'day-charlie')
+  assert.match(detail.infosHtml, /<input id="location-start" type="text" data-field="location-start" value="Chez un ami"/)
+  assert.match(detail.infosHtml, /<p class="field__linked-value" data-linked-endpoint>Lakeside<\/p>/)
 })
 
 test('a ride day never exposes a manual location field at all — its endpoints already come from its own GPX', () => {
@@ -1433,4 +1463,30 @@ test('a ready ride day shows no preparation banner at all', () => {
   const bundle = createGenericTripBundle()
   const detail = buildDayDetail(bundle, 'day-alpha', { preparationStatus: 'ready' })
   assert.doesNotMatch(detail.html, /day-detail__prep-banner/)
+})
+
+// --- DER-DES-DER sections 105-107: the GPX action sits with Carte + Relief --
+
+test('sections 105-106: the GPX button is the last element of the map + profile card, full width', () => {
+  const bundle = createGenericTripBundle()
+  const detail = buildDayDetail(bundle, 'day-alpha')
+  const mapCard = detail.html.match(/<section class="card day-detail__map-profile-card"[\s\S]*?<\/section>/)?.[0] ?? ''
+  assert.ok(mapCard.length > 0, 'the map + profile card exists')
+  assert.match(mapCard, /data-day-detail-map\b/)
+  assert.match(mapCard, /data-day-detail-profile/)
+  assert.match(mapCard, /<button class="button button--quiet button--full" type="button" data-action="download-stage-gpx">GPX<\/button>\s*<\/section>/)
+})
+
+test('sections 105-106: the GPX button no longer sits inside the Parcours tab panel', () => {
+  const bundle = createGenericTripBundle()
+  const detail = buildDayDetail(bundle, 'day-alpha')
+  const routePanel = detail.html.match(/<section id="day-panel-route"[\s\S]*?<\/section>\s*<section id="day-panel-infos"/)?.[0] ?? detail.html
+  assert.doesNotMatch(routePanel.split('day-panel-infos')[0], /download-stage-gpx/)
+})
+
+test('section 107: exactly one GPX action exists, and it keeps its original behaviour/design', () => {
+  const bundle = createGenericTripBundle()
+  const detail = buildDayDetail(bundle, 'day-alpha')
+  assert.equal((detail.html.match(/data-action="download-stage-gpx"/g) ?? []).length, 1)
+  assert.match(detail.html, /class="button button--quiet button--full"[^>]*data-action="download-stage-gpx"/)
 })

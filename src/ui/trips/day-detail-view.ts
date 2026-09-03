@@ -629,7 +629,14 @@ function renderTransferModeOptions(currentMode: string | undefined): string {
  * override reachable ("autoriser un libellé manuel" when nothing else can
  * resolve one).
  */
-function renderInfosPanel(day: TripBundle['days'][number], accommodation: Accommodation | undefined, options: { readonly asTab?: boolean; readonly infoDay?: TripBundle['days'][number]; readonly resolvedLocation?: { readonly start: string | null; readonly end: string | null } } = {}): string {
+function renderInfosPanel(day: TripBundle['days'][number], accommodation: Accommodation | undefined, options: {
+  readonly asTab?: boolean
+  readonly infoDay?: TripBundle['days'][number]
+  readonly resolvedLocation?: { readonly start: string | null; readonly end: string | null }
+  /** DER-DES-DER section 75 — non-null makes that transfer side read-only, with this hint under it. */
+  readonly originLinkHint?: string | null
+  readonly destinationLinkHint?: string | null
+} = {}): string {
   const infoDay = options.infoDay ?? day
   const isSharedInfo = infoDay.id !== day.id
   const hasNotes = infoDay.notes !== null && infoDay.notes.trim() !== ''
@@ -672,11 +679,27 @@ function renderInfosPanel(day: TripBundle['days'][number], accommodation: Accomm
   const resolvedLocation = options.resolvedLocation
   const pickerTrigger = (target: 'start' | 'end'): string =>
     `<button class="button button--quiet field__map-trigger" type="button" data-action="start-choose-location" data-target="${target}">Choisir sur la carte</button>`
+  /**
+   * DER-DES-DER section 75: a transfer endpoint that the trip's own
+   * chronology already determines — a ride day's GPX endpoint, or the
+   * previous transfer's destination — is shown as a plain read-only value
+   * with a short hint, NOT as an input with a picker. It has exactly one
+   * source of truth elsewhere, and offering to edit it here would let the
+   * traveller fork that truth into two disagreeing values.
+   */
+  const linkedEndpoint = (label: string, value: string | null, hint: string): string =>
+    `<label>${escapeHtml(label)}</label><div class="field__control"><p class="field__linked-value" data-linked-endpoint>${escapeHtml(value ?? '—')}</p><small class="field__linked-hint">${escapeHtml(hint)}</small></div>`
+  const editableEndpoint = (id: 'location-start' | 'location-end', label: string, value: string | null, placeholder: string, target: 'start' | 'end'): string =>
+    `<label for="${id}">${escapeHtml(label)}</label><div class="field__control"><input id="${id}" type="text" data-field="${id}" value="${escapeHtml(value ?? '')}" placeholder="${escapeHtml(placeholder)}"></div>${pickerTrigger(target)}`
   const locationFields = day.type === 'off'
     ? `<div class="field"><label for="location-start">Lieu</label><div class="field__control"><input id="location-start" type="text" data-field="location-start" value="${escapeHtml(day.startLocationName ?? '')}" placeholder="${escapeHtml(resolvedLocation?.start ?? 'Nom du lieu')}"></div>${pickerTrigger('start')}</div>`
     : day.type === 'transfer' ? `<div class="field field--inline">
-      <label for="location-start">Origine</label><div class="field__control"><input id="location-start" type="text" data-field="location-start" value="${escapeHtml(day.startLocationName ?? '')}" placeholder="${escapeHtml(resolvedLocation?.start ?? 'Origine')}"></div>${pickerTrigger('start')}
-      <label for="location-end">Destination</label><div class="field__control"><input id="location-end" type="text" data-field="location-end" value="${escapeHtml(day.endLocationName ?? '')}" placeholder="${escapeHtml(resolvedLocation?.end ?? 'Destination')}"></div>${pickerTrigger('end')}
+      ${options.originLinkHint !== undefined && options.originLinkHint !== null
+        ? linkedEndpoint('Origine', resolvedLocation?.start ?? null, options.originLinkHint)
+        : editableEndpoint('location-start', 'Origine', day.startLocationName, resolvedLocation?.start ?? 'Origine', 'start')}
+      ${options.destinationLinkHint !== undefined && options.destinationLinkHint !== null
+        ? linkedEndpoint('Destination', resolvedLocation?.end ?? null, options.destinationLinkHint)
+        : editableEndpoint('location-end', 'Destination', day.endLocationName, resolvedLocation?.end ?? 'Destination', 'end')}
     </div>` : ''
   // R3 sections 30-35: one shared picker block, reused for whichever side
   // was clicked (`data-location-picker`, target tracked purely client-side
@@ -842,12 +865,10 @@ function buildOffOrTransferDayDetail(bundle: TripBundle, day: TripDay): DayDetai
   // bandeau needs none (départ → arrivée alone is unambiguous), but OFF/
   // transfer's own type is exactly what a bare location can't convey.
   const badgeLabel = day.type === 'off' ? 'OFF' : 'Transfert'
-  const resolvedLocation = day.type === 'off'
+  const transferLocations = day.type === 'transfer' ? resolveTransferLocations(bundle, day) : null
+  const resolvedLocation = transferLocations === null
     ? { start: resolveOffLocation(bundle, day).name, end: null }
-    : (() => {
-        const { origin, destination } = resolveTransferLocations(bundle, day)
-        return { start: origin, end: destination }
-      })()
+    : { start: transferLocations.origin, end: transferLocations.destination }
   const fullLocationLabel = day.type === 'off'
     ? resolvedLocation.start ?? '—'
     : resolvedLocation.start === null && resolvedLocation.end === null ? '—' : `${resolvedLocation.start ?? '—'} → ${resolvedLocation.end ?? '—'}`
@@ -860,7 +881,12 @@ function buildOffOrTransferDayDetail(bundle: TripBundle, day: TripDay): DayDetai
   const infoDayId = resolveSharedInfoDayId(bundle, day)
   const infoDay = bundle.days.find((candidate) => candidate.id === infoDayId) ?? day
   const accommodation = infoDay.accommodationId === null ? undefined : bundle.accommodations.find((candidate) => candidate.id === infoDay.accommodationId)
-  const infosHtml = renderInfosPanel(day, accommodation, { asTab: false, infoDay, resolvedLocation })
+  const infosHtml = renderInfosPanel(day, accommodation, {
+    asTab: false, infoDay, resolvedLocation,
+    // Section 75: a linked side is displayed, not edited.
+    originLinkHint: transferLocations?.originLinkHint ?? null,
+    destinationLinkHint: transferLocations?.destinationLinkHint ?? null,
+  })
   const markersOnlyMapModel = buildOffOrTransferMapModel(bundle, day)
   // R2.1 sections 38/40-41: the map card only appears at all once at least
   // one location is resolvable — never an empty map frame with nothing to
@@ -934,9 +960,14 @@ function renderTransferSummary(bundle: TripBundle, day: TripDay): string {
   const reservationLink = day.transferLink ?? null
   const ticketLink = day.transferTicketLink ?? null
   const { origin: originCoordinates, destination: destinationCoordinates } = resolveTransferCoordinates(bundle, day)
+  // DER-DES-DER sections 98-101: real coordinates on both ends, plus the
+  // Google Maps travel mode implied by THIS day's current `transferMode` —
+  // rebuilt on every render, so switching Train → Voiture immediately gives
+  // a driving itinerary rather than a stored, now-wrong link.
   const directionsUrl = resolveMapsDirectionsUrl(
     originCoordinates === null ? null : { latitude: originCoordinates.latitude, longitude: originCoordinates.longitude },
     destinationCoordinates === null ? null : { latitude: destinationCoordinates.latitude, longitude: destinationCoordinates.longitude },
+    day.transferMode ?? null,
   )
   const actions = [
     reservationLink === null ? '' : `<a class="button button--quiet" href="${escapeHtml(reservationLink)}" target="_blank" rel="noopener">Réservation</a>`,
@@ -1090,6 +1121,15 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
     <section class="card day-detail__map-profile-card" data-day-detail-map-profile-card>
       <div class="route-map route-map--action" data-day-detail-map data-explore-map role="button" tabindex="0" aria-label="Ouvrir la carte de l’étape en plein écran"></div>
       <div data-day-detail-profile></div>
+      <!--
+        DER-DES-DER sections 105-107: the GPX download belongs visually with
+        the trace it downloads. It used to sit at the bottom of the Parcours
+        tab, several sections away from the map and relief profile it
+        actually corresponds to — and invisible entirely while the Infos tab
+        was selected. Same button, same behaviour (the stored original file,
+        still available offline), full width at the foot of this block.
+      -->
+      <button class="button button--quiet button--full" type="button" data-action="download-stage-gpx">GPX</button>
     </section>
     <dialog class="route-map-dialog" data-day-detail-map-dialog aria-labelledby="day-detail-expanded-map-title">
       <header><h2 id="day-detail-expanded-map-title">Carte de l’étape</h2><div class="route-map-dialog__actions"><button class="button button--quiet" type="button" data-action="locate-me" aria-label="Me localiser">📍</button><button class="button button--quiet" type="button" data-map-layers-toggle aria-expanded="false" aria-controls="day-detail-map-layers-panel" hidden>Calques</button><button class="button button--quiet" type="button" data-close-map>Fermer</button></div></header>
@@ -1104,7 +1144,6 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
       <section id="day-panel-route" class="card" role="tabpanel" aria-labelledby="day-tab-route" data-day-panel="route">
         <div data-day-detail-timeline>${timelineHtml}</div>
         ${renderPauseWeatherBottomBlock(pausesHtml)}
-        <button class="button button--quiet button--full" type="button" data-action="download-stage-gpx">GPX</button>
       </section>
       ${infosHtml}
     </section>

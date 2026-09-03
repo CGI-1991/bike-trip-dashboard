@@ -55,16 +55,35 @@ export interface ResolvedOffLocation {
 }
 
 /**
- * OFF day location (CDC section 13): manual override wins outright; absent
- * one, the previous ride day's arrival, else the next ride day's departure,
- * else genuinely unknown (`null` — never fabricated).
+ * OFF day location (CDC section 13, generalised by DER-DES-DER sections
+ * 68-73/79-81/91-92): manual override wins outright; absent one, the place
+ * the trip is already at — the previous day's own END, else (for an OFF at
+ * the very start of the trip, section 72) the next day's own START. Never
+ * fabricated when genuinely unknown.
+ *
+ * "The previous day's end" now means a TRANSFER's destination just as much
+ * as a ride's arrival. Skipping transfers, as the old "nearest ride day"
+ * scan did, put an OFF in `Ride A → Transfer → OFF → Ride B` back at
+ * `RideA.end` — before the transfer that had just moved the trip somewhere
+ * else. An OFF never moves the trip (section 92); it inherits wherever the
+ * trip already is.
  */
 export function resolveOffLocation(bundle: TripBundle, day: TripDay): ResolvedOffLocation {
   if (day.startLocationName !== null) return { name: day.startLocationName, autoFilled: false }
-  const previous = nearestPreviousRideStage(bundle, day.index)
-  if (previous?.endLocationName !== undefined && previous?.endLocationName !== null) return { name: previous.endLocationName, autoFilled: true }
-  const next = nearestNextRideStage(bundle, day.index)
-  if (next?.startLocationName !== undefined && next?.startLocationName !== null) return { name: next.startLocationName, autoFilled: true }
+  const previous = transferAnchorDay(bundle, day.index, -1)
+  const fromPrevious = previous === null
+    ? null
+    : previous.type === 'transfer'
+      ? resolveTransferDestinationEndpoint(bundle, previous).name
+      : rideStageForDay(bundle, previous)?.endLocationName ?? null
+  if (fromPrevious !== null) return { name: fromPrevious, autoFilled: true }
+  const next = transferAnchorDay(bundle, day.index, 1)
+  const fromNext = next === null
+    ? null
+    : next.type === 'transfer'
+      ? resolveTransferOriginEndpoint(bundle, next).name
+      : rideStageForDay(bundle, next)?.startLocationName ?? null
+  if (fromNext !== null) return { name: fromNext, autoFilled: true }
   return { name: null, autoFilled: false }
 }
 
@@ -73,24 +92,102 @@ export interface ResolvedTransferLocations {
   readonly destination: string | null
   readonly originAutoFilled: boolean
   readonly destinationAutoFilled: boolean
+  /**
+   * DER-DES-DER sections 74-75/89 — `true` when this side is DERIVED from
+   * another day of the trip (a ride day's own GPX endpoint, or the previous
+   * transfer's destination in a chain) rather than something the traveller
+   * has to supply. A linked side is displayed read-only: it has exactly one
+   * source of truth elsewhere, and editing it here would fork that truth.
+   *
+   * Deliberately independent of `transferTiming`
+   * (`before_next`/`after_previous`/`independent`, section 89): that field
+   * says who OWNS THE LODGING; the trip's chronology decides the geography
+   * regardless of it.
+   */
+  readonly originLinked: boolean
+  readonly destinationLinked: boolean
+  /** Short, non-technical hint for a linked side (section 75) — `null` when the side is manual. */
+  readonly originLinkHint: string | null
+  readonly destinationLinkHint: string | null
 }
 
 /**
- * Transfer origin/destination (CDC section 14): origin defaults to the
- * previous ride day's arrival, destination to the next ride day's
- * departure — each independently overridable, each never fabricated when
- * genuinely unknown.
+ * The day that geographically anchors one side of a transfer, walking the
+ * trip's own chronology (DER-DES-DER sections 76-88).
+ *
+ * The walk skips OFF days — an OFF day never moves the trip (section 92), so
+ * a transfer separated from a ride only by rest days is still anchored to
+ * that ride (sections 79-81). It STOPS at another transfer, which is the
+ * whole point of the handoff rule (sections 82-87): in `T1 → T2 → Ride1`,
+ * T2's origin is T1's destination and T1's destination is the intermediate
+ * place only the traveller knows — not, as a naive "nearest ride day" scan
+ * would have it, both of them jumping straight to `Ride1.start`.
+ */
+function transferAnchorDay(bundle: TripBundle, fromIndex: number, direction: -1 | 1): TripDay | null {
+  const ordered = bundle.days
+    .filter((candidate) => (direction === -1 ? candidate.index < fromIndex : candidate.index > fromIndex))
+    .sort((left, right) => (direction === -1 ? right.index - left.index : left.index - right.index))
+  for (const candidate of ordered) {
+    if (candidate.type === 'off') continue
+    return candidate
+  }
+  return null
+}
+
+interface ResolvedEndpoint {
+  readonly name: string | null
+  readonly linked: boolean
+  readonly hint: string | null
+}
+
+const UNRESOLVED_ENDPOINT: ResolvedEndpoint = { name: null, linked: false, hint: null }
+
+function resolveTransferOriginEndpoint(bundle: TripBundle, day: TripDay): ResolvedEndpoint {
+  if (day.startLocationName !== null) return { name: day.startLocationName, linked: false, hint: null }
+  const anchor = transferAnchorDay(bundle, day.index, -1)
+  if (anchor === null) return UNRESOLVED_ENDPOINT
+  if (anchor.type === 'transfer') {
+    // Section 85: the shared point between two consecutive transfers has ONE
+    // source of truth — the earlier transfer's destination. This side is a
+    // read-only view of it.
+    const upstream = resolveTransferDestinationEndpoint(bundle, anchor)
+    return upstream.name === null ? UNRESOLVED_ENDPOINT : { name: upstream.name, linked: true, hint: 'Lié au trajet précédent' }
+  }
+  const stage = rideStageForDay(bundle, anchor)
+  const name = stage?.endLocationName ?? null
+  return name === null ? UNRESOLVED_ENDPOINT : { name, linked: true, hint: 'Lié à l’étape précédente' }
+}
+
+function resolveTransferDestinationEndpoint(bundle: TripBundle, day: TripDay): ResolvedEndpoint {
+  if (day.endLocationName !== null) return { name: day.endLocationName, linked: false, hint: null }
+  const anchor = transferAnchorDay(bundle, day.index, 1)
+  // Sections 83/86: the next day is another transfer, so this destination IS
+  // the intermediate handoff point — nothing in the trip can infer it, and
+  // the traveller supplies it here, once, for both transfers.
+  if (anchor === null || anchor.type === 'transfer') return UNRESOLVED_ENDPOINT
+  const stage = rideStageForDay(bundle, anchor)
+  const name = stage?.startLocationName ?? null
+  return name === null ? UNRESOLVED_ENDPOINT : { name, linked: true, hint: 'Lié à l’étape suivante' }
+}
+
+/**
+ * Transfer origin/destination (CDC section 14, generalised by DER-DES-DER
+ * sections 74-89): each side is either LINKED to another day of the trip
+ * (read-only, resolved here) or MANUAL (the traveller's own input), and
+ * never fabricated when genuinely unknown.
  */
 export function resolveTransferLocations(bundle: TripBundle, day: TripDay): ResolvedTransferLocations {
-  const previous = nearestPreviousRideStage(bundle, day.index)
-  const next = nearestNextRideStage(bundle, day.index)
-  const origin = day.startLocationName ?? previous?.endLocationName ?? null
-  const destination = day.endLocationName ?? next?.startLocationName ?? null
+  const origin = resolveTransferOriginEndpoint(bundle, day)
+  const destination = resolveTransferDestinationEndpoint(bundle, day)
   return {
-    origin,
-    destination,
-    originAutoFilled: day.startLocationName === null && origin !== null,
-    destinationAutoFilled: day.endLocationName === null && destination !== null,
+    origin: origin.name,
+    destination: destination.name,
+    originAutoFilled: day.startLocationName === null && origin.name !== null,
+    destinationAutoFilled: day.endLocationName === null && destination.name !== null,
+    originLinked: origin.linked,
+    destinationLinked: destination.linked,
+    originLinkHint: origin.hint,
+    destinationLinkHint: destination.hint,
   }
 }
 
@@ -122,11 +219,28 @@ export function resolveOffCoordinates(bundle: TripBundle, day: TripDay): Resolve
   if (day.overrideStartLatitude !== undefined && day.overrideStartLongitude !== undefined) {
     return { latitude: day.overrideStartLatitude, longitude: day.overrideStartLongitude, autoFilled: false }
   }
-  const previous = nearestPreviousRideStage(bundle, day.index)
-  const fromPrevious = previous === null ? null : stageEndpointCoordinates(bundle, previous, 'end')
+  // Sections 79-81/91: the same chronology `resolveOffLocation` walks, so an
+  // OFF day's map marker and its displayed name always agree — a transfer
+  // that moved the trip is honoured on both.
+  const previous = transferAnchorDay(bundle, day.index, -1)
+  const fromPrevious = previous === null
+    ? null
+    : previous.type === 'transfer'
+      ? resolveTransferDestinationCoordinates(bundle, previous)
+      : (() => {
+          const stage = rideStageForDay(bundle, previous)
+          return stage === null ? null : stageEndpointCoordinates(bundle, stage, 'end')
+        })()
   if (fromPrevious !== null) return { ...fromPrevious, autoFilled: true }
-  const next = nearestNextRideStage(bundle, day.index)
-  const fromNext = next === null ? null : stageEndpointCoordinates(bundle, next, 'start')
+  const next = transferAnchorDay(bundle, day.index, 1)
+  const fromNext = next === null
+    ? null
+    : next.type === 'transfer'
+      ? resolveTransferOriginCoordinates(bundle, next)
+      : (() => {
+          const stage = rideStageForDay(bundle, next)
+          return stage === null ? null : stageEndpointCoordinates(bundle, stage, 'start')
+        })()
   return fromNext === null ? null : { ...fromNext, autoFilled: true }
 }
 
@@ -135,23 +249,47 @@ export interface ResolvedTransferCoordinates {
   readonly destination: ResolvedCoordinates | null
 }
 
-/** R2.1 sections 38/40-41 — the transfer counterpart of `resolveOffCoordinates`, one resolution per side, each independently overridable. */
+/**
+ * R2.1 sections 38/40-41 — the transfer counterpart of
+ * `resolveOffCoordinates`, one resolution per side, each independently
+ * overridable.
+ *
+ * DER-DES-DER sections 76-88/98: walks the exact same chronology
+ * `resolveTransferLocations` does, so a side's coordinates and its NAME
+ * always describe the same place — including through a chain of transfers,
+ * where an intermediate point's coordinates come from the earlier transfer's
+ * own destination override rather than from a ride day two hops away. This
+ * is what lets the "Itinéraire" button use real coordinates on both ends
+ * (section 98) instead of a text name.
+ */
 export function resolveTransferCoordinates(bundle: TripBundle, day: TripDay): ResolvedTransferCoordinates {
-  const origin = day.overrideStartLatitude !== undefined && day.overrideStartLongitude !== undefined
-    ? { latitude: day.overrideStartLatitude, longitude: day.overrideStartLongitude, autoFilled: false }
-    : (() => {
-        const previous = nearestPreviousRideStage(bundle, day.index)
-        const coords = previous === null ? null : stageEndpointCoordinates(bundle, previous, 'end')
-        return coords === null ? null : { ...coords, autoFilled: true }
-      })()
-  const destination = day.overrideEndLatitude !== undefined && day.overrideEndLongitude !== undefined
-    ? { latitude: day.overrideEndLatitude, longitude: day.overrideEndLongitude, autoFilled: false }
-    : (() => {
-        const next = nearestNextRideStage(bundle, day.index)
-        const coords = next === null ? null : stageEndpointCoordinates(bundle, next, 'start')
-        return coords === null ? null : { ...coords, autoFilled: true }
-      })()
-  return { origin, destination }
+  return { origin: resolveTransferOriginCoordinates(bundle, day), destination: resolveTransferDestinationCoordinates(bundle, day) }
+}
+
+function resolveTransferOriginCoordinates(bundle: TripBundle, day: TripDay): ResolvedCoordinates | null {
+  if (day.overrideStartLatitude !== undefined && day.overrideStartLongitude !== undefined) {
+    return { latitude: day.overrideStartLatitude, longitude: day.overrideStartLongitude, autoFilled: false }
+  }
+  const anchor = transferAnchorDay(bundle, day.index, -1)
+  if (anchor === null) return null
+  if (anchor.type === 'transfer') {
+    const upstream = resolveTransferDestinationCoordinates(bundle, anchor)
+    return upstream === null ? null : { ...upstream, autoFilled: true }
+  }
+  const stage = rideStageForDay(bundle, anchor)
+  const coordinates = stage === null ? null : stageEndpointCoordinates(bundle, stage, 'end')
+  return coordinates === null ? null : { ...coordinates, autoFilled: true }
+}
+
+function resolveTransferDestinationCoordinates(bundle: TripBundle, day: TripDay): ResolvedCoordinates | null {
+  if (day.overrideEndLatitude !== undefined && day.overrideEndLongitude !== undefined) {
+    return { latitude: day.overrideEndLatitude, longitude: day.overrideEndLongitude, autoFilled: false }
+  }
+  const anchor = transferAnchorDay(bundle, day.index, 1)
+  if (anchor === null || anchor.type === 'transfer') return null
+  const stage = rideStageForDay(bundle, anchor)
+  const coordinates = stage === null ? null : stageEndpointCoordinates(bundle, stage, 'start')
+  return coordinates === null ? null : { ...coordinates, autoFilled: true }
 }
 
 /**

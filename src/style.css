@@ -3410,6 +3410,13 @@ button:disabled { cursor: not-allowed; opacity: .55; }
  * stage's own Voyage card. Sits just under the card it belongs to, quiet
  * enough not to compete with the card itself.
  */
+/*
+ * DER-DES-DER section 75 — a transfer endpoint the trip's own chronology
+ * already fixes: shown as a value with a short hint, never as an input.
+ */
+.field__linked-value { margin: 0; padding: 8px 0; font-weight: 600; }
+.field__linked-hint { display: block; margin-top: -4px; color: var(--ink-soft); font-size: .78rem; }
+
 .trip-day-card__retry {
   display: flex;
   align-items: center;
