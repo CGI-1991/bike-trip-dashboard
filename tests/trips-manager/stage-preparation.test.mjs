@@ -127,13 +127,27 @@ test('computeTripPreparationSummary: null once every ride day is ready — silen
   assert.equal(computeTripPreparationSummary(bundle, { runningDayId: null, staleDayIds: new Set(), ...BOTH_CONFIGURED }), null)
 })
 
-test('computeTripPreparationSummary: a ready/total count while at least one ride day isn\'t ready yet', () => {
+test('computeTripPreparationSummary: a ready/total count while the trip is actively being prepared', () => {
   let bundle = createGenericTripBundle()
   bundle = withProviderStatus(bundle, 'postpass-route-enrichment', 'success')
   bundle = withProviderStatus(bundle, 'postpass-practical-places', 'partial')
   bundle = withStageErrors(bundle, ['day-delta'])
-  const summary = computeTripPreparationSummary(bundle, { runningDayId: null, staleDayIds: new Set(), ...BOTH_CONFIGURED })
+  const summary = computeTripPreparationSummary(bundle, { runningDayId: 'day-delta', staleDayIds: new Set(), ...BOTH_CONFIGURED })
   assert.deepEqual(summary, { ready: 1, total: 2 })
+})
+
+// DER-DES-DER section 54: only the trip actually being enriched right now
+// may show this — every other trip's card stays silent.
+test('section 54: no summary at all when nothing is running, even for a trip left incomplete', () => {
+  let bundle = createGenericTripBundle()
+  bundle = withProviderStatus(bundle, 'postpass-route-enrichment', 'success')
+  bundle = withProviderStatus(bundle, 'postpass-practical-places', 'partial')
+  bundle = withStageErrors(bundle, ['day-delta'])
+  assert.equal(
+    computeTripPreparationSummary(bundle, { runningDayId: null, staleDayIds: new Set(), ...BOTH_CONFIGURED }),
+    null,
+    'a settled-but-incomplete trip is the stage card\'s business, not "Mes voyages"',
+  )
 })
 
 test('computeTripPreparationSummary: null for a trip with no ride day at all', () => {

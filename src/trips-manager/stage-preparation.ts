@@ -121,6 +121,15 @@ export interface TripPreparationSummary {
 }
 
 export function computeTripPreparationSummary(bundle: TripBundle, context: StagePreparationContext = NO_STAGE_PREPARATION_CONTEXT): TripPreparationSummary | null {
+  // DER-DES-DER section 54: only the trip whose preparation is ACTUALLY
+  // running right now may show this indicator; every other trip stays
+  // silent. Before the pipeline became one-shot, "not fully ready" and
+  // "still working on it" were effectively the same thing; now a trip can
+  // sit settled-but-incomplete indefinitely, and showing "3/8" on its card
+  // forever would be permanent noise for something no longer in progress.
+  // That state belongs to the stage's own card in the Voyage screen
+  // ("À compléter / Réessayer", sections 52-53), not to "Mes voyages".
+  if (context.runningDayId === null) return null
   const rideDayIds = bundle.days.filter((day) => day.type === 'ride' && day.stageId !== null).map((day) => day.id)
   const total = rideDayIds.length
   if (total === 0) return null
