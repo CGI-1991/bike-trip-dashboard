@@ -10,7 +10,17 @@ import {
   transferDestinationDayKey,
   transferOriginDayKey,
 } from '../../../src/weather/generic/sample-points.ts'
+import { buildAutomaticPauseEnrichment, computeStageWaypoints } from '../../../src/analysis/waypoint-timeline.ts'
 import { createGenericTripBundle } from '../../trip-core/support/generic-trip-fixture.mjs'
+
+/** A real straight-line geometry spanning the fixture's own 62.4 km stage distance — the fixture's own 2-point `simplified` geometry alone is too coarse for pause-anchor window/edge-buffer fractions to line up with added route points' `trackDistanceKm`. */
+function withRealGeometry(bundle) {
+  const route = bundle.routes[0]
+  const points = []
+  for (let km = 0; km <= 63; km += 1) points.push({ latitude: 45.1 + km * 0.008993, longitude: 6.2, altitudeM: 210 + km * 5 })
+  route.geometry = { full: points, simplified: points }
+  return bundle
+}
 
 function findPoint(definition, name) {
   return definition.samplePoints.find((point) => point.name === name)
@@ -121,6 +131,53 @@ test('a col landmark merged with its detected climb is a single weather point, n
   const matches = definition.samplePoints.filter((point) => point.name === 'Col Fusionné')
   assert.equal(matches.length, 1, 'one weather point, not one for the col and one for the climb')
   assert.equal(matches[0].type, 'col')
+})
+
+// Polish-final sections 12-16, 61-63: the weather module must select the
+// SAME automatic-pause anchor the displayed Parcours timeline does
+// (`day-detail-view.ts`), never a second, independently-computed one. A
+// plain kind-priority search (`placeAutomaticPauses`, used pre-fix) always
+// prefers a `city` over a `village`, however far from the ideal slot; the
+// explainable C3 scoring (`recommendAutomaticPauses`, what Parcours has
+// always used) can prefer a much closer village backed by real POI instead
+// — exactly the divergence that used to leave the displayed pause anchor
+// with no weather at all.
+test('weather selects the same automatic-pause anchor Parcours displays, even when it diverges from the plain kind-priority search', () => {
+  const bundle = withRealGeometry(createGenericTripBundle())
+  const stage = bundle.stages[0]
+  const route = bundle.routes[0]
+  bundle.routePoints.push(
+    {
+      id: 'city-far', routeId: route.id, type: 'passage', name: 'Far City',
+      latitude: 45.2, longitude: 6.4, elevationM: 400, trackDistanceKm: 41,
+      osmFeatureType: 'city', lateralDistanceKm: 0.2,
+      provenance: { sourceType: 'osm', sourceId: 'postpass:city:far', fetchedAt: null, engineVersion: 'route-enrichment@4', confidence: 'high', manuallyOverridden: false },
+    },
+    {
+      id: 'village-near', routeId: route.id, type: 'passage', name: 'Near Village',
+      latitude: 45.18, longitude: 6.35, elevationM: 380, trackDistanceKm: 46.9,
+      osmFeatureType: 'village', lateralDistanceKm: 0.1,
+      provenance: { sourceType: 'osm', sourceId: 'postpass:village:near', fetchedAt: null, engineVersion: 'route-enrichment@4', confidence: 'high', manuallyOverridden: false },
+    },
+  )
+  stage.routePointIds.push('city-far', 'village-near')
+  bundle.practicalPlaces.push(
+    { id: 'poi-bakery', stageId: stage.id, category: 'bakery', name: 'Village Bakery', latitude: 45.18, longitude: 6.35, description: null, trackDistanceKm: 46.9, detourKm: 0.02, openingHours: null, hidden: false, pinned: false, dayIds: [bundle.days[0].id], provenance: { sourceType: 'osm', sourceId: 'mock:poi:bakery', fetchedAt: null, engineVersion: 'practical-places-postpass@1', confidence: 'high', manuallyOverridden: false } },
+    { id: 'poi-water', stageId: stage.id, category: 'water', name: null, latitude: 45.18, longitude: 6.35, description: null, trackDistanceKm: 46.92, detourKm: 0.01, openingHours: null, hidden: false, pinned: false, dayIds: [bundle.days[0].id], provenance: { sourceType: 'osm', sourceId: 'mock:poi:water', fetchedAt: null, engineVersion: 'practical-places-postpass@1', confidence: 'high', manuallyOverridden: false } },
+  )
+
+  // What Parcours actually displays (`day-detail-view.ts`'s own call shape).
+  const settings = { referenceSpeedKph: bundle.settings.global.referenceSpeedKph, departureTime: '08:00' }
+  const displayed = computeStageWaypoints({
+    stage, route, routePoints: bundle.routePoints, climbs: [], settings,
+    automaticPauseEnrichment: buildAutomaticPauseEnrichment(bundle, stage, bundle.days[0]),
+  })
+  const displayedPause = displayed.find((waypoint) => waypoint.pauseDurationMinutes !== null)
+  assert.equal(displayedPause?.name, 'Near Village', 'the POI-backed village, not the merely-closer-to-nothing city, is what Parcours anchors its pause to')
+
+  const definition = buildRideDayWeatherDefinition(bundle, bundle.days[0])
+  assert.ok(findPoint(definition, 'Near Village') !== undefined, 'the exact waypoint Parcours displays as the pause anchor has a weather sample point')
+  assert.equal(findPoint(definition, 'Far City'), undefined, 'the city never carrying a pause stays a bare, insignificant locality on both sides')
 })
 
 test('returns null for a non-ride day, or a ride day whose stage/route cannot be resolved', () => {

@@ -54,13 +54,13 @@ test('the stage weather panel shows a loading state before any data has ever arr
   assert.match(container.innerHTML, /Chargement des prévisions/)
 })
 
-test('the stage weather panel shows the synthesis (temperature range, precipitation, wind, risk) and the chronological significant points', () => {
+test('the stage weather panel shows the risk banner (never the redundant bottom synthesis once it has real decision content) and the chronological significant points', () => {
   const container = fakeElement()
   renderGenericStageWeatherPanel(container, baseModel(), false)
-  assert.match(container.innerHTML, /12–21 °C/)
-  assert.match(container.innerHTML, /Pluie 35 %/)
-  assert.match(container.innerHTML, /Rafales 30 km\/h/)
-  assert.match(container.innerHTML, /Risque météo : Élevé/)
+  // Polish-final section 34: a red/orange day's own risk banner already IS
+  // real decision content — the aggregate synthesis line never repeats it.
+  assert.match(container.innerHTML, /RISQUE ÉLEVÉ/)
+  assert.doesNotMatch(container.innerHTML, /data-weather-synthesis/)
   assert.match(container.innerHTML, /Riverside/)
   assert.match(container.innerHTML, /Départ/)
   assert.match(container.innerHTML, /08:00/)
@@ -84,9 +84,9 @@ test('R1 test I: a banal (green) day\'s synthesis collapses to one compact line 
   assert.doesNotMatch(container.innerHTML, /Mis à jour/)
 })
 
-test('R1: an orange/red day keeps the full synthesis — code line, explicit risk sentence, freshness meta — the compacting never applies to an actual alert', () => {
+test('R1: an orange/red day keeps the full synthesis — code line, explicit risk sentence, freshness meta — the compacting never applies to an actual alert. Only reached when the decision card itself has nothing to say (e.g. trend mode); a planning/operational/live day\'s own risk banner replaces it instead (polish-final section 34)', () => {
   const container = fakeElement()
-  renderGenericStageWeatherPanel(container, baseModel({ riskLevel: 'orange' }), false, { includePointsList: false })
+  renderGenericStageWeatherPanel(container, baseModel({ mode: 'trend', riskLevel: 'orange' }), false, { includePointsList: false })
   assert.doesNotMatch(container.innerHTML, /weather-synthesis--compact/)
   assert.match(container.innerHTML, /Risque météo : Modéré/)
   assert.match(container.innerHTML, /Averses/)
@@ -102,7 +102,7 @@ test('an unavailable stage weather shows an honest message, never a fabricated v
 
 test('a transfer day renders its origin and destination as two independent sections, never a fabricated waypoint along the way', () => {
   const container = fakeElement()
-  renderGenericStageWeatherPanel(container, { origin: baseModel(), destination: null }, false)
+  renderGenericStageWeatherPanel(container, { origin: baseModel({ riskLevel: 'green', alerts: [] }), destination: null }, false)
   assert.match(container.innerHTML, />Origine</)
   assert.match(container.innerHTML, />Destination</)
   assert.match(container.innerHTML, /12–21 °C/, 'the resolvable origin shows real data')

@@ -128,13 +128,13 @@ async function openDayDetail(database, extraDeps = {}) {
   container.register('[data-day-infos-edit]', editPanel)
   container.register('[data-day-infos-read]', readPanel)
 
-  initializeTripsManager(container, noopDeps(database, extraDeps))
+  const handle = initializeTripsManager(container, noopDeps(database, extraDeps))
   await flush()
   container.dispatch('click', { target: fakeActionElement({ action: 'open-trip', tripId: bundle.metadata.id }) })
   await flush()
   container.dispatch('click', { target: fakeActionElement({ action: 'open-day-detail', dayId: 'day-alpha' }) })
   await flush()
-  return { container, fields, editPanel, readPanel, bundle }
+  return { container, fields, editPanel, readPanel, bundle, handle }
 }
 
 test('section 56/BT: opening the Infos form registers it, and leaving it UNCHANGED navigates away with no prompt at all', async () => {
@@ -143,7 +143,7 @@ test('section 56/BT: opening the Infos form registers it, and leaving it UNCHANG
     let prompted = 0
     const { container } = await openDayDetail(database, { confirmDiscardChanges: () => { prompted += 1; return 'stay' } })
 
-    container.dispatch('click', { target: fakeActionElement({ action: 'edit-day-infos' }) })
+    container.dispatch('click', { target: fakeActionElement({ dayTab: 'infos' }) })
     await flush()
     container.dispatch('click', { target: fakeActionElement({ action: 'back-to-list' }) })
     await flush()
@@ -161,7 +161,7 @@ test('BK/section 61: navigating away from a DIRTY Infos form prompts first', asy
     let prompted = 0
     const { container, fields } = await openDayDetail(database, { confirmDiscardChanges: () => { prompted += 1; return 'discard' } })
 
-    container.dispatch('click', { target: fakeActionElement({ action: 'edit-day-infos' }) })
+    container.dispatch('click', { target: fakeActionElement({ dayTab: 'infos' }) })
     await flush()
     fields[0].value = 'Note modifiée mais pas enregistrée'
     container.dispatch('click', { target: fakeActionElement({ action: 'back-to-list' }) })
@@ -177,7 +177,7 @@ test('BO/section 60: "Rester" cancels the navigation — the Étape screen stays
   const database = await openTestDatabase()
   try {
     const { container, fields } = await openDayDetail(database, { confirmDiscardChanges: () => 'stay' })
-    container.dispatch('click', { target: fakeActionElement({ action: 'edit-day-infos' }) })
+    container.dispatch('click', { target: fakeActionElement({ dayTab: 'infos' }) })
     await flush()
     fields[0].value = 'travail en cours'
     const htmlBefore = container.innerHTML
@@ -197,7 +197,7 @@ test('BN/section 59: "Abandonner" leaves without saving, and the navigation proc
   const database = await openTestDatabase()
   try {
     const { container, fields, bundle } = await openDayDetail(database, { confirmDiscardChanges: () => 'discard' })
-    container.dispatch('click', { target: fakeActionElement({ action: 'edit-day-infos' }) })
+    container.dispatch('click', { target: fakeActionElement({ dayTab: 'infos' }) })
     await flush()
     fields[0].value = 'jamais enregistré'
 
@@ -220,7 +220,7 @@ test('BM/section 58: "Enregistrer" persists the pending edit, then lets the navi
     // The save path reads the notes field by its own selector, so register it.
     const notesField = fakeField('Réserver le gîte avant 18 h')
     container.register('[data-field="day-notes"]', notesField)
-    container.dispatch('click', { target: fakeActionElement({ action: 'edit-day-infos' }) })
+    container.dispatch('click', { target: fakeActionElement({ dayTab: 'infos' }) })
     await flush()
     fields[0].value = 'dirty'
 
@@ -241,7 +241,7 @@ test('an explicit "Annuler" resolves the context itself — a following navigati
   try {
     let prompted = 0
     const { container, fields } = await openDayDetail(database, { confirmDiscardChanges: () => { prompted += 1; return 'stay' } })
-    container.dispatch('click', { target: fakeActionElement({ action: 'edit-day-infos' }) })
+    container.dispatch('click', { target: fakeActionElement({ dayTab: 'infos' }) })
     await flush()
     fields[0].value = 'dirty'
     container.dispatch('click', { target: fakeActionElement({ action: 'cancel-edit-day-infos' }) })
@@ -262,7 +262,7 @@ test('section 61: a click INSIDE the form is not a departure — the picker trig
   try {
     let prompted = 0
     const { container, fields } = await openDayDetail(database, { confirmDiscardChanges: () => { prompted += 1; return 'stay' } })
-    container.dispatch('click', { target: fakeActionElement({ action: 'edit-day-infos' }) })
+    container.dispatch('click', { target: fakeActionElement({ dayTab: 'infos' }) })
     await flush()
     fields[0].value = 'dirty'
 
@@ -280,7 +280,7 @@ test('the guard never loops: one "Abandonner" produces exactly one navigation, n
   try {
     let prompted = 0
     const { container, fields } = await openDayDetail(database, { confirmDiscardChanges: () => { prompted += 1; return 'discard' } })
-    container.dispatch('click', { target: fakeActionElement({ action: 'edit-day-infos' }) })
+    container.dispatch('click', { target: fakeActionElement({ dayTab: 'infos' }) })
     await flush()
     fields[0].value = 'dirty'
 
@@ -288,6 +288,67 @@ test('the guard never loops: one "Abandonner" produces exactly one navigation, n
     await flush()
 
     assert.equal(prompted, 1, 'the re-dispatched click bypasses the guard instead of re-entering it')
+  } finally {
+    database.close()
+  }
+})
+
+// --- polish-final section 26-28 (test "TEST DIRTY BOTTOM NAV"): the
+// bottom app-nav (Aperçu/Voyage/Mes voyages) is wired straight to
+// `goToOverviewForActiveTrip`/`goToDetailForActiveTrip`/`goToList` from
+// `main.ts`, never through `handleContainerClick`'s own `EXTERNAL_ACTIONS`
+// gate — before the fix, these silently dropped a dirty edit instead of
+// prompting, and the modal only surfaced later, out of context. -----------
+
+test('Mes voyages (goToList) prompts IMMEDIATELY for a dirty Infos form — never silently discarded', async () => {
+  const database = await openTestDatabase()
+  try {
+    let prompted = 0
+    const { container, fields, handle } = await openDayDetail(database, { confirmDiscardChanges: () => { prompted += 1; return 'stay' } })
+    container.dispatch('click', { target: fakeActionElement({ dayTab: 'infos' }) })
+    await flush()
+    fields[0].value = 'jamais confirmé'
+    handle.goToList()
+    await flush()
+    assert.equal(prompted, 1, 'the bottom-nav "Mes voyages" link must ask before leaving, exactly like an in-container navigation')
+  } finally {
+    database.close()
+  }
+})
+
+test('Aperçu (goToOverviewForActiveTrip) prompts immediately for a dirty Infos form, and "Rester" keeps the edit alive', async () => {
+  const database = await openTestDatabase()
+  try {
+    let prompted = 0
+    const { container, fields, handle } = await openDayDetail(database, { confirmDiscardChanges: () => { prompted += 1; return 'stay' } })
+    container.dispatch('click', { target: fakeActionElement({ dayTab: 'infos' }) })
+    await flush()
+    fields[0].value = 'travail en cours'
+
+    await handle.goToOverviewForActiveTrip()
+
+    assert.equal(prompted, 1, 'Aperçu never bypasses the guard the way it used to')
+    assert.equal(fields[0].value, 'travail en cours', '"Rester" really did cancel the navigation — nothing typed was lost')
+  } finally {
+    database.close()
+  }
+})
+
+test('Voyage (goToDetailForActiveTrip) discards a dirty Infos form on "Abandonner" and proceeds', async () => {
+  const database = await openTestDatabase()
+  try {
+    let prompted = 0
+    const { container, fields, handle, bundle } = await openDayDetail(database, { confirmDiscardChanges: () => { prompted += 1; return 'discard' } })
+    container.dispatch('click', { target: fakeActionElement({ dayTab: 'infos' }) })
+    await flush()
+    fields[0].value = 'jamais enregistré'
+
+    await handle.goToDetailForActiveTrip()
+
+    assert.equal(prompted, 1)
+    const reloaded = await createTripRepository(database).loadTripBundle(bundle.metadata.id)
+    const day = reloaded.days.find((candidate) => candidate.id === 'day-alpha')
+    assert.notEqual(day.notes, 'jamais enregistré', 'discarded, never persisted')
   } finally {
     database.close()
   }

@@ -298,9 +298,20 @@ function renderDaySection(label: string, model: GenericDayWeatherViewModel, incl
     <p class="eyebrow">Points significatifs</p>
     <ol class="weather-points-list">${model.points.map(renderPointRow).join('')}</ol>
   </section>`
+  // Polish-final section 34: the aggregate bottom synthesis ("11,5–18,8 °C ·
+  // Pluie 2 % · Rafales 34 km/h…") is dropped wherever the decision card
+  // already shows real content (a risk banner, a recommendation, or the
+  // -2h/-1h/Actuel/+1h/+2h scenarios) — it never repeated anything the
+  // scenarios themselves don't already answer more usefully, and duplicating
+  // it below them added noise, not a second signal. It stays as the one
+  // fallback for a day the decision card has nothing to say about at all
+  // (today-reference/past/trend modes, or a genuinely quiet day with no
+  // scenario data) — never a blank panel where a summary line still helps.
+  const decision = renderDecisionCard(model)
+  const body = message !== null ? `<p class="weather-message">${escapeHtml(message)}</p>` : `${decision}${decision === '' ? renderSynthesis(model) : ''}`
   return `<section class="weather-summary-block" data-weather-summary>
     <p class="eyebrow">${escapeHtml(label)}</p>
-    ${message !== null ? `<p class="weather-message">${escapeHtml(message)}</p>` : `${renderDecisionCard(model)}${renderSynthesis(model)}`}
+    ${body}
   </section>${points}`
 }
 

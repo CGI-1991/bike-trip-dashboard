@@ -4,11 +4,20 @@ import test from 'node:test'
 import { renderTripDetail } from '../../src/ui/trips/trip-detail-view.ts'
 import { createGenericTripBundle } from '../trip-core/support/generic-trip-fixture.mjs'
 
-test('trip detail displays start to end independently from the GPX stage name and exposes optional enrichment', () => {
+test('trip detail displays start to end independently from the GPX stage name', () => {
   const bundle = createGenericTripBundle()
-  const html = renderTripDetail(bundle, { canEnrichEndpoints: true })
+  const html = renderTripDetail(bundle)
   assert.match(html, /Riverside → Hilltown/)
-  assert.match(html, /Identifier les lieux de départ et d’arrivée/)
+})
+
+// Polish-final sections 40-41/74: no manual endpoint-geocoding trigger left
+// anywhere in the normal Voyage UI — the automatic engine owns this
+// entirely on its own (`automatic-enrichment.ts`).
+test('trip detail exposes no manual "Identifier les lieux" action — endpoint geocoding is automatic-only now', () => {
+  const bundle = createGenericTripBundle()
+  const html = renderTripDetail(bundle)
+  assert.doesNotMatch(html, /Identifier les lieux de départ et d’arrivée/)
+  assert.doesNotMatch(html, /data-action="enrich-trip-endpoints"/)
 })
 
 test('trip detail attributes OSM endpoint names when present', () => {

@@ -65,6 +65,32 @@ test('a green risk shows no banner at all — sober treatment (section 23)', () 
   assert.doesNotMatch(container.innerHTML, /weather-decision__banner/)
 })
 
+// Polish-final section 34/71: once the -2h/-1h/Actuel/+1h/+2h scenarios (or
+// a banner/recommendation) are showing, the old aggregate bottom summary
+// ("11,5–18,8 °C · Pluie 2 % · Rafales 34 km/h…") never repeats alongside
+// them — ambiguous, redundant, and no help deciding a departure time.
+test('the aggregate bottom synthesis never shows once the scenarios are visible — the detailed scenarios suffice', () => {
+  const container = fakeElement()
+  renderGenericStageWeatherPanel(container, baseModel({ departureScenarios: fiveScenarios() }), false)
+  assert.match(container.innerHTML, /data-weather-compare/, 'the scenarios themselves are indeed showing')
+  assert.doesNotMatch(container.innerHTML, /data-weather-synthesis/)
+  assert.doesNotMatch(container.innerHTML, /weather-synthesis/)
+})
+
+test('a red risk banner alone (no scenarios yet, e.g. before the reference speed resolves) is also enough to drop the aggregate synthesis', () => {
+  const container = fakeElement()
+  renderGenericStageWeatherPanel(container, baseModel({ riskLevel: 'red', alerts: [{ id: 'a1', dayId: 'day-alpha', riskType: 'gust', level: 'red', title: 'Rafales fortes en altitude', summary: '' }], departureScenarios: [] }), false)
+  assert.match(container.innerHTML, /weather-decision__banner/)
+  assert.doesNotMatch(container.innerHTML, /data-weather-synthesis/)
+})
+
+test('with no banner, no recommendation and no scenario at all, the aggregate synthesis is the fallback — never a blank panel', () => {
+  const container = fakeElement()
+  renderGenericStageWeatherPanel(container, baseModel(), false)
+  assert.doesNotMatch(container.innerHTML, /weather-decision/)
+  assert.match(container.innerHTML, /data-weather-synthesis/)
+})
+
 test('R2.1 section 7: a recommended change shows the conclusion sentence, an "Appliquer HH:MM" that applies directly, and "Modifier manuellement"', () => {
   const container = fakeElement()
   const recommendation = {

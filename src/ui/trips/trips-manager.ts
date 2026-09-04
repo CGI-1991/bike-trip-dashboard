@@ -8,7 +8,6 @@
 import { createTripRepository } from '../../storage/indexeddb/trip-repository.ts'
 import { createSourceFileRepository } from '../../storage/indexeddb/source-file-repository.ts'
 import type { SourceFilePayloadContent } from '../../storage/indexeddb/source-file-repository.ts'
-import { enrichStoredTripEndpoints, tripNeedsEndpointGeocoding } from '../../geocoding/endpoint-enrichment.ts'
 import type { GeocodingProvider } from '../../geocoding/types.ts'
 import type { RouteEnrichmentProgress, RouteEnrichmentProvider } from '../../route-enrichment/types.ts'
 import { runStoredTripAutomaticEnrichment, tripNeedsAutomaticEnrichment } from '../../route-enrichment/automatic-enrichment.ts'
@@ -385,8 +384,6 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     if (mode.kind !== 'day') stopCurrentLocationTracking()
   }
 
-  const geocodingInFlight = new Set<TripId>()
-  const geocodingErrors = new Map<TripId, string>()
   const automaticEnrichmentGuard = createSingleFlightGuard<TripId>()
   const automaticEnrichmentProgress = new Map<TripId, string>()
   const automaticEnrichmentErrors = new Map<TripId, string>()
@@ -541,12 +538,8 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     }
     const now = deps.now()
     deps.onHeaderChange?.(buildGenericAppHeader(bundle, { view: 'trip', now }))
-    const enrichmentBusy = geocodingInFlight.has(tripId) || automaticEnrichmentGuard.isInFlight(tripId)
     container.innerHTML = renderTripDetail(bundle, {
       now,
-      canEnrichEndpoints: !enrichmentBusy && deps.geocodingProvider !== undefined && tripNeedsEndpointGeocoding(bundle),
-      geocodingPending: geocodingInFlight.has(tripId),
-      geocodingError: geocodingErrors.get(tripId) ?? null,
       automaticEnrichmentPending: automaticEnrichmentGuard.isInFlight(tripId),
       automaticEnrichmentProgress: automaticEnrichmentProgress.get(tripId) ?? null,
       automaticEnrichmentError: automaticEnrichmentErrors.get(tripId) ?? null,
@@ -610,6 +603,13 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     deps.onHeaderChange?.(day === null ? buildGenericAppHeader(bundle, { view: 'trip', now: deps.now() }) : buildGenericAppHeader(bundle, { view: 'day', day }))
     teardownStickyHeaderObserver()
     container.innerHTML = detail.html
+    activeDayTab = 'route'
+    // Polish-final section 29/32: an OFF/transfer day shows Infos directly,
+    // with no Parcours tab to switch away from first — it is in edit mode
+    // the instant the screen renders, so the guard must already be watching
+    // it (a ride day instead opens this lazily, only once its Infos tab is
+    // actually clicked — see the `data-day-tab` handler below).
+    if (day !== null && day.type !== 'ride') editGuard.open(infosEditContext(bundle.metadata.id, dayId))
     mountMapAndProfile(bundle, detail, dayId)
     wireDepartureTimeInput(bundle.metadata.id, dayId)
     refreshWeather(bundle, dayId)
@@ -794,9 +794,19 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
    * engine — and its fresh `statsHtml` has the input hidden again, so
    * there's nothing left to restore manually on success.
    */
+  /**
+   * Polish-final section 37-40: the departure time is a draft until
+   * explicitly confirmed — never persisted just because focus moved
+   * elsewhere. Enter and the ✓ button are the two equivalent, deliberate
+   * confirm gestures (both commit); Escape and a plain blur both simply
+   * revert to the last persisted value, no exception. Committing patches
+   * only this stage's own subtree (ETA/opening_hours/météo/timeline) —
+   * never a Postpass call, never a full `renderDay`.
+   */
   function wireDepartureTimeInput(tripId: TripId, dayId: TripDayId): void {
     const input = container.querySelector<HTMLInputElement>('[data-day-departure-input]')
     const displayButton = container.querySelector<HTMLButtonElement>('[data-day-departure-value]')
+    const confirmButton = container.querySelector<HTMLButtonElement>('[data-day-departure-confirm]')
     if (input === null || displayButton === null) return
     departureInputControllers.get(input)?.abort()
     const controller = new AbortController()
@@ -806,6 +816,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     const cancel = (): void => {
       input.value = originalValue
       input.hidden = true
+      if (confirmButton !== null) confirmButton.hidden = true
       displayButton.hidden = false
     }
     const commit = (): void => {
@@ -821,7 +832,20 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       if (event.key === 'Enter') { event.preventDefault(); commit() }
       else if (event.key === 'Escape') { event.preventDefault(); cancel() }
     }, { signal: controller.signal })
-    input.addEventListener('blur', commit, { signal: controller.signal })
+    // Losing focus without an explicit ✓/Enter never persists any more —
+    // it always reverts, exactly like Escape. The ✓ button (below) is what
+    // makes the save intent explicit now, never a blur side-effect. Guarded
+    // against `relatedTarget` being the ✓ button itself: a mouse/touch
+    // click there blurs the input a tick before its own click fires, which
+    // would otherwise revert the value out from under `commit()`.
+    input.addEventListener('blur', (event: FocusEvent) => {
+      if (event.relatedTarget === confirmButton) return
+      cancel()
+    }, { signal: controller.signal })
+    // Belt and suspenders for the same race on mouse/touch specifically:
+    // never let clicking ✓ shift focus (and fire blur) in the first place.
+    confirmButton?.addEventListener('mousedown', (event) => { event.preventDefault() }, { signal: controller.signal })
+    confirmButton?.addEventListener('click', commit, { signal: controller.signal })
   }
 
   /**
@@ -1198,6 +1222,16 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     const ask = deps.confirmDiscardChanges ?? defaultConfirmDiscardChanges
     return await ask()
   })
+  /**
+   * Which of Parcours/Infos is currently showing — tracked explicitly
+   * rather than re-derived from `aria-selected` on every click, so the
+   * dirty-guard decision (self-close vs. a real departure from Infos)
+   * never depends on a DOM read finding the right element. Reset to
+   * `'route'` on every fresh day mount (`mountDayDetail`) since Parcours is
+   * always the default tab; updated by `switchDayTab`, the one place the
+   * visible tab actually changes.
+   */
+  let activeDayTab: 'route' | 'infos' = 'route'
   /** Set only while re-dispatching a click the guard has just cleared — see the `EXTERNAL_ACTIONS` branch. */
   let bypassEditGuard = false
   /** Pending debounce for `scheduleOnlineResume` — at most one in flight. */
@@ -1210,13 +1244,20 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     return [...panel.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>('input, select, textarea')]
   }
 
-  /** Section 64: the Infos edit form — dirty on any field change, closes back to the read view. */
+  /**
+   * Polish-final section 29-32: Infos opens directly in edit mode — there is
+   * no separate read view to "close back to" any more. Dirty on any field
+   * change; leaving (successfully saved, or explicitly discarded) always
+   * re-renders the panel from the last persisted bundle and, for a ride day
+   * (which still tabs Infos alongside Parcours), returns to the Parcours
+   * tab — matching Pauses' own "save/discard closes the panel" contract.
+   */
   function infosEditContext(tripId: TripId, dayId: TripDayId): EditContext {
     return {
       id: 'infos',
       host: { fields: () => panelFields('[data-day-infos-edit]') },
       save: () => saveDayInfos(tripId, dayId),
-      close: () => closeInfosEditView(),
+      close: () => closeInfosEditView(tripId, dayId),
     }
   }
 
@@ -1230,11 +1271,28 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     }
   }
 
-  function closeInfosEditView(): void {
-    const readView = container.querySelector<HTMLElement>('[data-day-infos-read]')
-    const editView = container.querySelector<HTMLElement>('[data-day-infos-edit]')
-    if (editView !== null) editView.hidden = true
-    if (readView !== null) readView.hidden = false
+  /** Discards any locally-typed, unsaved Infos edit by re-rendering the panel from the last persisted bundle — never leaves a stale, abandoned draft visible, whether reached via a saved/discarded dirty-guard decision or an explicit "Annuler"/self-close. */
+  function resetInfosPanel(tripId: TripId, dayId: TripDayId): void {
+    void (async () => {
+      const bundle = await createTripRepository(deps.database).loadTripBundle(tripId)
+      if (bundle !== null) patchInfosPanel(bundle, dayId)
+    })()
+  }
+
+  /** A ride day still tabs Infos alongside Parcours (`[data-day-tab="infos"]` exists) — closing it means returning to Parcours. An OFF/transfer day shows Infos directly with no tab to return to, so only the content itself is reset. */
+  function closeInfosEditView(tripId: TripId, dayId: TripDayId): void {
+    resetInfosPanel(tripId, dayId)
+    if (container.querySelector('[data-day-tab="infos"]') !== null) switchDayTab('route')
+  }
+
+  /** The one place Parcours↔Infos tab visibility changes (CDC polish-final section 29-32) — shared by the tab click handler and `closeInfosEditView` so "Enregistrer"/"Abandonner" land on Parcours exactly like an explicit tab click would. */
+  function switchDayTab(target: 'route' | 'infos'): void {
+    activeDayTab = target
+    for (const panel of container.querySelectorAll<HTMLElement>('[data-day-panel]')) panel.hidden = panel.dataset.dayPanel !== target
+    for (const candidate of container.querySelectorAll<HTMLButtonElement>('[data-day-tab]')) {
+      candidate.setAttribute('aria-selected', String(candidate.dataset.dayTab === target))
+      candidate.tabIndex = candidate.dataset.dayTab === target ? 0 : -1
+    }
   }
 
   /** Section 65: closing is a `hidden` toggle, never a re-render — scroll, tab and map state all stay put. */
@@ -1479,14 +1537,18 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
 
   async function goToOverviewForActiveTrip(): Promise<void> {
     const tripId = await resolveActiveTripId()
-    if (tripId === null) { goToList(); return }
-    await openOverview(tripId)
+    await attemptLeaveEditContext(async () => {
+      if (tripId === null) { mode = { kind: 'list' }; await renderList(); return }
+      await openOverview(tripId)
+    })
   }
 
   async function goToDetailForActiveTrip(): Promise<void> {
     const tripId = await resolveActiveTripId()
-    if (tripId === null) { goToList(); return }
-    await openDetail(tripId)
+    await attemptLeaveEditContext(async () => {
+      if (tripId === null) { mode = { kind: 'list' }; await renderList(); return }
+      await openDetail(tripId)
+    })
   }
 
   async function openDetail(tripId: TripId): Promise<void> {
@@ -1530,32 +1592,31 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     return pauses.slice().sort((left, right) => left.order - right.order).map((pause, index) => ({ ...pause, order: index }))
   }
 
-  /** Global "Mes voyages" nav click (CDC hardening section 14): always returns to the trip list, whatever screen was open — the reason none of Aperçu/Voyage/Étape carries its own "Retour à Mes voyages" button. */
-  function goToList(): void {
-    editGuard.clear()
-    mode = { kind: 'list' }
-    void renderList()
+  /**
+   * Polish-final section 26-28: the ONE gate every navigation that leaves an
+   * active edit context goes through — inside the guarded container
+   * (`EXTERNAL_ACTIONS`, further below) or from the app-wide bottom nav
+   * OUTSIDE it (`main.ts`'s Aperçu/Voyage/Mes voyages links, wired straight
+   * to `goToOverviewForActiveTrip`/`goToDetailForActiveTrip`/`goToList`
+   * below — never through `handleContainerClick` at all). Before this,
+   * leaving via that bottom nav skipped the guard outright: `goToList`
+   * silently `clear()`ed the context and `openDetail`/`openOverview` never
+   * touched it, so a genuinely dirty Pauses/Infos edit was lost with no
+   * prompt — the "Modifications non enregistrées" modal only ever surfaced
+   * later, out of context, on whatever in-container action happened to run
+   * next (the "ghost dirty modal" bug).
+   */
+  async function attemptLeaveEditContext(navigate: () => void | Promise<void>): Promise<void> {
+    if (editGuard.tryLeaveWithoutPrompt()) { await navigate(); return }
+    if (await editGuard.requestLeave()) await navigate()
   }
 
-  async function enrichEndpoints(tripId: TripId): Promise<void> {
-    if (deps.geocodingProvider === undefined || automaticEnrichmentGuard.isInFlight(tripId) || geocodingInFlight.has(tripId)) return
-    geocodingInFlight.add(tripId)
-    geocodingErrors.delete(tripId)
-    await renderDetail(tripId)
-    try {
-      await enrichStoredTripEndpoints({
-        database: deps.database,
-        tripId,
-        provider: deps.geocodingProvider,
-        idFactory: deps.idFactory,
-        now: deps.now,
-      })
-    } catch (error) {
-      geocodingErrors.set(tripId, error instanceof Error ? error.message : 'L’enrichissement des lieux a échoué.')
-    } finally {
-      geocodingInFlight.delete(tripId)
-      if (mode.kind === 'detail' && mode.tripId === tripId) await renderDetail(tripId)
-    }
+  /** Global "Mes voyages" nav click (CDC hardening section 14): always returns to the trip list, whatever screen was open — the reason none of Aperçu/Voyage/Étape carries its own "Retour à Mes voyages" button. */
+  function goToList(): void {
+    void attemptLeaveEditContext(() => {
+      mode = { kind: 'list' }
+      return renderList()
+    })
   }
 
   function renderConfirmation(result: ImportWizardResult): void {
@@ -1719,12 +1780,25 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     // reintroduce exactly the "reload feel" bug this pass fixes.
     const tab = target.closest<HTMLButtonElement>('[data-day-tab]')
     if (tab !== null && container.contains(tab)) {
-      const requested = tab.dataset.dayTab
-      for (const panel of container.querySelectorAll<HTMLElement>('[data-day-panel]')) panel.hidden = panel.dataset.dayPanel !== requested
-      for (const candidate of container.querySelectorAll<HTMLButtonElement>('[data-day-tab]')) {
-        candidate.setAttribute('aria-selected', String(candidate === tab))
-        candidate.tabIndex = candidate === tab ? 0 : -1
+      const requested = tab.dataset.dayTab === 'infos' ? 'infos' : 'route'
+      // Polish-final section 29-32: Infos is a direct-edit surface now — the
+      // instant its tab is showing, it IS open for editing (`editGuard.open`
+      // below), so leaving it (to Parcours or anywhere else) is a real
+      // context switch, not a plain visibility toggle any more.
+      if (activeDayTab === 'infos' && requested === 'infos') {
+        // Section 31: re-clicking the already-active Infos tab is an
+        // explicit self-close gesture — discard silently, never prompt.
+        editGuard.clear()
+        if (mode.kind === 'day') closeInfosEditView(mode.tripId, mode.dayId)
+        return
       }
+      const applyTabSwitch = (): void => {
+        switchDayTab(requested)
+        if (requested === 'infos' && mode.kind === 'day') editGuard.open(infosEditContext(mode.tripId, mode.dayId))
+      }
+      if (activeDayTab !== 'infos') { applyTabSwitch(); return }
+      if (editGuard.tryLeaveWithoutPrompt()) applyTabSwitch()
+      else void editGuard.requestLeave().then((allowed) => { if (allowed) applyTabSwitch() })
       return
     }
     const climbToggle = target.closest<HTMLButtonElement>('[data-action="toggle-climb-profile"]')
@@ -1748,46 +1822,41 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       const panel = container.querySelector<HTMLElement>(`#${CSS.escape(bottomToggle.getAttribute('aria-controls') ?? '')}`)
       if (panel === null) return
       const opening = panel.hidden
+      if (!opening) {
+        // Polish-final section 24: only one bottom panel is ever open at a
+        // time, so `!opening` here can only mean "this toggle's own panel is
+        // the one currently showing" — an explicit self-close gesture.
+        // Discard silently, never prompt, even with unsaved local edits.
+        editGuard.clear()
+        closeBottomPanels()
+        return
+      }
       const applyToggle = (): void => {
         closeBottomPanels()
-        if (!opening) return
         panel.hidden = false
         bottomToggle.setAttribute('aria-expanded', 'true')
-        // Section 62: Météo is consultation only — registered with no fields,
-        // so it can never be dirty and leaving it never prompts.
+        // Section 62/36: Météo is consultation only — registered with no
+        // fields, so it can never be dirty and leaving it never prompts.
         if (mode.kind === 'day') {
           editGuard.open(panel.id === 'day-bottom-panel-pauses'
             ? pausesEditContext(mode.tripId, mode.dayId)
             : { id: 'weather', host: { fields: () => [] }, save: () => {}, close: () => closeBottomPanels() })
         }
       }
-      // Sections 55/61: Pauses ↔ Météo is one of the transitions the guard
-      // covers — leaving a DIRTY Pauses panel for Météo asks first. With
-      // nothing pending the toggle stays synchronous and instant.
+      // Sections 25/61: switching to a DIFFERENT panel (Pauses ↔ Météo) is
+      // one of the transitions the guard covers — leaving a dirty Pauses
+      // panel for Météo asks first. With nothing pending the toggle stays
+      // synchronous and instant.
       if (editGuard.tryLeaveWithoutPrompt()) applyToggle()
       else void editGuard.requestLeave().then((allowed) => { if (allowed) applyToggle() })
       return
     }
-    if (target.closest('[data-action="edit-day-infos"]') !== null) {
-      const openInfosEditView = (): void => {
-        const readView = container.querySelector<HTMLElement>('[data-day-infos-read]')
-        const editView = container.querySelector<HTMLElement>('[data-day-infos-edit]')
-        if (readView !== null) readView.hidden = true
-        if (editView !== null) editView.hidden = false
-        if (mode.kind === 'day') editGuard.open(infosEditContext(mode.tripId, mode.dayId))
-      }
-      // Section 55: entering the Infos form is itself a context switch — a
-      // dirty Pauses panel is settled first.
-      if (editGuard.tryLeaveWithoutPrompt()) openInfosEditView()
-      else void editGuard.requestLeave().then((allowed) => { if (allowed) openInfosEditView() })
-      return
-    }
     if (target.closest('[data-action="cancel-edit-day-infos"]') !== null) {
       // An explicit "Annuler" IS the visitor's answer — never prompt on top
-      // of it (section 59's outcome, chosen deliberately rather than on the
-      // way out).
+      // of it (same outcome as "Abandonner" in the dirty-guard modal,
+      // chosen deliberately rather than on the way out).
       editGuard.clear()
-      closeInfosEditView()
+      if (mode.kind === 'day') closeInfosEditView(mode.tripId, mode.dayId)
       return
     }
 
@@ -1872,8 +1941,6 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       })()
     } else if (action === 'back-to-list') {
       goToList()
-    } else if (action === 'enrich-trip-endpoints' && mode.kind === 'detail') {
-      void enrichEndpoints(mode.tripId)
     } else if (action === 'locate-me') {
       // CDC C3.B section 41/48: the permission prompt (if any) is only ever
       // triggered by this explicit user action — never automatically on
@@ -1901,12 +1968,15 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     } else if (action === 'edit-day-departure-time' && mode.kind === 'day') {
       // The reveal itself is a pure `hidden` toggle (CDC D1.2 section 11) —
       // `wireDepartureTimeInput` (called once per mount/patch) already
-      // wired this same `<input>`'s keydown/blur commit/cancel behaviour.
+      // wired this same `<input>`'s keydown/blur cancel behaviour and the
+      // ✓ button's own commit (polish-final section 37-40).
       const displayButton = container.querySelector<HTMLButtonElement>('[data-day-departure-value]')
       const input = container.querySelector<HTMLInputElement>('[data-day-departure-input]')
+      const confirmButton = container.querySelector<HTMLButtonElement>('[data-day-departure-confirm]')
       if (displayButton === null || input === null) return
       displayButton.hidden = true
       input.hidden = false
+      if (confirmButton !== null) confirmButton.hidden = false
       input.focus()
       try { input.showPicker?.() } catch { /* not eligible here — focus() still opens the native control on most mobile platforms */ }
     } else if (action === 'apply-weather-departure-time' && mode.kind === 'day') {

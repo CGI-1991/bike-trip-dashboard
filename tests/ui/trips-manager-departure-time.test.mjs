@@ -10,10 +10,12 @@ import { createGenericTripBundle } from '../trip-core/support/generic-trip-fixtu
 import { initializeTripsManager } from '../../src/ui/trips/trips-manager.ts'
 import { buildDayDetail } from '../../src/ui/trips/day-detail-view.ts'
 
-// CDC D1.2 section 11 (tests M/N/O/P/Q): the Départ stat cell is the
-// editing surface itself — a plain display button and an (initially
-// hidden) `<input type="time">` toggle in place, no separate "Modifier"
-// trigger/panel any more.
+// CDC D1.2 section 11 (tests M/N/O/P/Q), refined by polish-final sections
+// 37-40 (tests 72-73): the Départ stat cell is the editing surface itself —
+// a plain display button and an (initially hidden) `<input type="time">` +
+// ✓ confirm button toggle in place, no separate "Modifier" trigger/panel.
+// Persistence now requires an explicit confirm (✓ or Enter) — a plain blur
+// always reverts, never silently saves.
 
 class FakeElement {
   constructor() {
@@ -99,25 +101,30 @@ async function openDayAlpha(db) {
   const timeInput = new FakeElement()
   timeInput.value = '08:00'
   timeInput.hidden = true
+  const confirmButton = new FakeElement()
+  confirmButton.hidden = true
   container.register('[data-day-departure-value]', displayButton)
   container.register('[data-day-departure-input]', timeInput)
+  container.register('[data-day-departure-confirm]', confirmButton)
   const handle = initializeTripsManager(container, noopDeps(db))
   await flush()
   container.dispatch('click', { target: fakeActionElement({ action: 'open-trip', tripId: bundle.metadata.id }) })
   await flush()
   container.dispatch('click', { target: fakeActionElement({ action: 'open-day-detail', dayId: bundle.days[0].id }) })
   await flush()
-  return { bundle, container, displayButton, timeInput, handle }
+  return { bundle, container, displayButton, timeInput, confirmButton, handle }
 }
 
-test('M: a click on the Départ value reveals the inline input, focused, and hides the display button', async () => {
+test('M: a click on the Départ value reveals the inline input and its ✓ confirm button, focused, and hides the display button', async () => {
   const db = await openTestDatabase()
   try {
-    const { container, displayButton, timeInput } = await openDayAlpha(db)
+    const { container, displayButton, timeInput, confirmButton } = await openDayAlpha(db)
     assert.equal(timeInput.hidden, true, 'sanity check: the input starts hidden')
+    assert.equal(confirmButton.hidden, true, 'sanity check: ✓ starts hidden too')
     container.dispatch('click', { target: fakeActionElement({ action: 'edit-day-departure-time' }) })
     assert.equal(displayButton.hidden, true)
     assert.equal(timeInput.hidden, false)
+    assert.equal(confirmButton.hidden, false)
     assert.equal(timeInput.focusCalls, 1)
   } finally {
     db.close()
@@ -172,18 +179,47 @@ test('N/P: Enter commits a valid new time — persists it and recalculates every
   }
 })
 
-test('blur commits a valid, changed value exactly like Enter', async () => {
+// Polish-final section 37-40 (test 72): the ✓ button is the explicit save
+// gesture — before it is clicked the bundle still carries the old value;
+// clicking it persists the draft and recalculates timing.
+test('clicking ✓ commits a valid new time — the bundle stays at the old value until then', async () => {
   const db = await openTestDatabase()
   try {
-    const { bundle, container, timeInput } = await openDayAlpha(db)
+    const { bundle, container, timeInput, confirmButton } = await openDayAlpha(db)
     container.dispatch('click', { target: fakeActionElement({ action: 'edit-day-departure-time' }) })
-    timeInput.value = '07:15'
-    timeInput.emit('blur')
+    timeInput.value = '07:30'
+
+    const beforeConfirm = await createTripRepository(db).loadTripBundle(bundle.metadata.id)
+    assert.equal(beforeConfirm.settings.days.find((entry) => entry.dayId === bundle.days[0].id).departureTime, '08:00', 'still the old value before ✓')
+
+    confirmButton.emit('click')
     await flush()
 
+    const afterConfirm = await createTripRepository(db).loadTripBundle(bundle.metadata.id)
+    assert.equal(afterConfirm.settings.days.find((entry) => entry.dayId === bundle.days[0].id).departureTime, '07:30', 'the new value once ✓ is clicked')
+  } finally {
+    db.close()
+  }
+})
+
+// Polish-final section 37-39 (test 73): a blur with no explicit ✓/Enter
+// NEVER persists any more, even a valid changed value — it always reverts,
+// same as Escape. Only ✓/Enter is an explicit-enough save intent.
+test('a blur with no ✓/Enter reverts a valid, changed value instead of saving it', async () => {
+  const db = await openTestDatabase()
+  try {
+    const { bundle, container, timeInput, displayButton } = await openDayAlpha(db)
+    container.dispatch('click', { target: fakeActionElement({ action: 'edit-day-departure-time' }) })
+    timeInput.value = '07:15'
+    timeInput.emit('blur', {})
+    await flush()
+
+    assert.equal(timeInput.value, '08:00', 'reverted — never left showing the unsaved draft')
+    assert.equal(timeInput.hidden, true)
+    assert.equal(displayButton.hidden, false)
     const updated = await createTripRepository(db).loadTripBundle(bundle.metadata.id)
     const daySettings = updated.settings.days.find((entry) => entry.dayId === bundle.days[0].id)
-    assert.equal(daySettings.departureTime, '07:15')
+    assert.equal(daySettings.departureTime, '08:00', 'never persisted without an explicit ✓/Enter')
   } finally {
     db.close()
   }
@@ -285,10 +321,10 @@ test('saving preserves the day\'s existing totalBreakSeconds — only departureT
   }
 })
 
-test('re-opening the edit after a save never accumulates a second keydown/blur listener on the input', async () => {
+test('re-opening the edit after a save never accumulates a second keydown/blur/✓ listener', async () => {
   const db = await openTestDatabase()
   try {
-    const { bundle, container, timeInput } = await openDayAlpha(db)
+    const { bundle, container, timeInput, confirmButton } = await openDayAlpha(db)
     container.dispatch('click', { target: fakeActionElement({ action: 'edit-day-departure-time' }) })
     timeInput.value = '06:00'
     timeInput.emit('keydown', { key: 'Enter', preventDefault: () => {} })
@@ -299,6 +335,8 @@ test('re-opening the edit after a save never accumulates a second keydown/blur l
     // a second listener onto it.
     assert.equal(timeInput.listeners.get('keydown')?.size ?? 0, 1)
     assert.equal(timeInput.listeners.get('blur')?.size ?? 0, 1)
+    assert.equal(confirmButton.listeners.get('click')?.size ?? 0, 1)
+    assert.equal(confirmButton.listeners.get('mousedown')?.size ?? 0, 1)
   } finally {
     db.close()
   }

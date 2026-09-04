@@ -21,9 +21,6 @@ import type { TripBundle, TripDayId } from '../../trip-core/index.ts'
 
 export interface TripDetailRenderOptions {
   readonly now?: Date | string | null
-  readonly canEnrichEndpoints?: boolean
-  readonly geocodingPending?: boolean
-  readonly geocodingError?: string | null
   readonly automaticEnrichmentPending?: boolean
   readonly automaticEnrichmentProgress?: string | null
   readonly automaticEnrichmentError?: string | null
@@ -241,15 +238,12 @@ export function renderTripDetail(bundle: TripBundle, options: TripDetailRenderOp
         : routeEnrichmentState?.status === 'partial' || routeEnrichmentState?.status === 'error' || osmState?.status === 'partial' || osmState?.status === 'error'
           ? '<p class="trip-detail__enrichment">Certaines données seront complétées ultérieurement.</p>'
           : ''
-  const geocodingStatus = options.geocodingPending
-    ? '<p role="status">Identification des lieux en cours…</p>'
-    : options.geocodingError !== null && options.geocodingError !== undefined
-      ? `<p role="alert">${escapeHtml(options.geocodingError)}</p>`
-      : osmState?.status === 'error'
-        ? `<p role="status">${escapeHtml(osmState.message ?? 'Les lieux n’ont pas pu être identifiés.')}</p>`
-        : ''
-  const geocodingAction = options.canEnrichEndpoints && !options.geocodingPending
-    ? '<button class="button button--quiet" type="button" data-action="enrich-trip-endpoints">Identifier les lieux de départ et d’arrivée</button>'
+  // Polish-final section 40-44: no manual trigger left for endpoint
+  // geocoding — the automatic engine (`automatic-enrichment.ts`) owns that
+  // entirely on its own. This stays a passive, honest status readout of
+  // its last attempt, nothing the visitor can click to retry.
+  const endpointStatus = osmState?.status === 'error'
+    ? `<p role="status">${escapeHtml(osmState.message ?? 'Les lieux n’ont pas pu être identifiés.')}</p>`
     : ''
   const attribution = hasOsmEndpoints || hasOsmRouteData || hasOsmClimbNames ? '<p class="trip-detail__attribution">Données géographiques : © OpenStreetMap contributors.</p>' : ''
 
@@ -275,8 +269,7 @@ export function renderTripDetail(bundle: TripBundle, options: TripDetailRenderOp
       <ol class="trip-day-list">${bundle.days.map((day) => renderDayCard(bundle, day, getTripDayTemporalState(temporal, day.id) as TripDayTemporalState, temporal.priorityDayId, prepStatuses?.get(day.id))).join('')}</ol>
       ${hasRideStages ? '<button class="button button--quiet button--full" type="button" data-action="download-trip-gpx">Télécharger les GPX</button>' : ''}
       ${automaticStatus}
-      ${geocodingStatus}
-      ${geocodingAction}
+      ${endpointStatus}
       ${attribution}
     </div>`
 }

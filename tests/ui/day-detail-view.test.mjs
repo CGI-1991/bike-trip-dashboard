@@ -121,11 +121,13 @@ test('villageWaypoints exposes villages separately for the fullscreen map layer,
   assert.equal(detail.villageWaypoints[0].name, 'Micro Village')
 })
 
-test('Arrêts shows a compact status line only in normal view — never the pause list itself (CDC Jalon B4.3 section 30)', () => {
+test('polish-final sections 20-25: Pauses opens directly to the candidate list — no "Gestion automatique" status line, no nested "Manuel" disclosure', () => {
   const bundle = createGenericTripBundle()
   const detail = buildDayDetail(bundle, 'day-alpha')
-  assert.match(detail.html, /Gestion automatique/)
-  assert.match(detail.html, /<summary class="button button--quiet">Manuel<\/summary>/)
+  assert.doesNotMatch(detail.html, /Gestion automatique/)
+  assert.doesNotMatch(detail.html, /<summary/)
+  assert.doesNotMatch(detail.html, /<details/)
+  assert.match(detail.html, /data-action="save-manual-pauses"/)
   assert.doesNotMatch(detail.html, /Rétablir Auto/, 'already automatic — no need for a button back to it')
 })
 
@@ -187,18 +189,17 @@ test('the manual pause editor lists one compact row per candidate, checked/pre-f
     pauses: [{ id: 'pause-manual-1', active: true, routePointId: 'town-ui', durationSeconds: 900, order: 0, origin: 'custom' }],
   }
   const detail = buildDayDetail(bundle, 'day-alpha')
-  assert.match(detail.html, /Mode manuel · 1 pause/)
   assert.match(detail.html, /data-action="save-manual-pauses"/)
   assert.match(detail.html, /data-action="pause-mode-automatic">Rétablir Auto/)
-  // CDC Jalon C1 closeout section 4: "Rétablir Auto" sits next to "Manuel"
-  // — a sibling of the `<details>`, always visible, never nested inside
-  // its native toggle content (which would hide it while collapsed).
+  // Polish-final sections 20-25: the candidate list is directly visible —
+  // no disclosure to open first — and "Rétablir Auto" sits next to
+  // "Enregistrer" in the same always-visible actions row.
+  assert.doesNotMatch(detail.html, /<details/)
+  const listIndex = detail.html.indexOf('day-pause-editor__list')
   const actionsIndex = detail.html.indexOf('day-detail__pauses-actions')
-  const detailsIndex = detail.html.indexOf('<details class="day-pause-editor"')
   const restoreButtonIndex = detail.html.indexOf('data-action="pause-mode-automatic"')
-  const detailsCloseIndex = detail.html.indexOf('</details>')
-  assert.ok(actionsIndex >= 0 && actionsIndex < detailsIndex, '"Manuel" and "Rétablir Auto" share the same wrapper')
-  assert.ok(restoreButtonIndex > detailsCloseIndex, '"Rétablir Auto" is a sibling AFTER </details>, never inside it (never hidden while collapsed)')
+  assert.ok(listIndex >= 0 && listIndex < actionsIndex, 'the candidate list comes before the actions row')
+  assert.ok(restoreButtonIndex > actionsIndex, '"Rétablir Auto" sits inside the actions row, alongside "Enregistrer"')
   assert.match(detail.html, /data-candidate-id="town-ui"/)
   assert.match(detail.html, /Waypoint Town/)
   assert.match(detail.html, /input type="checkbox" data-field="pause-active" checked/)
@@ -484,16 +485,15 @@ test('the Météo tab only ever ships an empty mount point + a loading placehold
 
 // --- Infos: free text + lodging (CDC Jalon B4.2 section 21) -----------------
 
-test('Infos is read-only by default: shows the note as plain text, plus a single "Modifier" action (CDC Jalon B4.3 sections 35-36)', () => {
+test('polish-final section 29-30: Infos opens directly in edit mode — the note is a live textarea, no separate read view, no "Modifier" click first', () => {
   const bundle = createGenericTripBundle()
   bundle.days[0].notes = 'Superbe montée, prévoir de l’eau.'
   const detail = buildDayDetail(bundle, 'day-alpha')
-  assert.match(detail.html, /Superbe montée, prévoir de l’eau\./)
-  assert.match(detail.html, /data-action="edit-day-infos">Modifier/)
-  assert.match(detail.html, /data-day-infos-edit hidden/, 'the edit form is collapsed by default')
-  // The grouped edit form exists (for when "Modifier" is clicked) but never
-  // shows directly in normal consultation, and there is exactly one
-  // "Enregistrer" for both note + lodging together — never a form per field.
+  assert.doesNotMatch(detail.html, /data-action="edit-day-infos"/)
+  assert.doesNotMatch(detail.html, /data-day-infos-read/)
+  assert.match(detail.html, /data-day-infos-edit(?! hidden)/, 'the edit form is directly visible, never collapsed')
+  assert.match(detail.html, /<textarea id="day-notes"[^>]*>Superbe montée, prévoir de l’eau\.<\/textarea>/)
+  // One "Enregistrer" for note + lodging together — never a form per field.
   assert.match(detail.html, /data-field="day-notes"/)
   assert.match(detail.html, /data-action="save-day-infos"/)
 })
@@ -532,31 +532,30 @@ test('the fullscreen map toolbar (shared by Aperçu and Étape) stays a single c
   assert.match(css, /\.route-map-dialog > header h2 \{[^}]*text-overflow: ellipsis/, 'a long title truncates instead of pushing the toolbar taller')
 })
 
-test('Infos shows "Aucune note" when there is none, never an empty block, and still offers "Modifier"', () => {
+test('Infos textarea starts empty when there is no note — never fabricated placeholder text passed off as a value', () => {
   const bundle = createGenericTripBundle()
   assert.equal(bundle.days[0].accommodationId, null)
   const detail = buildDayDetail(bundle, 'day-alpha')
-  assert.match(detail.html, /Aucune note pour cette étape\./)
-  assert.match(detail.html, /data-action="edit-day-infos">Modifier/)
+  assert.match(detail.html, /<textarea id="day-notes"[^>]*><\/textarea>/)
 })
 
-test('Infos shows the linked accommodation\'s name, Maps and website links when the day has one, and never fabricates a link', () => {
+test('Infos shows the linked accommodation\'s name (as an editable field) and its Maps/website quick actions, never a fabricated link', () => {
   const bundle = createGenericTripBundle()
   bundle.days[0].accommodationId = bundle.accommodations[0].id
   const detail = buildDayDetail(bundle, 'day-alpha')
-  assert.match(detail.html, /Hilltown Inn/)
+  assert.match(detail.html, /value="Hilltown Inn"/)
   assert.match(detail.html, /Ouvrir dans Maps/)
   // The fixture's lodging has no website — the "Voir le site" link must not be fabricated.
   assert.doesNotMatch(detail.html, /Voir le site/)
 })
 
-test('RC2 final-closeout sections 37/40: lodging address and booking reference show as plain text, never as an action', () => {
+test('lodging address and booking reference are editable fields, pre-filled with their stored values', () => {
   const bundle = createGenericTripBundle()
   bundle.days[0].accommodationId = bundle.accommodations[0].id
   bundle.accommodations[0].bookingReference = 'RES-1234'
   const detail = buildDayDetail(bundle, 'day-alpha')
-  assert.match(detail.html, /<p class="day-infos__lodging-detail">12 Ridge Road, Hilltown<\/p>/)
-  assert.match(detail.html, /<p class="day-infos__lodging-detail">Réservation : RES-1234<\/p>/)
+  assert.match(detail.html, /id="lodging-address"[^>]*value="12 Ridge Road, Hilltown"/)
+  assert.match(detail.html, /id="lodging-booking-reference"[^>]*value="RES-1234"/)
 })
 
 test('RC2 final-closeout section 46: an identical URL in both mapsUrl and website collapses to a single Maps action', () => {
@@ -925,7 +924,7 @@ test('a candidate with no nearby POI at all shows no opening-status line — nev
 test('C/D: the manual pause editor still shows the C3 recommendation badge and its short reason for the same candidate — the only place this information is actionable', () => {
   const bundle = pushMainSlotAnchor(createGenericTripBundle())
   const detail = buildDayDetail(bundle, 'day-alpha')
-  const editorMatch = /<div class="day-pause-editor__list">[^]*<\/div>\s*<div class="day-pause-editor__actions">/.exec(detail.pausesHtml)
+  const editorMatch = /<div class="day-pause-editor__list">[^]*<\/div>\s*<div class="day-detail__pauses-actions">/.exec(detail.pausesHtml)
   assert.ok(editorMatch !== null)
   const rowHtml = editorMatch[0]
   assert.match(rowHtml, /data-candidate-id="town-main-slot"/)
@@ -1048,7 +1047,7 @@ test('AV/AW: an OFF day now builds a real detail shell — Résumé, Météo and
   assert.match(detail.html, /<span class="day-detail__identity-route">OFF — Hilltown<\/span>/, 'the identity bandeau carries a short type badge + the known location')
   assert.match(detail.html, /Hilltown/, 'the OFF day\'s known/auto-filled location shows in the Résumé')
   assert.match(detail.html, /data-day-detail-weather/, 'the same Météo mount point as a ride day — real weather is mounted by trips-manager.ts')
-  assert.match(detail.html, /data-action="edit-day-infos">Modifier/, 'Infos is the same read/edit component as a ride day')
+  assert.match(detail.html, /data-day-infos-edit/, 'Infos is the same direct-edit component as a ride day')
 })
 
 test('AX/AY: a transfer day builds a real detail shell — origin → destination, its transferTiming, no tabs at all', () => {

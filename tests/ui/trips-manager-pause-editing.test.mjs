@@ -223,7 +223,7 @@ test('saving the manual pause editor patches only the pauses/stats/timeline subt
 
     assert.equal(container.innerHTMLSetCount, setCountAfterMount, 'saving the manual pause editor must never reset the whole Étape screen (the "reload feel" bug this pass fixes)')
     assert.ok(pausesElement.outerSetCount > 0, 'the pauses subtree itself must still be refreshed')
-    assert.match(pausesElement.outerHTML, /Mode manuel · 1 pause/, 'the patched fragment reflects the new manual pause')
+    assert.match(pausesElement.outerHTML, /data-candidate-id="town-ui">[^]*?data-field="pause-active" checked/, 'the patched fragment reflects the new manual pause')
     assert.match(pausesElement.outerHTML, /value="20"/, 'the checked row\'s duration is persisted')
 
     const saved = await createTripRepository(db).loadTripBundle(bundle.metadata.id)
@@ -265,8 +265,10 @@ test('G/H (R2.1 section 5): an unchecked row is never saved as a pause — 0 pau
     await waitUntil(() => pausesElement.outerSetCount > 0)
 
     // G: never blocked — the save actually went through and patched the
-    // pauses subtree, no error/validation stopped it.
-    assert.match(pausesElement.outerHTML, /Mode manuel · aucune pause/)
+    // pauses subtree, no error/validation stopped it — the candidate stays
+    // listed, simply unchecked, never a status line proclaiming the mode.
+    assert.match(pausesElement.outerHTML, /data-candidate-id="town-ui"/)
+    assert.doesNotMatch(pausesElement.outerHTML, /data-field="pause-active" checked/)
     // H: the empty configuration is genuinely persisted, not just displayed.
     const saved = await createTripRepository(db).loadTripBundle(bundle.metadata.id)
     const stageSettings = saved.settings.stages.find((entry) => entry.stageId === 'stage-alpha')

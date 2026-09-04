@@ -39,7 +39,7 @@ import { nearestNextRideStage, nearestPreviousRideStage, resolveOffLocation, res
 import { parseClockToMinutes } from '../../analysis/timing.ts'
 import { resolveEffectiveMountainMode } from '../../analysis/terrain-context.ts'
 import { stageAutomaticPausesAllowed } from '../../route-enrichment/enrichment-jobs.ts'
-import { computeStageWaypoints, resolveStagePauseSettings } from '../../analysis/waypoint-timeline.ts'
+import { buildAutomaticPauseEnrichment, computeStageWaypoints, resolveStagePauseSettings } from '../../analysis/waypoint-timeline.ts'
 import { createRouteClockTime } from '../../route/time.ts'
 import { routeGeometry } from '../../route-enrichment/route-fingerprint.ts'
 import type { RoadbookPointType } from '../../trip/roadbook-types.ts'
@@ -126,10 +126,18 @@ export function buildRideDayWeatherDefinition(bundle: TripBundle, day: TripDay):
   const settings = { referenceSpeedKph: bundle.settings.global.referenceSpeedKph, departureTime }
   const stageSettings = bundle.settings.stages.find((candidate) => candidate.stageId === stage.id)
   const pauseResolution = resolveStagePauseSettings(bundle.settings.global.pausePlanMode, stageSettings)
+  // Polish-final section 12-16: the exact same automatic-pause enrichment
+  // the displayed Parcours/map/profile timeline uses (`day-detail-view.ts`)
+  // — without this, AUTOMATIC-mode placement fell back to the plain
+  // kind-priority search instead of the explainable C3 scoring, so this
+  // module's own "significant waypoint" set could silently diverge from
+  // what the traveller actually sees, leaving a displayed pause anchor with
+  // no weather and a day alert traceable to no visible point.
   const waypoints = computeStageWaypoints({
     stage, route, routePoints: bundle.routePoints, climbs: bundle.climbs, settings,
     manualPauses: pauseResolution.mode === 'custom' ? pauseResolution.manualPauses : undefined,
     mountainMode: resolveEffectiveMountainMode(bundle),
+    automaticPauseEnrichment: buildAutomaticPauseEnrichment(bundle, stage, day),
     automaticPausesAllowed: stageAutomaticPausesAllowed(bundle, stage.id),
   })
   // Never sends a point with no computed clock time at all (defensive —

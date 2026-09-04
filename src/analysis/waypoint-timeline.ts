@@ -16,7 +16,8 @@
 import { createTerrainTiming, interpolateTerrainTiming, buildTerrainProfileSeries } from '../route/terrain-profile.ts'
 import { formatRouteClockTime } from '../route/time.ts'
 import type { RouteProfilePosition } from '../route/types.ts'
-import type { Climb, PausePlanMode, RideStage, RideStageSettings, Route, RouteGeometryPoint, RoutePoint } from '../trip-core/index.ts'
+import type { Climb, PausePlanMode, RideStage, RideStageSettings, Route, RouteGeometryPoint, RoutePoint, TripBundle, TripDay } from '../trip-core/index.ts'
+import { isPracticalPlaceUxCategory } from '../practical-places/taxonomy.ts'
 import { pointAtDistance, routeGeometryWithDistances } from './canonical-waypoints.ts'
 import type { CanonicalWaypoint } from './canonical-waypoints.ts'
 import { buildCanonicalWaypoints } from './canonical-waypoints.ts'
@@ -124,6 +125,35 @@ export interface AutomaticPauseEnrichmentInput {
   readonly weather?: PauseWeatherContext | null
   /** 0 (Sunday) – 6 (Saturday), the day's own weekday at departure — only needed for opening-hours scoring; omit to skip that one signal, everything else still runs. */
   readonly weekdayAtDeparture?: number
+}
+
+/**
+ * Polish-final section 12-16: the ONE place that projects a stage's own
+ * already-persisted POI/weather into `AutomaticPauseEnrichmentInput` — used
+ * identically by the displayed Parcours/map/profile timeline
+ * (`ui/trips/day-detail-view.ts`) and by the weather module's own
+ * significant-waypoint selection (`weather/generic/sample-points.ts`).
+ * Before this was shared, the weather module called `computeStageWaypoints`
+ * without this input at all, so `resolveAutomaticPlacedPauses` silently fell
+ * back to the plain kind-priority search (`placeAutomaticPauses`) instead of
+ * the explainable C3 scoring (`recommendAutomaticPauses`) the UI uses — two
+ * independent engines could pick two different anchors for the very same
+ * pause slot, so a village significant only via a pause anchor could appear
+ * in the displayed timeline yet never reach the weather sample-point set (or
+ * vice versa). A single shared builder makes that divergence structurally
+ * impossible: same input in, same automatic-pause decision out, everywhere.
+ */
+export function buildAutomaticPauseEnrichment(bundle: TripBundle, stage: RideStage, day: TripDay): AutomaticPauseEnrichmentInput {
+  const places: PauseCandidatePlace[] = bundle.practicalPlaces.flatMap((place) => {
+    if (place.stageId !== stage.id || place.trackDistanceKm === null || !isPracticalPlaceUxCategory(place.category)) return []
+    return [{ id: place.id, category: place.category, name: place.name, trackDistanceKm: place.trackDistanceKm, detourKm: place.detourKm ?? 0, openingHours: place.openingHours }]
+  })
+  const weatherRecord = bundle.weather.find((record) => record.dayId === day.id)
+  const weather = weatherRecord === undefined ? undefined : {
+    precipitationMm: weatherRecord.precipitationMm, windSpeedKph: weatherRecord.windSpeedKph, temperatureMaxC: weatherRecord.temperatureMaxC,
+  }
+  const weekdayAtDeparture = day.date === null ? undefined : new Date(`${day.date}T12:00:00Z`).getUTCDay()
+  return { practicalPlaces: places, weather, weekdayAtDeparture }
 }
 
 function movingElapsedMinutesAt(source: RouteProfilePosition[], totalDistanceKm: number, referenceSpeedKph: number): (distanceKm: number) => number {

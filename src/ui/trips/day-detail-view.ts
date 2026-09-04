@@ -22,9 +22,8 @@
  * resolved, or (ride only) its stage/route can't be resolved either.
  */
 
-import { computeStagePauseRecommendations, computeStageTimingCurve, computeStageWaypoints, resolveStagePauseSettings } from '../../analysis/waypoint-timeline.ts'
-import type { AutomaticPauseEnrichmentInput, StageTimingCurve } from '../../analysis/waypoint-timeline.ts'
-import type { PauseCandidatePlace } from '../../analysis/pause-recommendation.ts'
+import { buildAutomaticPauseEnrichment, computeStagePauseRecommendations, computeStageTimingCurve, computeStageWaypoints, resolveStagePauseSettings } from '../../analysis/waypoint-timeline.ts'
+import type { StageTimingCurve } from '../../analysis/waypoint-timeline.ts'
 import { isSignificantWaypoint } from '../../analysis/canonical-waypoints.ts'
 import type { CanonicalWaypoint, CanonicalWaypointKind } from '../../analysis/canonical-waypoints.ts'
 import { buildClimbProfile } from '../../analysis/climb-profile.ts'
@@ -32,7 +31,6 @@ import type { ClimbGradeClass, ClimbProfileSegment } from '../../analysis/climb-
 import { routeGeometry } from '../../route-enrichment/route-fingerprint.ts'
 import { resolveOffCoordinates, resolveOffLocation, resolveSharedInfoDayId, resolveTransferCoordinates, resolveTransferLocations } from '../../analysis/day-location-fill.ts'
 import type { RouteMapMarkerModel, RouteMapModel } from '../route-map-model.ts'
-import { isPracticalPlaceUxCategory } from '../../practical-places/taxonomy.ts'
 import { resolveEffectiveMountainMode } from '../../analysis/terrain-context.ts'
 import { formatShortDate } from '../date-format.ts'
 import { compactPlaceName } from '../compact-place-name.ts'
@@ -374,12 +372,6 @@ function renderTimelineList(waypoints: readonly CanonicalWaypoint[], climbs: rea
   return `<ol class="day-detail__timeline">${rows}</ol>`
 }
 
-function pauseStatusText(mode: 'automatic' | 'custom', activeCount: number): string {
-  if (mode === 'automatic') return 'Gestion automatique'
-  if (activeCount === 0) return 'Mode manuel · aucune pause'
-  return `Mode manuel · ${activeCount} pause${activeCount > 1 ? 's' : ''}`
-}
-
 /**
  * One compact candidate row for the manual pause editor (CDC Jalon B4.3
  * section 31) — name/type/distance/ETA, a single checkbox, and a duration
@@ -439,23 +431,20 @@ function renderPauseCandidateRow(
  * Pauses (CDC Jalon B4.3 sections 30-32, CDC Jalon C1 closeout section 4):
  * the normal view is a compact status line only — never the pause list,
  * never a card/select/input in consultation. "Manuel" deploys a single
- * `<details>` panel (native disclosure, no extra JS needed to open/close
- * it) with one compact row per candidate point (city/town/village/col);
- * everything is batched behind one "Enregistrer" action (`trips-manager.ts`'s
- * `save-manual-pauses` handler) — never a save per checkbox/duration
- * change, never a full `renderDay()`.
+ * one compact row per candidate point (city/town/village/col), visible the
+ * instant the panel opens — no nested disclosure, no separate "Manuel"
+ * step (polish-final section 20-25: opening the panel already IS the
+ * intent to edit). Everything is batched behind one "Enregistrer" action
+ * (`trips-manager.ts`'s `save-manual-pauses` handler) — never a save per
+ * checkbox/duration change, never a full `renderDay()`. Saving with every
+ * candidate unchecked is a fully valid outcome (an itinerary deliberately
+ * planned with zero stops), never blocked (section 22).
  *
- * "Rétablir Auto" sits next to "Manuel" — a sibling of the `<details>`
- * inside `.day-detail__pauses-actions`, deliberately NOT a child of
- * `<details>` itself: any element inside `<details>` other than its own
- * first `<summary>` is native toggle content (hidden while collapsed), so
- * it used to only ever show once the user had already opened the Manuel
- * panel and scrolled to the bottom. As a sibling it is always visible
- * whenever the stage genuinely carries a manual override (`resolution.mode
- * === 'custom'`), reverting instantly via the same `pause-mode-automatic`
- * action — no need to open the panel first, and (unchanged) that handler
- * only ever patches the pauses/stats/timeline subtree, never a full
- * reload.
+ * "Rétablir Auto" stays a quick way back to the algorithmic plan once the
+ * stage carries a manual override (`resolution.mode === 'custom'`) —
+ * reverting instantly via the `pause-mode-automatic` action, which
+ * (unchanged) only ever patches the pauses/stats/timeline subtree, never a
+ * full reload.
  *
  * Always wrapped in a stable `data-day-detail-pauses` container so the
  * caller can patch just this subtree after a mutation.
@@ -470,7 +459,6 @@ function renderPauseEditor(
 ): string {
   const activePauses = (stageSettings?.pauses ?? []).filter((pause) => pause.active)
   const activeByRoutePointId = new Map(activePauses.map((pause) => [pause.routePointId, pause]))
-  const status = pauseStatusText(resolution.mode, activePauses.length)
 
   const candidateRows = anchorCandidates.length === 0
     ? '<p>Aucun point canonique disponible pour ancrer une pause sur cette étape.</p>'
@@ -483,15 +471,9 @@ function renderPauseEditor(
 
   return `<section class="card day-detail__pauses" data-day-detail-pauses data-stage-id="${escapeHtml(stageId)}">
     <p class="eyebrow">Arrêts</p><h3>Pauses</h3>
-    <p class="day-detail__pauses-status">${status}</p>
+    <div class="day-pause-editor__list">${candidateRows}</div>
     <div class="day-detail__pauses-actions">
-      <details class="day-pause-editor" data-day-pause-editor>
-        <summary class="button button--quiet">Manuel</summary>
-        <div class="day-pause-editor__list">${candidateRows}</div>
-        <div class="day-pause-editor__actions">
-          <button class="button button--primary" type="button" data-action="save-manual-pauses">Enregistrer</button>
-        </div>
-      </details>
+      <button class="button button--primary" type="button" data-action="save-manual-pauses">Enregistrer</button>
       ${resolution.mode === 'custom' ? '<button class="button button--quiet" type="button" data-action="pause-mode-automatic">Rétablir Auto</button>' : ''}
     </div>
   </section>`
@@ -555,7 +537,18 @@ function renderWeatherPanel(): string {
  * set — a lodging with just a text address still gets a working action
  * (section 49: never force the visitor to hand-craft a URL themselves).
  */
-function renderLodgingReadView(accommodation: Accommodation | undefined): string {
+/**
+ * Quick, one-click Maps/website actions for the already-linked lodging —
+ * kept alongside its own editable fields (polish-final section 29: direct
+ * edit, never a click away) rather than dropped just because the separate
+ * read-only view is gone. Nothing rendered at all when no lodging is set,
+ * per the original CDC Jalon B4.3 section 35: no large empty block. The
+ * Maps action follows the shared priority hierarchy (explicit URL > address
+ * > coordinates, `maps-link.ts`) rather than only ever appearing when
+ * `mapsUrl` itself is set — a lodging with just a text address still gets a
+ * working action (never force the visitor to hand-craft a URL themselves).
+ */
+function renderLodgingQuickLinks(accommodation: Accommodation | undefined): string {
   if (accommodation === undefined) return ''
   const mapsUrl = resolveMapsSearchUrl({
     explicitUrl: accommodation.mapsUrl,
@@ -570,24 +563,9 @@ function renderLodgingReadView(accommodation: Accommodation | undefined): string
     ? ''
     : `<a class="button button--quiet" href="${escapeHtml(accommodation.website)}" target="_blank" rel="noopener">Voir le site</a>`
   const links = [mapsLink, websiteLink].join('')
-  return `<div class="day-infos__lodging-display">
-    <p class="eyebrow">Hébergement</p>
-    ${accommodation.name === '' ? '' : `<h4>${escapeHtml(accommodation.name)}</h4>`}
-    ${accommodation.address === null ? '' : `<p class="day-infos__lodging-detail">${escapeHtml(accommodation.address)}</p>`}
-    ${accommodation.bookingReference === null ? '' : `<p class="day-infos__lodging-detail">Réservation : ${escapeHtml(accommodation.bookingReference)}</p>`}
-    ${links === '' ? '' : `<div class="day-infos__lodging-links">${links}</div>`}
-  </div>`
+  return links === '' ? '' : `<div class="day-infos__lodging-links">${links}</div>`
 }
 
-/**
- * Infos tab (CDC Jalon B4.3 sections 35-36): read-only in normal
- * consultation — free text and lodging shown as plain content, a single
- * "Modifier" button reveals one grouped edit form (textarea + lodging
- * fields together) with one "Enregistrer" — never a form directly in view,
- * never a separate action per field. Deliberately never lists climbs here
- * — they belong to Parcours only (CDC hardening: never duplicated between
- * tabs).
- */
 /**
  * R2.1 section 36's `<select>`: the 7 fixed values, plus — only when the
  * currently-stored value isn't one of them (a legacy R2 free-text value,
@@ -602,14 +580,14 @@ function renderTransferModeOptions(currentMode: string | undefined): string {
 }
 
 /**
- * Infos tab (CDC Jalon B4.3 sections 35-36, R2.1 sections 33-34/36-37):
- * read-only in normal consultation — free text and lodging shown as plain
- * content, a single "Modifier" button reveals one grouped edit form
- * (textarea + lodging fields together, plus a transfer's own mode/heures/
- * opérateur/lien when relevant) with one "Enregistrer" — never a form
- * directly in view, never a separate action per field. Deliberately never
- * lists climbs here — they belong to Parcours only (CDC hardening: never
- * duplicated between tabs).
+ * Infos tab (polish-final section 29-32, superseding R2.1 sections 33-34/
+ * 36-37's read/edit split): opens directly in edit mode — free text,
+ * lodging and (for a transfer) mode/heures/opérateur/lien are all live
+ * fields from the moment the panel shows, never a read-only summary behind
+ * a separate "Modifier" click. One "Enregistrer" saves everything at once;
+ * "Annuler" discards local changes the same way leaving via the dirty-guard
+ * modal's "Abandonner" would. Deliberately never lists climbs here — they
+ * belong to Parcours only (CDC hardening: never duplicated between tabs).
  *
  * `infoDay` (R2.1 sections 33-34) is the day whose notes/lodging are shown
  * and edited here — the day itself for everything except an
@@ -639,19 +617,12 @@ function renderInfosPanel(day: TripBundle['days'][number], accommodation: Accomm
 } = {}): string {
   const infoDay = options.infoDay ?? day
   const isSharedInfo = infoDay.id !== day.id
-  const hasNotes = infoDay.notes !== null && infoDay.notes.trim() !== ''
   // R2.1 section 32: a `before_next` transfer never carries its own
   // lodging — logically it belongs to the following ride day, not to the
   // journey between two places. Hidden outright rather than shown-but-
   // pointless, in both the read and edit views.
   const showLodging = !(day.type === 'transfer' && (day.transferTiming ?? 'dedicated') === 'before_next')
   const sharedInfoHint = isSharedInfo ? '<p class="day-infos__shared-hint">Infos partagées avec la journée précédente.</p>' : ''
-  const readView = `<div class="day-infos__read" data-day-infos-read>
-    ${sharedInfoHint}
-    ${hasNotes ? `<p class="day-infos__notes-text">${escapeHtml(infoDay.notes as string).replaceAll('\n', '<br>')}</p>` : '<p class="day-infos__empty">Aucune note pour cette étape.</p>'}
-    ${showLodging ? renderLodgingReadView(accommodation) : ''}
-    <button class="button button--quiet" type="button" data-action="edit-day-infos">Modifier</button>
-  </div>`
 
   // R2/R2.1 sections 2/36-37: a transfer's own mode/heures/opérateur/lien
   // are edited here, right next to notes — the same single edit surface as
@@ -717,12 +688,14 @@ function renderInfosPanel(day: TripBundle['days'][number], accommodation: Accomm
     </div>
   </div>` : ''
 
-  const editView = `<div class="day-infos__edit" data-day-infos-edit hidden>
+  const editView = `<div class="day-infos__edit" data-day-infos-edit>
+    ${sharedInfoHint}
     ${locationFields}
     ${locationPicker}
     ${transferFields}
     <div class="field"><label for="day-notes">Notes</label><div class="field__control"><textarea id="day-notes" data-field="day-notes" rows="5" placeholder="Conseils, description, logistique, choses à faire…">${escapeHtml(infoDay.notes ?? '')}</textarea></div></div>
     ${showLodging ? `
+    ${renderLodgingQuickLinks(accommodation)}
     <div class="field"><label for="lodging-name">Nom du logement</label><div class="field__control"><input id="lodging-name" type="text" data-field="lodging-name" value="${escapeHtml(accommodation?.name ?? '')}" placeholder="Hôtel, gîte, camping…"></div></div>
     <div class="field"><label for="lodging-address">Adresse</label><div class="field__control"><input id="lodging-address" type="text" data-field="lodging-address" value="${escapeHtml(accommodation?.address ?? '')}" placeholder="Adresse du logement"></div></div>
     <div class="field"><label for="lodging-maps-url">URL Maps</label><div class="field__control"><input id="lodging-maps-url" type="url" data-field="lodging-maps-url" value="${escapeHtml(accommodation?.mapsUrl ?? '')}" placeholder="https://maps.google.com/…"></div></div>
@@ -746,7 +719,6 @@ function renderInfosPanel(day: TripBundle['days'][number], accommodation: Accomm
   const sectionAttrs = asTab ? ' role="tabpanel" aria-labelledby="day-tab-infos" data-day-panel="infos" hidden' : ' data-day-panel="infos"'
   return `<section id="day-panel-infos" class="card"${sectionAttrs}>
     <h3>Infos</h3>
-    ${readView}
     ${editView}
   </section>`
 }
@@ -990,28 +962,6 @@ function renderTransferSummary(bundle: TripBundle, day: TripDay): string {
   </section>`
 }
 
-/**
- * CDC C3 sections 8/20-21/26: projects this stage's own already-persisted
- * POI (C2 Postpass, `bundle.practicalPlaces`) and weather
- * (`bundle.weather`) into the small, engine-owned shapes
- * `analysis/pause-recommendation.ts` accepts — never a network call, never
- * a second `opening_hours`/weather parser. `null` fields on the source data
- * simply fall through as `null`/`undefined`, letting the engine skip that
- * one signal rather than fabricating a default.
- */
-function buildAutomaticPauseEnrichment(bundle: TripBundle, stage: TripBundle['stages'][number], day: TripDay): AutomaticPauseEnrichmentInput {
-  const places: PauseCandidatePlace[] = bundle.practicalPlaces.flatMap((place) => {
-    if (place.stageId !== stage.id || place.trackDistanceKm === null || !isPracticalPlaceUxCategory(place.category)) return []
-    return [{ id: place.id, category: place.category, name: place.name, trackDistanceKm: place.trackDistanceKm, detourKm: place.detourKm ?? 0, openingHours: place.openingHours }]
-  })
-  const weatherRecord = bundle.weather.find((record) => record.dayId === day.id)
-  const weather = weatherRecord === undefined ? undefined : {
-    precipitationMm: weatherRecord.precipitationMm, windSpeedKph: weatherRecord.windSpeedKph, temperatureMaxC: weatherRecord.temperatureMaxC,
-  }
-  const weekdayAtDeparture = day.date === null ? undefined : new Date(`${day.date}T12:00:00Z`).getUTCDay()
-  return { practicalPlaces: places, weather, weekdayAtDeparture }
-}
-
 function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number], preparationStatus: StagePreparationStatus | null): DayDetail | null {
   if (day.stageId === null) return null
   const stage = bundle.stages.find((candidate) => candidate.id === day.stageId)
@@ -1077,20 +1027,23 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
   const totalPauseMinutes = pauseResolution.mode === 'custom'
     ? waypoints.reduce((total, waypoint) => total + (waypoint.pauseDurationMinutes ?? 0), 0)
     : stage.pauseDurationSeconds === null ? null : normalizePauseDurationMinutes(Math.round(stage.pauseDurationSeconds / 60))
-  // CDC D1.2 section 11: the Départ cell is itself the editing surface — no
-  // more separate "Modifier" trigger opening a second block below. Both the
-  // plain display button and the (initially hidden) `<input type="time">`
-  // are always rendered side by side — a pure `hidden` toggle between them
-  // (`trips-manager.ts`'s `edit-day-departure-time` handler), exactly like
-  // `renderInfosPanel`'s own read/edit split, never a dynamically created
-  // element. The fresh `statsHtml` this function produces after a save
-  // always has the input hidden again, so a completed edit naturally
-  // collapses back — never a second, separately-tracked "editor open" state
-  // to reset.
+  // CDC D1.2 section 11, refined by polish-final section 37-40: the Départ
+  // cell is itself the editing surface — no separate "Modifier" trigger
+  // opening a second block below. The plain display button, the (initially
+  // hidden) `<input type="time">`, and its own ✓ confirm button are always
+  // rendered side by side — a pure `hidden` toggle between the first and
+  // the other two (`trips-manager.ts`'s `edit-day-departure-time` handler
+  // reveals both together), never a dynamically created element. Changing
+  // the value stays a local draft until ✓ (or Enter) is clicked — no
+  // implicit blur-to-save any more (`wireDepartureTimeInput`). The fresh
+  // `statsHtml` this function produces after a save always has the input
+  // hidden again, so a completed edit naturally collapses back — never a
+  // second, separately-tracked "editor open" state to reset.
   const statsHtml = `<dl class="day-detail__stats" data-day-detail-stats>
     <div><dt>Départ</dt><dd>
       <button type="button" class="day-detail__departure-value" data-action="edit-day-departure-time" data-day-departure-value aria-label="Heure de départ ${escapeHtml(settings.departureTime)}, modifier">${escapeHtml(settings.departureTime)}</button>
       <input type="time" class="day-detail__departure-input" data-day-departure-input value="${escapeHtml(settings.departureTime)}" required hidden>
+      <button type="button" class="day-detail__departure-confirm" data-day-departure-confirm aria-label="Valider la nouvelle heure de départ" hidden>✓</button>
     </dd></div>
     <div><dt>Arrivée estimée</dt><dd>${arrival?.clockTime ?? '—'}</dd></div>
     <div><dt>Distance</dt><dd>${stage.distanceKm === null ? '—' : formatKilometers(stage.distanceKm)}</dd></div>
