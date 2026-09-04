@@ -2186,13 +2186,19 @@ Le bouton `Pauses` est aussi un toggle : recliquer dessus pendant qu’il est ou
 
 ---
 
-# 103. Polish final — Infos = édition directe
+# 103. Infos = lecture puis édition (CORRIGE la version précédente de cette section)
 
-Comme Pauses : cliquer sur l’onglet `Infos` ouvre directement les champs éditables — plus d’écran de consultation en lecture seule suivi d’un bouton « Modifier ». Les liens rapides Maps/site du logement restent visibles à côté de leurs propres champs (ils ne sont pas perdus par la suppression de la vue lecture).
+> **Décision annulée par le hardening d'intégrité (section 109) : « Infos = édition directe » ci-dessous était une régression produit, pas une amélioration. Cette section est réécrite ; ne pas se fier à une copie antérieure de ce document.**
 
-Recliquer sur l’onglet Infos pendant qu’il est déjà actif (même dirty) le referme silencieusement (retour à Parcours), sans confirmation — même contrat de toggle explicite que Pauses.
+L'onglet/panneau `Infos` s'ouvre par défaut en **lecture seule** : notes affichées en texte simple (ou « Aucune note pour cette étape. » si vide), logement affiché en lecture (nom, adresse, référence de réservation, liens rapides Maps/site), et un bouton `Modifier` visible. Cliquer sur `Modifier` révèle le formulaire d'édition existant (mêmes champs, même picker, même logique de sauvegarde, même garde de sortie) à la place de la vue lecture.
 
-Un jour OFF/Transfert (qui n’a pas d’onglet Parcours/Infos, Infos y est la seule section) ouvre son contexte d’édition dès le rendu de l’écran.
+La simple consultation (sans cliquer sur `Modifier`) n'arme JAMAIS le garde-fou d'édition — zéro contexte dirty, zéro modale de confirmation tant que `Modifier` n'a pas été cliqué explicitement.
+
+`Annuler` dans le formulaire abandonne le brouillon local et revient à la vue lecture immédiatement, sans confirmation.
+
+Un jour OFF/Transfert (qui n'a pas d'onglet Parcours/Infos séparé, Infos y est la seule section) suit exactement le même contrat lecture → `Modifier` → édition — il n'ouvre plus son contexte d'édition dès le rendu de l'écran.
+
+Le contrat de toggle explicite de la section 102 (Pauses) reste, lui, inchangé et propre à Pauses — il ne s'applique pas à Infos, qui n'a plus de bouton/onglet cliquable de façon idempotente au même sens (l'ouverture se fait via `Modifier`, jamais en recliquant sur l'onglet Infos lui-même).
 
 ---
 
@@ -2253,3 +2259,96 @@ Conséquences attendues :
 Le principe de la section 98 reste inchangé et s’étend maintenant explicitement à l’édition d’un voyage existant :
 
 > **modifier un voyage ne doit jamais punir les étapes qu’on n’a pas touchées.**
+
+---
+
+# 109. Hardening d'intégrité — décisions finales
+
+Ce jalon (« ULTIME HARDENING D'INTÉGRITÉ ») corrige sept défauts d'intégrité découverts après le polish produit précédent. Chacune des décisions ci-dessous (sections 110-115), et la correction de la section 103 ci-dessus, prévaut sur toute version antérieure de ce document, sur les commentaires de code plus anciens et sur les anciens CDC en cas de conflit.
+
+---
+
+# 110. Hardening d'intégrité — geocoding des extrémités strictement incrémental
+
+`tripNeedsEndpointGeocoding` détectait déjà correctement, par étape et par extrémité, ce qui manquait — mais `enrichTripEndpoints`/`applyLookups` reconstruisaient les lookups et l'état du fournisseur pour TOUTES les étapes à chaque passe, même une étape déjà entièrement géocodée.
+
+Corrigé :
+
+- l'unité de validité est l'étape ET l'extrémité (`start`/`end`), jamais le voyage entier — une étape déjà complète sur ses deux extrémités ne génère plus aucun lookup, aucun appel provider, aucune mutation ;
+- une étape ne manquant qu'un seul côté ne requête plus que ce côté-là ;
+- `enrichmentMetadata` est préservé par spread (`...bundle.enrichmentMetadata`) et non reconstruit comme `{ providers: [...] }` — cette reconstruction effaçait silencieusement `enrichmentJobs`/`practicalPlacesStageErrors` à chaque passe d'endpoints, même une passe qui ne changeait rien d'autre ;
+- l'état du fournisseur OSM (`success`/`partial`/`error`) reflète désormais la complétion RÉELLE et globale du voyage (toutes les étapes enrichissables), jamais seulement le nombre de lookups du lot traité dans cette passe.
+
+---
+
+# 111. Hardening d'intégrité — plan de pauses automatique stable et persisté
+
+## Le problème
+
+`computeStageWaypoints`/`buildAutomaticPauseEnrichment` recalculaient l'ancrage de pause automatique dynamiquement à CHAQUE rendu, à partir des données POI/météo/heure de départ/ETA vivantes (le moteur C3, `recommendAutomaticPauses`, factorise légitimement `weather`/`departureMinutes` dans son score — CDC C3 sections 25/30, ceci reste vrai). Conséquence : les mêmes données structurelles/POI pouvaient sélectionner un waypoint DIFFÉRENT comme ancrage de pause après un simple rafraîchissement météo ou une modification d'heure de départ — un ancrage affiché qui bouge sous les pieds du voyageur pour des raisons sans rapport avec la route elle-même.
+
+## La décision
+
+Une fois qu'une étape est structurellement et pratiquement complète (`isStageFullyEnriched`, le même verrou déjà utilisé par `stageAutomaticPausesAllowed`), son plan de pauses automatique est calculé UNE FOIS puis persisté. Les recalculs météo/heure de départ suivants ne recalculent plus que l'ETA/l'état d'ouverture/l'affichage — ils ne déplacent JAMAIS l'ancrage choisi.
+
+## Le mécanisme
+
+- `TripEnrichmentMetadata.automaticPausePlans?: readonly StageAutomaticPausePlan[]` (nouveau champ, optionnel et additif — absent sur tout voyage antérieur à cette fonctionnalité) : un enregistrement par étape, `{ stageId, routeFingerprint, pauses }`, `pauses` réutilisant exactement la forme `StagePauseSetting` (toujours `origin: 'automatic'`) — le même mécanisme de clé/fingerprint que `StageEnrichmentJobs`, jamais un système parallèle.
+- Lecture (`route-enrichment/automatic-pause-plan.ts::resolvePersistedAutomaticPausePlan`) : un plan persisté valide (fingerprint courant de l'étape inchangé) est injecté dans `computeStageWaypoints` via son paramètre `manualPauses` existant — exactement le même pipeline à ancrage fixe déjà utilisé par `pausePlanMode: 'custom'`. C'est ce qui rend un plan automatique persisté structurellement immunisé contre la météo/l'heure de départ : `manualPauses` ne relance jamais le scoring C3, il se contente de chercher l'ancrage par id.
+- Écriture (`ensureAutomaticPausePlans`) : calcule et persiste, une fois par étape éligible (mode automatique, `isStageFullyEnriched`, pas de plan valide existant), directement à la suite de la phase POI dans `runStoredTripAutomaticEnrichment` (l'équivalent code de « PHASE 5 — Pauses de Ei » du pipeline normatif, section 10/97) — sans réseau, sans provider, jamais bloquant.
+- `tripNeedsAutomaticEnrichment` inclut désormais aussi « une étape complète attend encore son plan » (seulement quand un provider structural/practical est configuré) — un voyage déjà entièrement enrichi AVANT ce jalon reçoit donc son plan en une seule fois, sans appel réseau, à sa prochaine ouverture.
+- Le panneau Pauses (édition directe, section 102) garde ses propres explications C3 (raisons/scores/alternates) toujours vivantes, indépendamment du plan persisté qui pilote l'affichage réel — jamais affamées par le même mécanisme de blocage que le mode custom.
+
+## Invalidation — les seuls déclencheurs réels
+
+- le GPX de l'étape change réellement (nouveau fingerprint, ou remplacement structurel qui attribue un nouvel identifiant d'étape — `unchangedStageIds` filtre alors `automaticPausePlans` exactement comme `enrichmentJobs`) ;
+- `Recalculer les données du parcours` est utilisé (`resetEnrichmentForRecalculation` reconstruit `enrichmentMetadata` en ne gardant que `providers`, ce qui efface `automaticPausePlans` pour tout le voyage — cohérent avec la section 34 : cette action peut rafraîchir les pauses automatiques) ;
+- jamais un changement de météo, jamais une modification d'heure de départ (section 32, inchangée), jamais trip-wide en dehors du recalcul explicite, jamais par un simple changement de `pausePlanMode`.
+
+## Rétablir Auto
+
+Le bouton `Rétablir Auto` (section 102) supprime toujours l'override `RideStageSettings` de l'étape. Il assure en plus qu'un plan stable existe immédiatement : un plan déjà valide est réutilisé tel quel ; un plan absent ou périmé, sur une étape déjà complète, est recalculé localement à cet instant (pur, aucun réseau, aucun Postpass) plutôt que de laisser l'écran retomber sur un calcul C3 vivant au prochain rendu.
+
+`pausePlanMode: 'automatic'`/`'custom'` restent deux concepts strictement distincts — un plan automatique persisté et une liste de pauses custom ne sont jamais mélangés dans le même enregistrement.
+
+---
+
+# 112. Hardening d'intégrité — reprise automatique avec palier progressif
+
+`classifyEnrichmentFailure` ne connaît que deux catégories (`'too-heavy'` / `'unavailable'`). Un job qui atteint le plancher de subdivision (`MINIMUM_SEGMENT_KM`, 2,5 km) ou dépasse le nombre d'échecs `'too-heavy'` autorisés en une passe est réécrit `pending` — sans AUCUN mécanisme de relance programmée : seule la réouverture du voyage ou l'événement `online` relançaient une passe. Un fournisseur en ligne mais durablement lent/erratique restait donc bloqué indéfiniment tant que personne ne rouvrait le voyage.
+
+Corrigé par un minuteur de reprise par voyage actif (jamais par job, jamais en arrière-plan pour un voyage non affiché) :
+
+- palier 30 s → 2 min → 5 min (plafonné) ;
+- réinitialisé à 30 s dès qu'une passe fait un progrès réel (mesuré par le nombre de micro-jobs structuraux/pratiques réellement complétés — succès ou vide) ;
+- annulé purement et simplement au changement de voyage affiché ou de propriétaire d'enrichissement (`enrichmentOwner`) — jamais deux minuteurs actifs, jamais un minuteur qui continue de tourner pour un voyage qu'on a quitté ;
+- ne contrarie jamais le mécanisme existant de reprise sur l'événement `online` — les deux peuvent coexister, une seule passe réelle à la fois (single-flight/`enrichmentOwner` déjà en place) ;
+- injectable en test (`TripsManagerDeps.automaticRetryBackoffMs`, optionnel) pour vérifier l'échelle avec de vrais minuteurs courts plutôt que d'attendre les minutes réelles — la valeur par défaut en production reste `[30_000, 120_000, 300_000]`.
+
+---
+
+# 113. Hardening d'intégrité — géographie météo OFF/Transfert alignée sur l'UI
+
+`weather/generic/sample-points.ts` résolvait les coordonnées d'un jour OFF/Transfert via un second chemin, parallèle et divergent (`nearestPreviousRideStage`/`nearestNextRideStage` + résolution locale), au lieu des résolveurs mêmes que l'UI utilise déjà pour le nom (`analysis/day-location-fill.ts::resolveOffCoordinates`/`resolveTransferCoordinates`). Cette divergence reproduisait exactement les bugs déjà documentés dans les commentaires de ces résolveurs : ignorer un override manuel « Choisir sur la carte », et sauter par-dessus un Transfert intercalé (`Ride A → Transfert → OFF → Ride B` interrogeait la météo à `RideA.end` au lieu de la destination du transfert).
+
+Corrigé en partageant le même résolveur pour le NOM et pour les COORDONNÉES — cette divergence devient structurellement impossible plutôt que corrigée au cas par cas.
+
+---
+
+# 114. Hardening d'intégrité — traçabilité des alertes météo (point/heure)
+
+Les objets `WeatherAlert` portaient déjà `pointName`/`etaLocal`/`etaLocalEnd`/`firstPointName`/`lastPointName`, mais `renderRiskBanner` (panneau Météo complet) et `renderWeatherAlertsSummary` (carte résumé toujours visible) n'affichaient jamais que `title`/`summary`, perdant ce contexte en route.
+
+Corrigé pour les deux surfaces :
+
+- une alerte mono-point affiche son lieu et son heure d'arrivée ;
+- une alerte groupée/multi-points (dont le titre mentionne déjà « … entre X et Y ») n'ajoute que la plage horaire — jamais une répétition des noms de lieux déjà dans le titre ;
+- une méta-alerte (donnée périmée, couverture insuffisante) n'est jamais point-scopée et ne reçoit jamais une ligne de localisation fabriquée.
+
+---
+
+# 115. Hardening d'intégrité — suppression totale du repli de synthèse météo agrégée
+
+Le polish produit précédent (section réf. antérieure) ne montrait la ligne de synthèse agrégée du panneau Étape/Météo (« 11,5–18,8 °C · Pluie 2 % · Rafales 34 km/h ») qu'en repli, quand la carte de décision était vide. Ce jalon la supprime PUREMENT ET SIMPLEMENT, sans aucun repli : un jour sans contenu décisionnel réel (mode tendance/référence-du-jour/passé, ou un jour genuinely calme) n'affiche plus rien du tout sous l'étiquette eyebrow (« Synthèse ») — jamais la ligne agrégée réinstaurée comme bouche-trou.
+
+Exception explicite, non touchée par ce jalon : la ligne compacte Voyage (`renderGenericDayCardWeatherLine`), le bloc compact Aperçu (`renderGenericOverviewWeatherBlock`) et la météo inline Parcours (`renderInlineWaypointWeather`) restent strictement inchangées — seule la synthèse du bas du panneau Météo de l'écran Étape est concernée.
