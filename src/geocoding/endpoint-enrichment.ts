@@ -93,18 +93,62 @@ function isGeocodedEndpoint(point: RoutePoint, type: EndpointType): boolean {
   return point.type === type && point.provenance.sourceType === 'osm' && point.provenance.engineVersion === ENGINE_VERSION
 }
 
-function providerState(bundle: TripBundle, lookups: readonly EndpointLookup[], attemptedAt: string): EnrichmentProviderState {
+/**
+ * Whether ONE stage's ONE endpoint already has a geocoded name — the single
+ * per-endpoint predicate `tripNeedsEndpointGeocoding` and `enrichTripEndpoints`
+ * both build on, so "does this stage still need it" can never drift between
+ * the trip-wide gate and the actual lookup-building (integrity-hardening
+ * section 10-13).
+ */
+function isEndpointGeocoded(bundle: TripBundle, stage: TripBundle['stages'][number], type: EndpointType): boolean {
+  const pointsById = new Map(bundle.routePoints.map((point) => [point.id, point]))
+  return stage.routePointIds.some((id) => {
+    const point = pointsById.get(id)
+    return point !== undefined && isGeocodedEndpoint(point, type)
+  })
+}
+
+/**
+ * The trip's real, whole endpoint-completion picture — every enrichable
+ * stage (one with usable route geometry), both endpoints — evaluated
+ * against the FINAL merged stages/points, never just the batch this one
+ * pass happened to touch (integrity-hardening section 16: a provider state
+ * computed only from the current batch loses the true trip-wide picture
+ * the moment lookups stop being built for every stage unconditionally).
+ */
+function overallEndpointCompletion(bundle: TripBundle, stages: readonly TripBundle['stages'][number][], points: readonly RoutePoint[]): { readonly complete: number; readonly total: number } {
+  const pointsById = new Map(points.map((point) => [point.id, point]))
+  let total = 0
+  let complete = 0
+  for (const stage of stages) {
+    if (endpointCoordinates(bundle, stage.sourceRouteId) === null) continue
+    total += 1
+    const bothGeocoded = (['start', 'end'] as const).every((type) => stage.routePointIds.some((id) => {
+      const point = pointsById.get(id)
+      return point !== undefined && isGeocodedEndpoint(point, type)
+    }))
+    if (bothGeocoded) complete += 1
+  }
+  return { complete, total }
+}
+
+function providerState(
+  bundle: TripBundle,
+  lookups: readonly EndpointLookup[],
+  completion: { readonly complete: number; readonly total: number },
+  attemptedAt: string,
+): EnrichmentProviderState {
   const successCount = lookups.filter((lookup) => lookup.status === 'success').length
   const errorCount = lookups.filter((lookup) => lookup.status === 'error').length
   const existing = bundle.enrichmentMetadata.providers.find((state) => state.provider === 'osm')
-  const status = lookups.length > 0 && successCount === lookups.length
+  const status = completion.total === 0 || completion.complete === completion.total
     ? 'success'
-    : errorCount > 0 && successCount === 0
+    : completion.complete === 0 && errorCount > 0
       ? 'error'
       : 'partial'
   const message = status === 'success'
     ? null
-    : `${successCount}/${lookups.length} extrémité(s) identifiée(s) ; le voyage reste disponible localement.`
+    : `${completion.complete}/${completion.total} étape(s) avec extrémités identifiées ; le voyage reste disponible localement.`
   return {
     provider: 'osm' as const,
     lastAttemptedAt: attemptedAt,
@@ -187,7 +231,13 @@ function applyLookups(bundle: TripBundle, lookups: readonly EndpointLookup[], pr
     }
   })
 
-  const nextProviderState = providerState(bundle, lookups, attemptedAt)
+  // Integrity-hardening section 15-16: preserve every OTHER field this pass
+  // has nothing to do with (`enrichmentJobs`, `practicalPlacesStageErrors`)
+  // — never a wholesale `{ providers: [...] }` reconstruction, which used
+  // to silently erase structural/practical completion bookkeeping on every
+  // single endpoint-only pass, even a no-op one.
+  const completion = overallEndpointCompletion(bundle, stages, points)
+  const nextProviderState = providerState(bundle, lookups, completion, attemptedAt)
   const providers = bundle.enrichmentMetadata.providers.filter((state) => state.provider !== 'osm')
   return {
     ...bundle,
@@ -195,18 +245,14 @@ function applyLookups(bundle: TripBundle, lookups: readonly EndpointLookup[], pr
     days,
     stages,
     routePoints: points,
-    enrichmentMetadata: { providers: [...providers, nextProviderState] },
+    enrichmentMetadata: { ...bundle.enrichmentMetadata, providers: [...providers, nextProviderState] },
   }
 }
 
 export function tripNeedsEndpointGeocoding(bundle: TripBundle): boolean {
-  const pointsById = new Map(bundle.routePoints.map((point) => [point.id, point]))
   return bundle.stages.some((stage) => {
     if (endpointCoordinates(bundle, stage.sourceRouteId) === null) return false
-    return ['start', 'end'].some((type) => !stage.routePointIds.some((id) => {
-      const point = pointsById.get(id)
-      return point !== undefined && isGeocodedEndpoint(point, type as EndpointType)
-    }))
+    return (['start', 'end'] as const).some((type) => !isEndpointGeocoded(bundle, stage, type))
   })
 }
 
@@ -215,12 +261,15 @@ export async function enrichTripEndpoints(input: EnrichTripEndpointsInput): Prom
   const pending: EndpointLookup[] = []
   for (const stage of input.bundle.stages) {
     const endpoints = endpointCoordinates(input.bundle, stage.sourceRouteId)
-    if (endpoints === null) {
-      for (const type of ['start', 'end'] as const) {
-        pending.push({ stageId: stage.id, routeId: stage.sourceRouteId, type, coordinates: null, elevationM: null, trackDistanceKm: null, status: 'missing', result: null, cacheHit: false })
-      }
-    } else {
-      pending.push(...endpoints.map((lookup) => ({ ...lookup, stageId: stage.id })))
+    if (endpoints === null) continue
+    // Integrity-hardening section 10-13: the unit of validity is this ONE
+    // stage's ONE endpoint — a stage that already has both start and end
+    // geocoded contributes ZERO lookups here, never re-queried just because
+    // some OTHER stage in the trip still needs it. A stage missing only one
+    // side (e.g. `end`) queries exactly that one side, never the other.
+    for (const endpoint of endpoints) {
+      if (isEndpointGeocoded(input.bundle, stage, endpoint.type)) continue
+      pending.push({ ...endpoint, stageId: stage.id })
     }
   }
 
