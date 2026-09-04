@@ -12,7 +12,7 @@
 import type { GenericTransferWeatherViewModel } from '../weather/generic/coordinator.ts'
 import type { GenericDayWeatherViewModel, GenericWeatherPointViewModel } from '../weather/generic/view-model.ts'
 import type { WeatherAvailability } from '../weather/types.ts'
-import type { DepartureWeatherScenario, WeatherRiskLevel } from '../weather/alerts/types.ts'
+import type { DepartureWeatherScenario, WeatherAlert, WeatherRiskLevel } from '../weather/alerts/types.ts'
 import { formatPrecipitation, formatTemperatureRange, formatWind } from './weather-summary.ts'
 
 function escapeHtml(value: string): string {
@@ -58,37 +58,25 @@ function availabilityMessage(model: GenericDayWeatherViewModel): string | null {
   return null
 }
 
-function formatFetchedAt(fetchedAt: string): string {
-  const parsed = new Date(fetchedAt)
-  return Number.isNaN(parsed.getTime())
-    ? 'récemment'
-    : new Intl.DateTimeFormat('fr-FR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Europe/Paris' }).format(parsed)
-}
-
 /**
- * R1 section 12: a banal (green — nothing needs attention, `renderRiskBanner`
- * already rendered nothing for this same model) day stays a single compact
- * line — "12–23°C · sec · vent faible" — never the fuller block. The
- * "Risque météo : Faible" sentence and the raw weather-code line are both
- * genuinely redundant once there is no alert to explain (a green day IS the
- * "nothing to see" case by definition) — dropped only for `green`, never for
- * `orange`/`red`/`unknown`, where the full synthesis (code, explicit risk
- * sentence, freshness meta) stays exactly as before: the engine/data itself
- * is untouched, this only ever changes how much of it is shown.
+ * Integrity-hardening section 47-51: turns an alert's own `pointName`/
+ * `etaLocal` (a single point) or `firstPointName`/`lastPointName`/
+ * `etaLocal`/`etaLocalEnd` (a group spanning several points,
+ * `evaluate-day.ts::mergeAlertPair`) into the short "où/quand" text a bare
+ * `title`/`summary` never carried. A grouped alert's own title already
+ * reads "... entre X et Y" — repeating the two names here would be the
+ * "duplication absurde" section 49 explicitly forbids, so only the time
+ * span is added for that case; a single-point alert gets both the place and
+ * the time, since neither is in its title at all.
  */
-function renderSynthesis(model: GenericDayWeatherViewModel): string {
-  const parts = summaryLine(model.summary)
-  const line = parts.length === 0 ? 'Données insuffisantes.' : escapeHtml(parts.join(' · '))
-  if (model.riskLevel === 'green') {
-    return `<div class="weather-synthesis weather-synthesis--compact" data-weather-synthesis><p class="weather-synthesis__line">${line}</p></div>`
+function formatAlertLocalization(alert: WeatherAlert): string {
+  const start = formatClock(alert.etaLocal ?? null)
+  if (alert.pointName !== undefined) {
+    return start === '—' ? alert.pointName : `${alert.pointName} · ${start}`
   }
-  const worst = model.summary?.worstWeatherLabel ?? null
-  return `<div class="weather-synthesis" data-weather-synthesis>
-    <p class="weather-synthesis__line">${line}</p>
-    ${worst === null ? '' : `<p class="weather-synthesis__code">${escapeHtml(worst)}</p>`}
-    <p class="weather-risk weather-risk--${model.riskLevel}">Risque météo : ${RISK_LABELS[model.riskLevel]}</p>
-    ${model.fetchedAt === null ? '' : `<p class="weather-synthesis__meta">Mis à jour ${escapeHtml(formatFetchedAt(model.fetchedAt))}${model.isRefreshing ? ' · actualisation en cours' : ''}</p>`}
-  </div>`
+  if (start === '—') return ''
+  const end = formatClock(alert.etaLocalEnd ?? alert.etaLocal ?? null)
+  return end === '—' || end === start ? start : `${start}–${end}`
 }
 
 function renderPointRow(point: GenericWeatherPointViewModel): string {
@@ -137,13 +125,22 @@ export function renderInlineWaypointWeather(point: GenericWeatherPointViewModel 
   return `<span class="day-detail__waypoint-weather day-detail__waypoint-weather--${point.riskLevel}">${line}</span>`
 }
 
-/** Section 23: a red/orange risk gets a real, visible callout — never a small badge lost among 15 values. Green/unknown stay sober (a plain sentence, already carried by `renderSynthesis`). */
+/**
+ * Section 23: a red/orange risk gets a real, visible callout — never a
+ * small badge lost among 15 values. Integrity-hardening section 47-51: an
+ * actionable alert must be traceable to where/when it applies — the
+ * dedicated location line below is exactly that, never fabricated when the
+ * alert genuinely carries no point/eta (`formatAlertLocalization` returns
+ * `''` in that case, and no empty line is shown).
+ */
 function renderRiskBanner(model: GenericDayWeatherViewModel): string {
   if (model.riskLevel !== 'red' && model.riskLevel !== 'orange') return ''
   const topAlert = model.alerts[0] ?? null
+  const location = topAlert === null ? '' : formatAlertLocalization(topAlert)
   return `<div class="weather-decision__banner weather-decision__banner--${model.riskLevel}" role="status">
     <p class="weather-decision__banner-title">ALERTE MÉTÉO · RISQUE ${RISK_LABELS[model.riskLevel].toUpperCase()}</p>
     ${topAlert === null ? '' : `<p class="weather-decision__banner-detail">${escapeHtml(topAlert.title)}${topAlert.summary === '' ? '' : ` — ${escapeHtml(topAlert.summary)}`}</p>`}
+    ${location === '' ? '' : `<p class="weather-decision__banner-location">${escapeHtml(location)}</p>`}
   </div>`
 }
 
@@ -194,6 +191,12 @@ export function renderWeatherAlertsSummary(model: GenericDayWeatherViewModel | G
   const riskLine = topAlert === null
     ? ''
     : `<p class="weather-alerts-summary__risk weather-alerts-summary__risk--${model.riskLevel}">${escapeHtml(topAlert.summary === '' ? topAlert.title : `${topAlert.title} · ${topAlert.summary}`)}</p>`
+  // Integrity-hardening section 47-51: the same où/quand context as the full
+  // Météo panel's own banner — a global alert here must stay traceable to a
+  // concrete point/secteur, never a bare risk sentence with nothing to
+  // locate it by.
+  const location = topAlert === null ? '' : formatAlertLocalization(topAlert)
+  const locationLine = location === '' ? '' : `<p class="weather-alerts-summary__location">${escapeHtml(location)}</p>`
   const recommendation = model.recommendation
   const suggestionScenario = recommendation?.status === 'recommended-change' ? recommendation.recommendedScenario : null
   const suggestionLine = suggestionScenario === null || suggestionScenario === undefined
@@ -203,6 +206,7 @@ export function renderWeatherAlertsSummary(model: GenericDayWeatherViewModel | G
   return `<section class="card weather-alerts-summary" data-weather-alerts-summary>
     <p class="eyebrow">Alertes météo</p>
     ${riskLine}
+    ${locationLine}
     ${suggestionLine}
   </section>`
 }
@@ -298,17 +302,20 @@ function renderDaySection(label: string, model: GenericDayWeatherViewModel, incl
     <p class="eyebrow">Points significatifs</p>
     <ol class="weather-points-list">${model.points.map(renderPointRow).join('')}</ol>
   </section>`
-  // Polish-final section 34: the aggregate bottom synthesis ("11,5–18,8 °C ·
-  // Pluie 2 % · Rafales 34 km/h…") is dropped wherever the decision card
-  // already shows real content (a risk banner, a recommendation, or the
-  // -2h/-1h/Actuel/+1h/+2h scenarios) — it never repeated anything the
-  // scenarios themselves don't already answer more usefully, and duplicating
-  // it below them added noise, not a second signal. It stays as the one
-  // fallback for a day the decision card has nothing to say about at all
-  // (today-reference/past/trend modes, or a genuinely quiet day with no
-  // scenario data) — never a blank panel where a summary line still helps.
+  // Integrity-hardening section 53-56: the aggregate bottom synthesis
+  // ("11,5–18,8 °C · Pluie 2 % · Rafales 34 km/h…") is gone outright — not
+  // merely suppressed when the decision card has content, but never shown
+  // again at all, even as a fallback. It was ambiguous, redundant, and hard
+  // to act on; the decision card's own content (banner/recommandation/
+  // scénarios) already answers what matters. A day with nothing decision-
+  // worthy to say (today-reference/past/trend modes, or a genuinely quiet
+  // day with no scenario data) now shows nothing beyond the label — healthy
+  // silence, never a filler line reinstated just to occupy the panel. The
+  // Voyage/Aperçu compact lines (`renderGenericDayCardWeatherLine`/
+  // `renderGenericOverviewWeatherBlock`) are untouched — this only concerns
+  // the Étape Météo panel's own bottom block.
   const decision = renderDecisionCard(model)
-  const body = message !== null ? `<p class="weather-message">${escapeHtml(message)}</p>` : `${decision}${decision === '' ? renderSynthesis(model) : ''}`
+  const body = message !== null ? `<p class="weather-message">${escapeHtml(message)}</p>` : decision
   return `<section class="weather-summary-block" data-weather-summary>
     <p class="eyebrow">${escapeHtml(label)}</p>
     ${body}

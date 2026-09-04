@@ -59,6 +59,44 @@ test('a red risk gets a real, visible banner — never a small badge lost among 
   assert.match(container.innerHTML, /72 km\/h prévues sur les hauts cols\./)
 })
 
+// Integrity-hardening sections 47-51/80-81: an actionable global alert must
+// stay traceable to a concrete point/secteur — never a bare risk sentence
+// with no way to tell where/when it applies.
+test('a single-point alert shows its own point name and ETA — traceable to exactly where/when it applies', () => {
+  const container = fakeElement()
+  renderGenericStageWeatherPanel(container, baseModel({
+    riskLevel: 'red',
+    alerts: [{ id: 'a1', dayId: 'day-alpha', pointId: 'p1', pointName: 'Montaigu', etaLocal: '2027-05-09T13:18', riskType: 'rain', level: 'red', title: 'Pluie probable', summary: '1,5 mm/h attendus.' }],
+  }), false)
+  assert.match(container.innerHTML, /weather-decision__banner-location">Montaigu · 13:18</)
+})
+
+test('a grouped, multi-point alert shows its time span — the point names already sit in its own title ("entre X et Y"), never repeated', () => {
+  const container = fakeElement()
+  renderGenericStageWeatherPanel(container, baseModel({
+    riskLevel: 'orange',
+    alerts: [{
+      id: 'a1', dayId: 'day-alpha', riskType: 'rain', level: 'orange',
+      title: 'Pluie probable entre Montaigu et Bouin', summary: '',
+      etaLocal: '2027-05-09T13:18', etaLocalEnd: '2027-05-09T14:23',
+      firstPointName: 'Montaigu', lastPointName: 'Bouin',
+    }],
+  }), false)
+  assert.match(container.innerHTML, /Pluie probable entre Montaigu et Bouin/)
+  assert.match(container.innerHTML, /weather-decision__banner-location">13:18–14:23</)
+  // Never a second "Montaigu"/"Bouin" repeated outside the title itself.
+  assert.equal((container.innerHTML.match(/Montaigu/g) ?? []).length, 1)
+})
+
+test('an alert with genuinely no point/eta at all shows no location line — never a fabricated one', () => {
+  const container = fakeElement()
+  renderGenericStageWeatherPanel(container, baseModel({
+    riskLevel: 'red',
+    alerts: [{ id: 'a1', dayId: 'day-alpha', riskType: 'stale-data', level: 'red', title: 'Données météo trop anciennes', summary: '' }],
+  }), false)
+  assert.doesNotMatch(container.innerHTML, /weather-decision__banner-location/)
+})
+
 test('a green risk shows no banner at all — sober treatment (section 23)', () => {
   const container = fakeElement()
   renderGenericStageWeatherPanel(container, baseModel({ riskLevel: 'green' }), false)
@@ -84,11 +122,16 @@ test('a red risk banner alone (no scenarios yet, e.g. before the reference speed
   assert.doesNotMatch(container.innerHTML, /data-weather-synthesis/)
 })
 
-test('with no banner, no recommendation and no scenario at all, the aggregate synthesis is the fallback — never a blank panel', () => {
+// Integrity-hardening section 53-56: the aggregate synthesis fallback is
+// gone outright — with nothing decision-worthy to say, the panel now shows
+// nothing at all beyond its own eyebrow label ("healthy silence"), never a
+// filler line reinstated just to avoid an empty block.
+test('with no banner, no recommendation and no scenario at all, the panel shows nothing at all — never the aggregate synthesis reinstated as a filler', () => {
   const container = fakeElement()
   renderGenericStageWeatherPanel(container, baseModel(), false)
   assert.doesNotMatch(container.innerHTML, /weather-decision/)
-  assert.match(container.innerHTML, /data-weather-synthesis/)
+  assert.doesNotMatch(container.innerHTML, /data-weather-synthesis/)
+  assert.doesNotMatch(container.innerHTML, /weather-synthesis/)
 })
 
 test('R2.1 section 7: a recommended change shows the conclusion sentence, an "Appliquer HH:MM" that applies directly, and "Modifier manuellement"', () => {
@@ -259,6 +302,17 @@ test('M: a red/orange risk shows a compact risk line — never the full uppercas
   assert.match(html, /Alertes météo/)
   assert.match(html, /Risque notable au Col X · Rafales 65 km\/h/)
   assert.doesNotMatch(html, /ALERTE MÉTÉO · RISQUE/, 'lighter than the full banner\'s own uppercase treatment')
+})
+
+// Integrity-hardening section 50: both alert surfaces (the full Météo
+// panel's banner AND this always-visible summary card) must stay
+// traceable to a concrete point/secteur — never just the compact one.
+test('the always-visible "Alertes météo" summary also carries its own point/eta context, not just the full banner', () => {
+  const html = renderWeatherAlertsSummary(baseModel({
+    riskLevel: 'red',
+    alerts: [{ id: 'a1', dayId: 'day-alpha', pointId: 'p1', pointName: 'Montaigu', etaLocal: '2027-05-09T13:18', riskType: 'rain', level: 'red', title: 'Pluie probable', summary: '1,5 mm/h attendus.' }],
+  }))
+  assert.match(html, /weather-alerts-summary__location">Montaigu · 13:18</)
 })
 
 test('N: a recommended-change suggestion shows a compact "Départ suggéré" reminder', () => {

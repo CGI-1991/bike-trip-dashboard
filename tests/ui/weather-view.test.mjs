@@ -68,29 +68,30 @@ test('the stage weather panel shows the risk banner (never the redundant bottom 
   assert.match(container.innerHTML, /11:30/)
 })
 
-// R1 section 12 ("météo banale"), test I — one compact line, no imposing
-// block, when there is genuinely nothing to flag: the engine/model itself
-// (riskLevel, summary) is untouched, only how much of it renders changes.
-test('R1 test I: a banal (green) day\'s synthesis collapses to one compact line — no "Risque météo" sentence, no weather-code line, no meta line', () => {
+// Integrity-hardening section 53-56: the aggregate bottom synthesis is gone
+// outright — never shown again, not even as a fallback for a day with
+// nothing decision-worthy to say. "Healthy silence" now applies uniformly,
+// whatever the risk level: no compact line, no full block, nothing beyond
+// the eyebrow label.
+test('a banal (green) day with no decision content shows nothing at all beyond the eyebrow — no aggregate synthesis fallback', () => {
   const container = fakeElement()
   const model = baseModel({ riskLevel: 'green', alerts: [], recommendation: null })
   renderGenericStageWeatherPanel(container, model, false, { includePointsList: false })
-  assert.match(container.innerHTML, /weather-synthesis--compact/)
-  assert.match(container.innerHTML, /12–21 °C/)
-  assert.match(container.innerHTML, /Pluie 35 %/)
-  assert.match(container.innerHTML, /Rafales 30 km\/h/)
+  assert.doesNotMatch(container.innerHTML, /weather-synthesis/)
+  assert.doesNotMatch(container.innerHTML, /12–21 °C/)
   assert.doesNotMatch(container.innerHTML, /Risque météo/)
-  assert.doesNotMatch(container.innerHTML, /Averses/, 'the raw weather-code line is dropped for a banal day')
+  assert.doesNotMatch(container.innerHTML, /Averses/)
   assert.doesNotMatch(container.innerHTML, /Mis à jour/)
+  assert.match(container.innerHTML, /<p class="eyebrow">Synthèse<\/p>/)
 })
 
-test('R1: an orange/red day keeps the full synthesis — code line, explicit risk sentence, freshness meta — the compacting never applies to an actual alert. Only reached when the decision card itself has nothing to say (e.g. trend mode); a planning/operational/live day\'s own risk banner replaces it instead (polish-final section 34)', () => {
+test('a mode with no decision card at all (e.g. trend) shows nothing at all either — never the aggregate synthesis reinstated to fill the panel', () => {
   const container = fakeElement()
   renderGenericStageWeatherPanel(container, baseModel({ mode: 'trend', riskLevel: 'orange' }), false, { includePointsList: false })
-  assert.doesNotMatch(container.innerHTML, /weather-synthesis--compact/)
-  assert.match(container.innerHTML, /Risque météo : Modéré/)
-  assert.match(container.innerHTML, /Averses/)
-  assert.match(container.innerHTML, /Mis à jour/)
+  assert.doesNotMatch(container.innerHTML, /weather-synthesis/)
+  assert.doesNotMatch(container.innerHTML, /Risque météo/)
+  assert.doesNotMatch(container.innerHTML, /Averses/)
+  assert.doesNotMatch(container.innerHTML, /Mis à jour/)
 })
 
 test('an unavailable stage weather shows an honest message, never a fabricated value', () => {
@@ -105,7 +106,10 @@ test('a transfer day renders its origin and destination as two independent secti
   renderGenericStageWeatherPanel(container, { origin: baseModel({ riskLevel: 'green', alerts: [] }), destination: null }, false)
   assert.match(container.innerHTML, />Origine</)
   assert.match(container.innerHTML, />Destination</)
-  assert.match(container.innerHTML, /12–21 °C/, 'the resolvable origin shows real data')
+  // The aggregate synthesis is gone (integrity-hardening section 53-56) —
+  // the origin's own significant-points list is what proves it shows real
+  // data now, never a fabricated one.
+  assert.match(container.innerHTML, /Riverside/, 'the resolvable origin shows its real significant points')
   assert.match(container.innerHTML, /Météo non disponible pour le moment\./, 'the unresolved destination shows an honest placeholder, never an invented one')
 })
 
