@@ -11,6 +11,7 @@ import { enrichStoredTripEndpoints } from '../../src/geocoding/endpoint-enrichme
 import { enrichStoredTripClimbNames } from '../../src/climb-names/enrichment.ts'
 import { enrichStoredTripPracticalPlaces, PRACTICAL_PLACES_ENGINE_VERSION } from '../../src/practical-places/enrichment.ts'
 import { enrichStoredTripRoute, ROUTE_ENRICHMENT_ENGINE_VERSION } from '../../src/route-enrichment/enrichment.ts'
+import { stageJobsFor, isStagePhaseComplete } from '../../src/route-enrichment/enrichment-jobs.ts'
 import { createSourceFileRepository } from '../../src/storage/indexeddb/source-file-repository.ts'
 import { createTripRepository } from '../../src/storage/indexeddb/trip-repository.ts'
 import { accommodationId, overrideId, practicalPlaceId } from '../../src/trip-core/index.ts'
@@ -538,6 +539,44 @@ test('replacing a GPX invalidates its route localities and landmarks', async () 
     const result = await edit(database, [replacement], 'locality-replace')
     assert.equal(result.ok, true)
     assert.ok(result.bundle.routePoints.every((point) => point.provenance.engineVersion !== ROUTE_ENRICHMENT_ENGINE_VERSION))
+  } finally {
+    database.close()
+  }
+})
+
+// Polish-final sections 45-48: completion bookkeeping (`enrichmentJobs`)
+// must follow the SAME per-stage identity as every other field already
+// preserved above — a partial structural edit (some stages changed, some
+// not) must never reset the untouched stage's own job record just because
+// the trip as a whole was restructured.
+test('editing a two-ride trip that replaces only one GPX preserves the other ride\'s own enrichment completion record', async () => {
+  const database = await openImportTestDatabase()
+  try {
+    const original = await importTrip(database, [gpxFile('kept.gpx'), gpxFile('replaced.gpx', 45.02)])
+    await enrichStoredTripRoute({
+      database, tripId: original.metadata.id, provider: routeEnrichmentProvider(),
+      idFactory: createIdFactory('two-stage'), now: fixedNow('2027-01-20T00:00:00.000Z'),
+    })
+    const enriched = await createTripRepository(database).loadTripBundle('trip-edit')
+    const keptStageId = enriched.stages[0].id
+    assert.equal(isStagePhaseComplete(enriched, keptStageId, 'structural'), true, 'sanity check: stage A is genuinely enriched before the edit')
+    assert.ok(stageJobsFor(enriched, keptStageId) !== undefined)
+
+    const draft = await loadTripEditDraft(database, 'trip-edit')
+    const replacement = { ...draft.slots[1], file: gpxFile('replacement-two-stage.gpx', 46, 180, 0.012), existingSourceFileId: null }
+    const result = await edit(database, [draft.slots[0], replacement], 'two-stage-replace')
+    assert.equal(result.ok, true)
+
+    // A kept its old id (unchanged GPX) — its own job record must survive untouched.
+    assert.equal(result.bundle.stages[0].id, keptStageId)
+    assert.equal(isStagePhaseComplete(result.bundle, keptStageId, 'structural'), true, 'the untouched Ride keeps its own completion record — no trip-wide reset just because another stage changed')
+    assert.deepEqual(stageJobsFor(result.bundle, keptStageId), stageJobsFor(enriched, keptStageId))
+
+    // B is a genuinely new stage (replaced GPX) — it starts with no job
+    // record of its own (pending, not a stale/wrong one carried over).
+    const replacedStageId = result.bundle.stages[1].id
+    assert.notEqual(replacedStageId, enriched.stages[1].id)
+    assert.equal(stageJobsFor(result.bundle, replacedStageId), undefined)
   } finally {
     database.close()
   }

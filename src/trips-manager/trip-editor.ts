@@ -305,6 +305,12 @@ export function mergeEditedTripBundle(existing: TripBundle, rebuilt: TripBundle,
   })
 
   const keptDayIds = new Set(days.map((day) => day.id))
+  // Polish-final section 46-48: a day's practical-places enrichment error is
+  // only still meaningful for a day whose Ride stage genuinely didn't
+  // change — a replaced/removed stage starts its own practical-places pass
+  // from scratch, so any stale error recorded against its (possibly reused)
+  // day id must not leak forward.
+  const unchangedStageDayIds = new Set(days.filter((day) => day.stageId !== null && remaps.unchangedStageIds.has(day.stageId)).map((day) => day.id))
   const retainedAccommodationIds = new Set(days.flatMap((day) => (day.accommodationId === null ? [] : [day.accommodationId])))
   const accommodations = existing.accommodations.filter((accommodation) => retainedAccommodationIds.has(accommodation.id))
   const practicalPlaces = existing.practicalPlaces
@@ -394,9 +400,19 @@ export function mergeEditedTripBundle(existing: TripBundle, rebuilt: TripBundle,
     // unchanged/changed distinction above.
     settings: { global: existing.settings.global, days: settingsDays, stages: settingsStages },
     overrides,
-    enrichmentMetadata: remaps.unchangedStageIds.size === rebuilt.stages.length
-      ? existing.enrichmentMetadata
-      : rebuilt.enrichmentMetadata,
+    // Polish-final section 45-48: completion bookkeeping follows the same
+    // per-stage identity as everything else merged above — a Ride that
+    // didn't change keeps its own enrichment record verbatim, regardless of
+    // whether some OTHER stage was added/removed/replaced elsewhere in the
+    // same edit. `providers` stays trip-wide by construction (it isn't keyed
+    // by stage at all) and is never wiped by a structural edit; only a stage
+    // whose GPX genuinely changed loses its job record, which the automatic
+    // engine then rebuilds on its own — never a trip-wide "start over".
+    enrichmentMetadata: {
+      providers: existing.enrichmentMetadata.providers,
+      practicalPlacesStageErrors: existing.enrichmentMetadata.practicalPlacesStageErrors?.filter((dayId) => unchangedStageDayIds.has(dayId)),
+      enrichmentJobs: existing.enrichmentMetadata.enrichmentJobs?.filter((record) => remaps.unchangedStageIds.has(record.stageId)),
+    },
   }
 }
 
