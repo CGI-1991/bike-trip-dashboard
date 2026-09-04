@@ -29,6 +29,7 @@ import type { CanonicalWaypoint, CanonicalWaypointKind } from '../../analysis/ca
 import { buildClimbProfile } from '../../analysis/climb-profile.ts'
 import type { ClimbGradeClass, ClimbProfileSegment } from '../../analysis/climb-profile.ts'
 import { routeGeometry } from '../../route-enrichment/route-fingerprint.ts'
+import { resolvePersistedAutomaticPausePlan } from '../../route-enrichment/automatic-pause-plan.ts'
 import { resolveOffCoordinates, resolveOffLocation, resolveSharedInfoDayId, resolveTransferCoordinates, resolveTransferLocations } from '../../analysis/day-location-fill.ts'
 import type { RouteMapMarkerModel, RouteMapModel } from '../route-map-model.ts'
 import { resolveEffectiveMountainMode } from '../../analysis/terrain-context.ts'
@@ -528,27 +529,17 @@ function renderWeatherPanel(): string {
 }
 
 /**
- * Read-only lodging display (CDC Jalon B4.3 section 35, RC2 final-closeout
- * sections 37/40/45-49) — name + address/réservation (plain text) + Maps/
- * site buttons, never a form. Nothing rendered at all when no lodging is
- * set, per section 35: no large empty block. The Maps action follows the
- * shared priority hierarchy (explicit URL > address > coordinates,
- * `maps-link.ts`) rather than only ever appearing when `mapsUrl` itself is
- * set — a lodging with just a text address still gets a working action
- * (section 49: never force the visitor to hand-craft a URL themselves).
+ * Read-only lodging display (integrity-hardening section 5, restoring CDC
+ * Jalon B4.3 section 35 / RC2 final-closeout sections 37/40/45-49): name +
+ * address/réservation (plain text) + Maps/site buttons, never a form.
+ * Nothing rendered at all when no lodging is set — no large empty block.
+ * The Maps action follows the shared priority hierarchy (explicit URL >
+ * address > coordinates, `maps-link.ts`) rather than only ever appearing
+ * when `mapsUrl` itself is set — a lodging with just a text address still
+ * gets a working action (never force the visitor to hand-craft a URL
+ * themselves).
  */
-/**
- * Quick, one-click Maps/website actions for the already-linked lodging —
- * kept alongside its own editable fields (polish-final section 29: direct
- * edit, never a click away) rather than dropped just because the separate
- * read-only view is gone. Nothing rendered at all when no lodging is set,
- * per the original CDC Jalon B4.3 section 35: no large empty block. The
- * Maps action follows the shared priority hierarchy (explicit URL > address
- * > coordinates, `maps-link.ts`) rather than only ever appearing when
- * `mapsUrl` itself is set — a lodging with just a text address still gets a
- * working action (never force the visitor to hand-craft a URL themselves).
- */
-function renderLodgingQuickLinks(accommodation: Accommodation | undefined): string {
+function renderLodgingReadView(accommodation: Accommodation | undefined): string {
   if (accommodation === undefined) return ''
   const mapsUrl = resolveMapsSearchUrl({
     explicitUrl: accommodation.mapsUrl,
@@ -563,7 +554,13 @@ function renderLodgingQuickLinks(accommodation: Accommodation | undefined): stri
     ? ''
     : `<a class="button button--quiet" href="${escapeHtml(accommodation.website)}" target="_blank" rel="noopener">Voir le site</a>`
   const links = [mapsLink, websiteLink].join('')
-  return links === '' ? '' : `<div class="day-infos__lodging-links">${links}</div>`
+  return `<div class="day-infos__lodging-display">
+    <p class="eyebrow">Hébergement</p>
+    ${accommodation.name === '' ? '' : `<h4>${escapeHtml(accommodation.name)}</h4>`}
+    ${accommodation.address === null ? '' : `<p class="day-infos__lodging-detail">${escapeHtml(accommodation.address)}</p>`}
+    ${accommodation.bookingReference === null ? '' : `<p class="day-infos__lodging-detail">Réservation : ${escapeHtml(accommodation.bookingReference)}</p>`}
+    ${links === '' ? '' : `<div class="day-infos__lodging-links">${links}</div>`}
+  </div>`
 }
 
 /**
@@ -580,14 +577,17 @@ function renderTransferModeOptions(currentMode: string | undefined): string {
 }
 
 /**
- * Infos tab (polish-final section 29-32, superseding R2.1 sections 33-34/
- * 36-37's read/edit split): opens directly in edit mode — free text,
- * lodging and (for a transfer) mode/heures/opérateur/lien are all live
- * fields from the moment the panel shows, never a read-only summary behind
- * a separate "Modifier" click. One "Enregistrer" saves everything at once;
- * "Annuler" discards local changes the same way leaving via the dirty-guard
- * modal's "Abandonner" would. Deliberately never lists climbs here — they
- * belong to Parcours only (CDC hardening: never duplicated between tabs).
+ * Infos tab (integrity-hardening section 4-9, superseding polish-final
+ * section 29-32's direct-edit design): read-only in normal consultation —
+ * free text and lodging shown as plain content, a single "Modifier" button
+ * reveals one grouped edit form (textarea + lodging fields together, plus a
+ * transfer's own mode/heures/opérateur/lien when relevant) with one
+ * "Enregistrer" — never a form directly in view, never a separate action
+ * per field. "Annuler" discards local changes and returns to the read view
+ * immediately, with no modal (the dirty-guard modal only ever intervenes on
+ * a NAVIGATION away from an active edit, never on this in-place cancel).
+ * Deliberately never lists climbs here — they belong to Parcours only (CDC
+ * hardening: never duplicated between tabs).
  *
  * `infoDay` (R2.1 sections 33-34) is the day whose notes/lodging are shown
  * and edited here — the day itself for everything except an
@@ -622,6 +622,7 @@ function renderInfosPanel(day: TripBundle['days'][number], accommodation: Accomm
   // journey between two places. Hidden outright rather than shown-but-
   // pointless, in both the read and edit views.
   const showLodging = !(day.type === 'transfer' && (day.transferTiming ?? 'dedicated') === 'before_next')
+  const hasNotes = infoDay.notes !== null && infoDay.notes.trim() !== ''
   const sharedInfoHint = isSharedInfo ? '<p class="day-infos__shared-hint">Infos partagées avec la journée précédente.</p>' : ''
 
   // R2/R2.1 sections 2/36-37: a transfer's own mode/heures/opérateur/lien
@@ -688,14 +689,26 @@ function renderInfosPanel(day: TripBundle['days'][number], accommodation: Accomm
     </div>
   </div>` : ''
 
-  const editView = `<div class="day-infos__edit" data-day-infos-edit>
+  // Integrity-hardening sections 4-6: the read view shows exactly what a
+  // Ride's Résumé/stats never duplicate — free text and lodging — while a
+  // transfer's own mode/heures/opérateur/réservation/billet/origine-
+  // destination stay in the always-visible `day-detail__summary` "Résumé"
+  // card (`renderTransferSummary`), never repeated a second time here; only
+  // their EDITING lives in Infos, exactly like before.
+  const readView = `<div class="day-infos__read" data-day-infos-read>
+    ${sharedInfoHint}
+    ${hasNotes ? `<p class="day-infos__notes-text">${escapeHtml(infoDay.notes as string).replaceAll('\n', '<br>')}</p>` : '<p class="day-infos__empty">Aucune note pour cette étape.</p>'}
+    ${showLodging ? renderLodgingReadView(accommodation) : ''}
+    <button class="button button--quiet" type="button" data-action="edit-day-infos">Modifier</button>
+  </div>`
+
+  const editView = `<div class="day-infos__edit" data-day-infos-edit hidden>
     ${sharedInfoHint}
     ${locationFields}
     ${locationPicker}
     ${transferFields}
     <div class="field"><label for="day-notes">Notes</label><div class="field__control"><textarea id="day-notes" data-field="day-notes" rows="5" placeholder="Conseils, description, logistique, choses à faire…">${escapeHtml(infoDay.notes ?? '')}</textarea></div></div>
     ${showLodging ? `
-    ${renderLodgingQuickLinks(accommodation)}
     <div class="field"><label for="lodging-name">Nom du logement</label><div class="field__control"><input id="lodging-name" type="text" data-field="lodging-name" value="${escapeHtml(accommodation?.name ?? '')}" placeholder="Hôtel, gîte, camping…"></div></div>
     <div class="field"><label for="lodging-address">Adresse</label><div class="field__control"><input id="lodging-address" type="text" data-field="lodging-address" value="${escapeHtml(accommodation?.address ?? '')}" placeholder="Adresse du logement"></div></div>
     <div class="field"><label for="lodging-maps-url">URL Maps</label><div class="field__control"><input id="lodging-maps-url" type="url" data-field="lodging-maps-url" value="${escapeHtml(accommodation?.mapsUrl ?? '')}" placeholder="https://maps.google.com/…"></div></div>
@@ -719,6 +732,7 @@ function renderInfosPanel(day: TripBundle['days'][number], accommodation: Accomm
   const sectionAttrs = asTab ? ' role="tabpanel" aria-labelledby="day-tab-infos" data-day-panel="infos" hidden' : ' data-day-panel="infos"'
   return `<section id="day-panel-infos" class="card"${sectionAttrs}>
     <h3>Infos</h3>
+    ${readView}
     ${editView}
   </section>`
 }
@@ -974,18 +988,38 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
   const settings = { referenceSpeedKph: bundle.settings.global.referenceSpeedKph, departureTime: daySettings?.departureTime ?? '08:00' }
   const stageSettings = bundle.settings.stages.find((candidate) => candidate.stageId === stage.id)
   const pauseResolution = resolveStagePauseSettings(bundle.settings.global.pausePlanMode, stageSettings)
+  // Integrity-hardening: a valid PERSISTED automatic plan (computed once,
+  // when the stage first became fully enriched) is fed through the exact
+  // same fixed-anchor pipeline as a saved manual pause list — the only thing
+  // that makes an automatic plan immune to a later weather refresh or
+  // departure-time edit reshuffling which waypoint was chosen. `undefined`
+  // (never computed yet, or invalidated) falls back to the live C3 scoring
+  // below, exactly like before this feature existed.
+  const persistedAutomaticPauses = pauseResolution.mode === 'custom' ? undefined : resolvePersistedAutomaticPausePlan(bundle, stage.id)
   // CDC C3 section 26: ignored internally whenever `manualPauses` is set
-  // (custom mode) — building it unconditionally here is harmless and keeps
-  // this call site simple; C3 never touches a saved manual pause either way.
+  // (custom mode, or a persisted automatic plan) — building it
+  // unconditionally here is harmless and keeps this call site simple; C3
+  // never touches a saved manual pause either way.
   const automaticPauseEnrichment = buildAutomaticPauseEnrichment(bundle, stage, day)
   const waypointsInput = {
     stage, route, routePoints: bundle.routePoints, climbs: bundle.climbs, settings,
-    manualPauses: pauseResolution.mode === 'custom' ? pauseResolution.manualPauses : undefined,
+    manualPauses: pauseResolution.mode === 'custom' ? pauseResolution.manualPauses : persistedAutomaticPauses,
     mountainMode: resolveEffectiveMountainMode(bundle),
     automaticPauseEnrichment,
   }
   const waypoints = computeStageWaypoints(waypointsInput)
-  const pauseRecommendations = buildPauseRecommendationViewModels(computeStagePauseRecommendations(waypointsInput), waypoints)
+  // The Pauses editor's own "why" annotations (CDC C3 section 30: visible
+  // only in the dedicated pause/edit surfaces) must stay live C3 scoring for
+  // EVERY candidate row, regardless of whether a persisted automatic plan is
+  // pinning the actually-displayed timeline above — `computeStagePauseRecommendations`
+  // itself returns `[]` whenever `manualPauses` is set (custom mode's own,
+  // unchanged "nothing to explain" contract), which would otherwise also
+  // silently starve automatic mode's own hints the moment a plan gets
+  // persisted. Custom mode's existing behaviour (no reasons at all) is left
+  // completely untouched: only automatic mode's recommendation lookup skips
+  // the persisted plan here.
+  const recommendationInput = pauseResolution.mode === 'custom' ? waypointsInput : { ...waypointsInput, manualPauses: undefined }
+  const pauseRecommendations = buildPauseRecommendationViewModels(computeStagePauseRecommendations(recommendationInput), waypoints)
   const anchorCandidates = waypoints.filter((waypoint) => PAUSE_ANCHOR_KINDS.has(waypoint.kind))
   // R2.1 sections 9-10: opening status per candidate — reuses the exact
   // same merged POI-per-anchor data C3's own scoring already computes

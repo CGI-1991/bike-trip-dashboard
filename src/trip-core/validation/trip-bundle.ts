@@ -937,6 +937,70 @@ export function validateTripBundle(value: unknown): ValidationResult<TripBundle>
         })
       }
     }
+    // Integrity-hardening: the persisted automatic pause plan record.
+    // Optional and additive, same rationale as `enrichmentJobs` above.
+    if (enrichmentMetadata.automaticPausePlans !== undefined) {
+      if (!Array.isArray(enrichmentMetadata.automaticPausePlans)) {
+        issues.push(issue('enrichmentMetadata.automaticPausePlans', 'invalid-type', 'automaticPausePlans doit être un tableau.'))
+      } else {
+        enrichmentMetadata.automaticPausePlans.forEach((entry: unknown, index: number) => {
+          const path = `enrichmentMetadata.automaticPausePlans[${index}]`
+          if (!isPlainObject(entry)) {
+            issues.push(issue(path, 'invalid-type', 'Entrée de plan de pauses automatique invalide.'))
+            return
+          }
+          let targetStage: Record<string, unknown> | undefined
+          if (!isNonEmptyString(entry.stageId)) {
+            issues.push(issue(`${path}.stageId`, 'invalid-value', 'stageId invalide.'))
+          } else if (!stageIds.has(entry.stageId)) {
+            issues.push(issue(`${path}.stageId`, 'unknown-reference', `stageId inconnu : ${entry.stageId}.`))
+          } else {
+            targetStage = stagesById.get(entry.stageId)
+          }
+          if (!isNonEmptyString(entry.routeFingerprint)) issues.push(issue(`${path}.routeFingerprint`, 'invalid-value', 'routeFingerprint invalide.'))
+          if (!Array.isArray(entry.pauses)) {
+            issues.push(issue(`${path}.pauses`, 'invalid-type', 'pauses doit être un tableau.'))
+            return
+          }
+          const seenOrders = new Set<number>()
+          entry.pauses.forEach((pause: unknown, pauseIndex: number) => {
+            const pausePath = `${path}.pauses[${pauseIndex}]`
+            if (!isPlainObject(pause)) {
+              issues.push(issue(pausePath, 'invalid-type', 'pause invalide.'))
+              return
+            }
+            if (!isNonEmptyString(pause.id)) issues.push(issue(`${pausePath}.id`, 'missing-required', 'id est requis.'))
+            if (!isBoolean(pause.active)) issues.push(issue(`${pausePath}.active`, 'invalid-type', 'active doit être un booléen.'))
+            if (pause.routePointId !== null) {
+              if (!isNonEmptyString(pause.routePointId)) {
+                issues.push(issue(`${pausePath}.routePointId`, 'invalid-value', 'routePointId doit être une chaîne non vide ou null.'))
+              } else if (!routePointIds.has(pause.routePointId)) {
+                issues.push(issue(`${pausePath}.routePointId`, 'unknown-reference', `routePointId inconnu : ${pause.routePointId}.`))
+              } else if (targetStage !== undefined && isNonEmptyString(targetStage.sourceRouteId) && routeIds.has(targetStage.sourceRouteId)) {
+                const point = routePointsById.get(pause.routePointId)
+                if (point !== undefined && point.routeId !== targetStage.sourceRouteId) {
+                  issues.push(issue(`${pausePath}.routePointId`, 'route-mismatch', "routePointId n'appartient pas à la route de l'étape."))
+                }
+              }
+            }
+            if (!isNonNegativeNumber(pause.durationSeconds)) issues.push(issue(`${pausePath}.durationSeconds`, 'invalid-value', 'durationSeconds doit être fini et ≥ 0.'))
+            if (!isNonNegativeInteger(pause.order)) {
+              issues.push(issue(`${pausePath}.order`, 'invalid-value', 'order doit être un entier ≥ 0.'))
+            } else if (seenOrders.has(pause.order)) {
+              issues.push(issue(`${pausePath}.order`, 'duplicate-order', `Valeur order dupliquée : ${pause.order}.`))
+            } else {
+              seenOrders.add(pause.order)
+            }
+            // A persisted automatic plan only ever holds automatic-origin
+            // entries — mixing in a `'custom'` one would blur the exact
+            // distinction this whole feature exists to keep clean (CDC C3
+            // section 3/32: automatic and custom pause lists are never
+            // mixed).
+            if (pause.origin !== 'automatic') issues.push(issue(`${pausePath}.origin`, 'invalid-enum', "origin doit être 'automatic'."))
+          })
+        })
+      }
+    }
     // RC2 final-closeout section 18: optional, additive — absent entirely on
     // every bundle that predates this field (or has no outstanding per-stage
     // POI issue), so this never rejects an already-valid historical bundle.

@@ -1,6 +1,7 @@
 import type { IsoDateTime } from './common.ts'
 import type { RideStageId, TripDayId } from './ids.ts'
 import type { DataSourceType } from './provenance.ts'
+import type { StagePauseSetting } from './settings.ts'
 
 /**
  * Mirrors `route-enrichment/enrichment-jobs.ts`'s own types. Declared here
@@ -23,6 +24,26 @@ export interface StageEnrichmentJobs {
   readonly stageId: RideStageId
   readonly routeFingerprint: string
   readonly jobs: readonly EnrichmentJob[]
+}
+
+/**
+ * Integrity-hardening — one stage's automatic pause plan, computed ONCE
+ * `route-enrichment/automatic-pause-plan.ts::computeAutomaticPausePlanForStage`)
+ * and persisted here, keyed by `routeFingerprint` exactly like
+ * `StageEnrichmentJobs` above: a mismatch means the stage's own GPX changed
+ * since, so the plan is stale and must be recomputed, never trusted as-is.
+ *
+ * `pauses` reuses `StagePauseSetting`'s exact shape (always `origin:
+ * 'automatic'` here) so the read path can feed it straight into
+ * `computeStageWaypoints`'s `manualPauses` — the same fixed-anchor pipeline
+ * `pausePlanMode: 'custom'` already uses, which is what makes a persisted
+ * plan immune to a later weather refresh or departure-time edit reshuffling
+ * which waypoint was chosen.
+ */
+export interface StageAutomaticPausePlan {
+  readonly stageId: RideStageId
+  readonly routeFingerprint: string
+  readonly pauses: readonly StagePauseSetting[]
 }
 
 /**
@@ -96,6 +117,15 @@ export interface TripEnrichmentMetadata {
    * (`settled-stages.ts`), so no existing trip has to be recreated.
    */
   readonly enrichmentJobs?: readonly StageEnrichmentJobs[]
+  /**
+   * Optional and additive, same rationale as `enrichmentJobs` above: absent
+   * on every bundle saved before this feature existed, or once "Recalculer
+   * les données du parcours" drops the whole `enrichmentMetadata` bookkeeping
+   * back to just `providers` (`resetEnrichmentForRecalculation`) — a stage
+   * with no valid entry here simply falls back to live C3 computation
+   * exactly like before this feature existed, never a hard failure.
+   */
+  readonly automaticPausePlans?: readonly StageAutomaticPausePlan[]
 }
 
 /** Freshness of the locally derived data (distances, D+/D-, ETA, climbs...). */

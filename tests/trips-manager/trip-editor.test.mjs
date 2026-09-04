@@ -582,6 +582,43 @@ test('editing a two-ride trip that replaces only one GPX preserves the other rid
   }
 })
 
+// Integrity-hardening: a persisted automatic pause plan is keyed by
+// `RideStageId` exactly like `enrichmentJobs` — a replaced stage mints a
+// brand-new id (never reused), so its plan must be dropped the same way,
+// while an untouched stage's own plan survives byte-for-byte.
+test('replacing only one GPX drops that stage\'s own persisted automatic pause plan without touching the other stage\'s', async () => {
+  const database = await openImportTestDatabase()
+  try {
+    const original = await importTrip(database, [gpxFile('kept.gpx'), gpxFile('replaced.gpx', 45.02)])
+    const keptStageId = original.stages[0].id
+    const replacedStageId = original.stages[1].id
+    const repository = createTripRepository(database)
+    const withPlans = {
+      ...original,
+      enrichmentMetadata: {
+        ...original.enrichmentMetadata,
+        automaticPausePlans: [
+          { stageId: keptStageId, routeFingerprint: 'kept-fingerprint', pauses: [] },
+          { stageId: replacedStageId, routeFingerprint: 'replaced-fingerprint', pauses: [] },
+        ],
+      },
+    }
+    await repository.saveTripBundle(withPlans)
+
+    const draft = await loadTripEditDraft(database, 'trip-edit')
+    const replacement = { ...draft.slots[1], file: gpxFile('replacement-two-stage.gpx', 46, 180, 0.012), existingSourceFileId: null }
+    const result = await edit(database, [draft.slots[0], replacement], 'pause-plan-replace')
+    assert.equal(result.ok, true)
+
+    assert.equal(result.bundle.stages[0].id, keptStageId, 'sanity check: the untouched Ride kept its id')
+    assert.notEqual(result.bundle.stages[1].id, replacedStageId, 'sanity check: the replaced Ride minted a new id')
+    const plans = result.bundle.enrichmentMetadata.automaticPausePlans
+    assert.deepEqual(plans, [{ stageId: keptStageId, routeFingerprint: 'kept-fingerprint', pauses: [] }], 'only the untouched stage\'s plan survives, byte-for-byte')
+  } finally {
+    database.close()
+  }
+})
+
 test('an IndexedDB write failure rolls back the complete edit and leaves the existing trip intact', async () => {
   const database = await openImportTestDatabase()
   try {

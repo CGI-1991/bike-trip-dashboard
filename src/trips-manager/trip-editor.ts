@@ -412,6 +412,13 @@ export function mergeEditedTripBundle(existing: TripBundle, rebuilt: TripBundle,
       providers: existing.enrichmentMetadata.providers,
       practicalPlacesStageErrors: existing.enrichmentMetadata.practicalPlacesStageErrors?.filter((dayId) => unchangedStageDayIds.has(dayId)),
       enrichmentJobs: existing.enrichmentMetadata.enrichmentJobs?.filter((record) => remaps.unchangedStageIds.has(record.stageId)),
+      // Integrity-hardening: a replaced stage mints a brand-new `RideStageId`
+      // (never reused — see `buildIdentityRemaps` above), so its persisted
+      // automatic pause plan is invalidated for free by the same per-stage
+      // identity filter as `enrichmentJobs` right above it — never a
+      // trip-wide "start over" for a structural edit that only touched one
+      // stage.
+      automaticPausePlans: existing.enrichmentMetadata.automaticPausePlans?.filter((record) => remaps.unchangedStageIds.has(record.stageId)),
     },
   }
 }

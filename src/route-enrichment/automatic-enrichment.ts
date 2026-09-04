@@ -5,6 +5,7 @@ import type { PracticalPlacesProgress } from '../practical-places/enrichment.ts'
 import type { PracticalPlacesProvider } from '../practical-places/types.ts'
 import { createTripRepository } from '../storage/indexeddb/trip-repository.ts'
 import type { TripBundle, TripId } from '../trip-core/index.ts'
+import { ensureAutomaticPausePlans, tripNeedsAutomaticPausePlans } from './automatic-pause-plan.ts'
 import { enrichStoredTripRoute, tripNeedsRouteEnrichment } from './enrichment.ts'
 import { isStructuralGloballyComplete } from './enrichment-jobs.ts'
 import { migrateEnrichmentJobs } from './settled-stages.ts'
@@ -63,6 +64,12 @@ export function tripNeedsAutomaticEnrichment(
   return (providers.geocodingProvider !== undefined && tripNeedsEndpointGeocoding(migrated))
     || (providers.routeEnrichmentProvider !== undefined && tripNeedsRouteEnrichment(migrated))
     || (providers.practicalPlacesProvider !== undefined && tripNeedsPracticalPlacesEnrichment(migrated))
+    // Integrity-hardening: a trip whose structural/practical work was
+    // ALREADY complete before this feature existed would otherwise never
+    // run this orchestration again at all, so its automatic pause plans
+    // would stay unpersisted forever — this makes such a trip's next open
+    // backfill them, exactly once, with no network call of its own.
+    || ((providers.routeEnrichmentProvider !== undefined || providers.practicalPlacesProvider !== undefined) && tripNeedsAutomaticPausePlans(migrated))
 }
 
 export async function runStoredTripAutomaticEnrichment(input: AutomaticEnrichmentInput): Promise<AutomaticEnrichmentReport> {
@@ -127,6 +134,22 @@ export async function runStoredTripAutomaticEnrichment(input: AutomaticEnrichmen
       ...(input.shouldContinue === undefined ? {} : { shouldContinue: input.shouldContinue }),
     })
     bundle = await repository.loadTripBundle(input.tripId)
+  }
+
+  // Integrity-hardening — CDC's own "PHASE 5 — Pauses de Ei" step: once a
+  // stage's structural+POI work is genuinely complete (whether it just
+  // finished above, or was already complete before this feature existed —
+  // see `tripNeedsAutomaticEnrichment`'s own extra OR-clause), its automatic
+  // pause plan is computed and persisted here, exactly once. Pure and local
+  // — no network, no provider, so it runs regardless of `shouldContinue`
+  // (nothing here could be a long-running operation worth cancelling) and
+  // regardless of which providers this deployment even configures.
+  if (bundle !== null) {
+    const withPausePlans = ensureAutomaticPausePlans(bundle, input.idFactory)
+    if (withPausePlans !== bundle) {
+      await repository.saveTripBundle(withPausePlans)
+      bundle = withPausePlans
+    }
   }
 
   const partial = bundle?.enrichmentMetadata.providers.some((state) =>

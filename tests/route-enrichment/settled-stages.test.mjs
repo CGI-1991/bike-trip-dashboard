@@ -148,6 +148,16 @@ test('the recalculation reset discards every job AND the legacy marks, so nothin
   assert.equal(isStagePhaseComplete(migrateEnrichmentJobs(reset), stageId(), 'structural'), false)
 })
 
+test('the recalculation reset also drops any persisted automatic pause plan — "Recalculer les données du parcours" may refresh it (CDC section 34)', () => {
+  const bundle = legacyBundle('success', 'success')
+  bundle.enrichmentMetadata = {
+    ...bundle.enrichmentMetadata,
+    automaticPausePlans: [{ stageId: bundle.stages[0].id, routeFingerprint: 'whatever', pauses: [] }],
+  }
+  const reset = resetEnrichmentForRecalculation(bundle)
+  assert.equal(reset.enrichmentMetadata.automaticPausePlans, undefined)
+})
+
 test('the reset touches provider bookkeeping only — custom pauses, notes, lodging, transfers and overrides all survive', () => {
   const bundle = legacyBundle('success', 'success')
   bundle.settings.stages = [{

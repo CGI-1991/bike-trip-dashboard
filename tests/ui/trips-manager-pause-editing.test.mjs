@@ -7,6 +7,7 @@ import test from 'node:test'
 import { createTripRepository } from '../../src/storage/indexeddb/trip-repository.ts'
 import { openTestDatabase } from '../storage/indexeddb/support/open-test-database.mjs'
 import { createGenericTripBundle } from '../trip-core/support/generic-trip-fixture.mjs'
+import { stageFingerprintFor } from '../../src/route-enrichment/enrichment-jobs.ts'
 import { initializeTripsManager } from '../../src/ui/trips/trips-manager.ts'
 
 /**
@@ -365,6 +366,62 @@ test('"Rétablir Auto" reverts a custom stage to the trip-wide default without a
     assert.equal(container.innerHTMLSetCount, setCountAfterMount, 'reverting to automatic must never reset the whole Étape screen')
     const saved = await createTripRepository(db).loadTripBundle(bundle.metadata.id)
     assert.equal(saved.settings.stages.find((entry) => entry.stageId === 'stage-alpha'), undefined, 'the per-stage override is dropped, inheriting the trip-wide default again')
+    await waitUntil(() => !handle.isAutomaticEnrichmentInFlight(bundle.metadata.id))
+    await handle.waitForWeatherIdle()
+  } finally {
+    db.close()
+  }
+})
+
+// Integrity-hardening: once the stage is genuinely fully enriched, "Rétablir
+// Auto" must not just drop the override and leave the screen to fall back to
+// a live C3 pass on its very next render — it ensures a STABLE plan exists
+// right away, computed locally (no Postpass, no network) since the stage's
+// structural/POI data is already there.
+test('"Rétablir Auto" on a fully-enriched stage recomputes and persists a fresh automatic plan locally, with no network call', async () => {
+  const db = await openTestDatabase()
+  try {
+    const bundle = withAnchorPoint(createGenericTripBundle())
+    const stageId = bundle.stages[0].id
+    bundle.settings.stages[0] = {
+      stageId, pausePlanMode: 'custom',
+      pauses: [{ id: 'pause-1', active: true, routePointId: 'town-ui', durationSeconds: 900, order: 0, origin: 'custom' }],
+    }
+    const fingerprint = stageFingerprintFor(bundle, stageId)
+    bundle.enrichmentMetadata = {
+      providers: bundle.enrichmentMetadata.providers,
+      enrichmentJobs: [{
+        stageId, routeFingerprint: fingerprint,
+        jobs: [
+          { kind: 'structural', startKm: 0, endKm: 40, status: 'success', attempts: 1 },
+          { kind: 'practical', startKm: 0, endKm: 40, status: 'success', attempts: 1 },
+        ],
+      }],
+    }
+    await createTripRepository(db).saveTripBundle(bundle)
+    const container = createFakeContainer()
+    const pausesElement = fakeSubElement()
+    pausesElement.dataset.stageId = stageId
+    container.register('[data-day-detail-pauses]', pausesElement)
+    container.register('[data-day-detail-stats]', fakeSubElement())
+    container.register('[data-day-detail-timeline]', fakeSubElement())
+
+    const handle = initializeTripsManager(container, noopDeps(db))
+    await flush()
+    container.dispatch('click', { target: fakeActionElement({ action: 'open-trip', tripId: bundle.metadata.id }) })
+    await flush()
+    container.dispatch('click', { target: fakeActionElement({ action: 'open-day-detail', dayId: 'day-alpha' }) })
+    await flush()
+
+    container.dispatch('click', { target: fakeActionElement({ action: 'pause-mode-automatic' }) })
+    await flush()
+
+    const saved = await createTripRepository(db).loadTripBundle(bundle.metadata.id)
+    assert.equal(saved.settings.stages.find((entry) => entry.stageId === stageId), undefined, 'the custom override is still dropped')
+    const plan = saved.enrichmentMetadata.automaticPausePlans?.find((entry) => entry.stageId === stageId)
+    assert.ok(plan, 'a plan was computed and persisted immediately — no Postpass, purely local')
+    assert.equal(plan.routeFingerprint, fingerprint)
+
     await waitUntil(() => !handle.isAutomaticEnrichmentInFlight(bundle.metadata.id))
     await handle.waitForWeatherIdle()
   } finally {

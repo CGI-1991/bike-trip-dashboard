@@ -485,15 +485,16 @@ test('the Météo tab only ever ships an empty mount point + a loading placehold
 
 // --- Infos: free text + lodging (CDC Jalon B4.2 section 21) -----------------
 
-test('polish-final section 29-30: Infos opens directly in edit mode — the note is a live textarea, no separate read view, no "Modifier" click first', () => {
+test('integrity-hardening section 4-5: Infos is read-only by default — the note shows as plain text, a "Modifier" button reveals the edit form, which starts collapsed', () => {
   const bundle = createGenericTripBundle()
   bundle.days[0].notes = 'Superbe montée, prévoir de l’eau.'
   const detail = buildDayDetail(bundle, 'day-alpha')
-  assert.doesNotMatch(detail.html, /data-action="edit-day-infos"/)
-  assert.doesNotMatch(detail.html, /data-day-infos-read/)
-  assert.match(detail.html, /data-day-infos-edit(?! hidden)/, 'the edit form is directly visible, never collapsed')
-  assert.match(detail.html, /<textarea id="day-notes"[^>]*>Superbe montée, prévoir de l’eau\.<\/textarea>/)
-  // One "Enregistrer" for note + lodging together — never a form per field.
+  assert.match(detail.html, /Superbe montée, prévoir de l’eau\./)
+  assert.match(detail.html, /data-action="edit-day-infos">Modifier/)
+  assert.match(detail.html, /data-day-infos-edit hidden/, 'the edit form is collapsed by default')
+  // The grouped edit form exists (for when "Modifier" is clicked) but never
+  // shows directly in normal consultation, and there is exactly one
+  // "Enregistrer" for both note + lodging together — never a form per field.
   assert.match(detail.html, /data-field="day-notes"/)
   assert.match(detail.html, /data-action="save-day-infos"/)
 })
@@ -1047,7 +1048,12 @@ test('AV/AW: an OFF day now builds a real detail shell — Résumé, Météo and
   assert.match(detail.html, /<span class="day-detail__identity-route">OFF — Hilltown<\/span>/, 'the identity bandeau carries a short type badge + the known location')
   assert.match(detail.html, /Hilltown/, 'the OFF day\'s known/auto-filled location shows in the Résumé')
   assert.match(detail.html, /data-day-detail-weather/, 'the same Météo mount point as a ride day — real weather is mounted by trips-manager.ts')
-  assert.match(detail.html, /data-day-infos-edit/, 'Infos is the same direct-edit component as a ride day')
+  // Integrity-hardening section 6: Infos is read-only by default here too —
+  // the same read/edit component as a ride day, never pre-opened in edit
+  // mode just because there is no Parcours tab to hide it behind.
+  assert.match(detail.html, /data-day-infos-read/)
+  assert.match(detail.html, /data-day-infos-edit hidden/)
+  assert.match(detail.html, /data-action="edit-day-infos">Modifier/)
 })
 
 test('AX/AY: a transfer day builds a real detail shell — origin → destination, its transferTiming, no tabs at all', () => {

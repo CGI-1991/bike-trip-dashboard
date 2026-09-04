@@ -11,6 +11,8 @@ import type { SourceFilePayloadContent } from '../../storage/indexeddb/source-fi
 import type { GeocodingProvider } from '../../geocoding/types.ts'
 import type { RouteEnrichmentProgress, RouteEnrichmentProvider } from '../../route-enrichment/types.ts'
 import { runStoredTripAutomaticEnrichment, tripNeedsAutomaticEnrichment } from '../../route-enrichment/automatic-enrichment.ts'
+import { isJobComplete, isStageFullyEnriched } from '../../route-enrichment/enrichment-jobs.ts'
+import { computeAutomaticPausePlanForStage, isAutomaticPausePlanValid, withAutomaticPausePlan } from '../../route-enrichment/automatic-pause-plan.ts'
 import { buildPracticalPlaceViewModels } from '../../practical-places/view-model.ts'
 import type { PracticalPlacesProvider } from '../../practical-places/types.ts'
 import { createSingleFlightGuard } from '../../trips-manager/single-flight.ts'
@@ -123,6 +125,16 @@ export interface TripsManagerDeps {
    */
   readonly practicalPlacesProvider?: PracticalPlacesProvider
   readonly onRouteEnrichmentDiagnostic?: (progress: RouteEnrichmentProgress) => void
+  /**
+   * Integrity-hardening sections 29-38 — the stuck-job auto-retry ladder
+   * (30 s → 2 min → 5 min in production). Injected so a test can prove the
+   * ladder's own shape (initial delay, reset-on-progress, escalation, cap)
+   * deterministically with real, short timers instead of either waiting out
+   * the real minutes or fighting fake timers against fake-indexeddb's own
+   * `setImmediate`-based scheduling. Always `[30_000, 120_000, 300_000]` in
+   * production.
+   */
+  readonly automaticRetryBackoffMs?: readonly [number, number, number]
   /**
    * DER-DES-DER section 57 — the three-way "unsaved changes" prompt.
    * Defaults to a real modal `<dialog>` (`confirm-discard-changes.ts`);
@@ -604,12 +616,10 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     teardownStickyHeaderObserver()
     container.innerHTML = detail.html
     activeDayTab = 'route'
-    // Polish-final section 29/32: an OFF/transfer day shows Infos directly,
-    // with no Parcours tab to switch away from first — it is in edit mode
-    // the instant the screen renders, so the guard must already be watching
-    // it (a ride day instead opens this lazily, only once its Infos tab is
-    // actually clicked — see the `data-day-tab` handler below).
-    if (day !== null && day.type !== 'ride') editGuard.open(infosEditContext(bundle.metadata.id, dayId))
+    // Integrity-hardening section 4-9: every day type (ride and OFF/
+    // transfer alike) shows Infos read-only at first — the guard is never
+    // pre-armed on mount any more; it only engages once "Modifier" is
+    // actually clicked (`edit-day-infos` action, below).
     mountMapAndProfile(bundle, detail, dayId)
     wireDepartureTimeInput(bundle.metadata.id, dayId)
     refreshWeather(bundle, dayId)
@@ -982,6 +992,28 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     // owner sees the change at its very next unit boundary — and so a rapid
     // A → B → A sequence can never leave two owners believing they hold it.
     enrichmentOwner = tripId
+    // Integrity-hardening section 36: whatever triggered THIS pass (a fresh
+    // trip open, the online-resume debounce, or the backoff timer's own
+    // fire) supersedes any previously-scheduled TIMER outright — never two
+    // competing timers, never one left pointlessly ticking for a trip that
+    // just got a real pass anyway. Re-armed below, only if this pass itself
+    // still leaves work outstanding.
+    //
+    // Whether the escalation STEP survives depends on whose backoff this
+    // was: a different trip's (or none at all) is dropped back to a clean
+    // slate — that trip's ladder position means nothing here. This same
+    // trip's own is deliberately left untouched, because the single call
+    // site that can ever reach this branch with a matching `tripId` is the
+    // backoff timer's own fire — resetting the step here would erase the
+    // very count `scheduleAutomaticRetryBackoff` below needs to tell a
+    // genuine repeat failure from a fresh start, and the ladder would only
+    // ever produce its first rung, never escalate.
+    if (retryBackoffTripId !== null && retryBackoffTripId !== tripId) {
+      cancelAutomaticRetryBackoff()
+    } else if (retryBackoffTimer !== null) {
+      clearTimeout(retryBackoffTimer)
+      retryBackoffTimer = null
+    }
     await automaticEnrichmentGuard.run(tripId, async () => {
       const requestId = deps.idFactory()
       // `import.meta.env` is injected by Vite at build/dev time and is
@@ -992,11 +1024,21 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       // rather than leaving it untestable.
       if (import.meta.env?.DEV) console.debug('[automatic-enrichment] start', { tripId, requestId })
 
+      // Declared here (not inside the `try`) so the `catch` below can still
+      // reuse whatever was loaded before the failure — never a second
+      // storage round-trip just to decide whether a backoff retry is worth
+      // scheduling.
+      let bundle: TripBundle | null = null
       try {
         const repository = createTripRepository(deps.database)
-        const bundle = await repository.loadTripBundle(tripId)
+        bundle = await repository.loadTripBundle(tripId)
         if (bundle === null) return
-        if (!tripNeedsAutomaticEnrichment(bundle, deps)) return
+        // Narrowed once, so the `onProgress` closure below (which TS cannot
+        // otherwise re-narrow across a callback boundary) can keep using a
+        // definitely-non-null bundle exactly like before this function
+        // started tracking the outer, possibly-null `bundle` for `catch`.
+        const startingBundle = bundle
+        if (!tripNeedsAutomaticEnrichment(startingBundle, deps)) return
         // R2 section 3 (offline robustness): `navigator.onLine === false` is
         // only ever a UX hint (section 19 — a lying `true` still hits the
         // provider's own error handling below), but a confirmed `false`
@@ -1011,6 +1053,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
         }
 
         automaticEnrichmentErrors.delete(tripId)
+        const progressBefore = completedJobCount(startingBundle)
         const report = await runStoredTripAutomaticEnrichment({
           database: deps.database,
           tripId,
@@ -1036,12 +1079,12 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
               const source = detail.source === 'cache' ? 'cache' : `${Math.round(detail.durationMs)} ms`
               const errors = detail.errorCount === 0 ? '' : ` · ${detail.errorCount} étape(s) en erreur`
               automaticEnrichmentProgress.set(tripId, `Points structurants — étape ${detail.stageIndex + 1}/${detail.stageCount} · ${source} · ${detail.retainedCandidateCount}/${detail.rawCandidateCount} retenus${errors}`)
-              runningDayId = bundle.stages.find((stage) => stage.id === detail.stageId)?.dayId ?? null
+              runningDayId = startingBundle.stages.find((stage) => stage.id === detail.stageId)?.dayId ?? null
             } else {
               const detail = progress.detail
               const source = detail.fromCache ? 'cache' : 'réseau'
               automaticEnrichmentProgress.set(tripId, `POI pratiques — étape ${detail.stageIndex + 1}/${detail.stageCount} · ${source}`)
-              runningDayId = bundle.stages[detail.stageIndex]?.dayId ?? null
+              runningDayId = startingBundle.stages[detail.stageIndex]?.dayId ?? null
             }
             // C2.5 sections 3-4/22-23: a targeted indicator patch — never the
             // full-rebuild `refreshIfShowing` this used to call on EVERY
@@ -1054,12 +1097,28 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
             // ever gets these two tiny per-card patches while it runs.
             const previousRunningDayId = runningStageByTrip.get(tripId) ?? null
             runningStageByTrip.set(tripId, runningDayId)
-            patchStagePreparationIndicators(tripId, bundle, [previousRunningDayId, runningDayId])
+            patchStagePreparationIndicators(tripId, startingBundle, [previousRunningDayId, runningDayId])
           },
         })
         if (report.partial) automaticEnrichmentErrors.set(tripId, 'Certaines données seront complétées automatiquement.')
+        // Integrity-hardening section 29-38: a genuine, online pass that
+        // still leaves work outstanding schedules its own follow-up — no
+        // manual retry control exists any more to fall back on. Progress is
+        // measured directly against the persisted job records, never
+        // against `report.partial` alone (a provider's own summary status,
+        // not the per-job completion this backoff actually needs).
+        if (report.bundle !== null && tripNeedsAutomaticEnrichment(report.bundle, deps)) {
+          const progressed = completedJobCount(report.bundle) > progressBefore
+          scheduleAutomaticRetryBackoff(tripId, progressed)
+        }
       } catch (error) {
         automaticEnrichmentErrors.set(tripId, error instanceof Error ? error.message : 'Certaines données seront complétées ultérieurement.')
+        // An unexpected exception (as opposed to a job merely left `pending`
+        // by the normal pipeline, handled above) still gets the same
+        // self-healing backoff — reusing the bundle already loaded at the
+        // top of this pass is enough to know whether there is still real
+        // work outstanding, with no extra storage round-trip here.
+        if (bundle !== null && tripNeedsAutomaticEnrichment(bundle, deps)) scheduleAutomaticRetryBackoff(tripId, false)
       } finally {
         if (import.meta.env?.DEV) console.debug('[automatic-enrichment] finish', { tripId, requestId })
         automaticEnrichmentProgress.delete(tripId)
@@ -1096,6 +1155,50 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   /** The trip whose screen is open right now, if any — never a background trip. */
   function currentTripId(): TripId | null {
     return mode.kind === 'overview' || mode.kind === 'detail' || mode.kind === 'day' ? mode.tripId : null
+  }
+
+  /** Total completed (success/empty) structural+practical micro-jobs across every stage — a coarse but honest "how much of this trip's real network work is actually done" counter, used only to decide whether a pass made genuine progress (never to gate anything). */
+  function completedJobCount(bundle: TripBundle | null): number {
+    if (bundle === null) return 0
+    return (bundle.enrichmentMetadata.enrichmentJobs ?? []).reduce((total, record) => total + record.jobs.filter(isJobComplete).length, 0)
+  }
+
+  /** Full reset: drops the escalation ladder back to its start and silences any pending timer, for whichever trip currently owns it. Only called from `startAutomaticEnrichment` when a DIFFERENT trip is taking over — that abandoned trip's ladder position is never meaningful again. */
+  function cancelAutomaticRetryBackoff(): void {
+    if (retryBackoffTimer !== null) clearTimeout(retryBackoffTimer)
+    retryBackoffTimer = null
+    retryBackoffTripId = null
+    retryBackoffStep = 0
+  }
+
+  /**
+   * Integrity-hardening section 29-38: arms (or re-arms, escalated or reset)
+   * the one backoff timer for `tripId`. Firing simply calls
+   * `startAutomaticEnrichment` again — already single-flight per trip and
+   * gated by `enrichmentOwner`, so a race with a manual reopen or the
+   * `online`-triggered resume can never run two passes at once; whichever
+   * arrives first wins and the other is a no-op.
+   */
+  function scheduleAutomaticRetryBackoff(tripId: TripId, progressed: boolean): void {
+    if (retryBackoffTimer !== null) clearTimeout(retryBackoffTimer)
+    retryBackoffStep = retryBackoffTripId !== tripId || progressed ? 0 : Math.min(retryBackoffStep + 1, AUTOMATIC_RETRY_BACKOFF_MS.length - 1)
+    retryBackoffTripId = tripId
+    const delay = AUTOMATIC_RETRY_BACKOFF_MS[retryBackoffStep] as number
+    retryBackoffTimer = setTimeout(() => {
+      retryBackoffTimer = null
+      // The visitor moved on, or another trip already claimed ownership —
+      // never wake an orchestrator for a trip nobody is looking at any more
+      // (section 36), and never contend with whoever is already running.
+      if (currentTripId() !== tripId || enrichmentOwner !== null) return
+      void startAutomaticEnrichment(tripId)
+    }, delay)
+    // Node's `setTimeout` (unlike the browser's) keeps the event loop — and
+    // so a whole `node --test` process — alive while this is pending; a
+    // best-effort background retry must never hold a page/process open on
+    // its own. Harmless no-op under the browser's own `setTimeout` (a plain
+    // number has no `unref`).
+    const handle = retryBackoffTimer as unknown as { readonly unref?: () => void }
+    handle.unref?.()
   }
 
   /** C2.5 sections 5-9: every ride day's derived status, keyed by `TripDay.id` — the exact map `renderTripDetail`'s `stagePreparationStatuses` option expects. */
@@ -1224,9 +1327,9 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   })
   /**
    * Which of Parcours/Infos is currently showing — tracked explicitly
-   * rather than re-derived from `aria-selected` on every click, so the
-   * dirty-guard decision (self-close vs. a real departure from Infos)
-   * never depends on a DOM read finding the right element. Reset to
+   * rather than re-derived from `aria-selected` on every click, so a plain
+   * re-click of the tab already showing is always a no-op (never a leave)
+   * without depending on a DOM read finding the right element. Reset to
    * `'route'` on every fresh day mount (`mountDayDetail`) since Parcours is
    * always the default tab; updated by `switchDayTab`, the one place the
    * visible tab actually changes.
@@ -1236,6 +1339,22 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   let bypassEditGuard = false
   /** Pending debounce for `scheduleOnlineResume` — at most one in flight. */
   let onlineResumeTimer: ReturnType<typeof setTimeout> | null = null
+  /**
+   * Integrity-hardening section 29-38: a job stuck `pending` after
+   * subdivision reached its floor (or after too many `too-heavy` failures in
+   * one pass) used to have no path back to completion besides the visitor
+   * happening to reopen the trip or a browser `online` event firing — a
+   * genuine dead end for an otherwise-online, persistently slow/failing
+   * provider. This is the one backoff timer for whichever trip is currently
+   * on screen (never a background one, section 36: opening another trip
+   * must silence this one outright), armed only once a real pass still
+   * leaves outstanding work — 30 s → 2 min → 5 min, reset to 30 s on any
+   * real progress, never a faster loop, never more than one timer at once.
+   */
+  const AUTOMATIC_RETRY_BACKOFF_MS = deps.automaticRetryBackoffMs ?? [30_000, 120_000, 300_000]
+  let retryBackoffTimer: ReturnType<typeof setTimeout> | null = null
+  let retryBackoffTripId: TripId | null = null
+  let retryBackoffStep = 0
 
   /** The fields of one panel, for the guard's value snapshot — inputs, selects and textareas alike. */
   function panelFields(selector: string): readonly (HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement)[] {
@@ -1245,19 +1364,20 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   }
 
   /**
-   * Polish-final section 29-32: Infos opens directly in edit mode — there is
-   * no separate read view to "close back to" any more. Dirty on any field
-   * change; leaving (successfully saved, or explicitly discarded) always
-   * re-renders the panel from the last persisted bundle and, for a ride day
-   * (which still tabs Infos alongside Parcours), returns to the Parcours
-   * tab — matching Pauses' own "save/discard closes the panel" contract.
+   * Integrity-hardening sections 4-9 (reverting polish-final section 29-32's
+   * direct-edit design): Infos is read-only until "Modifier" is explicitly
+   * clicked (`edit-day-infos` action) — the guard only ever becomes active
+   * from that point on, never merely from the Infos tab/panel being shown.
+   * Leaving (successfully saved, or explicitly discarded via "Annuler" or
+   * the dirty-guard modal's "Abandonner") always re-renders the panel from
+   * the last persisted bundle, which naturally restores the read view.
    */
   function infosEditContext(tripId: TripId, dayId: TripDayId): EditContext {
     return {
       id: 'infos',
       host: { fields: () => panelFields('[data-day-infos-edit]') },
       save: () => saveDayInfos(tripId, dayId),
-      close: () => closeInfosEditView(tripId, dayId),
+      close: () => resetInfosPanel(tripId, dayId),
     }
   }
 
@@ -1271,7 +1391,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     }
   }
 
-  /** Discards any locally-typed, unsaved Infos edit by re-rendering the panel from the last persisted bundle — never leaves a stale, abandoned draft visible, whether reached via a saved/discarded dirty-guard decision or an explicit "Annuler"/self-close. */
+  /** Discards any locally-typed, unsaved Infos edit by re-rendering the panel from the last persisted bundle — never leaves a stale, abandoned draft visible. A fresh render always defaults back to the read view (`renderInfosPanel`'s own default), so this doubles as "close the editor". */
   function resetInfosPanel(tripId: TripId, dayId: TripDayId): void {
     void (async () => {
       const bundle = await createTripRepository(deps.database).loadTripBundle(tripId)
@@ -1279,13 +1399,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     })()
   }
 
-  /** A ride day still tabs Infos alongside Parcours (`[data-day-tab="infos"]` exists) — closing it means returning to Parcours. An OFF/transfer day shows Infos directly with no tab to return to, so only the content itself is reset. */
-  function closeInfosEditView(tripId: TripId, dayId: TripDayId): void {
-    resetInfosPanel(tripId, dayId)
-    if (container.querySelector('[data-day-tab="infos"]') !== null) switchDayTab('route')
-  }
-
-  /** The one place Parcours↔Infos tab visibility changes (CDC polish-final section 29-32) — shared by the tab click handler and `closeInfosEditView` so "Enregistrer"/"Abandonner" land on Parcours exactly like an explicit tab click would. */
+  /** The one place Parcours↔Infos tab visibility changes — shared by the tab click handler so switching tabs is always a plain, consistent toggle. */
   function switchDayTab(target: 'route' | 'infos'): void {
     activeDayTab = target
     for (const panel of container.querySelectorAll<HTMLElement>('[data-day-panel]')) panel.hidden = panel.dataset.dayPanel !== target
@@ -1587,6 +1701,29 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     return updated
   }
 
+  /**
+   * Integrity-hardening — "Rétablir Auto" drops the stage's custom override
+   * (as before) and additionally ensures the resulting automatic mode has a
+   * STABLE plan to show right away, rather than leaving the screen to fall
+   * back to a live C3 pass on its very next render: an existing valid plan
+   * (computed earlier, still matching the stage's current route fingerprint)
+   * is reused immediately with no extra work; a missing or stale one is
+   * recomputed right here — pure, local, no Postpass, no network call of any
+   * kind — exactly the "recompute locally if structure/POI are complete but
+   * the plan itself is stale" contract.
+   */
+  async function restoreAutomaticPausePlan(tripId: TripId, stageId: RideStageId): Promise<TripBundle | null> {
+    const bundle = await saveStagePauseSettings(tripId, stageId, null)
+    if (bundle === null) return null
+    if (!isStageFullyEnriched(bundle, stageId) || isAutomaticPausePlanValid(bundle, stageId)) return bundle
+    const pauses = computeAutomaticPausePlanForStage(bundle, stageId, deps.idFactory)
+    if (pauses === null) return bundle
+    const withPlan = withAutomaticPausePlan(bundle, stageId, pauses)
+    const tripRepository = createTripRepository(deps.database)
+    await tripRepository.saveTripBundle(withPlan)
+    return withPlan
+  }
+
   /** Order must stay a contiguous 0..n-1 sequence (validated by `validateTripBundle`) — reassigned every time the pause list changes rather than trusted to already be correct. */
   function withContiguousOrder(pauses: readonly StagePauseSetting[]): readonly StagePauseSetting[] {
     return pauses.slice().sort((left, right) => left.order - right.order).map((pause, index) => ({ ...pause, order: index }))
@@ -1781,22 +1918,16 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     const tab = target.closest<HTMLButtonElement>('[data-day-tab]')
     if (tab !== null && container.contains(tab)) {
       const requested = tab.dataset.dayTab === 'infos' ? 'infos' : 'route'
-      // Polish-final section 29-32: Infos is a direct-edit surface now — the
-      // instant its tab is showing, it IS open for editing (`editGuard.open`
-      // below), so leaving it (to Parcours or anywhere else) is a real
-      // context switch, not a plain visibility toggle any more.
-      if (activeDayTab === 'infos' && requested === 'infos') {
-        // Section 31: re-clicking the already-active Infos tab is an
-        // explicit self-close gesture — discard silently, never prompt.
-        editGuard.clear()
-        if (mode.kind === 'day') closeInfosEditView(mode.tripId, mode.dayId)
-        return
-      }
-      const applyTabSwitch = (): void => {
-        switchDayTab(requested)
-        if (requested === 'infos' && mode.kind === 'day') editGuard.open(infosEditContext(mode.tripId, mode.dayId))
-      }
-      if (activeDayTab !== 'infos') { applyTabSwitch(); return }
+      // Integrity-hardening section 4-9: switching tabs is a plain, guard-
+      // free toggle in the normal case — Infos starts read-only, and a read
+      // view is never dirty. The guard only ever matters here when Infos is
+      // ACTIVELY being edited (`editGuard.activeId === 'infos'`, set only
+      // once "Modifier" was clicked) and the visitor tries to leave it for
+      // another tab — exactly one of the "quitter vers" destinations the
+      // dirty-guard modal covers, same as any other navigation away.
+      if (requested === activeDayTab) return
+      const applyTabSwitch = (): void => switchDayTab(requested)
+      if (editGuard.activeId !== 'infos') { applyTabSwitch(); return }
       if (editGuard.tryLeaveWithoutPrompt()) applyTabSwitch()
       else void editGuard.requestLeave().then((allowed) => { if (allowed) applyTabSwitch() })
       return
@@ -1851,12 +1982,24 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       else void editGuard.requestLeave().then((allowed) => { if (allowed) applyToggle() })
       return
     }
+    if (target.closest('[data-action="edit-day-infos"]') !== null && mode.kind === 'day') {
+      // Integrity-hardening section 7: "Modifier" is the ONE gesture that
+      // arms the dirty guard for Infos — a plain read view is never dirty,
+      // so nothing needs settling first (unlike Pauses/Météo's toggle,
+      // which can genuinely interrupt each other).
+      const readView = container.querySelector<HTMLElement>('[data-day-infos-read]')
+      const editView = container.querySelector<HTMLElement>('[data-day-infos-edit]')
+      if (readView !== null) readView.hidden = true
+      if (editView !== null) editView.hidden = false
+      editGuard.open(infosEditContext(mode.tripId, mode.dayId))
+      return
+    }
     if (target.closest('[data-action="cancel-edit-day-infos"]') !== null) {
       // An explicit "Annuler" IS the visitor's answer — never prompt on top
       // of it (same outcome as "Abandonner" in the dirty-guard modal,
       // chosen deliberately rather than on the way out).
       editGuard.clear()
-      if (mode.kind === 'day') closeInfosEditView(mode.tripId, mode.dayId)
+      if (mode.kind === 'day') resetInfosPanel(mode.tripId, mode.dayId)
       return
     }
 
@@ -1960,7 +2103,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       const { tripId, dayId } = mode
       if (stageId === undefined) return
       void (async () => {
-        const bundle = await saveStagePauseSettings(tripId, stageId, null)
+        const bundle = await restoreAutomaticPausePlan(tripId, stageId)
         if (bundle !== null) patchDayDetail(bundle, dayId)
       })()
     } else if (action === 'save-manual-pauses' && mode.kind === 'day') {
