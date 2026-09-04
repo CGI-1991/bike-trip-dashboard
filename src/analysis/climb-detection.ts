@@ -20,6 +20,8 @@ import { calculateHaversineDistanceKm } from '../gpx/parser.ts'
 import type { Climb, ClimbConfidence, ClimbId, ConfidenceLevel, RouteId } from '../trip-core/index.ts'
 import { climbId } from '../trip-core/index.ts'
 import type { TerrainProfilePoint } from '../route/types.ts'
+import { deriveTerrainLabelFromElevationGainPerKm } from './terrain-context.ts'
+import type { TripTerrainLabel } from './terrain-context.ts'
 
 /** CDC section 13.4 — "règles initiales". */
 export interface ClimbSignificanceMetrics {
@@ -29,7 +31,7 @@ export interface ClimbSignificanceMetrics {
 }
 
 interface ClimbSignificanceProfile {
-  readonly terrain: 'long' | 'intermediate' | 'short-steep'
+  readonly terrain: 'long' | 'intermediate' | 'short-steep' | 'relief-adaptive'
   readonly minLengthKm: number
   readonly minElevationGainM: number
   readonly minAverageGradientPercent: number
@@ -42,19 +44,66 @@ export const CLIMB_SIGNIFICANCE_PROFILES = [
   { terrain: 'short-steep', minLengthKm: 0.5, minElevationGainM: 40, minAverageGradientPercent: 4 },
 ] as const satisfies readonly ClimbSignificanceProfile[]
 
-/** Pure final qualification, deliberately independent from pivot extraction and tolerant-dip merging. */
-export function isSignificantClimb(metrics: ClimbSignificanceMetrics): boolean {
-  return CLIMB_SIGNIFICANCE_PROFILES.some(
-    (profile) =>
-      metrics.lengthKm >= profile.minLengthKm &&
-      metrics.elevationGainM >= profile.minElevationGainM &&
-      metrics.averageGradientPercent >= profile.minAverageGradientPercent,
-  )
+function satisfiesProfile(metrics: ClimbSignificanceMetrics, profile: ClimbSignificanceProfile): boolean {
+  return metrics.lengthKm >= profile.minLengthKm
+    && metrics.elevationGainM >= profile.minElevationGainM
+    && metrics.averageGradientPercent >= profile.minAverageGradientPercent
 }
 
-/** CDC section 13.4 — "valeurs à calibrer" (picked at the middle of each given range). */
+/** Pure final qualification, deliberately independent from pivot extraction and tolerant-dip merging. */
+export function isSignificantClimb(metrics: ClimbSignificanceMetrics): boolean {
+  return CLIMB_SIGNIFICANCE_PROFILES.some((profile) => satisfiesProfile(metrics, profile))
+}
+
+/**
+ * Polish-final section 4-11 — adaptive detection, never a global threshold
+ * cut. A `'mountain'`-relief stage keeps the ORIGINAL calibration byte for
+ * byte (`toleratedLossM`/`maxFlatKm` identical to the historical constants,
+ * `extraProfile: null`) — Galibier/Bonette/Télégraphe/Joux Plane and every
+ * other genuinely alpine stage never see a single behavioural change (CDC
+ * section 11: non-régression RGA).
+ *
+ * Only a stage whose OWN relief (not the trip's aggregate — one stage can be
+ * far hillier or flatter than the trip average) is genuinely below the
+ * mountain cutoff gets two adjustments, both scaled to that same relief
+ * reading:
+ *  - a tighter dip-merge tolerance, so several real, comparably-scaled
+ *    rollers stop collapsing into one grade-diluted blob (root cause of a
+ *    rolling stage reporting `0` despite meaningful D+: `mergeTolerantDips`
+ *    pins the merged span's start to the very first valley in the chain,
+ *    and a long merged span's NET valley-to-peak grade washes out on
+ *    terrain whose ups and downs are roughly symmetric);
+ *  - one additional, deliberately modest qualification profile, sized to
+ *    the stage's own relief tier rather than to alpine cols. It is checked
+ *    only as a fallback once the original three profiles have already
+ *    failed, and only against a stage-scale minimum (25-30 m / 0.4-0.6 km) a
+ *    genuine micro-undulation (a handful of meters, per CDC section 59)
+ *    still never reaches — this is what keeps a flat/rolling route free of
+ *    fabricated climbs (CDC section 7: never invent one just to avoid `0`).
+ */
+interface ReliefTuning {
+  readonly toleratedLossM: number
+  readonly maxFlatKm: number
+  readonly extraProfile: ClimbSignificanceProfile | null
+}
+
+/** CDC section 13.4 — "valeurs à calibrer" (picked at the middle of each given range); also the exact `'mountain'`-relief tuning below, unchanged. */
 export const CLIMB_TOLERATED_LOSS_M = 25
 export const CLIMB_MAX_FLAT_KM = 1
+
+const RELIEF_TUNING: Readonly<Record<TripTerrainLabel, ReliefTuning>> = {
+  mountain: { toleratedLossM: CLIMB_TOLERATED_LOSS_M, maxFlatKm: CLIMB_MAX_FLAT_KM, extraProfile: null },
+  mixed: {
+    toleratedLossM: 15,
+    maxFlatKm: 0.6,
+    extraProfile: { terrain: 'relief-adaptive', minLengthKm: 0.6, minElevationGainM: 30, minAverageGradientPercent: 2.2 },
+  },
+  rolling: {
+    toleratedLossM: 10,
+    maxFlatKm: 0.4,
+    extraProfile: { terrain: 'relief-adaptive', minLengthKm: 0.4, minElevationGainM: 25, minAverageGradientPercent: 2.2 },
+  },
+}
 
 /** Elevation delta below which a point-to-point change is treated as noise, not a real direction reversal. */
 const PIVOT_NOISE_EPSILON_M = 1
@@ -166,7 +215,12 @@ function buildRawAscentPairs(pivots: readonly Pivot[]): readonly ValleyPeakRange
  * fails to reach as high as the current peak (a false summit before the
  * real one) never moves the recorded peak backward.
  */
-function mergeTolerantDips(profile: readonly TerrainProfilePoint[], rawPairs: readonly ValleyPeakRange[]): readonly ValleyPeakRange[] {
+function mergeTolerantDips(
+  profile: readonly TerrainProfilePoint[],
+  rawPairs: readonly ValleyPeakRange[],
+  toleratedLossM: number,
+  maxFlatKm: number,
+): readonly ValleyPeakRange[] {
   if (rawPairs.length === 0) return []
 
   const merged: ValleyPeakRange[] = []
@@ -179,7 +233,7 @@ function mergeTolerantDips(profile: readonly TerrainProfilePoint[], rawPairs: re
     const dipLossM = currentPeakElevationM - nextValleyElevationM
     const dipDistanceKm = (profile[next.valleyIndex]?.distanceKm ?? 0) - (profile[current.peakIndex]?.distanceKm ?? 0)
 
-    if (dipLossM <= CLIMB_TOLERATED_LOSS_M && dipDistanceKm <= CLIMB_MAX_FLAT_KM) {
+    if (dipLossM <= toleratedLossM && dipDistanceKm <= maxFlatKm) {
       const nextPeakElevationM = profile[next.peakIndex]?.elevationM ?? 0
       current = { valleyIndex: current.valleyIndex, peakIndex: nextPeakElevationM > currentPeakElevationM ? next.peakIndex : current.peakIndex }
     } else {
@@ -200,6 +254,21 @@ function cumulativeElevationGainM(profile: readonly TerrainProfilePoint[], start
     if (delta > 0) gainM += delta
   }
   return gainM
+}
+
+/**
+ * This stage's own relief tier (never the trip's aggregate — see the
+ * `RELIEF_TUNING` doc comment) from the same profile detection itself
+ * receives, no second pass over `Route`/`TripBundle`. Reuses the exact
+ * rolling/mixed/mountain vocabulary and thresholds already shown to the
+ * traveller elsewhere (`terrain-context.ts`), so "this stage is rolling"
+ * means the same thing everywhere in the app.
+ */
+function computeStageReliefLabel(profile: readonly TerrainProfilePoint[]): TripTerrainLabel {
+  const totalDistanceKm = (profile[profile.length - 1]?.distanceKm ?? 0) - (profile[0]?.distanceKm ?? 0)
+  if (!(totalDistanceKm > 0)) return 'mountain' // Degenerate profile: never relax anything.
+  const totalElevationGainM = cumulativeElevationGainM(profile, 0, profile.length - 1)
+  return deriveTerrainLabelFromElevationGainPerKm(totalElevationGainM / totalDistanceKm)
 }
 
 function maxSmoothedGradePercent(profile: readonly TerrainProfilePoint[], startIndex: number, endIndex: number): number {
@@ -247,10 +316,11 @@ export function detectClimbs(
 ): readonly Climb[] {
   if (profile.length < 2) return []
 
+  const tuning = RELIEF_TUNING[computeStageReliefLabel(profile)]
   const pivotIndices = extractPivotIndices(profile)
   const pivots = classifyPivots(profile, pivotIndices)
   const rawPairs = buildRawAscentPairs(pivots)
-  const mergedRanges = mergeTolerantDips(profile, rawPairs)
+  const mergedRanges = mergeTolerantDips(profile, rawPairs, tuning.toleratedLossM, tuning.maxFlatKm)
 
   const climbs: Climb[] = []
   let sequenceNumber = 0
@@ -268,7 +338,20 @@ export function detectClimbs(
     // sustained gradient. D+ remains the separate effort/qualification metric.
     const averageGradientPercent = lengthKm > 0 ? ((end.elevationM - start.elevationM) / (lengthKm * 1000)) * 100 : 0
 
-    if (!isSignificantClimb({ lengthKm, elevationGainM, averageGradientPercent })) continue
+    let qualifies = isSignificantClimb({ lengthKm, elevationGainM, averageGradientPercent })
+    if (!qualifies && tuning.extraProfile !== null) {
+      // Polish-final section 6-9: on non-mountain relief only, cumulative D+
+      // ("effort" grade) is checked too, alongside the net valley-to-peak
+      // grade above. A rolling climb legitimately absorbs a brief tolerated
+      // dip mid-slope without that dip erasing the climbing effort it took —
+      // unlike the net grade, which is exactly what a long alpine false-flat
+      // needs the ORIGINAL three profiles to stay guarded against, so this
+      // second check only ever widens what qualifies, never what the fixed
+      // profiles already accepted.
+      const effortGradientPercent = lengthKm > 0 ? (elevationGainM / (lengthKm * 1000)) * 100 : 0
+      qualifies = satisfiesProfile({ lengthKm, elevationGainM, averageGradientPercent: effortGradientPercent }, tuning.extraProfile)
+    }
+    if (!qualifies) continue
 
     sequenceNumber++
     const matchedName = findNamedWaypointNear(waypoints, end.latitude, end.longitude, CLIMB_WAYPOINT_MATCH_TOLERANCE_KM)

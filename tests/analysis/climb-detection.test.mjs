@@ -234,3 +234,58 @@ test('routeId is attached to every detected climb, and ids are unique', () => {
   assert.ok(climbs.every((climb) => climb.routeId === 'route-1'))
   assert.equal(new Set(climbs.map((climb) => climb.id)).size, climbs.length)
 })
+
+// Polish-final sections 4-11, 58-60: adaptive detection on a stage whose OWN
+// relief (never the trip's aggregate) sits below the mountain cutoff. Every
+// fixture above this point stays untouched and green (confirmed by the full
+// suite passing unmodified) because each one concentrates its whole gain
+// over a short span — exactly the signal that keeps a stage classified
+// `'mountain'`, where the adaptive tuning is a no-op by construction.
+
+/** One "moderate" roller: below every FIXED profile on its own (grade ~2.66% < the intermediate profile's 3%, gain 85 m < the long profile's 100 m) — the flat plateau at the top and the longer descent back to baseline are both outside the ascent's own valley→peak span, so neither dilutes its length or grade. */
+function moderateRoller() {
+  return concatElevations(rampElevations(3.2, 85), flatElevations(1), rampElevations(6, -85))
+}
+
+/** A genuine micro-undulation — comfortably under the adaptive profiles' own 25 m gain floor, on any relief tier. */
+function microUndulation() {
+  return concatElevations(rampElevations(0.4, 15), flatElevations(0.3), rampElevations(1, -15))
+}
+
+test('a vallonné stage (~130 km, ~1000-1500 m D+) detects its real rollers without fabricating one from every micro-undulation', () => {
+  const order = ['h', 'h', 'h', 'n', 'h', 'h', 'h', 'n', 'h', 'h', 'h', 'n', 'h', 'h', 'h']
+  const elevations = concatElevations(...order.map((kind) => (kind === 'h' ? moderateRoller() : microUndulation())))
+  const profile = buildTerrainProfile(elevations)
+  const totalDistanceKm = profile[profile.length - 1].distanceKm
+  assert.ok(totalDistanceKm > 120 && totalDistanceKm < 150, `expected a ~130 km stage, got ${totalDistanceKm} km`)
+
+  const climbs = detectClimbs(profile, [], routeId('route-1'), idFactory(), 'test-engine@1')
+
+  // Every one of the 12 real rollers is found — none of the 3 micro-undulations is.
+  assert.equal(climbs.length, 12)
+  for (const climb of climbs) {
+    assert.equal(Math.round((climb.endDistanceKm - climb.startDistanceKm) * 100) / 100, 3.2)
+    assert.equal(Math.round(climb.elevationGainM), 85)
+    assert.ok(climb.averageGradientPercent > 2.2, `expected a grade above the adaptive floor, got ${climb.averageGradientPercent}`)
+  }
+  // Deterministic — a second run over the same profile finds the same climbs.
+  const again = detectClimbs(profile, [], routeId('route-1'), idFactory(), 'test-engine@1')
+  assert.deepEqual(again.map((climb) => [climb.startDistanceKm, climb.endDistanceKm]), climbs.map((climb) => [climb.startDistanceKm, climb.endDistanceKm]))
+})
+
+test('a long, genuinely flat route made only of micro-undulations still detects zero climbs — the adaptive profile never fabricates one just to avoid 0', () => {
+  const elevations = concatElevations(...Array.from({ length: 40 }, () => microUndulation()))
+  const profile = buildTerrainProfile(elevations)
+  assert.ok(profile[profile.length - 1].distanceKm > 60)
+  assert.deepEqual(detectClimbs(profile, [], routeId('route-1'), idFactory(), 'test-engine@1'), [])
+})
+
+test('a real RGA mountain profile (concentrated gain) keeps its original tolerated-dip/significance calibration untouched by the adaptive tuning', () => {
+  // Same shape as the existing "two 19/20 km climbs" fixture (clearly
+  // mountain-relief: ~50 m of gain per km travelled, far above the 18 m/km
+  // cutoff) — asserts the adaptive path is simply never engaged here.
+  const firstClimb = concatElevations(rampElevations(4.5, 245), rampElevations(0.5, -22), rampElevations(4.5, 245))
+  const climbs = detect(concatElevations(firstClimb, rampElevations(3, -600), rampElevations(9.75, 492)))
+  assert.equal(climbs.length, 2)
+  assert.equal(Math.round(climbs[0].averageGradientPercent * 10) / 10, 4.9)
+})
