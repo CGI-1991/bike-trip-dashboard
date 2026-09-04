@@ -2140,3 +2140,116 @@ L’application ne doit jamais demander à l’utilisateur de comprendre ou rép
 Le comportement attendu est :
 
 > **je crée un voyage, l’application le prépare progressivement, elle n’invente rien, elle n’abandonne pas silencieusement un tronçon, elle reprend si nécessaire, et lorsqu’elle dit qu’une étape est prête, elle est réellement prête.**
+
+---
+
+# 99. Polish final — détection des montées adaptative
+
+La détection de montée reste un algorithme géométrique local (profil altimétrique GPX), jamais garanti de trouver une montée simplement parce que le D+ total est élevé.
+
+Elle devient adaptative au relief propre de CHAQUE étape (jamais celui du voyage entier) :
+
+- une étape « montagne » (D+/km élevé) conserve exactement l’ancienne calibration — tolérance de fusion des faux-plats, profils de significativité — aucun changement de comportement ;
+- une étape « mixte » ou « roulante » (D+/km plus faible) reçoit une tolérance de fusion plus stricte (pour ne pas dissoudre plusieurs ondulations réelles dans un seul faux-plat dilué) et un profil de qualification supplémentaire, calibré à l’échelle du relief local, jamais un profil « montagne » assoupli globalement.
+
+Ne jamais fabriquer une montée pour éviter un `0`. Une route réellement plate reste à `0` montée quel que soit son D+ cumulé (le D+ peut être fait de milliers de micro-ondulations).
+
+Non-régression obligatoire sur les grandes ascensions RGA (Galibier, Bonette, Télégraphe, Joux Plane, etc.) : verrouillée par une fixture dédiée sur les GPX RGA réels (`public/data/gpx/*.gpx`), jamais seulement synthétique.
+
+---
+
+# 100. Polish final — météo sur tous les points affichés
+
+Le module météo (sample points) doit utiliser exactement le même calcul de placement automatique des pauses que l’écran Étape/Parcours (`day-detail-view.ts`) — jamais un second calcul divergent.
+
+Concrètement : les deux consommateurs partagent la même fonction de projection POI/météo/jour-de-semaine (`analysis/waypoint-timeline.ts::buildAutomaticPauseEnrichment`) avant d’appeler le placement des pauses automatiques. Sans cela, l’écran pouvait choisir un lieu de pause (score explicable : timing + POI + météo) que le module météo ignorait (placement brut par priorité de type de lieu), laissant ce lieu affiché sans aucune météo.
+
+Règle cible : tout waypoint effectivement affiché dans la timeline Parcours d’une Ride (départ, arrivée, cols, montées affichées, pauses, villages/localités affichés), avec coordonnées valides et ETA calculable, reçoit une météo dès que les données météo du jour sont disponibles.
+
+---
+
+# 101. Polish final — traçabilité des alertes météo
+
+Une alerte météo globale actionnable doit rester traçable à un point/secteur concret de la timeline affichée. La cause principale d’une alerte « fantôme » était la même divergence qu’en section 100 (le point porteur de l’alerte n’était pas dans l’ensemble affiché) — corrigée par le même alignement des deux moteurs.
+
+Ne jamais recopier artificiellement l’alerte globale sur tous les waypoints : seuls les points/horaires réellement concernés portent l’alerte inline.
+
+---
+
+# 102. Polish final — Pauses = édition directe
+
+Le bouton/onglet `Pauses` ouvre directement la liste des vrais candidats de pause — plus de sous-bloc `Gestion automatique`, plus de bouton `Manuel` intermédiaire. L’ouverture du panneau EST l’intention d’éditer.
+
+Enregistrer avec zéro case cochée est un état valide (`pausePlanMode: 'custom'`, liste de pauses vide) — jamais bloqué.
+
+Le bouton `Pauses` est aussi un toggle : recliquer dessus pendant qu’il est ouvert (même avec des modifications locales non enregistrées) ferme le panneau silencieusement, sans confirmation — c’est un geste explicite d’abandon. Basculer vers un AUTRE panneau (Météo) pendant que Pauses est dirty, en revanche, déclenche la confirmation.
+
+---
+
+# 103. Polish final — Infos = édition directe
+
+Comme Pauses : cliquer sur l’onglet `Infos` ouvre directement les champs éditables — plus d’écran de consultation en lecture seule suivi d’un bouton « Modifier ». Les liens rapides Maps/site du logement restent visibles à côté de leurs propres champs (ils ne sont pas perdus par la suppression de la vue lecture).
+
+Recliquer sur l’onglet Infos pendant qu’il est déjà actif (même dirty) le referme silencieusement (retour à Parcours), sans confirmation — même contrat de toggle explicite que Pauses.
+
+Un jour OFF/Transfert (qui n’a pas d’onglet Parcours/Infos, Infos y est la seule section) ouvre son contexte d’édition dès le rendu de l’écran.
+
+---
+
+# 104. Polish final — dirty guard centralisé et immédiat
+
+La confirmation `Modifications non enregistrées` doit apparaître AVANT la première action qui quitte le contexte édité, jamais après coup sur l’action suivante.
+
+Le point de fuite historique : la navigation bas-de-page (Aperçu / Voyage / Mes voyages, `main.ts`) appelait directement `goToOverviewForActiveTrip` / `goToDetailForActiveTrip` / `goToList`, en dehors du gestionnaire de clic délégué du conteneur (`EXTERNAL_ACTIONS`) — elle contournait donc totalement le garde-fou.
+
+Corrigé par un point de passage unique, `attemptLeaveEditContext`, que ces trois fonctions traversent désormais systématiquement avant de naviguer — exactement le même contrat que la navigation interne au conteneur.
+
+---
+
+# 105. Polish final — heure de départ validée par ✓
+
+Le contrôle d’heure de départ (case Départ de l’écran Étape) porte désormais un petit bouton ✓ à côté de l’`<input type="time">`.
+
+Contrat :
+
+- modifier l’heure ne persiste rien tant que ✓ (ou Entrée) n’a pas été cliqué ;
+- perdre le focus sans ✓/Entrée (clic ailleurs, Échap) revient toujours à la dernière heure persistée — jamais de sauvegarde implicite au blur ;
+- cliquer ✓ (ou Entrée) sauvegarde, recalcule ETA/opening_hours/météo/timeline, et referme le contrôle vers l’affichage simple — un patch ciblé, jamais un Postpass.
+
+---
+
+# 106. Polish final — zéro bouton manuel d’enrichissement standard
+
+Le bouton `Identifier les lieux de départ et d’arrivée` (Voyage) est supprimé. Le moteur automatique (`automatic-enrichment.ts`) gère seul le geocoding des extrémités — le bouton était strictement redondant avec lui.
+
+Plus aucun contrôle utilisateur standard (Identifier / Enrichir / Relancer / Réessayer / Compléter / Rechercher les POI / Postpass) ne déclenche manuellement un provider géographique (geocoding, structural, practical).
+
+Exception unique, volontaire et confirmée par une boîte de dialogue : `Modifier le voyage → Réglages avancés → Recalculer les données du parcours`. Cette action reste disponible mais n’apparaît jamais dans l’usage normal du Voyage.
+
+Les fonctions de geocoding/enrichissement elles-mêmes ne sont pas supprimées — seuls leurs déclencheurs manuels le sont ; l’orchestrateur automatique continue de les appeler.
+
+---
+
+# 107. Polish final — édition de voyage : conservation par Ride GPX inchangée
+
+Modifier un voyage (ajout, suppression, remplacement, réordonnancement de GPX ; ajout/suppression d’OFF ou Transfert) ne doit jamais ré-enrichir une Ride dont le GPX source n’a pas changé.
+
+Le bug corrigé : `enrichmentMetadata.enrichmentJobs` (complétion micro-jobs par étape) était fusionné tout-ou-rien au niveau du voyage entier — un seul GPX modifié réinitialisait la préparation de TOUTES les autres étapes, y compris celles restées identiques. La fusion suit désormais la même logique déjà appliquée à `settings.stages`/`practicalPlaces`/`climbs` : chaque enregistrement de job survit si et seulement si sa propre étape fait partie des étapes inchangées (`unchangedStageIds`, identité déjà résolue via `existingSourceFileId`).
+
+`providers` (état global par fournisseur, non ventilé par étape) reste conservé tel quel — il n’a jamais de granularité par Ride.
+
+Conséquences attendues :
+
+- ajout d’un GPX → seule la nouvelle Ride nécessite un enrichissement ;
+- suppression d’un GPX → les autres Ride restent `ready`, zéro appel provider ;
+- remplacement d’un GPX → seule la Ride remplacée est ré-enrichie ;
+- réordonnancement de GPX identiques → zéro Postpass, tout reste `complete` ;
+- ajout/suppression d’OFF ou Transfert → n’invalide jamais l’enrichissement géographique des Ride GPX inchangées.
+
+---
+
+# 108. Polish final — principe ultime (complément)
+
+Le principe de la section 98 reste inchangé et s’étend maintenant explicitement à l’édition d’un voyage existant :
+
+> **modifier un voyage ne doit jamais punir les étapes qu’on n’a pas touchées.**
