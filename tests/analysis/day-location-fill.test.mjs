@@ -152,7 +152,7 @@ test('resolveOffCoordinates: falls back to the previous ride stage\'s own route-
   const stages = [stage({ id: 's0', sourceRouteId: 'r0' })]
   const routes = [route({ id: 'r0', geometry: geometryFromEndpoints([44.1, 6.1], [44.9, 6.9]) })]
   const result = resolveOffCoordinates(bundle(days, stages, routes), days[1])
-  assert.deepEqual(result, { latitude: 44.9, longitude: 6.9, autoFilled: true })
+  assert.deepEqual(result, { latitude: 44.9, longitude: 6.9, elevationM: 0, autoFilled: true })
 })
 
 test('resolveOffCoordinates: no previous ride stage falls back to the next ride stage\'s own start endpoint', () => {
@@ -160,7 +160,7 @@ test('resolveOffCoordinates: no previous ride stage falls back to the next ride 
   const stages = [stage({ id: 's1', sourceRouteId: 'r1' })]
   const routes = [route({ id: 'r1', geometry: geometryFromEndpoints([45.1, 5.1], [45.9, 5.9]) })]
   const result = resolveOffCoordinates(bundle(days, stages, routes), days[0])
-  assert.deepEqual(result, { latitude: 45.1, longitude: 5.1, autoFilled: true })
+  assert.deepEqual(result, { latitude: 45.1, longitude: 5.1, elevationM: 0, autoFilled: true })
 })
 
 test('resolveOffCoordinates: a manual "Choisir sur la carte" override always wins outright, autoFilled false', () => {
@@ -171,7 +171,7 @@ test('resolveOffCoordinates: a manual "Choisir sur la carte" override always win
   const stages = [stage({ id: 's0', sourceRouteId: 'r0' })]
   const routes = [route({ id: 'r0', geometry: geometryFromEndpoints([44.1, 6.1], [44.9, 6.9]) })]
   const result = resolveOffCoordinates(bundle(days, stages, routes), days[1])
-  assert.deepEqual(result, { latitude: 43.5, longitude: 4.5, autoFilled: false })
+  assert.deepEqual(result, { latitude: 43.5, longitude: 4.5, elevationM: 0, autoFilled: false })
 })
 
 test('resolveOffCoordinates: genuinely unknown (no neighbour, no override, no geometry) stays null, never fabricated', () => {
@@ -191,8 +191,8 @@ test('resolveTransferCoordinates: origin from the previous ride stage, destinati
     route({ id: 'r2', geometry: geometryFromEndpoints([45.1, 8.1], [45.9, 8.9]) }),
   ]
   const result = resolveTransferCoordinates(bundle(days, stages, routes), days[1])
-  assert.deepEqual(result.origin, { latitude: 44.9, longitude: 6.9, autoFilled: true }, 'origin auto-filled from the previous ride stage\'s arrival point')
-  assert.deepEqual(result.destination, { latitude: 46.0, longitude: 7.0, autoFilled: false }, 'destination overridden manually — the next stage\'s own start point is ignored')
+  assert.deepEqual(result.origin, { latitude: 44.9, longitude: 6.9, elevationM: 0, autoFilled: true }, 'origin auto-filled from the previous ride stage\'s arrival point')
+  assert.deepEqual(result.destination, { latitude: 46.0, longitude: 7.0, elevationM: 0, autoFilled: false }, 'destination overridden manually — the next stage\'s own start point is ignored')
 })
 
 test('resolveTransferCoordinates: neither side resolvable stays null on both sides', () => {

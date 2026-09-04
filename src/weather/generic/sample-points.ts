@@ -22,11 +22,22 @@
  * conversion, not a timing recomputation) — this module never re-runs the
  * terrain-timing engine.
  *
- * OFF days (CDC section 12) and transfers (CDC section 13): use the same
- * adjacency resolution already relied on by the Voyage day cards
- * (`analysis/day-location-fill.ts`) for both the location's name and its
- * real coordinates (the nearest ride stage's own endpoint). A transfer day
- * yields up to two independent, single-point "off"-shaped definitions
+ * OFF days (CDC section 12) and transfers (CDC section 13): use the exact
+ * same resolvers the UI itself reads for these days' name AND coordinates
+ * (`analysis/day-location-fill.ts::resolveOffLocation`/`resolveOffCoordinates`/
+ * `resolveTransferLocations`/`resolveTransferCoordinates`) — integrity-
+ * hardening section 39-46 fixed a real divergence here: this module used to
+ * re-derive coordinates on its own via `nearestPreviousRideStage`/
+ * `nearestNextRideStage`, a plain "nearest ride day" scan that (a) ignores a
+ * manual "Choisir sur la carte" override entirely and (b) skips over an
+ * intervening TRANSFER the way `day-location-fill.ts`'s own doc comments
+ * explicitly say was a bug when the name resolvers still did it — e.g. in
+ * `Ride A → Transfer → OFF → Ride B`, the old code queried weather at
+ * `RideA.end`, before the transfer that had just moved the trip somewhere
+ * else, even though the OFF day's own NAME already correctly resolved to
+ * the transfer's destination. Sharing the resolvers outright makes that
+ * name/coordinates split structurally impossible to reintroduce. A transfer
+ * day yields up to two independent, single-point "off"-shaped definitions
  * (origin/destination) — never a single definition with two sample points,
  * which the legacy `associateOffDay` (`weather/selectors.ts`) does not
  * support (it only ever reads `definition.samplePoints[0]`). No weather
@@ -35,15 +46,16 @@
 
 import { isSignificantWaypoint } from '../../analysis/canonical-waypoints.ts'
 import type { CanonicalWaypoint, CanonicalWaypointKind } from '../../analysis/canonical-waypoints.ts'
-import { nearestNextRideStage, nearestPreviousRideStage, resolveOffLocation, resolveTransferLocations } from '../../analysis/day-location-fill.ts'
+import { resolveOffCoordinates, resolveOffLocation, resolveTransferCoordinates, resolveTransferLocations } from '../../analysis/day-location-fill.ts'
 import { parseClockToMinutes } from '../../analysis/timing.ts'
 import { resolveEffectiveMountainMode } from '../../analysis/terrain-context.ts'
 import { stageAutomaticPausesAllowed } from '../../route-enrichment/enrichment-jobs.ts'
+import { resolvePersistedAutomaticPausePlan } from '../../route-enrichment/automatic-pause-plan.ts'
 import { buildAutomaticPauseEnrichment, computeStageWaypoints, resolveStagePauseSettings } from '../../analysis/waypoint-timeline.ts'
 import { createRouteClockTime } from '../../route/time.ts'
 import { routeGeometry } from '../../route-enrichment/route-fingerprint.ts'
 import type { RoadbookPointType } from '../../trip/roadbook-types.ts'
-import type { RideStage, RouteGeometryPoint, TripBundle, TripDay } from '../../trip-core/index.ts'
+import type { TripBundle, TripDay } from '../../trip-core/index.ts'
 import type { WeatherDayDefinition, WeatherRequestLocation, WeatherSamplePoint } from '../types.ts'
 
 /**
@@ -133,9 +145,14 @@ export function buildRideDayWeatherDefinition(bundle: TripBundle, day: TripDay):
   // module's own "significant waypoint" set could silently diverge from
   // what the traveller actually sees, leaving a displayed pause anchor with
   // no weather and a day alert traceable to no visible point.
+  // Integrity-hardening: the exact same persisted-plan lookup
+  // `day-detail-view.ts` uses — sharing it outright is what keeps the two
+  // consumers structurally unable to diverge (the same rationale that
+  // already governs `buildAutomaticPauseEnrichment` above).
+  const persistedAutomaticPauses = pauseResolution.mode === 'custom' ? undefined : resolvePersistedAutomaticPausePlan(bundle, stage.id)
   const waypoints = computeStageWaypoints({
     stage, route, routePoints: bundle.routePoints, climbs: bundle.climbs, settings,
-    manualPauses: pauseResolution.mode === 'custom' ? pauseResolution.manualPauses : undefined,
+    manualPauses: pauseResolution.mode === 'custom' ? pauseResolution.manualPauses : persistedAutomaticPauses,
     mountainMode: resolveEffectiveMountainMode(bundle),
     automaticPauseEnrichment: buildAutomaticPauseEnrichment(bundle, stage, day),
     automaticPausesAllowed: stageAutomaticPausesAllowed(bundle, stage.id),
@@ -160,31 +177,6 @@ export function buildRideDayWeatherDefinition(bundle: TripBundle, day: TripDay):
   }
 }
 
-/** First/last point of a stage's route geometry, with a safe elevation fallback (CDC section 12: OFF weather needs real coordinates, never invented ones) — the same endpoints `canonical-waypoints.ts` itself anchors départ/arrivée on. */
-function endpointOf(stage: RideStage, bundle: TripBundle, which: 'start' | 'end'): { readonly latitude: number; readonly longitude: number; readonly elevationM: number; readonly name: string } | null {
-  const route = bundle.routes.find((candidate) => candidate.id === stage.sourceRouteId)
-  const geometry = route === undefined ? null : routeGeometry(route)
-  if (geometry === null || geometry.length === 0) return null
-  const point: RouteGeometryPoint | undefined = which === 'start' ? geometry[0] : geometry[geometry.length - 1]
-  if (point === undefined) return null
-  return {
-    latitude: point.latitude,
-    longitude: point.longitude,
-    elevationM: point.altitudeM ?? 0,
-    name: (which === 'start' ? stage.startLocationName : stage.endLocationName) ?? 'Lieu',
-  }
-}
-
-/** Real coordinates for an OFF/transfer day's resolved location, from whichever neighbouring ride stage the name itself was resolved from — never invented. */
-function resolveAdjacentCoordinates(bundle: TripBundle, day: TripDay, fallbackName: string): { readonly latitude: number; readonly longitude: number; readonly elevationM: number; readonly name: string } | null {
-  const previous = nearestPreviousRideStage(bundle, day.index)
-  const fromPrevious = previous === null ? null : endpointOf(previous, bundle, 'end')
-  if (fromPrevious !== null) return { ...fromPrevious, name: fallbackName }
-  const next = nearestNextRideStage(bundle, day.index)
-  const fromNext = next === null ? null : endpointOf(next, bundle, 'start')
-  return fromNext === null ? null : { ...fromNext, name: fallbackName }
-}
-
 /**
  * Builds the single `WeatherDayDefinition` for an OFF day (CDC section 12):
  * one location, the same one `resolveOffLocation` already names for the
@@ -194,7 +186,13 @@ export function buildOffDayWeatherDefinition(bundle: TripBundle, day: TripDay): 
   if (day.type !== 'off' || day.date === null) return null
   const location = resolveOffLocation(bundle, day)
   if (location.name === null) return unavailableDefinition(day.id, 'off', day.date, 'Lieu de la journée OFF inconnu.')
-  const coordinates = resolveAdjacentCoordinates(bundle, day, location.name)
+  // Integrity-hardening section 39-41: the same resolver the map/picker
+  // already read (`resolveOffCoordinates`) — a manual "Choisir sur la
+  // carte" override is honoured here exactly like everywhere else, and the
+  // chronology walk (skipping OFF, stopping at a transfer) matches
+  // `resolveOffLocation`'s own, so the name and the coordinates always
+  // describe the same place.
+  const coordinates = resolveOffCoordinates(bundle, day)
   if (coordinates === null) return unavailableDefinition(day.id, 'off', day.date, 'Coordonnées indisponibles pour cette journée OFF.')
 
   const samplePoint: WeatherSamplePoint = {
@@ -202,7 +200,7 @@ export function buildOffDayWeatherDefinition(bundle: TripBundle, day: TripDay): 
     dayId: day.id,
     dayType: 'off',
     tripDate: day.date,
-    name: coordinates.name,
+    name: location.name,
     type: 'off-location',
     latitude: coordinates.latitude,
     longitude: coordinates.longitude,
@@ -236,15 +234,22 @@ export function buildTransferWeatherDefinitions(bundle: TripBundle, day: TripDay
   if (day.type !== 'transfer' || day.date === null) return { origin: null, destination: null }
   const tripDate = day.date
   const { origin, destination } = resolveTransferLocations(bundle, day)
+  // Integrity-hardening section 39-44: the same per-side resolver the map/
+  // picker/"Itinéraire" already read (`resolveTransferCoordinates`) — a
+  // manual override on either side wins outright, and a CHAINED transfer's
+  // shared handoff point resolves from the earlier transfer's own
+  // destination rather than jumping straight to a ride two hops away
+  // (exactly the divergence a plain "nearest ride day" scan produced).
+  const { origin: originCoordinates, destination: destinationCoordinates } = resolveTransferCoordinates(bundle, day)
 
-  const buildSide = (name: string | null, key: string, coordinates: ReturnType<typeof resolveAdjacentCoordinates>): WeatherDayDefinition | null => {
+  const buildSide = (name: string | null, key: string, coordinates: { readonly latitude: number; readonly longitude: number; readonly elevationM: number } | null): WeatherDayDefinition | null => {
     if (name === null || coordinates === null) return null
     const samplePoint: WeatherSamplePoint = {
       id: `${key}:location`,
       dayId: key,
       dayType: 'off',
       tripDate,
-      name: coordinates.name,
+      name,
       type: 'off-location',
       latitude: coordinates.latitude,
       longitude: coordinates.longitude,
@@ -256,14 +261,9 @@ export function buildTransferWeatherDefinitions(bundle: TripBundle, day: TripDay
     return { dayId: key, dayType: 'off', tripDate, samplePoints: [samplePoint], locations: [toLocation(samplePoint)], requiredDates: [tripDate] }
   }
 
-  const previous = nearestPreviousRideStage(bundle, day.index)
-  const next = nearestNextRideStage(bundle, day.index)
-  const originCoordinates = origin === null ? null : (previous === null ? null : endpointOf(previous, bundle, 'end'));
-  const destinationCoordinates = destination === null ? null : (next === null ? null : endpointOf(next, bundle, 'start'))
-
   return {
-    origin: buildSide(origin, transferOriginDayKey(day.id), originCoordinates === null ? null : { ...originCoordinates, name: origin as string }),
-    destination: buildSide(destination, transferDestinationDayKey(day.id), destinationCoordinates === null ? null : { ...destinationCoordinates, name: destination as string }),
+    origin: buildSide(origin, transferOriginDayKey(day.id), originCoordinates),
+    destination: buildSide(destination, transferDestinationDayKey(day.id), destinationCoordinates),
   }
 }
 

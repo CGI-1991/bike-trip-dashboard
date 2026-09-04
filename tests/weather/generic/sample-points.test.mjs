@@ -257,6 +257,75 @@ test('a transfer day\'s destination resolves once the next ride stage actually h
   assert.equal(destination.samplePoints[0].longitude, 6.9)
 })
 
+// Integrity-hardening sections 39-46 (tests 76-79): weather geography must
+// share the exact resolvers the UI itself reads — a manual override, and a
+// transfer/OFF chain, must resolve identically on both sides.
+
+function minimalStage(overrides = {}) {
+  return { id: 'stage-x', dayId: 'day-x', sourceRouteId: 'route-x', name: null, startLocationName: null, endLocationName: null, distanceKm: null, elevationGainM: null, elevationLossM: null, minAltitudeM: null, maxAltitudeM: null, movingDurationSeconds: null, pauseDurationSeconds: null, totalDurationSeconds: null, estimatedAverageSpeedKph: null, validationStatus: 'pending', metricsProvenance: null, climbIds: [], routePointIds: [], weatherRecordIds: [], ...overrides }
+}
+function minimalRoute(overrides = {}) {
+  return { id: 'route-x', sourceFileId: null, segments: [], geometry: { full: null, simplified: null }, profile: null, parsingStatus: 'success', parsingErrors: [], provenance: { sourceType: 'gpx', sourceId: null, fetchedAt: null, engineVersion: 'test@1', confidence: 'high', manuallyOverridden: false }, ...overrides }
+}
+function minimalDay(overrides = {}) {
+  return { id: 'day-x', index: 0, displayNumber: 1, date: '2027-06-01', type: 'off', stageId: null, startLocationName: null, endLocationName: null, accommodationId: null, notes: null, enrichmentStatus: 'not-started', ...overrides }
+}
+function geometryFromEndpoints(start, end) {
+  return { full: [{ latitude: start[0], longitude: start[1], altitudeM: null }, { latitude: end[0], longitude: end[1], altitudeM: null }], simplified: null }
+}
+
+test('a manual "Choisir sur la carte" override on an OFF day is honoured for weather — never silently replaced by the nearest ride endpoint', () => {
+  const days = [
+    minimalDay({ id: 'd0', index: 0, type: 'ride', stageId: 's0', date: '2027-06-01' }),
+    minimalDay({ id: 'd1', index: 1, type: 'off', date: '2027-06-02', startLocationName: 'Refuge isolé', overrideStartLatitude: 48.0, overrideStartLongitude: 2.0 }),
+  ]
+  const stages = [minimalStage({ id: 's0', sourceRouteId: 'r0' })]
+  const routes = [minimalRoute({ id: 'r0', geometry: geometryFromEndpoints([44.1, 6.1], [44.9, 6.9]) })]
+  const bundle = { days, stages, routes }
+  const definition = buildOffDayWeatherDefinition(bundle, days[1])
+  assert.ok(definition !== null)
+  assert.equal(definition.samplePoints[0].latitude, 48.0, 'the manual pin wins, never the nearest ride stage endpoint (44.9)')
+  assert.equal(definition.samplePoints[0].longitude, 2.0)
+})
+
+test('Ride A → Transfer (manual destination) → OFF → Ride B: the OFF day\'s weather resolves at the transfer\'s destination, never skipping back to Ride A\'s own endpoint', () => {
+  const days = [
+    minimalDay({ id: 'd0', index: 0, type: 'ride', stageId: 's0', date: '2027-06-01' }),
+    minimalDay({ id: 'd1', index: 1, type: 'transfer', date: '2027-06-02', overrideEndLatitude: 50.0, overrideEndLongitude: 3.0, endLocationName: 'Ville étape' }),
+    minimalDay({ id: 'd2', index: 2, type: 'off', date: '2027-06-03' }),
+    minimalDay({ id: 'd3', index: 3, type: 'ride', stageId: 's3', date: '2027-06-04' }),
+  ]
+  const stages = [minimalStage({ id: 's0', sourceRouteId: 'r0' }), minimalStage({ id: 's3', sourceRouteId: 'r3' })]
+  const routes = [
+    minimalRoute({ id: 'r0', geometry: geometryFromEndpoints([44.1, 6.1], [44.9, 6.9]) }),
+    minimalRoute({ id: 'r3', geometry: geometryFromEndpoints([51.0, 3.5], [51.5, 3.8]) }),
+  ]
+  const bundle = { days, stages, routes }
+  const definition = buildOffDayWeatherDefinition(bundle, days[2])
+  assert.ok(definition !== null)
+  assert.equal(definition.samplePoints[0].latitude, 50.0, 'resolves at the transfer\'s own destination, never Ride A\'s end (44.9) — the old "nearest ride" scan\'s exact bug')
+  assert.equal(definition.samplePoints[0].longitude, 3.0)
+})
+
+test('a chained transfer (T1 → T2) resolves T2\'s origin weather from T1\'s own manual destination, never a ride two hops away', () => {
+  const days = [
+    minimalDay({ id: 'd0', index: 0, type: 'ride', stageId: 's0', date: '2027-06-01' }),
+    minimalDay({ id: 'd1', index: 1, type: 'transfer', date: '2027-06-02', overrideEndLatitude: 49.0, overrideEndLongitude: 2.5, endLocationName: 'Gare intermédiaire' }),
+    minimalDay({ id: 'd2', index: 2, type: 'transfer', date: '2027-06-03' }),
+    minimalDay({ id: 'd3', index: 3, type: 'ride', stageId: 's3', date: '2027-06-04' }),
+  ]
+  const stages = [minimalStage({ id: 's0', sourceRouteId: 'r0' }), minimalStage({ id: 's3', sourceRouteId: 'r3' })]
+  const routes = [
+    minimalRoute({ id: 'r0', geometry: geometryFromEndpoints([44.1, 6.1], [44.9, 6.9]) }),
+    minimalRoute({ id: 'r3', geometry: geometryFromEndpoints([51.0, 3.5], [51.5, 3.8]) }),
+  ]
+  const bundle = { days, stages, routes }
+  const { origin } = buildTransferWeatherDefinitions(bundle, days[2])
+  assert.ok(origin !== null)
+  assert.equal(origin.samplePoints[0].latitude, 49.0, 'T2\'s origin is T1\'s own destination, never Ride A\'s end (44.9) two hops away')
+  assert.equal(origin.samplePoints[0].longitude, 2.5)
+})
+
 test('buildTripWeatherDayDefinitions builds one entry per ride/OFF day and two suffixed entries per transfer day, skipping unresolvable days', () => {
   const bundle = createGenericTripBundle()
   const definitions = buildTripWeatherDayDefinitions(bundle)

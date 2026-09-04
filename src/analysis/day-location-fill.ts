@@ -194,18 +194,26 @@ export function resolveTransferLocations(bundle: TripBundle, day: TripDay): Reso
 export interface ResolvedCoordinates {
   readonly latitude: number
   readonly longitude: number
+  /**
+   * Integrity-hardening section 40: carried alongside lat/lon so a caller
+   * that needs a full 3D point (weather sample points, in particular) never
+   * has to re-derive it through a second, parallel geometry lookup — `0`
+   * (never `null`) for a manual override with no altitude of its own, same
+   * "no invented precision, but never blocking" convention as elsewhere.
+   */
+  readonly elevationM: number
   /** `true` when derived from a neighbouring ride stage's own route geometry rather than a manual "Choisir sur la carte" override. */
   readonly autoFilled: boolean
 }
 
-/** A ride stage's own départ/arrivée coordinates, read straight from its route geometry (CDC R2.1 section 38) — never a second geocoding, never the stage's plain text name. `null` when the route has no usable geometry at all. */
-function stageEndpointCoordinates(bundle: TripBundle, stage: RideStage, endpoint: 'start' | 'end'): { readonly latitude: number; readonly longitude: number } | null {
+/** A ride stage's own départ/arrivée coordinates + altitude, read straight from its route geometry (CDC R2.1 section 38) — never a second geocoding, never the stage's plain text name. `null` when the route has no usable geometry at all. */
+function stageEndpointCoordinates(bundle: TripBundle, stage: RideStage, endpoint: 'start' | 'end'): { readonly latitude: number; readonly longitude: number; readonly elevationM: number } | null {
   const route = bundle.routes.find((candidate) => candidate.id === stage.sourceRouteId)
   if (route === undefined) return null
   const geometry = routeGeometry(route)
   if (geometry === null) return null
   const point = endpoint === 'start' ? geometry[0] : geometry[geometry.length - 1]
-  return point === undefined ? null : { latitude: point.latitude, longitude: point.longitude }
+  return point === undefined ? null : { latitude: point.latitude, longitude: point.longitude, elevationM: point.altitudeM ?? 0 }
 }
 
 /**
@@ -217,7 +225,7 @@ function stageEndpointCoordinates(bundle: TripBundle, stage: RideStage, endpoint
  */
 export function resolveOffCoordinates(bundle: TripBundle, day: TripDay): ResolvedCoordinates | null {
   if (day.overrideStartLatitude !== undefined && day.overrideStartLongitude !== undefined) {
-    return { latitude: day.overrideStartLatitude, longitude: day.overrideStartLongitude, autoFilled: false }
+    return { latitude: day.overrideStartLatitude, longitude: day.overrideStartLongitude, elevationM: 0, autoFilled: false }
   }
   // Sections 79-81/91: the same chronology `resolveOffLocation` walks, so an
   // OFF day's map marker and its displayed name always agree — a transfer
@@ -268,7 +276,7 @@ export function resolveTransferCoordinates(bundle: TripBundle, day: TripDay): Re
 
 function resolveTransferOriginCoordinates(bundle: TripBundle, day: TripDay): ResolvedCoordinates | null {
   if (day.overrideStartLatitude !== undefined && day.overrideStartLongitude !== undefined) {
-    return { latitude: day.overrideStartLatitude, longitude: day.overrideStartLongitude, autoFilled: false }
+    return { latitude: day.overrideStartLatitude, longitude: day.overrideStartLongitude, elevationM: 0, autoFilled: false }
   }
   const anchor = transferAnchorDay(bundle, day.index, -1)
   if (anchor === null) return null
@@ -283,7 +291,7 @@ function resolveTransferOriginCoordinates(bundle: TripBundle, day: TripDay): Res
 
 function resolveTransferDestinationCoordinates(bundle: TripBundle, day: TripDay): ResolvedCoordinates | null {
   if (day.overrideEndLatitude !== undefined && day.overrideEndLongitude !== undefined) {
-    return { latitude: day.overrideEndLatitude, longitude: day.overrideEndLongitude, autoFilled: false }
+    return { latitude: day.overrideEndLatitude, longitude: day.overrideEndLongitude, elevationM: 0, autoFilled: false }
   }
   const anchor = transferAnchorDay(bundle, day.index, 1)
   if (anchor === null || anchor.type === 'transfer') return null
