@@ -66,22 +66,53 @@ export function assessAltitudeQuality(series: readonly DistanceIndexedPoint[]): 
  * gets diluted by its neighbors rather than propagating into the slope
  * computed downstream. A point with no altitude data anywhere in its window
  * stays `null` here — this function never invents an altitude.
+ *
+ * `distanceKm` is monotonically non-decreasing, so two moving boundaries are
+ * enough to maintain the active window. This preserves the exact centred
+ * window semantics while avoiding an O(n²) full-series scan for every GPX
+ * point — important now that the same smoothing is used for both D+/D- and
+ * terrain analysis, especially on dense mobile imports.
  */
 export function smoothElevation(
   series: readonly DistanceIndexedPoint[],
   windowMeters = 150,
 ): readonly DistanceIndexedPoint[] {
   const halfWindowKm = windowMeters / 1000 / 2
+  const smoothed: DistanceIndexedPoint[] = []
+  let leftIndex = 0
+  let rightIndex = 0
+  let elevationSum = 0
+  let elevationCount = 0
 
-  return series.map((point) => {
-    const neighbours = series.filter(
-      (candidate) => Math.abs(candidate.distanceKm - point.distanceKm) <= halfWindowKm && candidate.elevationM !== null,
-    )
-    const elevationM =
-      neighbours.length === 0
-        ? null
-        : neighbours.reduce((sum, candidate) => sum + (candidate.elevationM as number), 0) / neighbours.length
+  for (const point of series) {
+    const minimumDistanceKm = point.distanceKm - halfWindowKm
+    const maximumDistanceKm = point.distanceKm + halfWindowKm
 
-    return { distanceKm: point.distanceKm, latitude: point.latitude, longitude: point.longitude, elevationM }
-  })
+    while (rightIndex < series.length && (series[rightIndex]?.distanceKm ?? Infinity) <= maximumDistanceKm) {
+      const elevationM = series[rightIndex]?.elevationM ?? null
+      if (elevationM !== null) {
+        elevationSum += elevationM
+        elevationCount++
+      }
+      rightIndex++
+    }
+
+    while (leftIndex < rightIndex && (series[leftIndex]?.distanceKm ?? Infinity) < minimumDistanceKm) {
+      const elevationM = series[leftIndex]?.elevationM ?? null
+      if (elevationM !== null) {
+        elevationSum -= elevationM
+        elevationCount--
+      }
+      leftIndex++
+    }
+
+    smoothed.push({
+      distanceKm: point.distanceKm,
+      latitude: point.latitude,
+      longitude: point.longitude,
+      elevationM: elevationCount === 0 ? null : elevationSum / elevationCount,
+    })
+  }
+
+  return smoothed
 }
