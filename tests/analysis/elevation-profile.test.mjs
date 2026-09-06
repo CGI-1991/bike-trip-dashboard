@@ -90,3 +90,29 @@ test('smoothElevation never invents an altitude where none of the neighbours in 
   const smoothed = smoothElevation(series, 50)
   assert.ok(smoothed.every((point) => point.elevationM === null))
 })
+
+test('smoothElevation sliding window matches the original centred-window semantics on irregular distances and missing altitude', () => {
+  const series = [
+    { distanceKm: 0, latitude: 45, longitude: 6, elevationM: 1000 },
+    { distanceKm: 0.03, latitude: 45, longitude: 6, elevationM: 1010 },
+    { distanceKm: 0.075, latitude: 45, longitude: 6, elevationM: null },
+    { distanceKm: 0.11, latitude: 45, longitude: 6, elevationM: 1030 },
+    { distanceKm: 0.19, latitude: 45, longitude: 6, elevationM: 1040 },
+    { distanceKm: 0.26, latitude: 45, longitude: 6, elevationM: 1025 },
+  ]
+  const windowMeters = 150
+  const halfWindowKm = windowMeters / 1000 / 2
+  const expected = series.map((point) => {
+    const elevations = series
+      .filter((candidate) => Math.abs(candidate.distanceKm - point.distanceKm) <= halfWindowKm && candidate.elevationM !== null)
+      .map((candidate) => candidate.elevationM)
+    return elevations.length === 0 ? null : elevations.reduce((sum, elevation) => sum + elevation, 0) / elevations.length
+  })
+  const actual = smoothElevation(series, windowMeters).map((point) => point.elevationM)
+
+  actual.forEach((value, index) => {
+    const reference = expected[index]
+    if (reference === null) assert.equal(value, null)
+    else assert.ok(value !== null && Math.abs(value - reference) < 1e-9)
+  })
+})
