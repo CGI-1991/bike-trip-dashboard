@@ -1,13 +1,14 @@
 /**
  * Turns a parsed GPX document (`gpx-xml.ts`) into distance/elevation/profile
- * metrics and route-worthy geometry. Reuses the exact historical algorithms
- * for distance and D+/D- — `calculateHaversineDistanceKm` and
- * `calculateSegmentMetrics` from `src/gpx/parser.ts` — rather than
- * reimplementing them, so a generic import produces the same numbers the
- * RGA's own pipeline would for the same points (see the RGA compatibility
- * test). Nothing here computes ETA, ranks climbs, or reads the real clock.
+ * metrics and route-worthy geometry. Distance keeps using the historical
+ * haversine implementation from `src/gpx/parser.ts`; D+/D- are computed from
+ * the same 150 m distance-based smoothed altitude series used by the terrain
+ * engine so GPX point noise does not inflate the displayed climbing totals.
+ * Raw GPX elevations remain untouched in geometry/profile/min/max. Nothing
+ * here computes ETA, ranks climbs, or reads the real clock.
  */
 
+import { buildDistanceIndexedSeries, smoothElevation } from '../../analysis/elevation-profile.ts'
 import { calculateHaversineDistanceKm, calculateSegmentMetrics } from '../../gpx/parser.ts'
 import { isLatitude, isLongitude } from '../../trip-core/validation/primitives.ts'
 import type { GpxXmlDocument, GpxXmlPoint, GpxXmlWaypoint } from './gpx-xml.ts'
@@ -18,6 +19,7 @@ import type { ImportIssue } from './types.ts'
 const CONTINUITY_TOLERANCE_KM = 0.1
 
 const DEFAULT_RESAMPLE_INTERVAL_METERS = 50
+const ELEVATION_METRICS_SMOOTHING_WINDOW_METERS = 150
 
 export interface AnalyzedPoint {
   readonly latitude: number
@@ -136,6 +138,40 @@ function interpolateElevationAtKm(
 }
 
 /**
+ * Computes user-facing ascent/descent from the same deterministic 150 m
+ * distance-based smoothing used by the terrain/slope engine. This removes
+ * the accumulation of metre-scale GPX altitude jitter while preserving the
+ * source elevations themselves for raw geometry, min/max and diagnostics.
+ */
+function calculateSmoothedElevationMetrics(
+  points: readonly AnalyzedPoint[],
+): { readonly elevationGainM: number | null; readonly elevationLossM: number | null } {
+  const rawAltitudeCount = points.filter((point) => point.elevationM !== null).length
+  if (rawAltitudeCount < 2) return { elevationGainM: null, elevationLossM: null }
+
+  const smoothed = smoothElevation(buildDistanceIndexedSeries(points), ELEVATION_METRICS_SMOOTHING_WINDOW_METERS)
+  let elevationGainM = 0
+  let elevationLossM = 0
+  let comparisonCount = 0
+  let previousElevationM: number | null = null
+
+  for (const point of smoothed) {
+    if (point.elevationM === null) continue
+    if (previousElevationM !== null) {
+      const elevationDelta = point.elevationM - previousElevationM
+      comparisonCount++
+      if (elevationDelta > 0) elevationGainM += elevationDelta
+      else elevationLossM += Math.abs(elevationDelta)
+    }
+    previousElevationM = point.elevationM
+  }
+
+  return comparisonCount > 0
+    ? { elevationGainM, elevationLossM }
+    : { elevationGainM: null, elevationLossM: null }
+}
+
+/**
  * Resamples the route's elevation at a fixed interval (CDC section 11.4: 50 m
  * recommended step). Grade is left `null` — computing it belongs to the
  * route-timing engine (`src/route/terrain-profile.ts`), a distinct concern
@@ -246,7 +282,8 @@ export function analyzeGpxDocument(document: GpxXmlDocument, fileName: string): 
     throw new GpxImportError('no-route-points', `${fileName} : moins de 2 points valides après filtrage des coordonnées invalides.`)
   }
 
-  const { distanceKm, elevationGainM, elevationLossM } = calculateSegmentMetrics(points)
+  const { distanceKm } = calculateSegmentMetrics(points)
+  const { elevationGainM, elevationLossM } = calculateSmoothedElevationMetrics(points)
   const elevations = points.map((point) => point.elevationM).filter((elevation): elevation is number => elevation !== null)
   const hasAltitude = elevations.length > 0
 

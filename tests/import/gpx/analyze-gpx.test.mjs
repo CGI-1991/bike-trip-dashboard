@@ -5,7 +5,7 @@ installMinimalDOMParser()
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { calculateHaversineDistanceKm } from '../../../src/gpx/parser.ts'
+import { calculateHaversineDistanceKm, calculateSegmentMetrics } from '../../../src/gpx/parser.ts'
 import { analyzeGpxDocument } from '../../../src/import/gpx/analyze-gpx.ts'
 import { parseGpxXml } from '../../../src/import/gpx/gpx-xml.ts'
 import { GpxImportError } from '../../../src/import/gpx/types.ts'
@@ -54,6 +54,23 @@ test('computes D+ and D- separately on an out-and-back profile', () => {
   const analysis = analyze(xml)
   assert.equal(analysis.elevationGainM, 200)
   assert.equal(analysis.elevationLossM, 150)
+})
+
+test('D+/D- use the 150 m smoothed altitude series so dense metre-scale GPX jitter is not accumulated', () => {
+  const points = Array.from({ length: 101 }, (_, index) => ({
+    lat: 45 + index * 0.00009,
+    lon: 6,
+    ele: 1000 + index + (index % 2 === 0 ? -3 : 3),
+  }))
+  const xml = buildGpxXml({ tracks: [{ segments: [points] }] })
+  const analysis = analyze(xml)
+  const rawPoints = points.map(({ lat, lon, ele }) => ({ latitude: lat, longitude: lon, elevationM: ele }))
+  const rawMetrics = calculateSegmentMetrics(rawPoints)
+
+  assert.ok((rawMetrics.elevationGainM ?? 0) > 300, 'raw point-to-point accumulation is intentionally noisy')
+  assert.ok((analysis.elevationGainM ?? 0) < 130, 'smoothed D+ stays close to the real ~100 m climb')
+  assert.ok((analysis.elevationGainM ?? 0) > 70, 'smoothing must preserve the real climb rather than flatten it')
+  assert.ok((analysis.elevationLossM ?? Infinity) < 10, 'alternating metre-scale noise must not create a large false D-')
 })
 
 test('builds a resampled elevation profile at the recommended 50 m step, strictly increasing distances', () => {
