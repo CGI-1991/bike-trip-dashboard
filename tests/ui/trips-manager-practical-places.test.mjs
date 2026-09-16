@@ -8,6 +8,7 @@ import { createTripRepository } from '../../src/storage/indexeddb/trip-repositor
 import { openTestDatabase } from '../storage/indexeddb/support/open-test-database.mjs'
 import { createGenericTripBundle } from '../trip-core/support/generic-trip-fixture.mjs'
 import { initializeTripsManager } from '../../src/ui/trips/trips-manager.ts'
+import { offlineWeatherProvider } from './support/offline-weather-provider.mjs'
 
 // CDC C2 sections 15-16 — end-to-end wiring: opening the Étape screen builds
 // the fullscreen map's practical-POI layers straight from whatever is
@@ -77,6 +78,7 @@ test('opening the Étape screen builds the fullscreen map\'s practical-POI layer
       database: db, now: () => '2027-05-09T08:00:00.000Z', idFactory: (() => { let n = 0; return () => `id-${n++}` })(),
       renderMap: (mapContainer, mapDialog, model, layers) => { renderMapCalls.push({ mapContainer, layers: layers ?? [] }) },
       closeMap: () => {},
+      weatherProvider: offlineWeatherProvider(),
       // Deliberately supplied but must never be called — this trip's
       // provider state is already implicitly "nothing to search" (no ride
       // stage lacks the geometry it needs is irrelevant here; the point is

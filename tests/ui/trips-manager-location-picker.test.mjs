@@ -8,6 +8,7 @@ import { createTripRepository } from '../../src/storage/indexeddb/trip-repositor
 import { openTestDatabase } from '../storage/indexeddb/support/open-test-database.mjs'
 import { createGenericTripBundle } from '../trip-core/support/generic-trip-fixture.mjs'
 import { initializeTripsManager } from '../../src/ui/trips/trips-manager.ts'
+import { offlineWeatherProvider } from './support/offline-weather-provider.mjs'
 
 /**
  * R3 sections 30-35 (tests 18-21 of the CDC's own success criteria): the
@@ -86,7 +87,7 @@ async function openDay(db, dayId, deps = {}) {
   container.register('[data-location-picker]', picker)
   initializeTripsManager(container, {
     database: db, now: () => '2027-05-10T08:00:00.000Z', idFactory: (() => { let n = 0; return () => `id-${n++}` })(),
-    renderMap: () => {}, closeMap: () => {},
+    renderMap: () => {}, closeMap: () => {}, weatherProvider: offlineWeatherProvider(),
     ...deps,
   })
   await flush()
@@ -327,7 +328,7 @@ test('the transfer day\'s "end" target resolves the destination side independent
     const mountCalls = []
     initializeTripsManager(container, {
       database: db, now: () => '2027-05-10T08:00:00.000Z', idFactory: (() => { let n = 0; return () => `id-${n++}` })(),
-      renderMap: () => {}, closeMap: () => {},
+      renderMap: () => {}, closeMap: () => {}, weatherProvider: offlineWeatherProvider(),
       mountLocationPicker: (mount, initial) => { mountCalls.push(initial); return interaction.handle },
     })
     await flush()
@@ -365,7 +366,7 @@ test('R3 sections 36-37: confirming a pick immediately refreshes the identity he
     const interaction = fakeInteractionHandle()
     initializeTripsManager(container, {
       database: db, now: () => '2027-05-10T08:00:00.000Z', idFactory: (() => { let n = 0; return () => `id-${n++}` })(),
-      renderMap: () => {}, closeMap: () => {},
+      renderMap: () => {}, closeMap: () => {}, weatherProvider: offlineWeatherProvider(),
       mountLocationPicker: () => interaction.handle,
     })
     await flush()

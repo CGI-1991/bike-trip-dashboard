@@ -8,6 +8,7 @@ import { createTripRepository } from '../../src/storage/indexeddb/trip-repositor
 import { openTestDatabase } from '../storage/indexeddb/support/open-test-database.mjs'
 import { createGenericTripBundle } from '../trip-core/support/generic-trip-fixture.mjs'
 import { initializeTripsManager } from '../../src/ui/trips/trips-manager.ts'
+import { offlineWeatherProvider } from './support/offline-weather-provider.mjs'
 
 /**
  * R2 section 3.2 (offline robustness): `navigator.onLine === false` skips
@@ -69,7 +70,7 @@ test('offline (navigator.onLine === false): automatic enrichment is skipped outr
       const container = createFakeContainer()
       initializeTripsManager(container, {
         database: db, now: () => '2027-05-01T08:00:00.000Z', idFactory: (() => { let n = 0; return () => `id-${n++}` })(),
-        renderMap: () => {}, closeMap: () => {},
+        renderMap: () => {}, closeMap: () => {}, weatherProvider: offlineWeatherProvider(),
         practicalPlacesProvider: neverCalledPracticalPlacesProvider(),
       })
       container.dispatch('click', { target: fakeActionElement({ action: 'open-trip', tripId: bundle.metadata.id }) })
@@ -97,7 +98,7 @@ test('online (navigator.onLine === true, or simply undefined as in this test env
       let called = false
       initializeTripsManager(container, {
         database: db, now: () => '2027-05-01T08:00:00.000Z', idFactory: (() => { let n = 0; return () => `id-${n++}` })(),
-        renderMap: () => {}, closeMap: () => {},
+        renderMap: () => {}, closeMap: () => {}, weatherProvider: offlineWeatherProvider(),
         practicalPlacesProvider: {
           id: 'stub',
           async findCandidates() {

@@ -9,6 +9,7 @@ import { createTripRepository } from '../../src/storage/indexeddb/trip-repositor
 import { openTestDatabase } from '../storage/indexeddb/support/open-test-database.mjs'
 import { createGenericTripBundle } from '../trip-core/support/generic-trip-fixture.mjs'
 import { initializeTripsManager } from '../../src/ui/trips/trips-manager.ts'
+import { offlineWeatherProvider } from './support/offline-weather-provider.mjs'
 
 /**
  * Integrity-hardening sections 29-38/70-75 — auto-retry with backoff for a
@@ -137,7 +138,7 @@ test('a stuck stage retries on the first rung, resets to the first rung on real 
     const container = createFakeContainer()
     const handle = initializeTripsManager(container, {
       database: db, now: () => '2027-05-01T08:00:00.000Z', idFactory: (() => { let n = 0; return () => `id-${n++}` })(),
-      renderMap: () => {}, closeMap: () => {},
+      renderMap: () => {}, closeMap: () => {}, weatherProvider: offlineWeatherProvider(),
       routeEnrichmentProvider: provider,
       automaticRetryBackoffMs: RUNGS,
     })
@@ -187,6 +188,10 @@ test('a stuck stage retries on the first rung, resets to the first rung on real 
     provider.setBehavior(alphaId, 'succeed')
     await waitForCallCount(provider, alphaId, 7)
     await waitUntilIdle(handle, bundle.metadata.id)
+    // Both trailing side effects of a pass — the enrichment guard and the
+    // weather coordinator's own queue — must be idle before the database
+    // goes away, or their continuations run against a closed connection.
+    await handle.waitForWeatherIdle()
   } finally {
     db.close()
   }
@@ -205,7 +210,7 @@ test('switching to another trip cancels the first trip\'s pending backoff outrig
     const container = createFakeContainer()
     const handle = initializeTripsManager(container, {
       database: db, now: () => '2027-05-01T08:00:00.000Z', idFactory: (() => { let n = 0; return () => `id-${n++}` })(),
-      renderMap: () => {}, closeMap: () => {},
+      renderMap: () => {}, closeMap: () => {}, weatherProvider: offlineWeatherProvider(),
       routeEnrichmentProvider: provider,
       automaticRetryBackoffMs: RUNGS,
     })
@@ -225,6 +230,10 @@ test('switching to another trip cancels the first trip\'s pending backoff outrig
     // superseded at the last instant).
     await flush(RUNGS[0] + RUNGS[1] + RUNGS[2])
     assert.equal(provider.attempts.get(alphaId), 1, 'the abandoned trip\'s backoff never fires again after a trip switch')
+    // Both trailing side effects of a pass — the enrichment guard and the
+    // weather coordinator's own queue — must be idle before the database
+    // goes away, or their continuations run against a closed connection.
+    await handle.waitForWeatherIdle()
   } finally {
     db.close()
   }
@@ -242,7 +251,7 @@ test('an offline skip never arms a competing backoff timer — only the existing
     const container = createFakeContainer()
     const handle = initializeTripsManager(container, {
       database: db, now: () => '2027-05-01T08:00:00.000Z', idFactory: (() => { let n = 0; return () => `id-${n++}` })(),
-      renderMap: () => {}, closeMap: () => {},
+      renderMap: () => {}, closeMap: () => {}, weatherProvider: offlineWeatherProvider(),
       routeEnrichmentProvider: provider,
       automaticRetryBackoffMs: RUNGS,
     })
@@ -257,6 +266,9 @@ test('an offline skip never arms a competing backoff timer — only the existing
     // separate `online` event listener that already owns this case.
     await flush(RUNGS[0] + RUNGS[1] + RUNGS[2])
     assert.equal(provider.attempts.size, 0, 'no backoff timer was armed by the offline skip')
+    // Same reason as the other teardowns: let every trailing side effect
+    // settle before the database goes away.
+    await handle.waitForWeatherIdle()
   } finally {
     db.close()
     if (originalOnLine === undefined) delete navigator.onLine
@@ -275,7 +287,7 @@ test('a rapid second "open" on the same in-flight trip never starts a duplicate 
     const container = createFakeContainer()
     const handle = initializeTripsManager(container, {
       database: db, now: () => '2027-05-01T08:00:00.000Z', idFactory: (() => { let n = 0; return () => `id-${n++}` })(),
-      renderMap: () => {}, closeMap: () => {},
+      renderMap: () => {}, closeMap: () => {}, weatherProvider: offlineWeatherProvider(),
       routeEnrichmentProvider: provider,
       automaticRetryBackoffMs: RUNGS,
     })
@@ -312,6 +324,10 @@ test('a rapid second "open" on the same in-flight trip never starts a duplicate 
     provider.setBehavior(alphaId, 'succeed')
     await waitForCallCount(provider, alphaId, 3)
     await waitUntilIdle(handle, bundle.metadata.id)
+    // Both trailing side effects of a pass — the enrichment guard and the
+    // weather coordinator's own queue — must be idle before the database
+    // goes away, or their continuations run against a closed connection.
+    await handle.waitForWeatherIdle()
   } finally {
     db.close()
   }

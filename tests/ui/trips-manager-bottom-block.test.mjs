@@ -8,6 +8,7 @@ import { createTripRepository } from '../../src/storage/indexeddb/trip-repositor
 import { openTestDatabase } from '../storage/indexeddb/support/open-test-database.mjs'
 import { createGenericTripBundle } from '../trip-core/support/generic-trip-fixture.mjs'
 import { initializeTripsManager } from '../../src/ui/trips/trips-manager.ts'
+import { offlineWeatherProvider } from './support/offline-weather-provider.mjs'
 
 // R2.1 sections 3-4 (tests B/C/D/E/F): the Pauses/Météo bottom block's own
 // open/close mechanics — a pure client-side toggle, never a re-render.
@@ -70,7 +71,7 @@ async function openDayAlphaWithBottomBlock(db) {
   const weatherPanel = fakePanel('p-weather')
   initializeTripsManager(container, {
     database: db, now: () => '2027-05-10T08:00:00.000Z', idFactory: (() => { let n = 0; return () => `id-${n++}` })(),
-    renderMap: () => {}, closeMap: () => {},
+    renderMap: () => {}, closeMap: () => {}, weatherProvider: offlineWeatherProvider(),
   })
   await flush()
   container.dispatch('click', { target: fakeActionElement({ action: 'open-trip', tripId: bundle.metadata.id }) })
