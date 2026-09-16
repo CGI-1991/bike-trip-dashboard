@@ -13,7 +13,8 @@ import { estimateAutomaticBreakBudget } from '../../analysis/pause-budget.ts'
 import { buildTerrainSlopeProfile } from '../../analysis/terrain-profile.ts'
 import { computeStageTiming } from '../../analysis/timing.ts'
 import type { StageTimingResult } from '../../analysis/timing.ts'
-import type { Climb, RouteId } from '../../trip-core/index.ts'
+import type { Climb, ClimbDetectionSensitivity, RouteId } from '../../trip-core/index.ts'
+import { DEFAULT_CLIMB_DETECTION_SENSITIVITY } from '../../trip-core/index.ts'
 import type { TerrainProfilePoint } from '../../route/types.ts'
 import type { GpxAnalysis } from './analyze-gpx.ts'
 import type { ImportIssue } from './types.ts'
@@ -48,6 +49,8 @@ export function analyzeRouteTerrainClimbsAndTiming(
   engineVersion: string,
   timingOptions: RouteTimingOptions,
   fileName: string,
+  /** Trip-wide climb-detection sensitivity (`GlobalTripSettings.climbDetectionSensitivity`) — the historical calibration when omitted. */
+  climbSensitivity: ClimbDetectionSensitivity = DEFAULT_CLIMB_DETECTION_SENSITIVITY,
 ): RouteAnalysisResult {
   const distanceIndexed = buildDistanceIndexedSeries(analysis.points)
   const altitudeQuality = assessAltitudeQuality(distanceIndexed)
@@ -71,7 +74,7 @@ export function analyzeRouteTerrainClimbsAndTiming(
     )
   }
 
-  const climbs = terrainProfile === null ? [] : detectClimbs(terrainProfile, analysis.waypoints, routeIdValue, idFactory, engineVersion)
+  const climbs = terrainProfile === null ? [] : detectClimbs(terrainProfile, analysis.waypoints, routeIdValue, idFactory, engineVersion, climbSensitivity)
 
   const resolvedBreakMinutes =
     timingOptions.totalBreakMinutes === 'adaptive'

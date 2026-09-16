@@ -274,3 +274,53 @@ test('pauseDurationMinutes/elapsedMinutes/clockTime are always null — this mod
     assert.equal(waypoint.clockTime, null)
   }
 })
+
+// A climb whose summit IS the stage arrival: two distinct blocks, each
+// keeping its own information, with the montée reading BEFORE the arrivée
+// it leads to. Neither merge nor dedup may swallow either of them.
+/** The route's own arrival distance — the geometry's cumulative length, never a hand-written round number. */
+function arrivalDistanceKm() {
+  const waypoints = buildCanonicalWaypoints({ stage: stage(), route: route(), routePoints: [], climbs: [] })
+  return waypoints[waypoints.length - 1].trackDistanceKm
+}
+
+test('a climb summiting exactly at the arrival stays its own waypoint, ordered before the arrival', () => {
+  const geometry = route().geometry.full
+  const finishClimb = climb({ id: 'climb-finish', name: 'Montée finale', startDistanceKm: 0, endDistanceKm: arrivalDistanceKm() })
+  const waypoints = buildCanonicalWaypoints({
+    stage: stage({ climbIds: ['climb-finish'] }), route: route({ geometry: { full: geometry, simplified: null } }), routePoints: [], climbs: [finishClimb],
+  })
+  const kinds = waypoints.map((waypoint) => waypoint.kind)
+  assert.deepEqual(kinds, ['start', 'climb', 'end'], 'the climb is neither dropped nor pushed after the arrival')
+
+  const climbWaypoint = waypoints[1]
+  const endWaypoint = waypoints[2]
+  assert.equal(climbWaypoint.name, 'Montée finale')
+  assert.equal(climbWaypoint.climbId, 'climb-finish')
+  assert.equal(endWaypoint.name, 'Arrivée ville', 'the arrival keeps its own identity')
+  assert.equal(endWaypoint.climbId, null, 'the arrival never absorbs the climb')
+  assert.equal(climbWaypoint.trackDistanceKm, endWaypoint.trackDistanceKm, 'they legitimately share one position')
+})
+
+test('a single climb finishing at the arrival never produces two climb blocks', () => {
+  const geometry = route().geometry.full
+  const finishClimb = climb({ id: 'climb-finish', name: 'Col du Test', startDistanceKm: 2, endDistanceKm: arrivalDistanceKm() })
+  const summit = point({ id: 'summit-finish', name: 'Col du Test', osmFeatureType: 'mountain-pass', trackDistanceKm: arrivalDistanceKm(), latitude: 45, longitude: 6.254, elevationM: 400 })
+  const waypoints = buildCanonicalWaypoints({
+    stage: stage({ climbIds: ['climb-finish'], routePointIds: ['summit-finish'] }),
+    route: route({ geometry: { full: geometry, simplified: null } }),
+    routePoints: [summit],
+    climbs: [finishClimb],
+  })
+  assert.equal(waypoints.filter((waypoint) => waypoint.climbId === 'climb-finish').length, 1, 'the named col and its climb are one block, not two')
+  assert.deepEqual(waypoints.map((waypoint) => waypoint.kind), ['start', 'mountain-pass', 'end'])
+})
+
+test('the start always leads, whatever else shares kilometre zero', () => {
+  const geometry = route().geometry.full
+  const startClimb = climb({ id: 'climb-zero', startDistanceKm: 0, endDistanceKm: 0 })
+  const waypoints = buildCanonicalWaypoints({
+    stage: stage({ climbIds: ['climb-zero'] }), route: route({ geometry: { full: geometry, simplified: null } }), routePoints: [], climbs: [startClimb],
+  })
+  assert.equal(waypoints[0].kind, 'start')
+})

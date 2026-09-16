@@ -13,7 +13,7 @@ import { saveTripImportAtomically } from '../../storage/indexeddb/atomic-import.
 import type { ImportJob } from '../../storage/indexeddb/import-job-repository.ts'
 import type { SourceFilePayloadInput } from '../../storage/indexeddb/source-file-repository.ts'
 import type { Climb, RideStage, Route, RoutePoint, SourceFile, TripBundle, TripDay } from '../../trip-core/index.ts'
-import { sourceFileId as toSourceFileId, validateTripBundle } from '../../trip-core/index.ts'
+import { DEFAULT_CLIMB_DETECTION_SENSITIVITY, sourceFileId as toSourceFileId, validateTripBundle } from '../../trip-core/index.ts'
 import { isIsoDate, isNonEmptyString, isNonNegativeInteger, isPositiveNumber, isSlug, isTimeOfDay } from '../../trip-core/validation/primitives.ts'
 import { analyzeGpxDocument } from './analyze-gpx.ts'
 import { GpxXmlParseError, parseGpxXml } from './gpx-xml.ts'
@@ -119,6 +119,7 @@ function resolveOptions(raw: GpxTripImportOptions): { readonly options: Resolved
       departureTime,
       totalBreakMinutes,
       mountainMode: raw.mountainMode ?? false,
+      climbDetectionSensitivity: raw.climbDetectionSensitivity ?? DEFAULT_CLIMB_DETECTION_SENSITIVITY,
       importedAt: raw.importedAt,
       engineVersion: raw.engineVersion,
     },
@@ -235,6 +236,7 @@ async function processGpxTrip(input: BuildGpxTripInput & { readonly database: ID
         options.engineVersion,
         { referenceSpeedKph: options.referenceSpeedKph, departureTime: options.departureTime, totalBreakMinutes: options.totalBreakMinutes },
         entry.file.name,
+        options.climbDetectionSensitivity,
       )
       allIssues.push(...routeAnalysis.issues)
       climbs.push(...routeAnalysis.climbs)

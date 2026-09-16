@@ -83,7 +83,12 @@ export function assembleTripBundle(input: TripBuilderInput): TripBundle {
     accommodations: [],
     weather: [],
     settings: {
-      global: { referenceSpeedKph: options.referenceSpeedKph, pausePlanMode: 'automatic', mountainMode: options.mountainMode },
+      global: {
+        referenceSpeedKph: options.referenceSpeedKph,
+        pausePlanMode: 'automatic',
+        mountainMode: options.mountainMode,
+        climbDetectionSensitivity: options.climbDetectionSensitivity,
+      },
       days: dayTripDaySettings,
       stages: [],
     },

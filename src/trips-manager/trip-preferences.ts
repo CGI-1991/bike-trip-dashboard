@@ -9,6 +9,9 @@
 
 import { resolveStagePauseSettings } from '../analysis/waypoint-timeline.ts'
 import { recomputeStageTiming } from './stage-timing.ts'
+import { applyRaceMode } from './race-mode.ts'
+import { applyClimbDetectionSensitivity, resolveClimbDetectionSensitivity } from './climb-sensitivity.ts'
+import type { ClimbDetectionSensitivity } from '../trip-core/index.ts'
 import { addCivilDays, isIsoDate } from '../trip-core/validation/primitives.ts'
 import { calendarDayOffsets, lastCalendarDayOffset, selectRaceMode, validateTripBundle } from '../trip-core/index.ts'
 import type { IsoDate, TripBundle, TripId } from '../trip-core/index.ts'
@@ -32,6 +35,19 @@ export interface TripPreferencesUpdate {
   readonly referenceSpeedKph?: number
   /** `undefined` — leave untouched. `null` — clear back to automatic (CDC section 15's "Automatique"). A `boolean` forces `settings.global.mountainMode` explicitly. */
   readonly terrainOverride?: boolean | null
+  /**
+   * Mode "Course / Tour". Switching it ON strips every in-stage pause and
+   * re-times each stage at a zero budget; switching it OFF re-estimates the
+   * automatic budget. The confirmation this deserves belongs to the UI —
+   * by the time it reaches here, the choice is made.
+   */
+  readonly raceMode?: boolean
+  /**
+   * Climb-detection sensitivity. Changing it genuinely re-runs detection
+   * over the stored route geometry (never a display filter, never a GPX
+   * re-parse) — see `climb-sensitivity.ts`.
+   */
+  readonly climbDetectionSensitivity?: ClimbDetectionSensitivity
 }
 
 export interface TripPreferencesFieldError {
@@ -68,6 +84,8 @@ export function tripPreferencesUpdateIsNoop(bundle: TripBundle, update: TripPref
     const currentOverride = bundle.settings.global.mountainMode ?? null
     if (update.terrainOverride !== currentOverride) return false
   }
+  if (update.raceMode !== undefined && update.raceMode !== (bundle.settings.global.raceMode === true)) return false
+  if (update.climbDetectionSensitivity !== undefined && update.climbDetectionSensitivity !== resolveClimbDetectionSensitivity(bundle)) return false
   return true
 }
 
@@ -161,8 +179,21 @@ function applyReferenceSpeed(bundle: TripBundle, referenceSpeedKph: number): Tri
 
 // --- pure mutation (CDC section 17) -----------------------------------------
 
+/**
+ * A last-resort id source for the one preference that mints new entities
+ * (a climb-sensitivity change recomputes `TripBundle.climbs`). Callers that
+ * care — `updateTripPreferences` below, and through it the editor — pass
+ * their own `deps.idFactory`; this fallback exists so the long-standing
+ * 3-argument signature keeps working for callers that never touch climbs.
+ */
+let fallbackIdCounter = 0
+function fallbackIdFactory(): string {
+  fallbackIdCounter += 1
+  return `climb-sensitivity-${fallbackIdCounter}`
+}
+
 /** Pure — `bundle` in, updated `bundle` out, no IO. `updatedTimestamp` is only actually applied when something really changed (the caller checks `tripPreferencesUpdateIsNoop` first). */
-export function applyTripPreferences(bundle: TripBundle, update: TripPreferencesUpdate, updatedTimestamp: string): TripBundle {
+export function applyTripPreferences(bundle: TripBundle, update: TripPreferencesUpdate, updatedTimestamp: string, idFactory: () => string = fallbackIdFactory): TripBundle {
   let next = bundle
 
   if (update.name !== undefined) {
@@ -183,6 +214,13 @@ export function applyTripPreferences(bundle: TripBundle, update: TripPreferences
     next = { ...next, settings: { ...next.settings, global: { ...next.settings.global, mountainMode } } }
   }
 
+  // Course/Tour before the sensitivity: the former re-times every stage, the
+  // latter only re-derives climbs — applying them the other way round would
+  // be equivalent, but this order keeps the timing pass the last word on
+  // durations.
+  if (update.raceMode !== undefined) next = applyRaceMode(next, update.raceMode)
+  if (update.climbDetectionSensitivity !== undefined) next = applyClimbDetectionSensitivity(next, update.climbDetectionSensitivity, idFactory)
+
   if (next === bundle) return bundle
   return { ...next, metadata: { ...next.metadata, updatedAt: updatedTimestamp } }
 }
@@ -193,7 +231,9 @@ export interface TripPreferenceInvalidation {
   readonly metadataChanged: boolean
   readonly calendarChanged: boolean
   readonly timingChanged: boolean
-  /** Always mirrors `timingChanged || calendarChanged` — C3's own scoring depends on both the stage's timing (ETA) and the day's weekday (opening hours). */
+  /** A climb-detection sensitivity change genuinely re-derived `TripBundle.climbs`. */
+  readonly climbsChanged: boolean
+  /** Always mirrors `timingChanged || calendarChanged || climbsChanged` — C3's own scoring depends on the stage's timing (ETA), the day's weekday (opening hours) and its terrain (climbs). */
   readonly pauseRecommendationsChanged: boolean
   readonly weatherChanged: boolean
   /** Always `false` — D3.1 preferences never touch GPX/Postpass/POI (CDC section 8/10/12). */
@@ -215,11 +255,19 @@ export function deriveTripPreferenceInvalidation(previous: TripBundle, next: Tri
         || stage.totalDurationSeconds !== nextStage.totalDurationSeconds
     })
   const weatherChanged = previous.weather.length !== next.weather.length
+  const climbsChanged = previous.climbs.length !== next.climbs.length
+    || previous.climbs.some((climb, index) => {
+      const nextClimb = next.climbs[index]
+      return nextClimb === undefined || climb.startDistanceKm !== nextClimb.startDistanceKm || climb.endDistanceKm !== nextClimb.endDistanceKm
+    })
   return {
     metadataChanged,
     calendarChanged,
     timingChanged,
-    pauseRecommendationsChanged: timingChanged || calendarChanged,
+    climbsChanged,
+    // A recomputed climb set changes C3's own terrain signal ("après une
+    // montée majeure"), exactly like a timing/calendar change does.
+    pauseRecommendationsChanged: timingChanged || calendarChanged || climbsChanged,
     weatherChanged,
     postpassChanged: false,
   }
@@ -232,6 +280,8 @@ export interface UpdateTripPreferencesInput {
   readonly tripId: TripId
   readonly update: TripPreferencesUpdate
   readonly now: () => string
+  /** Only used when the update recomputes climbs (a sensitivity change) — every other preference mints no new entity. */
+  readonly idFactory?: () => string
 }
 
 export type UpdateTripPreferencesResult =
@@ -267,7 +317,7 @@ export async function updateTripPreferences(input: UpdateTripPreferencesInput): 
     return { ok: true, bundle: existing, noop: true, invalidation: null }
   }
 
-  const next = applyTripPreferences(existing, input.update, input.now())
+  const next = applyTripPreferences(existing, input.update, input.now(), input.idFactory)
   const validation = validateTripBundle(next)
   if (!validation.ok) {
     const message = validation.issues[0]?.message ?? 'Voyage modifié invalide.'

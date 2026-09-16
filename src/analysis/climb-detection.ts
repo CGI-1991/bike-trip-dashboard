@@ -17,8 +17,8 @@
  */
 
 import { calculateHaversineDistanceKm } from '../gpx/parser.ts'
-import type { Climb, ClimbConfidence, ClimbId, ConfidenceLevel, RouteId } from '../trip-core/index.ts'
-import { climbId } from '../trip-core/index.ts'
+import type { Climb, ClimbConfidence, ClimbDetectionSensitivity, ClimbId, ConfidenceLevel, RouteId } from '../trip-core/index.ts'
+import { climbId, DEFAULT_CLIMB_DETECTION_SENSITIVITY } from '../trip-core/index.ts'
 import type { TerrainProfilePoint } from '../route/types.ts'
 import { deriveTerrainLabelFromElevationGainPerKm } from './terrain-context.ts'
 import type { TripTerrainLabel } from './terrain-context.ts'
@@ -50,9 +50,9 @@ function satisfiesProfile(metrics: ClimbSignificanceMetrics, profile: ClimbSigni
     && metrics.averageGradientPercent >= profile.minAverageGradientPercent
 }
 
-/** Pure final qualification, deliberately independent from pivot extraction and tolerant-dip merging. */
-export function isSignificantClimb(metrics: ClimbSignificanceMetrics): boolean {
-  return CLIMB_SIGNIFICANCE_PROFILES.some((profile) => satisfiesProfile(metrics, profile))
+/** Pure final qualification, deliberately independent from pivot extraction and tolerant-dip merging. `sensitivity` defaults to the historical calibration. */
+export function isSignificantClimb(metrics: ClimbSignificanceMetrics, sensitivity: ClimbDetectionSensitivity = DEFAULT_CLIMB_DETECTION_SENSITIVITY): boolean {
+  return climbSignificanceProfilesFor(sensitivity).some((profile) => satisfiesProfile(metrics, profile))
 }
 
 /**
@@ -105,8 +105,104 @@ const RELIEF_TUNING: Readonly<Record<TripTerrainLabel, ReliefTuning>> = {
   },
 }
 
-/** Elevation delta below which a point-to-point change is treated as noise, not a real direction reversal. */
+/** Elevation delta below which a point-to-point change is treated as noise, not a real direction reversal (the `'standard'` sensitivity's own value; see `CLIMB_SENSITIVITY_TUNINGS`). */
 const PIVOT_NOISE_EPSILON_M = 1
+
+/**
+ * Trip-wide detection sensitivity — the 5-step "Montagne → Pays plat"
+ * slider, resolved into concrete multipliers over the calibration above.
+ * ONE table, because a step has to act on the detection itself (not on a
+ * display filter), and three different knobs decide what a climb is:
+ *
+ *  - `thresholdScale` scales the minimum length and D+ of every
+ *    qualification profile — the "how big must it be" knob;
+ *  - `gradientScale` scales their minimum average gradient — the "how steep
+ *    must it be" knob, deliberately moved less than size, because a gentle
+ *    3 km drag and a sharp 300 m ramp are both real climbs and only the
+ *    first one gets lost when sizes grow;
+ *  - `mergeScale` scales the tolerated dip between two ascents: a high
+ *    value welds a staircase into one big col (what a mountain reading
+ *    wants), a low one keeps successive rollers separate (what a flat
+ *    country reading wants);
+ *  - `pivotNoiseEpsilonM` is the noise floor of the turning-point
+ *    extraction. It RISES with sensitivity, not falls: as qualification
+ *    gets more permissive, the profile itself must be read more coarsely,
+ *    or GPS/barometric ripple would start manufacturing climbs. This is
+ *    what keeps the most sensitive step honest.
+ *  - `reliefAdaptive` keeps the existing per-stage relief adaptation (a
+ *    rolling stage gets tighter merging and one extra modest profile).
+ *    Both selective steps switch it off and read every stage with the
+ *    alpine calibration, which is exactly what "only the significant
+ *    climbs" means. `extraProfileOnMountainRelief` does the opposite at the
+ *    sensitive end: even a genuinely alpine stage then also gets the modest
+ *    extra profile, so its small intermediate ramps stop being invisible.
+ *
+ * `'standard'` is all-1 / relief-adaptive / epsilon 1 — i.e. the historical
+ * calibration, byte for byte. It is what an absent setting resolves to, so
+ * every already-saved trip detects exactly what it detects today.
+ */
+interface ClimbSensitivityTuning {
+  readonly thresholdScale: number
+  readonly gradientScale: number
+  readonly mergeScale: number
+  readonly pivotNoiseEpsilonM: number
+  readonly reliefAdaptive: boolean
+  readonly extraProfileOnMountainRelief: boolean
+}
+
+export const CLIMB_SENSITIVITY_TUNINGS: Readonly<Record<ClimbDetectionSensitivity, ClimbSensitivityTuning>> = {
+  mountain: { thresholdScale: 2.2, gradientScale: 1.25, mergeScale: 1.3, pivotNoiseEpsilonM: 1, reliefAdaptive: false, extraProfileOnMountainRelief: false },
+  hilly: { thresholdScale: 1.5, gradientScale: 1.1, mergeScale: 1.15, pivotNoiseEpsilonM: 1, reliefAdaptive: false, extraProfileOnMountainRelief: false },
+  standard: { thresholdScale: 1, gradientScale: 1, mergeScale: 1, pivotNoiseEpsilonM: PIVOT_NOISE_EPSILON_M, reliefAdaptive: true, extraProfileOnMountainRelief: false },
+  rolling: { thresholdScale: 0.7, gradientScale: 0.88, mergeScale: 0.8, pivotNoiseEpsilonM: 1.5, reliefAdaptive: true, extraProfileOnMountainRelief: true },
+  flat: { thresholdScale: 0.5, gradientScale: 0.78, mergeScale: 0.65, pivotNoiseEpsilonM: 2, reliefAdaptive: true, extraProfileOnMountainRelief: true },
+}
+
+/**
+ * Absolute floors no sensitivity may go under — the second half of the
+ * noise guard (the first being `pivotNoiseEpsilonM` above). 20 m of gain
+ * over at least 250 m at 1.5 % is a small hill someone actually feels; a
+ * GPS/barometric wobble is an order of magnitude below all three at once.
+ * Every `'standard'` threshold already sits comfortably above these, so
+ * they change nothing until a sensitive step scales a value down into them.
+ */
+const MIN_CLIMB_LENGTH_KM = 0.25
+const MIN_CLIMB_ELEVATION_GAIN_M = 20
+const MIN_CLIMB_AVERAGE_GRADIENT_PERCENT = 1.5
+
+function scaleProfile(profile: ClimbSignificanceProfile, tuning: ClimbSensitivityTuning): ClimbSignificanceProfile {
+  return {
+    terrain: profile.terrain,
+    minLengthKm: Math.max(MIN_CLIMB_LENGTH_KM, profile.minLengthKm * tuning.thresholdScale),
+    minElevationGainM: Math.max(MIN_CLIMB_ELEVATION_GAIN_M, profile.minElevationGainM * tuning.thresholdScale),
+    minAverageGradientPercent: Math.max(MIN_CLIMB_AVERAGE_GRADIENT_PERCENT, profile.minAverageGradientPercent * tuning.gradientScale),
+  }
+}
+
+/** The qualification profiles actually used at one sensitivity — identical to `CLIMB_SIGNIFICANCE_PROFILES` at `'standard'`. */
+export function climbSignificanceProfilesFor(sensitivity: ClimbDetectionSensitivity): readonly ClimbSignificanceProfile[] {
+  const tuning = CLIMB_SENSITIVITY_TUNINGS[sensitivity]
+  return CLIMB_SIGNIFICANCE_PROFILES.map((profile) => scaleProfile(profile, tuning))
+}
+
+/** The dip-merge/extra-profile tuning actually used for one stage's relief at one sensitivity — identical to `RELIEF_TUNING[label]` at `'standard'`. */
+function reliefTuningFor(label: TripTerrainLabel, sensitivity: ClimbDetectionSensitivity): ReliefTuning {
+  const tuning = CLIMB_SENSITIVITY_TUNINGS[sensitivity]
+  const base = tuning.reliefAdaptive ? RELIEF_TUNING[label] : RELIEF_TUNING.mountain
+  const extraProfile = base.extraProfile !== null
+    ? base.extraProfile
+    : tuning.extraProfileOnMountainRelief
+      // A sensitive reading of an alpine stage still wants its modest ramps:
+      // the mixed tier's own extra profile is the closest honest sizing —
+      // never a brand-new calibration invented for this one case.
+      ? RELIEF_TUNING.mixed.extraProfile
+      : null
+  return {
+    toleratedLossM: base.toleratedLossM * tuning.mergeScale,
+    maxFlatKm: base.maxFlatKm * tuning.mergeScale,
+    extraProfile: extraProfile === null ? null : scaleProfile(extraProfile, tuning),
+  }
+}
 
 /** How close (great-circle) a named GPX waypoint must be to a detected peak to be trusted as its name (CDC section 5: "si la correspondance géométrique est suffisamment fiable"). */
 export const CLIMB_WAYPOINT_MATCH_TOLERANCE_KM = 0.2
@@ -137,7 +233,7 @@ interface ValleyPeakRange {
  * Index 0 and the last index are always included, whether or not a genuine
  * reversal happens there.
  */
-function extractPivotIndices(profile: readonly TerrainProfilePoint[]): readonly number[] {
+function extractPivotIndices(profile: readonly TerrainProfilePoint[], noiseEpsilonM: number = PIVOT_NOISE_EPSILON_M): readonly number[] {
   const pivots: number[] = [0]
   let direction: -1 | 0 | 1 = 0
   let extremumIndex = 0
@@ -148,7 +244,7 @@ function extractPivotIndices(profile: readonly TerrainProfilePoint[]): readonly 
 
     if (direction === 0) {
       const delta = elevationM - (profile[0]?.elevationM ?? 0)
-      if (Math.abs(delta) >= PIVOT_NOISE_EPSILON_M) {
+      if (Math.abs(delta) >= noiseEpsilonM) {
         direction = delta > 0 ? 1 : -1
         extremumIndex = index
       }
@@ -158,7 +254,7 @@ function extractPivotIndices(profile: readonly TerrainProfilePoint[]): readonly 
     if (direction === 1) {
       if (elevationM > extremumElevationM) {
         extremumIndex = index
-      } else if (extremumElevationM - elevationM >= PIVOT_NOISE_EPSILON_M) {
+      } else if (extremumElevationM - elevationM >= noiseEpsilonM) {
         pivots.push(extremumIndex)
         direction = -1
         extremumIndex = index
@@ -166,7 +262,7 @@ function extractPivotIndices(profile: readonly TerrainProfilePoint[]): readonly 
     } else {
       if (elevationM < extremumElevationM) {
         extremumIndex = index
-      } else if (elevationM - extremumElevationM >= PIVOT_NOISE_EPSILON_M) {
+      } else if (elevationM - extremumElevationM >= noiseEpsilonM) {
         pivots.push(extremumIndex)
         direction = 1
         extremumIndex = index
@@ -313,11 +409,12 @@ export function detectClimbs(
   routeId: RouteId,
   idFactory: () => string,
   engineVersion: string,
+  sensitivity: ClimbDetectionSensitivity = DEFAULT_CLIMB_DETECTION_SENSITIVITY,
 ): readonly Climb[] {
   if (profile.length < 2) return []
 
-  const tuning = RELIEF_TUNING[computeStageReliefLabel(profile)]
-  const pivotIndices = extractPivotIndices(profile)
+  const tuning = reliefTuningFor(computeStageReliefLabel(profile), sensitivity)
+  const pivotIndices = extractPivotIndices(profile, CLIMB_SENSITIVITY_TUNINGS[sensitivity].pivotNoiseEpsilonM)
   const pivots = classifyPivots(profile, pivotIndices)
   const rawPairs = buildRawAscentPairs(pivots)
   const mergedRanges = mergeTolerantDips(profile, rawPairs, tuning.toleratedLossM, tuning.maxFlatKm)
@@ -338,7 +435,7 @@ export function detectClimbs(
     // sustained gradient. D+ remains the separate effort/qualification metric.
     const averageGradientPercent = lengthKm > 0 ? ((end.elevationM - start.elevationM) / (lengthKm * 1000)) * 100 : 0
 
-    let qualifies = isSignificantClimb({ lengthKm, elevationGainM, averageGradientPercent })
+    let qualifies = isSignificantClimb({ lengthKm, elevationGainM, averageGradientPercent }, sensitivity)
     if (!qualifies && tuning.extraProfile !== null) {
       // Polish-final section 6-9: on non-mountain relief only, cumulative D+
       // ("effort" grade) is checked too, alongside the net valley-to-peak

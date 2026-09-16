@@ -284,7 +284,29 @@ export function buildCanonicalWaypoints(input: BuildCanonicalWaypointsInput): re
 
   const deduplicated = dropStartEndDuplicateLocalities(waypoints, stage.startLocationName, stage.endLocationName, totalDistanceKm)
 
-  return [...deduplicated].sort((left, right) => left.trackDistanceKm - right.trackDistanceKm || canonicalWaypointPriority(left.kind) - canonicalWaypointPriority(right.kind))
+  return [...deduplicated].sort((left, right) =>
+    left.trackDistanceKm - right.trackDistanceKm
+    || endpointOrdinal(left.kind) - endpointOrdinal(right.kind)
+    || canonicalWaypointPriority(left.kind) - canonicalWaypointPriority(right.kind))
+}
+
+/**
+ * Départ always first and arrivée always last among waypoints sharing the
+ * same distance — checked before `KIND_PRIORITY`, which ranks by
+ * significance and (both endpoints being `0`) would otherwise put the
+ * arrival ahead of everything at the finish line.
+ *
+ * This is what a climb summiting exactly AT the arrival needs: it stays its
+ * own block, with its own length/D+/gradient and its own mini-profile, and
+ * it reads before the arrival it leads to instead of after it. Neither
+ * absorbs the other — they are two different facts about the same point
+ * (the last ascent, and the end of the stage), and the merge/dedup rules
+ * above never touch either: `dropStartEndDuplicateLocalities` only ever
+ * removes a repeated city/town/village, and a climb merges at most once,
+ * with a named col, into a single waypoint.
+ */
+function endpointOrdinal(kind: CanonicalWaypointKind): number {
+  return kind === 'start' ? -1 : kind === 'end' ? 1 : 0
 }
 
 /** No locality is ever repeated within ~2 km of a start/end it already names (CDC hardening section 7) — a genuinely distinct nearby place is never hidden, only an exact/near-exact name match against the endpoint it is next to. */
