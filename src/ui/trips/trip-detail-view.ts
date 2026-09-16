@@ -17,6 +17,7 @@ import type { TripDayTemporalState } from '../../trips-manager/trip-day-temporal
 import type { StagePreparationStatus } from '../../trips-manager/stage-preparation.ts'
 import { formatShortDate } from '../date-format.ts'
 import { compactPlaceName } from '../compact-place-name.ts'
+import { selectStageCustomName } from '../../trip-core/index.ts'
 import type { TripBundle, TripDayId } from '../../trip-core/index.ts'
 
 export interface TripDetailRenderOptions {
@@ -118,8 +119,17 @@ function renderDayNumberGroup(day: TripBundle['days'][number]): string {
 }
 
 function renderRideDayCard(bundle: TripBundle, day: TripBundle['days'][number], stage: TripBundle['stages'][number], temporal: TripDayTemporalState, isPriority: boolean, prepStatus: StagePreparationStatus | null | undefined): string {
-  const fullRoute = `${stage.startLocationName ?? '—'} → ${stage.endLocationName ?? '—'}`
-  const locations = `${escapeHtml(compactPlaceName(stage.startLocationName ?? '—'))} → ${escapeHtml(compactPlaceName(stage.endLocationName ?? '—'))}`
+  const route = `${stage.startLocationName ?? '—'} → ${stage.endLocationName ?? '—'}`
+  // The traveller's own stage name replaces the départ/arrivée label in the
+  // slot it already occupies — no extra line, no change to the card's
+  // layout. The full route stays as the row's title/aria-label, so the
+  // places are never lost, only demoted. No custom name means no change at
+  // all (`selectStageCustomName` returns `null` for absent/blank).
+  const customName = selectStageCustomName(stage)
+  const fullRoute = customName === null ? route : `${customName} — ${route}`
+  const locations = customName === null
+    ? `${escapeHtml(compactPlaceName(stage.startLocationName ?? '—'))} → ${escapeHtml(compactPlaceName(stage.endLocationName ?? '—'))}`
+    : escapeHtml(customName)
   const daySettings = bundle.settings.days.find((candidate) => candidate.dayId === day.id)
   const departureTime = daySettings?.departureTime ?? null
   const eta = temporal.arrivalEta?.label ?? null

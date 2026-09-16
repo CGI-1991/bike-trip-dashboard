@@ -18,6 +18,7 @@
  */
 
 import { deriveTripTemporalState } from '../../trips-manager/trip-day-temporal-state.ts'
+import { calendarDaySpan } from '../../trip-core/index.ts'
 import { formatShortDate } from '../date-format.ts'
 import type { TripBundle, TripDay, TripDayType } from '../../trip-core/index.ts'
 
@@ -62,7 +63,11 @@ function pluralize(count: number, noun: string): string {
 }
 
 function overviewSubtitle(bundle: TripBundle): string | null {
-  const dayCount = bundle.days.length
+  // Linked stages share one calendar date, so the number of days a trip
+  // SPANS is no longer the number of `TripDay`s it holds. The span is what
+  // belongs next to a start → end date range; with nothing linked it is the
+  // day count, exactly as before.
+  const dayCount = calendarDaySpan(bundle.days)
   if (dayCount === 0) return null
   const { startDate, endDate } = bundle.metadata
   const dayLabel = pluralize(dayCount, 'jour')

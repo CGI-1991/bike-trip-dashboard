@@ -17,7 +17,7 @@
 
 import type { DayStructureSlot } from '../../import/gpx/day-structure.ts'
 import type { GpxImportFile } from '../../import/gpx/types.ts'
-import type { TransferTiming } from '../../trip-core/index.ts'
+import type { ClimbDetectionSensitivity, TransferTiming } from '../../trip-core/index.ts'
 import {
   checkChainContinuity,
   detectSimilarTraces,
@@ -48,6 +48,10 @@ export interface StructureItem {
   readonly notes?: string | null
   /** Only meaningful for `kind === 'transfer'` (CDC Jalon B4.4 section 22) — `undefined` means `'dedicated'`, exactly like `TripDay.transferTiming`. */
   readonly transferTiming?: TransferTiming
+  /** Only meaningful for `kind === 'ride'` — the traveller's own optional stage name (`RideStage.customName`). */
+  readonly customName?: string | null
+  /** Only meaningful for `kind === 'ride'` — "étape liée": ridden the same calendar day as the ride row above it (Course/Tour mode only). */
+  readonly linkedToPrevious?: boolean
 }
 
 export type WizardStage = 'editing' | 'submitting' | 'cancelled'
@@ -71,6 +75,10 @@ export interface WizardState {
    * The user picks Normal/Montagne explicitly in Réglages avancés.
    */
   mountainMode: boolean
+  /** Mode "Course / Tour" — `false` (Classique) for a new trip, like every existing one. */
+  raceMode: boolean
+  /** Climb-detection sensitivity — `'standard'` (the historical calibration) for a new trip. */
+  climbSensitivity: ClimbDetectionSensitivity
 }
 
 let structureKeyCounter = 0
@@ -91,6 +99,8 @@ export function createEmptyWizardState(): WizardState {
     duplicateSelectionNotice: null,
     referenceSpeedKph: 18,
     mountainMode: false,
+    raceMode: false,
+    climbSensitivity: 'standard',
   }
 }
 
@@ -289,6 +299,40 @@ export async function addFilesToState(state: WizardState, input: AddFilesInput):
   appendNewRideSlots(state, newEntries.map((entry) => entry.id))
 }
 
+/**
+ * Drops a link that a reorder/removal left dangling — a ride row that is now
+ * first, or no longer preceded by another ride row, cannot be "the same day
+ * as the previous stage". Called after every structural mutation, and
+ * mirrored by `applyDayStructure`'s own sanitisation on save.
+ */
+export function normalizeStructureLinks(state: WizardState): void {
+  state.structure = state.structure.map((item, index) => {
+    if (item.kind !== 'ride' || item.linkedToPrevious !== true) return item
+    return state.structure[index - 1]?.kind === 'ride' ? item : { ...item, linkedToPrevious: false }
+  })
+}
+
+/** The traveller's own stage name. Blank/whitespace-only is stored as `null` — "no custom name". */
+export function setStructureCustomName(state: WizardState, position: number, value: string): void {
+  const target = state.structure[position]
+  if (target === undefined || target.kind !== 'ride') return
+  const trimmed = value.trim()
+  const next = [...state.structure]
+  next[position] = { ...target, customName: trimmed === '' ? null : trimmed }
+  state.structure = next
+}
+
+/** Links/unlinks a ride row to the ride row right above it. A no-op anywhere else — a group never spans an OFF day or a transfer. */
+export function setStructureLink(state: WizardState, position: number, linked: boolean): void {
+  const target = state.structure[position]
+  const previous = state.structure[position - 1]
+  if (target === undefined || target.kind !== 'ride') return
+  if (linked && previous?.kind !== 'ride') return
+  const next = [...state.structure]
+  next[position] = { ...target, linkedToPrevious: linked }
+  state.structure = next
+}
+
 /** Removes exactly this file and exactly its own structure reference — never rebuilds the structure, never touches any other file or slot. */
 export function removeFileFromState(state: WizardState, fileId: FileEntryId): void {
   const index = state.files.findIndex((entry) => entry.id === fileId)
@@ -296,6 +340,7 @@ export function removeFileFromState(state: WizardState, fileId: FileEntryId): vo
   const entry = state.files[index] as FileEntry
   state.files[index] = { ...entry, removed: true }
   state.structure = state.structure.filter((item) => !(item.kind === 'ride' && item.fileId === fileId))
+  normalizeStructureLinks(state)
 }
 
 export function moveStructureItem(state: WizardState, position: number, direction: -1 | 1): void {
@@ -309,6 +354,7 @@ export function moveStructureItem(state: WizardState, position: number, directio
   next[position] = other
   next[target] = current
   state.structure = next
+  normalizeStructureLinks(state)
 }
 
 export function insertSlot(state: WizardState, afterPosition: number, kind: 'off' | 'transfer'): void {
@@ -317,6 +363,7 @@ export function insertSlot(state: WizardState, afterPosition: number, kind: 'off
   const next = [...state.structure]
   next.splice(insertAt, 0, { key: nextStructureKey(), kind, notes: null })
   state.structure = next
+  normalizeStructureLinks(state)
 }
 
 /** Sets a transfer row's own `transferTiming` (CDC Jalon B4.4 section 22) — a no-op for any other kind or an out-of-range position. */
@@ -335,6 +382,7 @@ export function removeSlot(state: WizardState, position: number): void {
   const next = [...state.structure]
   next.splice(position, 1)
   state.structure = next
+  normalizeStructureLinks(state)
 }
 
 /**

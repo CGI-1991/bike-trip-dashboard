@@ -50,6 +50,7 @@ import { createTripEditor } from './trip-editor.ts'
 import { renderStagePreparationIndicator, renderStagePreparationNote, renderTripDetail } from './trip-detail-view.ts'
 import { createEditGuard } from './edit-guard.ts'
 import { openTimeEditDialog } from './time-edit-dialog.ts'
+import type { ChooseOptionRequest, ChooseOptionResult } from './choose-option-dialog.ts'
 import type { TimeEditDialogRequest, TimeEditDialogResult } from './time-edit-dialog.ts'
 import { dayDepartureTime, earliestCompatibleDeparture, groupDayIdsFor, resolveLinkedScheduleConflicts } from '../../trips-manager/linked-stages.ts'
 import type { EditContext, EditGuardDecision } from './edit-guard.ts'
@@ -151,6 +152,13 @@ export interface TripsManagerDeps {
    * `confirmDiscardChanges` above.
    */
   readonly openTimeEditDialog?: (request: TimeEditDialogRequest) => Promise<TimeEditDialogResult> | TimeEditDialogResult
+  /**
+   * The small "pick one" window (`choose-option-dialog.ts`) — used by the
+   * trip editor when linking two stages whose lodgings differ. Injected for
+   * the same reason as the two prompts above: the flow must be testable
+   * without a DOM, and nothing may be overwritten silently.
+   */
+  readonly chooseOption?: (request: ChooseOptionRequest) => Promise<ChooseOptionResult> | ChooseOptionResult
   /**
    * Drives the top-level app nav (URL hash + bottom-nav highlighting) when
    * this component navigates on its own initiative — e.g. "Ouvrir" on a

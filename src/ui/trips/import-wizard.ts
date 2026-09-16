@@ -18,6 +18,8 @@ import { preAnalyzeGpxFiles } from '../../trips-manager/index.ts'
 import type { GpxPreAnalysis } from '../../trips-manager/index.ts'
 import type { GpxImportFile } from '../../import/gpx/types.ts'
 import { deleteTripCompletely } from '../../trips-manager/trip-manager-actions.ts'
+import { createTripRepository } from '../../storage/indexeddb/trip-repository.ts'
+import { initializeLinkedGroupDepartures, resolveLinkedScheduleConflicts } from '../../trips-manager/linked-stages.ts'
 import type { TripId } from '../../trip-core/index.ts'
 import {
   activeFiles,
@@ -31,6 +33,8 @@ import {
   moveStructureItem,
   removeStructureItem,
   rideFileEntries,
+  setStructureCustomName,
+  setStructureLink,
   setTransferTiming,
   similarPairs,
   strictDuplicateFileNames,
@@ -38,6 +42,8 @@ import {
 import type { TransferTiming } from '../../trip-core/index.ts'
 import type { FileEntryId, StructureItem, WizardStage, WizardState } from './import-wizard-state.ts'
 import { renderTerrainToggle } from './terrain-toggle.ts'
+import { renderRaceModeToggle } from './race-mode-toggle.ts'
+import { climbSensitivityAtIndex, patchClimbSensitivityLabels, renderClimbSensitivitySlider } from './climb-sensitivity-slider.ts'
 
 function asTripId(value: string): TripId {
   return value as TripId
@@ -114,7 +120,14 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
     const orderedFiles = rideFileEntries(state).map(({ entry }) => entry.file)
     const daySlots: DayStructureSlot[] = state.structure.map((item) =>
       item.kind === 'ride'
-        ? { kind: 'ride' }
+        ? {
+            kind: 'ride',
+            customName: item.customName ?? null,
+            // A link only means anything in Course/Tour mode — the same
+            // guard the editor applies, so the saved structure never depends
+            // on the order the two controls happened to be touched in.
+            sameCalendarDayAsPrevious: state.raceMode && item.linkedToPrevious === true,
+          }
         : item.kind === 'transfer'
           ? { kind: 'transfer', notes: item.notes ?? null, transferTiming: item.transferTiming }
           : { kind: item.kind, notes: item.notes ?? null },
@@ -132,6 +145,7 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         referenceSpeedKph: state.referenceSpeedKph,
         mountainMode: state.mountainMode,
+        climbDetectionSensitivity: state.climbSensitivity,
         totalBreakMinutes: 'adaptive',
         importedAt,
         engineVersion: 'trips-manager-wizard@1',
@@ -164,6 +178,17 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
       state.errorMessage = result.error.message
       render()
       return
+    }
+
+    // Étapes liées: propose a coherent departure time for each stage of a
+    // group (previous ETA + 1 h, rounded up to the quarter-hour), then check
+    // the group for a strict conflict. One follow-up write, and only when
+    // the new trip actually contains a group — the atomic import itself
+    // stays untouched.
+    if (daySlots.some((slot) => slot.kind === 'ride' && slot.sameCalendarDayAsPrevious === true)) {
+      const repository = createTripRepository(deps.database)
+      const scheduled = resolveLinkedScheduleConflicts(initializeLinkedGroupDepartures(null, result.bundle))
+      if (scheduled.bundle !== result.bundle) await repository.saveTripBundle(scheduled.bundle)
     }
 
     onCreated({
@@ -219,7 +244,23 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
    * is the 1-based position among ride rows only (never the raw structure
    * position, which also counts OFF/transfer rows).
    */
-  function renderTimelineRow(item: StructureItem, position: number, rideNumber: number | null): string {
+  /**
+   * The small chain button between two consecutive stage blocks — the one
+   * place a link is created or removed. Only in Course/Tour mode, and only
+   * between two ride rows: a group never spans an OFF day or a transfer.
+   */
+  function renderLinkControl(position: number): string {
+    if (!state.raceMode) return ''
+    const item = state.structure[position]
+    const previous = state.structure[position - 1]
+    if (item?.kind !== 'ride' || previous?.kind !== 'ride') return ''
+    const linked = item.linkedToPrevious === true
+    const label = linked ? 'Étapes liées — séparer' : 'Lier à l’étape précédente (même journée)'
+    return `<li class="wizard-structure__link-row"><button class="button button--quiet wizard-structure__link${linked ? ' is-linked' : ''}" type="button" data-action="${linked ? 'unlink-stage' : 'link-stage'}" data-position="${position}" aria-pressed="${linked}" aria-label="${label}" title="${label}">⛓</button></li>`
+  }
+
+  function renderTimelineRow(item: StructureItem, position: number, rideNumber: number | null, options: { readonly withLinkControl?: boolean } = {}): string {
+    const linkControl = options.withLinkControl === false ? '' : renderLinkControl(position)
     const isFirst = position === 0
     const isLast = position === state.structure.length - 1
     const moveControls = `<div class="wizard-structure__move"><button class="button button--quiet" type="button" data-action="move-up" data-position="${position}" ${isFirst ? 'disabled' : ''} aria-label="Monter">↑</button><button class="button button--quiet" type="button" data-action="move-down" data-position="${position}" ${isLast ? 'disabled' : ''} aria-label="Descendre">↓</button></div>`
@@ -233,6 +274,7 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
       // drops the structure item in the same step) — never rendered as a
       // broken row if it somehow did.
       if (entry === undefined) return ''
+      const nameField = `<label class="wizard-structure__stage-name"><span>Nom de l’étape</span><input type="text" data-field="stage-name" data-position="${position}" value="${escapeHtml(item.customName ?? '')}" maxlength="120" placeholder="Facultatif"></label>`
       const preAnalysis = entry.preAnalysis
       const isInvalid = preAnalysis?.status === 'invalid'
       const isDuplicate = strictDuplicateFileNames(state).has(entry.file.name)
@@ -241,12 +283,53 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
         : isInvalid
           ? `<span class="tag tag--error">À corriger</span><p class="wizard-file__error">${escapeHtml(preAnalysis.errorMessage ?? 'Fichier invalide.')}</p>`
           : `${isDuplicate ? '<span class="tag tag--error">Doublon strict</span>' : ''}<dl class="wizard-file__metrics"><div><dt>Distance</dt><dd>${(preAnalysis.distanceKm ?? 0).toFixed(1)} km</dd></div><div><dt>D+</dt><dd>${preAnalysis.elevationGainM === null ? '—' : `+${Math.round(preAnalysis.elevationGainM)} m`}</dd></div><div><dt>D−</dt><dd>${preAnalysis.elevationLossM === null ? '—' : `−${Math.round(preAnalysis.elevationLossM)} m`}</dd></div></dl>`
-      return `<li class="wizard-structure__row wizard-file${isInvalid ? ' wizard-file--invalid' : ''}" data-structure-row data-position="${position}"><span class="tag tag--ride">Étape ${rideNumber ?? 1}</span><strong class="wizard-structure__name">${escapeHtml(entry.file.name)}</strong>${body}${moveControls}${removeControl}</li>${insertControls}`
+      return `${linkControl}<li class="wizard-structure__row wizard-file${isInvalid ? ' wizard-file--invalid' : ''}" data-structure-row data-position="${position}"><span class="tag tag--ride">Étape ${rideNumber ?? 1}</span><strong class="wizard-structure__name">${escapeHtml(entry.file.name)}</strong>${nameField}${body}${moveControls}${removeControl}</li>${insertControls}`
     }
 
     const label = item.kind === 'off' ? 'OFF' : 'Transfert'
     const timingControl = item.kind === 'transfer' ? renderTransferTimingSelect(item, position) : ''
-    return `<li class="wizard-structure__row wizard-structure__row--${item.kind}" data-structure-row data-position="${position}"><span class="tag tag--off">${label}</span>${timingControl}${moveControls}${removeControl}</li>${insertControls}`
+    return `${linkControl}<li class="wizard-structure__row wizard-structure__row--${item.kind}" data-structure-row data-position="${position}"><span class="tag tag--off">${label}</span>${timingControl}${moveControls}${removeControl}</li>${insertControls}`
+  }
+
+  /**
+   * The timeline, with each run of linked stages wrapped in one shared
+   * container so a group reads as a single journée at a glance. Every row
+   * inside keeps its own block, its own GPX and its own controls — nothing
+   * is merged, only grouped.
+   */
+  function renderTimeline(): string {
+    const rideNumbers = new Map<number, number>()
+    let rideCounter = 0
+    state.structure.forEach((item, position) => {
+      if (item.kind !== 'ride') return
+      rideCounter += 1
+      rideNumbers.set(position, rideCounter)
+    })
+
+    const parts: string[] = []
+    let position = 0
+    while (position < state.structure.length) {
+      let last = position
+      while (last + 1 < state.structure.length) {
+        const next = state.structure[last + 1]
+        if (next?.kind !== 'ride' || next.linkedToPrevious !== true || !state.raceMode) break
+        last += 1
+      }
+      const current = state.structure[position]
+      if (current === undefined) break
+      if (last > position) {
+        const rows = state.structure.slice(position, last + 1)
+          .map((item, offset) => renderTimelineRow(item, position + offset, rideNumbers.get(position + offset) ?? null, offset === 0 ? { withLinkControl: false } : {}))
+          .join('')
+        parts.push(renderLinkControl(position))
+        parts.push(`<li class="wizard-structure__group"><p class="wizard-structure__group-label">Même journée — ${last - position + 1} étapes</p><ul class="wizard-structure__group-list">${rows}</ul></li>`)
+        position = last + 1
+        continue
+      }
+      parts.push(renderTimelineRow(current, position, rideNumbers.get(position) ?? null))
+      position += 1
+    }
+    return parts.join('')
   }
 
   function renderAlerts(): string {
@@ -305,16 +388,7 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
     // filter is a last-resort guard even though every mutation in
     // `import-wizard-state.ts` is written to keep `state.structure` dense
     // by construction.
-    let rideCounter = 0
-    const timelineRows = state.structure
-      .map((item, position) => ({ item, position }))
-      .filter((entry): entry is { item: StructureItem; position: number } => entry.item !== undefined)
-      .map(({ item, position }) => {
-        if (item.kind !== 'ride') return renderTimelineRow(item, position, null)
-        rideCounter += 1
-        return renderTimelineRow(item, position, rideCounter)
-      })
-      .join('')
+    const timelineRows = renderTimeline()
 
     // R2.1 section 18: creation now mirrors modification's own structure —
     // Informations (nom/date/vitesse) → Structure (the GPX/OFF/transfert
@@ -338,8 +412,10 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
         <ul class="wizard-structure__list" data-wizard-structure>${timelineRows}</ul>
         ${renderAlerts()}
         <details class="wizard-advanced"><summary>Réglages avancés</summary>
+          ${renderRaceModeToggle(state.raceMode)}
           ${renderTerrainToggle(state.mountainMode)}
-          <p>Budget de pauses calculé automatiquement selon la distance, la durée et le D+ de chaque étape.</p>
+          ${state.raceMode ? '' : '<p>Budget de pauses calculé automatiquement selon la distance, la durée et le D+ de chaque étape.</p>'}
+          ${renderClimbSensitivitySlider(state.climbSensitivity)}
         </details>
         ${state.errorMessage !== null ? `<p class="wizard-error" role="alert">${escapeHtml(state.errorMessage)}</p>` : ''}
         ${renderProgress()}
@@ -382,6 +458,15 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
     if (target.dataset.field === 'name') state.name = target.value
     else if (target.dataset.field === 'start-date') state.startDate = target.value
     else if (target.dataset.field === 'reference-speed') { if (Number.isFinite(target.valueAsNumber)) state.referenceSpeedKph = target.valueAsNumber; return }
+    // Focus-preserving, exactly like the trip name and the reference speed:
+    // a full `render()` per keystroke/drag would reset the caret or drop the
+    // range input's pointer capture.
+    else if (target.dataset.field === 'stage-name' && target.dataset.position !== undefined) { setStructureCustomName(state, Number(target.dataset.position), target.value); return }
+    else if (target.dataset.field === 'climb-sensitivity') {
+      state.climbSensitivity = climbSensitivityAtIndex(Number(target.value))
+      patchClimbSensitivityLabels(container, state.climbSensitivity)
+      return
+    }
     else return
     updateValidationUI()
   }, { signal: controller.signal })
@@ -426,7 +511,18 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
     else if (action === 'insert-off' && position !== null) { insertSlot(state, position, 'off'); render() }
     else if (action === 'insert-transfer' && position !== null) { insertSlot(state, position, 'transfer'); render() }
     else if (action === 'remove-structure-item' && position !== null) { removeStructureItem(state, position); render() }
+    else if (action === 'link-stage' && position !== null) { setStructureLink(state, position, true); render() }
+    else if (action === 'unlink-stage' && position !== null) { setStructureLink(state, position, false); render() }
     else if (action === 'set-terrain-mode') { state.mountainMode = button.dataset.terrainMode === 'mountain'; render() }
+    else if (action === 'set-race-mode') {
+      const enabled = button.dataset.raceMode === 'on'
+      // Nothing is saved yet at creation time, so there is nothing to
+      // confirm here — leaving the mode simply drops the links the draft
+      // holds, which the UI then stops showing.
+      if (!enabled) state.structure = state.structure.map((item) => (item.kind === 'ride' ? { ...item, linkedToPrevious: false } : item))
+      state.raceMode = enabled
+      render()
+    }
     else if (action === 'submit') void submit()
     else if (action === 'cancel') cancel()
   }, { signal: controller.signal })

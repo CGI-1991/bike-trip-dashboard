@@ -12,6 +12,7 @@ import { createSourceFileRepository } from '../storage/indexeddb/source-file-rep
 import type { SourceFilePayloadContent } from '../storage/indexeddb/source-file-repository.ts'
 import { createTripRepository, TripValidationError } from '../storage/indexeddb/trip-repository.ts'
 import type {
+  AccommodationId,
   RideStage,
   RideStageId,
   RideStageSettings,
@@ -27,6 +28,8 @@ import type {
   TripId,
 } from '../trip-core/index.ts'
 import { validateTripBundle } from '../trip-core/index.ts'
+import { consolidateLinkedLodging, initializeLinkedGroupDepartures, resolveLinkedScheduleConflicts } from './linked-stages.ts'
+import type { LinkedScheduleAdjustment, LinkedScheduleOverflow } from './linked-stages.ts'
 
 interface RetainedSlotIdentity {
   /** Existing day identity to retain. `null` means this is a new day. */
@@ -70,10 +73,25 @@ export interface EditGpxTripInput {
   readonly idFactory: () => string
   readonly now: () => string
   readonly onProgress?: (label: ImportProgressLabel) => void
+  /**
+   * Which lodging a newly formed group of linked stages keeps, keyed by the
+   * group's head day. Only ever needed when the group ends up with two or
+   * more genuinely different lodgings — the editor asks at the moment the
+   * link is created, so nothing is ever overwritten silently.
+   */
+  readonly lodgingResolutions?: ReadonlyMap<TripDayId, AccommodationId>
 }
 
 export type EditGpxTripResult =
-  | { readonly ok: true; readonly bundle: TripBundle; readonly issues: readonly ImportIssue[] }
+  | {
+      readonly ok: true
+      readonly bundle: TripBundle
+      readonly issues: readonly ImportIssue[]
+      /** Departure times this save had to move to keep a group of same-day stages coherent — the caller reports them, never silently. */
+      readonly scheduleAdjustments: readonly LinkedScheduleAdjustment[]
+      /** Stages of a group whose ETA now lands past midnight — the group no longer fits in one day. */
+      readonly scheduleOverflows: readonly LinkedScheduleOverflow[]
+    }
   | { readonly ok: false; readonly code: 'not-found' | 'invalid-structure' | 'analysis-error' | 'storage-error'; readonly message: string; readonly issues: readonly ImportIssue[] }
 
 function errorMessage(error: unknown): string {
@@ -455,6 +473,12 @@ export async function editGpxTrip(input: EditGpxTripInput): Promise<EditGpxTripR
       language: existing.metadata.language,
       units: 'metric',
       referenceSpeedKph: existing.settings.global.referenceSpeedKph,
+      mountainMode: existing.settings.global.mountainMode,
+      // Without this, a structural edit would silently re-detect every
+      // climb at the DEFAULT sensitivity, quietly undoing the trip's own
+      // setting (which `mergeEditedTripBundle` then dutifully preserves,
+      // leaving the setting and the climbs disagreeing).
+      climbDetectionSensitivity: existing.settings.global.climbDetectionSensitivity,
       departureTime: firstDaySettings?.departureTime ?? '08:00',
       totalBreakMinutes: 'adaptive',
       importedAt: updatedAt,
@@ -477,7 +501,15 @@ export async function editGpxTrip(input: EditGpxTripInput): Promise<EditGpxTripR
   }
 
   const merged = mergeEditedTripBundle(existing, buildResult.bundle, input.slots, updatedAt)
-  const validation = validateTripBundle(merged)
+  // Étapes liées, in the one order that makes each step see the previous
+  // one's result: settle the group's single lodging, propose a coherent
+  // departure time for every stage that has JUST been linked, then check the
+  // whole group for a strict conflict (a departure earlier than the previous
+  // stage's ETA). All three are no-ops on a trip with no linked stage.
+  const withLodging = consolidateLinkedLodging(existing, merged, input.lodgingResolutions ?? new Map(), input.idFactory)
+  const withDepartures = initializeLinkedGroupDepartures(existing, withLodging)
+  const schedule = resolveLinkedScheduleConflicts(withDepartures)
+  const validation = validateTripBundle(schedule.bundle)
   if (!validation.ok) {
     const message = validation.issues[0]?.message ?? 'Voyage modifié invalide.'
     return { ok: false, code: 'invalid-structure', message, issues: buildResult.issues }
@@ -495,5 +527,5 @@ export async function editGpxTrip(input: EditGpxTripInput): Promise<EditGpxTripR
     return { ok: false, code: 'storage-error', message, issues: buildResult.issues }
   }
 
-  return { ok: true, bundle: validation.value, issues: buildResult.issues }
+  return { ok: true, bundle: validation.value, issues: buildResult.issues, scheduleAdjustments: schedule.adjustments, scheduleOverflows: schedule.overflows }
 }

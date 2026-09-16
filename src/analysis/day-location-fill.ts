@@ -338,6 +338,13 @@ function resolveTransferDestinationCoordinates(bundle: TripBundle, day: TripDay)
 export function resolveSharedInfoDayId(bundle: TripBundle, day: TripDay): TripDayId {
   const sharesWithPrevious = (day.type === 'transfer' && (day.transferTiming ?? 'dedicated') === 'after_previous')
     || (day.type === 'off' && day.startLocationName === null)
+    // Étapes liées: a ride sharing its calendar day with the previous ride
+    // shares that day's lodging too — one night, one hébergement, whatever
+    // the number of stages ridden before it. Same single-source-of-truth
+    // resolution as the two cases above (never a copy synchronised by side
+    // effects), walked transitively so a group of three all resolve to their
+    // own head.
+    || (day.type === 'ride' && day.sameCalendarDayAsPrevious === true)
   if (!sharesWithPrevious) return day.id
   const previous = bundle.days.find((candidate) => candidate.index === day.index - 1)
   if (previous === undefined) return day.id

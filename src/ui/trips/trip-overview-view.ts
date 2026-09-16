@@ -9,7 +9,7 @@
 
 import { computeStageWaypoints, resolveStagePauseSettings } from '../../analysis/waypoint-timeline.ts'
 import { resolveEffectiveMountainMode } from '../../analysis/terrain-context.ts'
-import { selectRaceMode } from '../../trip-core/index.ts'
+import { selectRaceMode, selectStageCustomName } from '../../trip-core/index.ts'
 import { stageAutomaticPausesAllowed } from '../../route-enrichment/enrichment-jobs.ts'
 import type { LatLngTuple } from '../route-map-model.ts'
 import { routeGeometry } from '../../route-enrichment/route-fingerprint.ts'
@@ -180,8 +180,11 @@ function renderHighlightedDay(bundle: TripBundle, highlightedDayId: TripDayId | 
   }
 
   const stage = bundle.stages.find((candidate) => candidate.id === day.stageId)
+  // Same rule as the Voyage card: the custom name takes the label's place,
+  // the départ → arrivée stays available underneath.
+  const customName = selectStageCustomName(stage)
   const locations = `${escapeHtml(stage?.startLocationName ?? '—')} → ${escapeHtml(stage?.endLocationName ?? '—')}`
-  const headerParts = [`J${day.displayNumber}`, locations].filter((part): part is string => part !== null)
+  const headerParts = [`J${day.displayNumber}`, customName === null ? locations : escapeHtml(customName)].filter((part): part is string => part !== null)
   const daySettings = bundle.settings.days.find((candidate) => candidate.dayId === day.id)
   const departureTime = daySettings?.departureTime ?? null
   const eta = getTripDayTemporalState(deriveTripTemporalState(bundle, now), day.id)?.arrivalEta?.label ?? null
@@ -193,6 +196,7 @@ function renderHighlightedDay(bundle: TripBundle, highlightedDayId: TripDayId | 
   // doivent pas déclencher aussi la navigation" — there are none here).
   return `<article class="trip-overview__highlighted-day card" data-action="open-day-detail" data-day-id="${escapeHtml(day.id)}" role="button" tabindex="0">
     <p class="eyebrow trip-overview__zone-eyebrow">${escapeHtml(zoneLabel)}</p><h3>${headerParts.join(' — ')}</h3>
+    ${customName === null ? '' : `<p class="trip-overview__highlighted-day-route">${locations}</p>`}
     <div class="route-map route-map--compact" data-trip-overview-day-map></div>
     <dl class="trip-overview__highlighted-day-stats">
       <div><dt>Distance</dt><dd>${stage?.distanceKm === null || stage?.distanceKm === undefined ? '—' : formatKilometers(stage.distanceKm)}</dd></div>

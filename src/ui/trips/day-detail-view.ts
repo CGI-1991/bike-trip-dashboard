@@ -1115,8 +1115,16 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
     ? ''
     : renderPauseEditor(stage.id, pauseResolution, stageSettings, anchorCandidates, pauseRecommendations, openingStatusByCandidateId)
   const timelineHtml = renderTimelineList(waypoints, bundle.climbs, geometry)
-  const accommodation = day.accommodationId === null ? undefined : bundle.accommodations.find((candidate) => candidate.id === day.accommodationId)
-  const infosHtml = renderInfosPanel(day, accommodation)
+  // Étapes liées: a stage ridden the same day as the previous one shares
+  // that day's lodging/notes — resolved through the same single function
+  // the OFF/transfer shell already uses (`resolveSharedInfoDayId`), so both
+  // the read here and `trips-manager.ts::saveDayInfos` land on one owner
+  // rather than a copy per stage. An unlinked ride resolves to itself, i.e.
+  // exactly the previous behaviour.
+  const infoDayId = resolveSharedInfoDayId(bundle, day)
+  const infoDay = bundle.days.find((candidate) => candidate.id === infoDayId) ?? day
+  const accommodation = infoDay.accommodationId === null ? undefined : bundle.accommodations.find((candidate) => candidate.id === infoDay.accommodationId)
+  const infosHtml = renderInfosPanel(day, accommodation, { infoDay })
   const timingCurve = computeStageTimingCurve(waypointsInput)
 
   // CDC D1.1 sections 6-10: three independent blocks, always all three

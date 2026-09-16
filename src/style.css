@@ -3154,6 +3154,29 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .wizard-structure__insert { display: flex; gap: 6px; padding-left: 8px; }
 .wizard-structure__insert .button { min-height: 32px; font-size: .72rem; padding: 0 8px; }
 /* Transfer's `transferTiming` picker (CDC Jalon B4.4 section 22). */
+/* The traveller's own stage name, edited on the stage's own row — a quiet,
+   full-width field under the file name, never competing with it. */
+.wizard-structure__stage-name { flex: 1 1 100%; display: grid; gap: 2px; color: var(--ink-soft); font-size: .75rem; }
+.wizard-structure__stage-name input { min-height: 36px; padding: 2px 8px; border: 1px solid var(--line-strong); border-radius: 8px; font: inherit; font-size: .88rem; color: var(--ink); }
+
+/* Étapes liées — the chain control sits BETWEEN two stage blocks, so it is
+   centred on the gap rather than inside either row, and the whole group
+   shares one visible container. */
+.wizard-structure__link-row { display: flex; justify-content: center; margin: -2px 0; }
+.wizard-structure__link { min-height: 28px; min-width: 40px; padding: 0 10px; line-height: 1; color: var(--ink-soft); background: var(--surface); border: 1px dashed var(--line-strong); border-radius: 999px; }
+.wizard-structure__link:hover, .wizard-structure__link:focus-visible { border-color: var(--forest-700); color: var(--forest-800); }
+.wizard-structure__link.is-linked { color: #fff; background: var(--forest-800); border-style: solid; border-color: var(--forest-800); }
+.wizard-structure__group { padding: 8px; background: var(--forest-50); border: 1px solid var(--forest-700); border-radius: 12px; }
+.wizard-structure__group-label { margin: 0 0 6px; color: var(--forest-800); font-size: .72rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
+.wizard-structure__group-list { display: grid; gap: 6px; }
+
+/* The 5-step climb-detection slider (`climb-sensitivity-slider.ts`), shared
+   by the creation wizard and the trip editor. */
+.climb-sensitivity { display: grid; gap: 4px; }
+.climb-sensitivity__slider { width: 100%; }
+.climb-sensitivity__scale { display: flex; justify-content: space-between; color: var(--ink-faint); font-size: .7rem; }
+.climb-sensitivity__value { margin: 0; font-weight: 800; }
+
 .wizard-structure__timing { display: flex; align-items: center; gap: 6px; font-size: .8rem; color: var(--ink-soft); }
 .wizard-structure__timing select { min-height: 36px; padding: 2px 6px; border: 1px solid var(--line-strong); border-radius: 8px; }
 .wizard-loop-choice { padding: 10px; background: var(--warning-bg); border: 1px solid var(--warning-border); border-radius: 9px; color: var(--warning-text); }
@@ -3355,6 +3378,9 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .trip-overview__highlighted-day { display: grid; gap: 10px; text-align: left; }
 /* R2 section 12: same secondary-line treatment as the Voyage card's own transfer meta — never a fabricated stat. */
 .trip-overview__highlighted-day-transfer { margin-top: -6px; color: var(--ink-soft); font-size: .85rem; }
+/* Only rendered when the stage carries a custom name: the départ → arrivée
+   trajet, demoted under the title it replaced. */
+.trip-overview__highlighted-day-route { margin-top: -6px; color: var(--ink-soft); font-size: .85rem; }
 .route-map--compact { min-height: 160px; }
 .route-map--compact .route-map__canvas { height: 160px; }
 .trip-overview__highlighted-day-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
@@ -3448,6 +3474,21 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .time-edit-dialog__error { margin: 0 0 8px; color: var(--danger-text); font-size: .82rem; }
 .time-edit-dialog__suggestion { margin-bottom: 12px; }
 .time-edit-dialog__actions { display: flex; flex-direction: column; gap: 8px; }
+
+/* The "pick one" window (`choose-option-dialog.ts`) — same modal shell
+   again, with one button per option. */
+.choose-option-dialog {
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 20px;
+  border: none;
+  border-radius: 14px;
+  background: var(--surface, #fff);
+  color: inherit;
+}
+.choose-option-dialog::backdrop { background: rgb(0 0 0 / .45); }
+.choose-option-dialog h2 { margin: 0 0 8px; font-size: 1.05rem; }
+.choose-option-dialog p { margin: 0 0 16px; color: var(--ink-soft); font-size: .9rem; }
+.choose-option-dialog__actions { display: flex; flex-direction: column; gap: 8px; }
 
 /*
  * DER-DES-DER section 75 — a transfer endpoint the trip's own chronology
