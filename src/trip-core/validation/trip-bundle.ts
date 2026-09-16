@@ -23,6 +23,7 @@ import {
   isTimeOfDay,
 } from './primitives.ts'
 import { issue } from './primitives.ts'
+import { calendarDayOffsets, lastCalendarDayOffset } from '../calendar/day-offsets.ts'
 import type { ValidationIssue, ValidationResult } from './types.ts'
 
 const TRIP_STATUSES = ['draft', 'ready', 'archived'] as const
@@ -31,6 +32,7 @@ const TRIP_DAY_TYPES = ['ride', 'off', 'transfer'] as const
 const TRIP_DAY_ENRICHMENT_STATUSES = ['not-started', 'partial', 'complete'] as const
 const RIDE_STAGE_VALIDATION_STATUSES = ['pending', 'valid', 'needs-review'] as const
 const PARSING_STATUSES = ['pending', 'success', 'partial', 'error'] as const
+const CLIMB_DETECTION_SENSITIVITY_VALUES = ['mountain', 'hilly', 'standard', 'rolling', 'flat'] as const
 const CLIMB_CONFIDENCES = ['confirmed', 'probable', 'uncertain'] as const
 const ROUTE_POINT_TYPES = [
   'start', 'end', 'summit', 'village', 'passage', 'resupply', 'pause', 'shelter', 'lodging', 'poi',
@@ -459,6 +461,11 @@ export function validateTripBundle(value: unknown): ValidationResult<TripBundle>
   // --- days ---------------------------------------------------------------
   const days = asRecordArray(value.days, 'days', issues)
   const dayIds = collectIds(days, 'id', 'days', issues)
+  // Linked stages (`TripDay.sameCalendarDayAsPrevious`) make a day's own
+  // calendar offset stop being its `index` — computed once here, from the
+  // one shared helper every date-assigning site also calls, so a bundle can
+  // never be written with dates this validator would reject.
+  const dayCalendarOffsets = calendarDayOffsets(days)
   days.forEach((day, index) => {
     const path = `days[${index}]`
     if (!isNonNegativeInteger(day.index)) issues.push(issue(`${path}.index`, 'invalid-value', 'index doit être un entier ≥ 0.'))
@@ -474,11 +481,11 @@ export function validateTripBundle(value: unknown): ValidationResult<TripBundle>
       }
     } else if (isNonNegativeInteger(day.index)) {
       // Dated trip: every day must carry the exact date derived from calendar.startDate + index civil days.
-      const expectedDate = addCivilDays(calendarStartDate, day.index)
+      const expectedDate = addCivilDays(calendarStartDate, dayCalendarOffsets[index] ?? day.index)
       if (day.date === null || day.date === undefined) {
         issues.push(issue(`${path}.date`, 'missing-required', 'Une journée exige une date lorsque le calendrier est défini (calendar.startDate).'))
       } else if (isIsoDate(day.date) && day.date !== expectedDate) {
-        issues.push(issue(`${path}.date`, 'inconsistent-day-date', `date doit être calendar.startDate + index jours (attendu ${expectedDate}).`))
+        issues.push(issue(`${path}.date`, 'inconsistent-day-date', `date doit être calendar.startDate + décalage calendaire de la journée (attendu ${expectedDate}).`))
       }
     }
     if (!isOneOf(day.type, TRIP_DAY_TYPES)) {
@@ -526,6 +533,21 @@ export function validateTripBundle(value: unknown): ValidationResult<TripBundle>
     if ((day.overrideEndLatitude !== undefined || day.overrideEndLongitude !== undefined) && day.endLocationName === null) {
       issues.push(issue(`${path}.overrideEndLatitude`, 'inconsistent-override', 'Une coordonnée d’arrivée surchargée exige un libellé (endLocationName).'))
     }
+    // Étapes liées : purely additive, and only ever legal between two
+    // consecutive RIDE days — a group never spans an OFF day or a transfer,
+    // and the very first day of a trip has nothing to be linked to.
+    if (day.sameCalendarDayAsPrevious !== undefined) {
+      if (!isBoolean(day.sameCalendarDayAsPrevious)) {
+        issues.push(issue(`${path}.sameCalendarDayAsPrevious`, 'invalid-type', 'sameCalendarDayAsPrevious doit être un booléen.'))
+      } else if (day.sameCalendarDayAsPrevious) {
+        const previous = index === 0 ? undefined : days[index - 1]
+        if (previous === undefined) {
+          issues.push(issue(`${path}.sameCalendarDayAsPrevious`, 'invalid-value', 'La première journée du voyage ne peut pas être liée à une journée précédente.'))
+        } else if (day.type !== 'ride' || previous.type !== 'ride') {
+          issues.push(issue(`${path}.sameCalendarDayAsPrevious`, 'invalid-value', 'Seules deux étapes roulées consécutives peuvent partager une même journée.'))
+        }
+      }
+    }
   })
   const daysById = new Map(days.map((day) => [day.id, day]))
 
@@ -543,13 +565,13 @@ export function validateTripBundle(value: unknown): ValidationResult<TripBundle>
   // The calendar's own duration must match the number of days — not just each
   // day individually: calendar.endDate must equal calendar.startDate + (days.length - 1).
   if (calendarStartDate !== null && calendarEndDate !== null && days.length > 0) {
-    const expectedEndDate = addCivilDays(calendarStartDate, days.length - 1)
+    const expectedEndDate = addCivilDays(calendarStartDate, lastCalendarDayOffset(days))
     if (calendarEndDate !== expectedEndDate) {
       issues.push(
         issue(
           'calendar.endDate',
           'inconsistent-duration',
-          `calendar.endDate doit correspondre à calendar.startDate + ${days.length - 1} jour(s) (attendu ${expectedEndDate}).`,
+          `calendar.endDate doit correspondre à calendar.startDate + ${lastCalendarDayOffset(days)} jour(s) (attendu ${expectedEndDate}).`,
         ),
       )
     }
@@ -626,6 +648,13 @@ export function validateTripBundle(value: unknown): ValidationResult<TripBundle>
       issues.push(issue(`${path}.sourceRouteId`, 'unknown-reference', `sourceRouteId inconnu : ${stage.sourceRouteId}.`))
     }
     if (stage.name !== null && !isNonEmptyString(stage.name)) issues.push(issue(`${path}.name`, 'invalid-value', 'name invalide.'))
+    // Nom personnalisé : purely additive and optional, exactly like the
+    // TripDay transfer fields — only a format check when present at all.
+    // Empty/whitespace-only is rejected here rather than stored as a
+    // "present but meaningless" name (the UI normalizes to absent instead).
+    if (stage.customName !== undefined && !isNonEmptyString(stage.customName)) {
+      issues.push(issue(`${path}.customName`, 'invalid-value', 'customName doit être une chaîne non vide ou absente.'))
+    }
     if (stage.startLocationName !== null && !isNonEmptyString(stage.startLocationName)) issues.push(issue(`${path}.startLocationName`, 'invalid-value', 'startLocationName invalide.'))
     if (stage.endLocationName !== null && !isNonEmptyString(stage.endLocationName)) issues.push(issue(`${path}.endLocationName`, 'invalid-value', 'endLocationName invalide.'))
     for (const field of ['distanceKm', 'elevationGainM', 'elevationLossM', 'movingDurationSeconds', 'pauseDurationSeconds', 'totalDurationSeconds'] as const) {
@@ -751,6 +780,15 @@ export function validateTripBundle(value: unknown): ValidationResult<TripBundle>
     } else {
       if (!isPositiveNumber(settings.global.referenceSpeedKph)) issues.push(issue('settings.global.referenceSpeedKph', 'invalid-value', 'referenceSpeedKph doit être > 0.'))
       if (!isOneOf(settings.global.pausePlanMode, PAUSE_PLAN_MODES)) issues.push(issue('settings.global.pausePlanMode', 'invalid-enum', 'pausePlanMode invalide.'))
+      // Mode Course/Tour and climb-detection sensitivity: optional/absent on
+      // every historical record (`false` / `'standard'` respectively), so
+      // both stay purely additive — only a shape check when present.
+      if (settings.global.raceMode !== undefined && !isBoolean(settings.global.raceMode)) {
+        issues.push(issue('settings.global.raceMode', 'invalid-type', 'raceMode doit être un booléen.'))
+      }
+      if (settings.global.climbDetectionSensitivity !== undefined && !isOneOf(settings.global.climbDetectionSensitivity, CLIMB_DETECTION_SENSITIVITY_VALUES)) {
+        issues.push(issue('settings.global.climbDetectionSensitivity', 'invalid-enum', 'climbDetectionSensitivity invalide.'))
+      }
     }
     const settingsDays = asRecordArray(settings.days, 'settings.days', issues)
     const seenSettingsDayIds = new Set<string>()

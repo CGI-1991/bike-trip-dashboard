@@ -33,6 +33,7 @@ import { resolvePersistedAutomaticPausePlan } from '../../route-enrichment/autom
 import { resolveOffCoordinates, resolveOffLocation, resolveSharedInfoDayId, resolveTransferCoordinates, resolveTransferLocations } from '../../analysis/day-location-fill.ts'
 import type { RouteMapMarkerModel, RouteMapModel } from '../route-map-model.ts'
 import { resolveEffectiveMountainMode } from '../../analysis/terrain-context.ts'
+import { selectRaceMode, selectStageCustomName } from '../../trip-core/index.ts'
 import { formatShortDate } from '../date-format.ts'
 import { compactPlaceName } from '../compact-place-name.ts'
 import {
@@ -93,11 +94,21 @@ function formatPercent(value: number | null): string {
  * No distance/D+/météo/heures here — those stay in their own dedicated
  * blocks (CDC: "pas besoin d'ajouter... dans ce bandeau").
  */
-function renderDayIdentityHeader(day: TripDay, mainLabel: string, fullMainLabel: string): string {
+/**
+ * `customName` (`RideStage.customName`, already normalized by
+ * `selectStageCustomName` — `null` when absent/blank) becomes the heading's
+ * own title, with the départ → arrivée label demoted to a subtitle right
+ * under it. With no custom name the markup is byte-for-byte what it has
+ * always been: one `day-detail__identity-route` line carrying the route,
+ * and no subtitle element at all.
+ */
+function renderDayIdentityHeader(day: TripDay, mainLabel: string, fullMainLabel: string, customName: string | null = null): string {
   const dateLabel = day.date === null ? null : formatShortDate(day.date)
-  return `<header class="day-detail__sticky-identity" data-day-detail-identity title="${escapeHtml(fullMainLabel)}" aria-label="${escapeHtml(fullMainLabel)}">
+  const accessibleLabel = customName === null ? fullMainLabel : `${customName} — ${fullMainLabel}`
+  return `<header class="day-detail__sticky-identity" data-day-detail-identity title="${escapeHtml(accessibleLabel)}" aria-label="${escapeHtml(accessibleLabel)}">
     <span class="day-detail__identity-number"><strong>J${day.displayNumber}</strong>${dateLabel === null ? '' : `<time datetime="${day.date}">${escapeHtml(dateLabel)}</time>`}</span>
-    <span class="day-detail__identity-route">${mainLabel}</span>
+    <span class="day-detail__identity-route">${customName === null ? mainLabel : escapeHtml(customName)}</span>
+    ${customName === null ? '' : `<span class="day-detail__identity-subtitle" data-day-detail-identity-subtitle>${mainLabel}</span>`}
   </header>`
 }
 
@@ -495,14 +506,24 @@ function renderPauseEditor(
  * only its container/visibility changed, not the wiring.
  */
 function renderPauseWeatherBottomBlock(pausesHtml: string): string {
+  // Course/Tour mode: `pausesHtml` is empty because in-stage pauses are
+  // disabled, so the Pauses toggle and its panel disappear entirely rather
+  // than opening onto nothing ("ne plus proposer leur configuration").
+  // Météo, OFF days and transfers are untouched.
+  const pausesToggle = pausesHtml === ''
+    ? ''
+    : '<button type="button" class="day-bottom-block__toggle" data-action="toggle-bottom-panel" aria-expanded="false" aria-controls="day-bottom-panel-pauses">Pauses</button>'
+  const pausesPanel = pausesHtml === ''
+    ? ''
+    : `<div id="day-bottom-panel-pauses" class="day-bottom-block__panel" data-bottom-panel hidden>
+      ${pausesHtml}
+    </div>`
   return `<div class="day-bottom-block" data-day-bottom-block>
     <div class="day-bottom-block__toggles">
-      <button type="button" class="day-bottom-block__toggle" data-action="toggle-bottom-panel" aria-expanded="false" aria-controls="day-bottom-panel-pauses">Pauses</button>
+      ${pausesToggle}
       <button type="button" class="day-bottom-block__toggle" data-action="toggle-bottom-panel" aria-expanded="false" aria-controls="day-bottom-panel-weather">Météo</button>
     </div>
-    <div id="day-bottom-panel-pauses" class="day-bottom-block__panel" data-bottom-panel hidden>
-      ${pausesHtml}
-    </div>
+    ${pausesPanel}
     <div id="day-bottom-panel-weather" class="day-bottom-block__panel" data-bottom-panel hidden>
       <div data-day-detail-weather><p role="status">Chargement des prévisions…</p></div>
     </div>
@@ -987,7 +1008,7 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
   const daySettings = bundle.settings.days.find((candidate) => candidate.dayId === day.id)
   const settings = { referenceSpeedKph: bundle.settings.global.referenceSpeedKph, departureTime: daySettings?.departureTime ?? '08:00' }
   const stageSettings = bundle.settings.stages.find((candidate) => candidate.stageId === stage.id)
-  const pauseResolution = resolveStagePauseSettings(bundle.settings.global.pausePlanMode, stageSettings)
+  const pauseResolution = resolveStagePauseSettings(bundle.settings.global.pausePlanMode, stageSettings, selectRaceMode(bundle))
   // Integrity-hardening: a valid PERSISTED automatic plan (computed once,
   // when the stage first became fully enriched) is fed through the exact
   // same fixed-anchor pipeline as a saved manual pause list — the only thing
@@ -1041,7 +1062,11 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
 
   const fullLocations = `${stage.startLocationName ?? '—'} → ${stage.endLocationName ?? '—'}`
   const locations = `${escapeHtml(compactPlaceName(stage.startLocationName ?? '—'))} → ${escapeHtml(compactPlaceName(stage.endLocationName ?? '—'))}`
-  const stageLabel = `J${day.displayNumber} — ${stage.startLocationName ?? '—'} → ${stage.endLocationName ?? '—'}`
+  // The traveller's own optional stage name: the title everywhere a stage is
+  // NAMED, while départ/arrivée stays the subtitle. `null` (absent, empty or
+  // whitespace-only) keeps every label exactly as it was.
+  const customName = selectStageCustomName(stage)
+  const stageLabel = `J${day.displayNumber} — ${customName ?? fullLocations}`
 
   const arrival = waypoints.length === 0 ? null : waypoints[waypoints.length - 1]
   const totalDurationSeconds = arrival?.elapsedMinutes === null || arrival?.elapsedMinutes === undefined
@@ -1061,23 +1086,17 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
   const totalPauseMinutes = pauseResolution.mode === 'custom'
     ? waypoints.reduce((total, waypoint) => total + (waypoint.pauseDurationMinutes ?? 0), 0)
     : stage.pauseDurationSeconds === null ? null : normalizePauseDurationMinutes(Math.round(stage.pauseDurationSeconds / 60))
-  // CDC D1.2 section 11, refined by polish-final section 37-40: the Départ
-  // cell is itself the editing surface — no separate "Modifier" trigger
-  // opening a second block below. The plain display button, the (initially
-  // hidden) `<input type="time">`, and its own ✓ confirm button are always
-  // rendered side by side — a pure `hidden` toggle between the first and
-  // the other two (`trips-manager.ts`'s `edit-day-departure-time` handler
-  // reveals both together), never a dynamically created element. Changing
-  // the value stays a local draft until ✓ (or Enter) is clicked — no
-  // implicit blur-to-save any more (`wireDepartureTimeInput`). The fresh
-  // `statsHtml` this function produces after a save always has the input
-  // hidden again, so a completed edit naturally collapses back — never a
-  // second, separately-tracked "editor open" state to reset.
+  // The Départ cell is a single button that opens a small modal dialog
+  // (`time-edit-dialog.ts`) with a standard `<input type="time">`, Annuler
+  // and Valider. It replaces the previous in-place edit (a hidden input plus
+  // a ✓ next to the value), which offered no real Annuler and no place to
+  // explain a schedule conflict between two stages ridden the same day. The
+  // value here stays the single displayed truth; nothing is ever edited in
+  // the page itself, so a fresh `statsHtml` after a save needs no state to
+  // reset.
   const statsHtml = `<dl class="day-detail__stats" data-day-detail-stats>
     <div><dt>Départ</dt><dd>
       <button type="button" class="day-detail__departure-value" data-action="edit-day-departure-time" data-day-departure-value aria-label="Heure de départ ${escapeHtml(settings.departureTime)}, modifier">${escapeHtml(settings.departureTime)}</button>
-      <input type="time" class="day-detail__departure-input" data-day-departure-input value="${escapeHtml(settings.departureTime)}" required hidden>
-      <button type="button" class="day-detail__departure-confirm" data-day-departure-confirm aria-label="Valider la nouvelle heure de départ" hidden>✓</button>
     </dd></div>
     <div><dt>Arrivée estimée</dt><dd>${arrival?.clockTime ?? '—'}</dd></div>
     <div><dt>Distance</dt><dd>${stage.distanceKm === null ? '—' : formatKilometers(stage.distanceKm)}</dd></div>
@@ -1085,10 +1104,16 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
     <div><dt>D+</dt><dd>${stage.elevationGainM === null ? '—' : `+${Math.round(stage.elevationGainM)} m`}</dd></div>
     <div><dt>D−</dt><dd>${stage.elevationLossM === null ? '—' : `−${Math.round(stage.elevationLossM)} m`}</dd></div>
     <div><dt>Montées</dt><dd>${primaryClimbCount}</dd></div>
-    <div><dt>Pauses</dt><dd>${totalPauseMinutes === null ? '—' : `${totalPauseMinutes} min`}</dd></div>
+    ${pauseResolution.pausesDisabled === true ? '' : `<div><dt>Pauses</dt><dd>${totalPauseMinutes === null ? '—' : `${totalPauseMinutes} min`}</dd></div>`}
   </dl>`
 
-  const pausesHtml = renderPauseEditor(stage.id, pauseResolution, stageSettings, anchorCandidates, pauseRecommendations, openingStatusByCandidateId)
+  // Course/Tour mode disables in-stage pauses: their configuration is not
+  // offered at all (`renderPauseWeatherBottomBlock` then drops the whole
+  // Pauses toggle/panel). Never a disabled-looking editor the user could
+  // still interact with.
+  const pausesHtml = pauseResolution.pausesDisabled === true
+    ? ''
+    : renderPauseEditor(stage.id, pauseResolution, stageSettings, anchorCandidates, pauseRecommendations, openingStatusByCandidateId)
   const timelineHtml = renderTimelineList(waypoints, bundle.climbs, geometry)
   const accommodation = day.accommodationId === null ? undefined : bundle.accommodations.find((candidate) => candidate.id === day.accommodationId)
   const infosHtml = renderInfosPanel(day, accommodation)
@@ -1101,7 +1126,7 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
   // — the tabbar moved into the Détails card itself and sticks contextually
   // there (`--day-sticky-header-h`, `sticky-header-offset.ts`), not from the
   // very top of the screen (section 10).
-  const identityHtml = renderDayIdentityHeader(day, locations, fullLocations)
+  const identityHtml = renderDayIdentityHeader(day, locations, fullLocations, customName)
   const html = `<div class="day-detail" data-day-detail>
     <div class="day-detail__sticky-header" data-day-detail-sticky-header>
       ${identityHtml}

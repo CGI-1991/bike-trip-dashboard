@@ -49,6 +49,27 @@ export function selectStageForDay(bundle: TripBundle, dayId: TripDayId): RideSta
   return selectStageById(bundle, day.stageId)
 }
 
+/**
+ * The traveller's own optional stage name, normalized once, in one place:
+ * `null` whenever it is absent, empty or whitespace-only — which is exactly
+ * the "behave exactly as before this field existed" case every display
+ * surface falls back on. Never touches `RideStage.name` (the GPX track
+ * name), ids, start/end locations or any metric.
+ */
+export function selectStageCustomName(stage: Pick<RideStage, 'customName'> | null | undefined): string | null {
+  const trimmed = stage?.customName?.trim() ?? ''
+  return trimmed === '' ? null : trimmed
+}
+
+/**
+ * Mode "Course / Tour" for the whole trip — `false` for every bundle saved
+ * before the setting existed, so an existing trip stays in its current mode
+ * by default (CDC: "Les voyages existants restent dans leur mode actuel").
+ */
+export function selectRaceMode(bundle: TripBundle): boolean {
+  return bundle.settings.global.raceMode === true
+}
+
 export function selectRouteById(bundle: TripBundle, routeId: RouteId): Route | null {
   return bundle.routes.find((route) => route.id === routeId) ?? null
 }

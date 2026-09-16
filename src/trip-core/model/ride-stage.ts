@@ -22,6 +22,19 @@ export interface RideStage {
   readonly dayId: TripDayId
   readonly sourceRouteId: RouteId
   readonly name: string | null
+  /**
+   * Optional, user-chosen display name for this stage ("Étape reine",
+   * "Boucle du col"…) — purely editorial. Deliberately NOT `name`, which is
+   * the GPX track/segment name the parser read from the file and which a
+   * re-import/structural edit legitimately overwrites; this one belongs to
+   * the traveller and survives both. Optional/absent on historical records,
+   * exactly like `TripDay.transferMode` — purely additive, no schema bump,
+   * no migration. Absent, empty or whitespace-only means "no custom name":
+   * every surface then falls back to its existing départ → arrivée label,
+   * byte for byte. Never affects ids, start/end locations, GPX bytes or any
+   * computed metric.
+   */
+  readonly customName?: string
   readonly startLocationName: string | null
   readonly endLocationName: string | null
   readonly distanceKm: Kilometers | null

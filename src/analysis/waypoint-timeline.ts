@@ -48,6 +48,15 @@ export interface StagePauseResolution {
   readonly mode: PausePlanMode
   /** Only meaningful when `mode === 'custom'` — always `[]` for `'automatic'`. */
   readonly manualPauses: readonly ManualPauseSetting[]
+  /**
+   * Course/Tour mode: in-stage pauses are disabled outright. Present (and
+   * `true`) only in that case, so every existing consumer — and every
+   * existing `deepEqual` on this shape — is unaffected. Consumers that only
+   * place pauses need nothing: `mode: 'custom'` with an empty
+   * `manualPauses` already means "no pause anywhere". The flag exists for
+   * the surfaces that must also stop OFFERING pause configuration.
+   */
+  readonly pausesDisabled?: boolean
 }
 
 /**
@@ -57,8 +66,14 @@ export interface StagePauseResolution {
  * means "inherit". Only `active` pauses with a real `routePointId` become
  * `ManualPauseSetting`s — an inactive or dangling (deleted point) entry is
  * simply dropped rather than crashing placement.
+ *
+ * `raceMode` (`GlobalTripSettings.raceMode`) short-circuits all of it: an
+ * explicitly EMPTY custom plan, which every downstream consumer already
+ * knows how to handle as "place no pause at all". Defaults to `false`, so
+ * every caller that predates Course/Tour mode keeps its exact behaviour.
  */
-export function resolveStagePauseSettings(globalMode: PausePlanMode, stageSettings: RideStageSettings | undefined): StagePauseResolution {
+export function resolveStagePauseSettings(globalMode: PausePlanMode, stageSettings: RideStageSettings | undefined, raceMode = false): StagePauseResolution {
+  if (raceMode) return { mode: 'custom', manualPauses: [], pausesDisabled: true }
   const mode = stageSettings?.pausePlanMode ?? globalMode
   if (mode !== 'custom') return { mode: 'automatic', manualPauses: [] }
   const manualPauses = (stageSettings?.pauses ?? [])

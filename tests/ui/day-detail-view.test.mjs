@@ -68,18 +68,17 @@ test('the arrival time, when known, is shown as the estimated arrival stat', () 
   assert.match(detail.html, new RegExp(`Arrivée estimée</dt><dd>${arrival.clockTime}`))
 })
 
-// CDC D1.2 section 11 (tests M/N/O/P/Q): the per-day departure time
-// (TripDaySettings.departureTime) is shown right in the Étape stats as its
-// own clickable value — the cell itself is the editing surface, no second
-// "Modifier" trigger opening a separate field/screen any more.
-test('a ride day shows its own departure time in the stats as a clickable, editable value — never a second field', () => {
+// The per-day departure time (TripDaySettings.departureTime) is shown right
+// in the Étape stats as its own clickable value. The click now opens a small
+// modal window (`time-edit-dialog.ts`) instead of revealing an inline input
+// with a ✓ next to it — so the cell itself carries nothing but the value.
+test('a ride day shows its own departure time in the stats as a single clickable value that opens the edit window', () => {
   const bundle = createGenericTripBundle()
   const detail = buildDayDetail(bundle, 'day-alpha')
   const departureCell = detail.statsHtml.match(/<dt>Départ<\/dt><dd>[\s\S]*?<\/dd>/)?.[0] ?? ''
   assert.match(departureCell, /<button type="button" class="day-detail__departure-value" data-action="edit-day-departure-time" data-day-departure-value aria-label="Heure de départ 08:00, modifier">08:00<\/button>/)
-  // M: the same cell also carries the (initially hidden) inline
-  // `<input type="time">`, pre-filled — never a second block below.
-  assert.match(departureCell, /<input type="time" class="day-detail__departure-input" data-day-departure-input value="08:00" required hidden>/)
+  assert.doesNotMatch(departureCell, /data-day-departure-input/, 'no inline input left in the cell')
+  assert.doesNotMatch(departureCell, /data-day-departure-confirm/, 'no inline ✓ confirm button left in the cell')
   assert.doesNotMatch(detail.statsHtml, /Modifier/)
 })
 

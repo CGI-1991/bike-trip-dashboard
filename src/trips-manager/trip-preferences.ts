@@ -7,15 +7,11 @@
  * preference (CDC section 17): local, pure, one atomic save.
  */
 
-import { computeStageTiming } from '../analysis/timing.ts'
-import { estimateAutomaticBreakBudget } from '../analysis/pause-budget.ts'
-import { routeGeometryWithDistances } from '../analysis/canonical-waypoints.ts'
 import { resolveStagePauseSettings } from '../analysis/waypoint-timeline.ts'
-import { buildTerrainProfileSeries } from '../route/terrain-profile.ts'
-import type { RouteProfilePosition, TerrainProfilePoint } from '../route/types.ts'
+import { recomputeStageTiming } from './stage-timing.ts'
 import { addCivilDays, isIsoDate } from '../trip-core/validation/primitives.ts'
-import { validateTripBundle } from '../trip-core/index.ts'
-import type { IsoDate, RideStage, Route, TripBundle, TripId } from '../trip-core/index.ts'
+import { calendarDayOffsets, lastCalendarDayOffset, selectRaceMode, validateTripBundle } from '../trip-core/index.ts'
+import type { IsoDate, TripBundle, TripId } from '../trip-core/index.ts'
 import { createTripRepository, TripValidationError } from '../storage/indexeddb/trip-repository.ts'
 
 function asIsoDate(value: string): IsoDate {
@@ -78,15 +74,20 @@ export function tripPreferencesUpdateIsNoop(bundle: TripBundle, update: TripPref
 // --- date shift (CDC section 6-8) -------------------------------------------
 
 /**
- * Every `TripDay.date` is always exactly `calendar.startDate + day.index`
- * civil days (`validateTripBundle`'s own invariant — see `trip-calendar.ts`'s
- * doc comment) — `TransferTiming` (`dedicated`/`after_previous`/`before_next`)
- * is a purely narrative label about a transfer's position WITHIN its own
- * day, never a mechanism for two days to literally share one calendar date.
- * Shifting the start therefore never needs a "delta" or any transfer-timing
- * awareness at all (CDC section 7) — every day's date is simply
- * recomputed from its own already-correct `index`, exactly the same
- * `addCivilDays` the validator itself checks against.
+ * Every `TripDay.date` is exactly `calendar.startDate` plus that day's own
+ * CIVIL-DAY OFFSET (`calendarDayOffsets`, `validateTripBundle`'s own
+ * invariant — see `trip-calendar.ts`'s doc comment). That offset is simply
+ * `day.index` for every trip with no linked stage, which is every trip that
+ * predates "étapes liées"; a group of stages ridden on the same date makes
+ * the offset stop advancing across its linked members, so index and offset
+ * legitimately diverge from there on.
+ *
+ * `TransferTiming` (`dedicated`/`after_previous`/`before_next`) remains a
+ * purely narrative label about a transfer's position WITHIN its own day,
+ * never a mechanism for two days to share one calendar date — only
+ * `sameCalendarDayAsPrevious` is. Shifting the start still needs no "delta"
+ * and no per-day special case (CDC section 7): every date is recomputed
+ * from the same offsets the validator itself checks against.
  *
  * A no-op for a still-undated trip (`calendar.startDate === null`) — dating
  * a trip for the first time (also choosing its timezone) is out of this
@@ -95,8 +96,9 @@ export function tripPreferencesUpdateIsNoop(bundle: TripBundle, update: TripPref
  */
 export function shiftTripStartDate(bundle: TripBundle, newStartDate: IsoDate): TripBundle {
   if (bundle.calendar.startDate === null || bundle.calendar.startDate === newStartDate) return bundle
-  const endDate = bundle.days.length === 0 ? newStartDate : asIsoDate(addCivilDays(newStartDate, bundle.days.length - 1))
-  const days = bundle.days.map((day) => (day.date === null ? day : { ...day, date: asIsoDate(addCivilDays(newStartDate, day.index)) }))
+  const offsets = calendarDayOffsets(bundle.days)
+  const endDate = bundle.days.length === 0 ? newStartDate : asIsoDate(addCivilDays(newStartDate, lastCalendarDayOffset(bundle.days)))
+  const days = bundle.days.map((day, index) => (day.date === null ? day : { ...day, date: asIsoDate(addCivilDays(newStartDate, offsets[index] ?? day.index)) }))
   return {
     ...bundle,
     calendar: { ...bundle.calendar, startDate: newStartDate, endDate },
@@ -113,81 +115,35 @@ export function shiftTripStartDate(bundle: TripBundle, newStartDate: IsoDate): T
 
 // --- speed-driven timing recompute (CDC section 9-11) -----------------------
 
-/** `null` when the route has no usable geometry OR too few points to build a real profile — `computeStageTiming` itself already falls back to the flat-terrain model in that case, exactly like at import time. */
-function buildTerrainProfileForRoute(route: Route): readonly TerrainProfilePoint[] | null {
-  const geometryWithDistances = routeGeometryWithDistances(route)
-  if (geometryWithDistances === null) return null
-  const { geometry, distances } = geometryWithDistances
-  const source: RouteProfilePosition[] = geometry.map((point, index) => ({
-    latitude: point.latitude,
-    longitude: point.longitude,
-    sourceFileNumber: 1,
-    sourceFileName: 'route.gpx',
-    distanceKm: distances[index] ?? 0,
-    elevationGainM: 0,
-    elevationLossM: 0,
-    altitudeM: point.altitudeM,
-    localSlopePercent: 0,
-    speedMultiplier: 1,
-    weightedDistanceKm: distances[index] ?? 0,
-  }))
-  const series = buildTerrainProfileSeries(source)
-  return series.length < 2 ? null : series
-}
-
 /**
- * Recomputes exactly the four aggregate `RideStage` timing fields at a new
- * reference speed — the same `computeStageTiming` engine `import/gpx/route-analysis.ts`
- * uses at import time, never a second timing model (CDC section 9-10).
+ * Recomputes every stage's aggregate timing at a new reference speed —
+ * the same `computeStageTiming` engine `import/gpx/route-analysis.ts` uses
+ * at import time, never a second timing model (CDC section 9-10), now
+ * shared with Course/Tour mode through `stage-timing.ts`.
  *
  * Automatic mode (CDC section 11): the pause BUDGET itself can change too —
  * `estimateAutomaticBreakBudget` depends on moving duration, which depends
- * on speed — so this re-runs the exact same two-pass pattern
- * (`route-analysis.ts`'s own: a zero-budget pass to learn moving duration,
- * then the real budget, then the final timing) rather than reusing the old
- * budget at a new speed.
+ * on speed — so `'adaptive'` re-runs the exact same two-pass pattern
+ * (`route-analysis.ts`'s own) rather than reusing the old budget at a new
+ * speed.
  *
- * Custom mode: `pauseDurationSeconds` is the user's own total and is left
- * completely untouched (CDC section 11 — "NE PAS modifier les pauses
- * custom") — only moving/total duration and average speed are recomputed,
- * folding that unchanged pause total in at the new pace.
+ * Custom mode: `'preserve'` leaves `pauseDurationSeconds` completely
+ * untouched (CDC section 11 — "NE PAS modifier les pauses custom"), only
+ * moving/total duration and average speed are recomputed, folding that
+ * unchanged pause total in at the new pace.
+ *
+ * Course/Tour mode: a fixed `0` budget — in-stage pauses are disabled, so
+ * there is nothing to re-estimate and nothing to preserve.
  */
-function recomputeStageTiming(bundle: TripBundle, stage: RideStage, newSpeedKph: number): RideStage {
-  const route = bundle.routes.find((candidate) => candidate.id === stage.sourceRouteId)
-  const distanceKm = stage.distanceKm
-  if (route === undefined || distanceKm === null || !(distanceKm > 0)) return stage
-
-  const terrainProfile = buildTerrainProfileForRoute(route)
-  const daySettings = bundle.settings.days.find((candidate) => candidate.dayId === stage.dayId)
-  const departureTime = daySettings?.departureTime ?? '08:00'
+function stageBreakBudget(bundle: TripBundle, stage: TripBundle['stages'][number]): 0 | 'adaptive' | 'preserve' {
+  if (selectRaceMode(bundle)) return 0
   const stageSettings = bundle.settings.stages.find((candidate) => candidate.stageId === stage.id)
   const pauseResolution = resolveStagePauseSettings(bundle.settings.global.pausePlanMode, stageSettings)
-
-  if (pauseResolution.mode === 'custom') {
-    const totalBreakMinutes = (stage.pauseDurationSeconds ?? 0) / 60
-    const timing = computeStageTiming(terrainProfile, distanceKm, { referenceSpeedKph: newSpeedKph, departureTime, totalBreakMinutes })
-    return {
-      ...stage,
-      movingDurationSeconds: timing.movingDurationSeconds,
-      totalDurationSeconds: timing.movingDurationSeconds + (stage.pauseDurationSeconds ?? 0),
-      estimatedAverageSpeedKph: timing.estimatedAverageSpeedKph,
-    }
-  }
-
-  const learningPass = computeStageTiming(terrainProfile, distanceKm, { referenceSpeedKph: newSpeedKph, departureTime, totalBreakMinutes: 0 })
-  const totalBreakMinutes = estimateAutomaticBreakBudget(distanceKm, learningPass.movingDurationSeconds / 60, stage.elevationGainM)
-  const timing = computeStageTiming(terrainProfile, distanceKm, { referenceSpeedKph: newSpeedKph, departureTime, totalBreakMinutes })
-  return {
-    ...stage,
-    movingDurationSeconds: timing.movingDurationSeconds,
-    pauseDurationSeconds: timing.pauseDurationSeconds,
-    totalDurationSeconds: timing.totalDurationSeconds,
-    estimatedAverageSpeedKph: timing.estimatedAverageSpeedKph,
-  }
+  return pauseResolution.mode === 'custom' ? 'preserve' : 'adaptive'
 }
 
 function applyReferenceSpeed(bundle: TripBundle, referenceSpeedKph: number): TripBundle {
-  const stages = bundle.stages.map((stage) => recomputeStageTiming(bundle, stage, referenceSpeedKph))
+  const stages = bundle.stages.map((stage) => recomputeStageTiming(bundle, stage, referenceSpeedKph, stageBreakBudget(bundle, stage)))
   // `TripDaySettings.totalBreakSeconds` mirrors `RideStage.pauseDurationSeconds`
   // at import time (never read back by the live timing engine, which only
   // ever consults the stage field) — kept in sync anyway for consistency.

@@ -49,6 +49,9 @@ import type { ImportWizardResult } from './import-wizard.ts'
 import { createTripEditor } from './trip-editor.ts'
 import { renderStagePreparationIndicator, renderStagePreparationNote, renderTripDetail } from './trip-detail-view.ts'
 import { createEditGuard } from './edit-guard.ts'
+import { openTimeEditDialog } from './time-edit-dialog.ts'
+import type { TimeEditDialogRequest, TimeEditDialogResult } from './time-edit-dialog.ts'
+import { dayDepartureTime, earliestCompatibleDeparture, groupDayIdsFor, resolveLinkedScheduleConflicts } from '../../trips-manager/linked-stages.ts'
 import type { EditContext, EditGuardDecision } from './edit-guard.ts'
 import { defaultConfirmDiscardChanges } from './confirm-discard-changes.ts'
 
@@ -141,6 +144,13 @@ export interface TripsManagerDeps {
    * injected so the whole guard flow is testable with no DOM.
    */
   readonly confirmDiscardChanges?: () => Promise<EditGuardDecision> | EditGuardDecision
+  /**
+   * The small "modifier l'heure" window (`time-edit-dialog.ts`) — a real
+   * modal `<dialog>` in the browser, injected here so the whole
+   * edit/validate/conflict flow is testable with no DOM, exactly like
+   * `confirmDiscardChanges` above.
+   */
+  readonly openTimeEditDialog?: (request: TimeEditDialogRequest) => Promise<TimeEditDialogResult> | TimeEditDialogResult
   /**
    * Drives the top-level app nav (URL hash + bottom-nav highlighting) when
    * this component navigates on its own initiative — e.g. "Ouvrir" on a
@@ -621,7 +631,6 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     // pre-armed on mount any more; it only engages once "Modifier" is
     // actually clicked (`edit-day-infos` action, below).
     mountMapAndProfile(bundle, detail, dayId)
-    wireDepartureTimeInput(bundle.metadata.id, dayId)
     refreshWeather(bundle, dayId)
     const stickyHeader = container.querySelector<HTMLElement>('[data-day-detail-sticky-header]')
     if (stickyHeader !== null) stickyHeaderObserver = observeStickyHeaderHeight(stickyHeader, container, '--day-sticky-header-h')
@@ -766,11 +775,9 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     const detail = buildDayDetail(bundle, dayId, dayPreparationOptions(bundle, dayId))
     if (detail === null) return
     const statsEl = container.querySelector('[data-day-detail-stats]')
-    // The fresh `statsHtml` is always the Départ cell's display state
-    // (CDC D1.2 section 11) — replacing it here is what collapses an
-    // in-progress inline edit back to plain text after a successful save.
+    // The Départ cell is a plain display button now (the edit happens in a
+    // modal window), so a fresh `statsHtml` simply shows the saved value.
     if (statsEl !== null) statsEl.outerHTML = detail.statsHtml
-    wireDepartureTimeInput(bundle.metadata.id, dayId)
     const pausesEl = container.querySelector('[data-day-detail-pauses]')
     if (pausesEl !== null) pausesEl.outerHTML = detail.pausesHtml
     const timelineEl = container.querySelector('[data-day-detail-timeline]')
@@ -783,79 +790,78 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     refreshWeather(bundle, dayId)
   }
 
-  /** One `AbortController` per departure-time `<input>` (CDC D1.2 section 11) — aborted and replaced on every full mount/patch, exactly like `profileSyncControllers`, so its keydown/blur listeners never accumulate across `patchDayDetail` calls. */
-  const departureInputControllers = new WeakMap<HTMLElement, AbortController>()
+  /**
+   * The Départ stat cell's own editing flow, now a small modal window
+   * (`time-edit-dialog.ts`) instead of an in-place input.
+   *
+   * Cancelling or dismissing changes nothing at all — nothing is written
+   * before Valider. Validating saves this day's own `departureTime`, then
+   * lets `resolveLinkedScheduleConflicts` check the rest of the group it may
+   * belong to (a strict conflict only: a next departure EARLIER than the
+   * previous stage's ETA) and reports, in one short line, any time it had to
+   * move. An entry that is itself incompatible never reaches storage: the
+   * dialog explains it and offers the first compatible time instead
+   * (`earliestCompatibleDeparture`).
+   */
+  async function promptDayDepartureTime(tripId: TripId, dayId: TripDayId): Promise<void> {
+    const repository = createTripRepository(deps.database)
+    const bundle = await repository.loadTripBundle(tripId)
+    if (bundle === null) return
+    const group = groupDayIdsFor(bundle, dayId)
+    const position = group.indexOf(dayId)
+    const previousDay = position > 0 ? bundle.days.find((candidate) => candidate.id === group[position - 1]) : undefined
+    const ask = deps.openTimeEditDialog ?? openTimeEditDialog
+    const chosen = await ask({
+      title: 'Heure de départ',
+      label: 'Départ',
+      value: dayDepartureTime(bundle, dayId),
+      hint: previousDay === undefined ? null : `Étape liée : elle suit J${previousDay.displayNumber} le même jour.`,
+      validate: (value) => {
+        const earliest = earliestCompatibleDeparture(bundle, dayId)
+        if (earliest === null || value >= earliest) return { ok: true }
+        // `earliest` is already the first quarter-hour at or after the
+        // previous ETA, so a plain string comparison of two `HH:MM` values
+        // is exact here.
+        return { ok: false, message: `Cette étape ne peut pas partir avant l’arrivée de l’étape précédente.`, suggestion: earliest }
+      },
+    })
+    if (chosen === null) return
+    const saved = await saveDayDepartureTime(tripId, dayId, chosen)
+    if (saved === null) return
+    const resolution = resolveLinkedScheduleConflicts(saved)
+    let bundleToShow = saved
+    if (resolution.adjustments.length > 0) {
+      await repository.saveTripBundle(resolution.bundle)
+      bundleToShow = resolution.bundle
+    }
+    patchDayDetail(bundleToShow, dayId)
+    reportScheduleResolution(resolution)
+  }
 
   /**
-   * CDC D1.2 section 11: the Départ stat cell is itself the editing surface
-   * — both the plain display button and the (initially hidden) `<input
-   * type="time">` are always rendered side by side in `statsHtml`; this
-   * only wires the input's keydown/blur behaviour, exactly the same "pure
-   * `hidden` toggle, no dynamically created element" shape
-   * `renderInfosPanel`'s own read/edit split already uses elsewhere in this
-   * file (never `document.createElement`, which the plain-Node test harness
-   * for this module has no polyfill for — and real browsers don't need it
-   * here either). Enter commits, Escape reverts, blur commits if the value
-   * actually changed and is valid (an unchanged value just reverts —
-   * nothing to persist). A successful save goes through `patchDayDetail`,
-   * which already recalculates ETA/timing/waypoints/météo/profil/scénarios
-   * from the single `computeStageWaypoints`/`computeStageTimingCurve`/
-   * weather-coordinator pipeline (sections 12/17/26) — never a second
-   * engine — and its fresh `statsHtml` has the input hidden again, so
-   * there's nothing left to restore manually on success.
+   * One short, non-blocking line under the Départ stat when the save moved
+   * another stage's time, or when the group no longer fits in a single day.
+   * Never a modal, never silent.
    */
-  /**
-   * Polish-final section 37-40: the departure time is a draft until
-   * explicitly confirmed — never persisted just because focus moved
-   * elsewhere. Enter and the ✓ button are the two equivalent, deliberate
-   * confirm gestures (both commit); Escape and a plain blur both simply
-   * revert to the last persisted value, no exception. Committing patches
-   * only this stage's own subtree (ETA/opening_hours/météo/timeline) —
-   * never a Postpass call, never a full `renderDay`.
-   */
-  function wireDepartureTimeInput(tripId: TripId, dayId: TripDayId): void {
-    const input = container.querySelector<HTMLInputElement>('[data-day-departure-input]')
-    const displayButton = container.querySelector<HTMLButtonElement>('[data-day-departure-value]')
-    const confirmButton = container.querySelector<HTMLButtonElement>('[data-day-departure-confirm]')
-    if (input === null || displayButton === null) return
-    departureInputControllers.get(input)?.abort()
-    const controller = new AbortController()
-    departureInputControllers.set(input, controller)
-    const originalValue = input.value
-
-    const cancel = (): void => {
-      input.value = originalValue
-      input.hidden = true
-      if (confirmButton !== null) confirmButton.hidden = true
-      displayButton.hidden = false
+  function reportScheduleResolution(resolution: ReturnType<typeof resolveLinkedScheduleConflicts>): void {
+    const target = container.querySelector<HTMLElement>('[data-day-detail-stats-card]')
+    if (target === null) return
+    const existing = target.querySelector<HTMLElement>('[data-schedule-notice]')
+    existing?.remove()
+    const messages: string[] = []
+    if (resolution.adjustments.length > 0) {
+      messages.push(`Horaires ajustés : ${resolution.adjustments.map((entry) => `J${entry.displayNumber} ${entry.from} → ${entry.to}`).join(', ')}.`)
     }
-    const commit = (): void => {
-      const value = input.value
-      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(value) || value === originalValue) { cancel(); return }
-      void (async () => {
-        const updated = await saveDayDepartureTime(tripId, dayId, value)
-        if (updated !== null) patchDayDetail(updated, dayId)
-        else cancel()
-      })()
+    if (resolution.overflows.length > 0) {
+      messages.push(`${resolution.overflows.map((entry) => `J${entry.displayNumber}`).join(', ')} dépasse minuit : ces étapes ne tiennent plus dans une même journée.`)
     }
-    input.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter') { event.preventDefault(); commit() }
-      else if (event.key === 'Escape') { event.preventDefault(); cancel() }
-    }, { signal: controller.signal })
-    // Losing focus without an explicit ✓/Enter never persists any more —
-    // it always reverts, exactly like Escape. The ✓ button (below) is what
-    // makes the save intent explicit now, never a blur side-effect. Guarded
-    // against `relatedTarget` being the ✓ button itself: a mouse/touch
-    // click there blurs the input a tick before its own click fires, which
-    // would otherwise revert the value out from under `commit()`.
-    input.addEventListener('blur', (event: FocusEvent) => {
-      if (event.relatedTarget === confirmButton) return
-      cancel()
-    }, { signal: controller.signal })
-    // Belt and suspenders for the same race on mouse/touch specifically:
-    // never let clicking ✓ shift focus (and fire blur) in the first place.
-    confirmButton?.addEventListener('mousedown', (event) => { event.preventDefault() }, { signal: controller.signal })
-    confirmButton?.addEventListener('click', commit, { signal: controller.signal })
+    if (messages.length === 0) return
+    const notice = document.createElement('p')
+    notice.className = 'day-detail__schedule-notice'
+    notice.setAttribute('role', 'status')
+    notice.setAttribute('data-schedule-notice', '')
+    notice.textContent = messages.join(' ')
+    target.appendChild(notice)
   }
 
   /**
@@ -2109,19 +2115,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     } else if (action === 'save-manual-pauses' && mode.kind === 'day') {
       void saveManualPauses(mode.tripId, mode.dayId)
     } else if (action === 'edit-day-departure-time' && mode.kind === 'day') {
-      // The reveal itself is a pure `hidden` toggle (CDC D1.2 section 11) —
-      // `wireDepartureTimeInput` (called once per mount/patch) already
-      // wired this same `<input>`'s keydown/blur cancel behaviour and the
-      // ✓ button's own commit (polish-final section 37-40).
-      const displayButton = container.querySelector<HTMLButtonElement>('[data-day-departure-value]')
-      const input = container.querySelector<HTMLInputElement>('[data-day-departure-input]')
-      const confirmButton = container.querySelector<HTMLButtonElement>('[data-day-departure-confirm]')
-      if (displayButton === null || input === null) return
-      displayButton.hidden = true
-      input.hidden = false
-      if (confirmButton !== null) confirmButton.hidden = false
-      input.focus()
-      try { input.showPicker?.() } catch { /* not eligible here — focus() still opens the native control on most mobile platforms */ }
+      void promptDayDepartureTime(mode.tripId, mode.dayId)
     } else if (action === 'apply-weather-departure-time' && mode.kind === 'day') {
       // R2.1 section 7 (correcting sections 25-26 closeout): "Appliquer"/
       // "Choisir" now applies IMMEDIATELY — no confirmation panel, no modal.
@@ -2137,7 +2131,18 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       if (target === undefined) return
       void (async () => {
         const updated = await saveDayDepartureTime(tripId, dayId, target)
-        if (updated !== null) patchDayDetail(updated, dayId)
+        if (updated === null) return
+        // Same single resolution pass as the stats dialog — a scenario
+        // applied from the weather panel must not leave a linked group with
+        // a stage starting before the previous one has arrived.
+        const resolution = resolveLinkedScheduleConflicts(updated)
+        let bundleToShow = updated
+        if (resolution.adjustments.length > 0) {
+          await createTripRepository(deps.database).saveTripBundle(resolution.bundle)
+          bundleToShow = resolution.bundle
+        }
+        patchDayDetail(bundleToShow, dayId)
+        reportScheduleResolution(resolution)
       })()
     } else if (action === 'save-day-infos' && mode.kind === 'day') {
       void saveDayInfos(mode.tripId, mode.dayId)

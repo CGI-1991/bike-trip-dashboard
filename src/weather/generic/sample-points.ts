@@ -55,6 +55,7 @@ import { buildAutomaticPauseEnrichment, computeStageWaypoints, resolveStagePause
 import { createRouteClockTime } from '../../route/time.ts'
 import { routeGeometry } from '../../route-enrichment/route-fingerprint.ts'
 import type { RoadbookPointType } from '../../trip/roadbook-types.ts'
+import { selectRaceMode } from '../../trip-core/index.ts'
 import type { TripBundle, TripDay } from '../../trip-core/index.ts'
 import type { WeatherDayDefinition, WeatherRequestLocation, WeatherSamplePoint } from '../types.ts'
 
@@ -137,7 +138,7 @@ export function buildRideDayWeatherDefinition(bundle: TripBundle, day: TripDay):
   const departureTime = daySettings?.departureTime ?? '08:00'
   const settings = { referenceSpeedKph: bundle.settings.global.referenceSpeedKph, departureTime }
   const stageSettings = bundle.settings.stages.find((candidate) => candidate.stageId === stage.id)
-  const pauseResolution = resolveStagePauseSettings(bundle.settings.global.pausePlanMode, stageSettings)
+  const pauseResolution = resolveStagePauseSettings(bundle.settings.global.pausePlanMode, stageSettings, selectRaceMode(bundle))
   // Polish-final section 12-16: the exact same automatic-pause enrichment
   // the displayed Parcours/map/profile timeline uses (`day-detail-view.ts`)
   // — without this, AUTOMATIC-mode placement fell back to the plain

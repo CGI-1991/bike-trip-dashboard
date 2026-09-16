@@ -110,4 +110,26 @@ export interface TripDay {
   readonly overrideStartLongitude?: LongitudeDegrees
   readonly overrideEndLatitude?: LatitudeDegrees
   readonly overrideEndLongitude?: LongitudeDegrees
+  /**
+   * "Étapes liées" (Course/Tour mode): this ride day happens on the SAME
+   * calendar date as the day right before it, rather than on the next one.
+   * Two or more consecutive ride days carrying this flag form one group
+   * that shares a single date and a single lodging, while each keeps its
+   * own stage, GPX, statistics and Détail screen — the GPX files are never
+   * merged.
+   *
+   * This is the one field that makes `TripDay.date` stop being
+   * `calendar.startDate + index`: the date of day `i` is
+   * `calendar.startDate + calendarDayOffsets(days)[i]`, an offset that
+   * simply does not advance across a linked day (see
+   * `trip-core/calendar/day-offsets.ts`, the single source of truth every
+   * date-assigning site now calls). Absent/`false` on every historical
+   * record restores exactly the old `+ index` arithmetic, so this is purely
+   * additive — no schema bump, no migration.
+   *
+   * Only ever legal on a `ride` day at `index > 0` whose immediately
+   * preceding day is also a `ride` day: a group never spans an OFF day or a
+   * transfer (`validateTripBundle` rejects any other placement).
+   */
+  readonly sameCalendarDayAsPrevious?: boolean
 }

@@ -38,6 +38,10 @@ export interface TripEditRideSlot extends RetainedSlotIdentity {
   readonly file: GpxImportFile
   /** Existing source identity only when this is the unchanged GPX. A replacement must set `null`. */
   readonly existingSourceFileId: SourceFileId | null
+  /** The traveller's own optional stage name (`RideStage.customName`) — `null`/absent clears it. */
+  readonly customName?: string | null
+  /** "Étape liée": ridden the same calendar day as the previous ride slot (`TripDay.sameCalendarDayAsPrevious`). */
+  readonly sameCalendarDayAsPrevious?: boolean
 }
 
 export interface TripEditOffSlot extends RetainedSlotIdentity {
@@ -108,7 +112,7 @@ export async function loadTripEditDraft(database: IDBDatabase, tripId: TripId): 
       continue
     }
 
-    const { sourceFile } = rideEntitiesForDay(bundle, day)
+    const { sourceFile, stage } = rideEntitiesForDay(bundle, day)
     const payload = await sourceFileRepository.getSourceFilePayload(bundle.metadata.id, sourceFile.id)
     if (payload === null) throw new Error(`Octets GPX introuvables pour ${sourceFile.originalName}.`)
     const bytes = await payloadToArrayBuffer(payload.content)
@@ -116,6 +120,8 @@ export async function loadTripEditDraft(database: IDBDatabase, tripId: TripId): 
       kind: 'ride',
       existingDayId: day.id,
       existingSourceFileId: sourceFile.id,
+      customName: stage.customName ?? null,
+      sameCalendarDayAsPrevious: day.sameCalendarDayAsPrevious === true,
       file: {
         name: sourceFile.originalName,
         mimeType: sourceFile.mimeType,
@@ -458,7 +464,7 @@ export async function editGpxTrip(input: EditGpxTripInput): Promise<EditGpxTripR
     now: input.now,
     dayStructure: input.slots.map((slot) =>
       slot.kind === 'ride'
-        ? { kind: 'ride' }
+        ? { kind: 'ride', customName: slot.customName ?? null, sameCalendarDayAsPrevious: slot.sameCalendarDayAsPrevious === true }
         : slot.kind === 'transfer'
           ? { kind: 'transfer', notes: slot.notes ?? null, transferTiming: slot.transferTiming }
           : { kind: slot.kind, notes: slot.notes ?? null },

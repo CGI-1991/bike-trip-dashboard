@@ -25,6 +25,8 @@ export * from './model/overrides.ts'
 export * from './model/generated-metadata.ts'
 export * from './model/trip-bundle.ts'
 
+export * from './calendar/day-offsets.ts'
+
 export * from './schema/version.ts'
 
 export * from './validation/types.ts'

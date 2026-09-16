@@ -11,11 +11,18 @@
  */
 
 import { addCivilDays } from '../../trip-core/validation/primitives.ts'
-import { tripDayId } from '../../trip-core/index.ts'
-import type { IsoDate, TransferTiming, TripBundle, TripDay } from '../../trip-core/index.ts'
+import { calendarDayOffsets, tripDayId } from '../../trip-core/index.ts'
+import type { IsoDate, RideStage, TransferTiming, TripBundle, TripDay } from '../../trip-core/index.ts'
 
 export type DayStructureSlot =
-  | { readonly kind: 'ride' }
+  /**
+   * `customName` — the traveller's own optional stage name (`RideStage.customName`);
+   * `sameCalendarDayAsPrevious` — "étape liée" (this stage is ridden the
+   * same calendar day as the previous one, Course/Tour mode). Both
+   * optional/absent for every historical caller, which reproduces the
+   * previous behaviour exactly.
+   */
+  | { readonly kind: 'ride'; readonly customName?: string | null; readonly sameCalendarDayAsPrevious?: boolean }
   | { readonly kind: 'off'; readonly notes?: string | null }
   /** `transferTiming` (CDC Jalon B4.4 section 22) — `undefined`/omitted means `'dedicated'`, exactly like `TripDay.transferTiming` itself. */
   | { readonly kind: 'transfer'; readonly notes?: string | null; readonly transferTiming?: TransferTiming }
@@ -24,6 +31,21 @@ export class DayStructureError extends Error {}
 
 function asIsoDate(value: string): IsoDate {
   return value as IsoDate
+}
+
+/**
+ * Sets (or genuinely REMOVES) an optional field. `{ ...day, field:
+ * undefined }` would leave an own property holding `undefined` behind,
+ * which survives a structured clone into IndexedDB and reads back as
+ * "present" to anything doing a key check — an unlinked day must carry no
+ * link key at all, exactly like every bundle written before this field
+ * existed.
+ */
+function withOptional<T extends object, K extends string, V>(target: T, key: K, value: V | undefined): T {
+  const next = { ...target } as Record<string, unknown>
+  if (value === undefined) delete next[key]
+  else next[key] = value
+  return next as T
 }
 
 /**
@@ -42,12 +64,21 @@ export function applyDayStructure(bundle: TripBundle, slots: readonly DayStructu
 
   const dated = bundle.calendar.startDate !== null
   const startDate = bundle.calendar.startDate
+  // Étapes liées: a link is only ever legal between two consecutive RIDE
+  // slots, so a flag that a reorder/removal left dangling (first position,
+  // or preceded by an OFF/transfer) is simply dropped here rather than
+  // written out for the validator to reject. `calendarDayOffsets` then
+  // turns the sanitized flags into each day's own civil-day offset — the
+  // plain `index` arithmetic this used to do, whenever nothing is linked.
+  const linkedFlags = slots.map((slot, index) => slot.kind === 'ride' && slot.sameCalendarDayAsPrevious === true && slots[index - 1]?.kind === 'ride')
+  const offsets = calendarDayOffsets(linkedFlags.map((linked) => ({ sameCalendarDayAsPrevious: linked })))
   const newDays: TripDay[] = []
+  const stagePatches = new Map<string, string | undefined>()
   let rideCursor = 0
 
   slots.forEach((slot, index) => {
     const displayNumber = index + 1
-    const date = dated && startDate !== null ? asIsoDate(addCivilDays(startDate, index)) : null
+    const date = dated && startDate !== null ? asIsoDate(addCivilDays(startDate, offsets[index] ?? index)) : null
 
     if (slot.kind === 'ride') {
       const original = bundle.days[rideCursor]
@@ -55,7 +86,11 @@ export function applyDayStructure(bundle: TripBundle, slots: readonly DayStructu
         throw new DayStructureError('Étape roulée manquante lors de la reconstruction de la structure.')
       }
       rideCursor++
-      newDays.push({ ...original, index, displayNumber, date })
+      if (original.stageId !== null) {
+        const trimmed = slot.customName?.trim() ?? ''
+        stagePatches.set(original.stageId, trimmed === '' ? undefined : trimmed)
+      }
+      newDays.push(withOptional({ ...original, index, displayNumber, date }, 'sameCalendarDayAsPrevious', linkedFlags[index] === true ? true : undefined))
       return
     }
 
@@ -105,12 +140,23 @@ export function applyDayStructure(bundle: TripBundle, slots: readonly DayStructu
     })
   })
 
-  const endDate = dated && startDate !== null && newDays.length > 0 ? asIsoDate(addCivilDays(startDate, newDays.length - 1)) : null
+  const endDate = dated && startDate !== null && newDays.length > 0
+    ? asIsoDate(addCivilDays(startDate, offsets[newDays.length - 1] ?? newDays.length - 1))
+    : null
   const newDayIds = new Set(newDays.map((day) => day.id))
+  // `customName` is the only stage field this structural pass owns — it is
+  // carried on the slot (the editor/wizard row the user typed it into), not
+  // derived from the GPX, so it has to be written back onto the rebuilt
+  // stage here. Every other stage field stays exactly as the analysis
+  // pipeline produced it.
+  const stages: readonly RideStage[] = stagePatches.size === 0
+    ? bundle.stages
+    : bundle.stages.map((stage) => (stagePatches.has(stage.id) ? withOptional(stage, 'customName', stagePatches.get(stage.id)) : stage))
 
   return {
     ...bundle,
     days: newDays,
+    stages,
     calendar: { ...bundle.calendar, endDate },
     metadata: { ...bundle.metadata, endDate },
     settings: { ...bundle.settings, days: bundle.settings.days.filter((entry) => newDayIds.has(entry.dayId)) },

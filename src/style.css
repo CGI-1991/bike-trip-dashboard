@@ -3182,11 +3182,10 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .day-detail__stats dt { color: var(--ink-soft); font-size: .72rem; }
 .day-detail__stats dd { margin-top: 2px; font-weight: 800; }
 /*
- * CDC D1.2 section 11: the Départ stat's own `<dd>` IS the editing surface
- * — no separate trigger/panel below any more. `.day-detail__departure-value`
- * covers both states (the plain display `<button>` and the `<input
- * type="time">` that replaces it in place) so neither ever visually jumps
- * within the stat tile.
+ * The Départ stat's own `<dd>` carries exactly one control: the value
+ * itself, which opens the small edit window (`time-edit-dialog.ts`). It no
+ * longer doubles as an in-place input, so the tile never changes shape
+ * while an edit is in progress.
  */
 /* R2.1 sections 2/13-14: a sober, always-on affordance — a visible border +
  * very light tint at rest (not only on hover, which touch devices never
@@ -3195,7 +3194,9 @@ button:disabled { cursor: not-allowed; opacity: .55; }
  * `.day-detail__climb-card` below) — never a big primary button. */
 .day-detail__departure-value { min-height: auto; padding: 1px 4px; color: inherit; background: var(--forest-50); border: 1px solid var(--line-strong); border-radius: 4px; font: inherit; font-weight: 800; }
 .day-detail__departure-value:hover, .day-detail__departure-value:focus-visible { border-color: var(--forest-700); }
-.day-detail__departure-input { padding: 0 4px; }
+/* One quiet line reporting an automatic schedule adjustment inside a group
+   of stages ridden the same day — informational, never an action. */
+.day-detail__schedule-notice { margin: 6px 0 0; color: var(--ink-soft); font-size: .78rem; }
 .day-detail__pauses { display: grid; gap: 10px; }
 
 /*
@@ -3428,6 +3429,27 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .discard-changes-dialog__actions { display: flex; flex-direction: column; gap: 8px; }
 
 /*
+ * The small "modifier l'heure" window — same modal shell as the discard
+ * prompt above (one visual language for every little dialog this app
+ * opens), plus room for a conflict message and the one-click compatible
+ * time it offers.
+ */
+.time-edit-dialog {
+  max-width: min(360px, calc(100vw - 32px));
+  padding: 20px;
+  border: none;
+  border-radius: 14px;
+  background: var(--surface, #fff);
+  color: inherit;
+}
+.time-edit-dialog::backdrop { background: rgb(0 0 0 / .45); }
+.time-edit-dialog h2 { margin: 0 0 12px; font-size: 1.05rem; }
+.time-edit-dialog .field { margin-bottom: 12px; }
+.time-edit-dialog__error { margin: 0 0 8px; color: var(--danger-text); font-size: .82rem; }
+.time-edit-dialog__suggestion { margin-bottom: 12px; }
+.time-edit-dialog__actions { display: flex; flex-direction: column; gap: 8px; }
+
+/*
  * DER-DES-DER section 75 — a transfer endpoint the trip's own chronology
  * already fixes: shown as a value with a short hint, never as an input.
  */
@@ -3483,11 +3505,17 @@ button:disabled { cursor: not-allowed; opacity: .55; }
  * right, single line with ellipsis rather than wrapping into the sticky
  * header's own height.
  */
-.day-detail__sticky-identity { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px; padding: 6px 10px; overflow: hidden; }
-.day-detail__identity-number { min-width: 0; display: grid; justify-items: center; gap: 2px; }
+.day-detail__sticky-identity { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 2px 10px; padding: 6px 10px; overflow: hidden; }
+/* `1 / -1` spans whatever rows exist: one when the stage has no custom name
+   (the historical single-line bandeau), two when a custom name pushes the
+   départ → arrivée label down into its own subtitle row. */
+.day-detail__identity-number { min-width: 0; grid-row: 1 / -1; display: grid; justify-items: center; gap: 2px; }
 .day-detail__identity-number strong { width: 40px; height: 36px; display: grid; place-items: center; color: #fff; background: var(--forest-800); border-radius: 8px; font-size: .8rem; font-variant-numeric: tabular-nums; }
 .day-detail__identity-number time { color: var(--ink-soft); font-size: .62rem; white-space: nowrap; }
 .day-detail__identity-route { min-width: 0; overflow: hidden; color: var(--ink); font-size: 1.05rem; font-weight: 800; line-height: 1.25; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+/* Only rendered when the stage carries a custom name: the départ → arrivée
+   trajet, demoted under it. Same column as the title, never a third one. */
+.day-detail__identity-subtitle { min-width: 0; grid-column: 2; overflow: hidden; color: var(--ink-soft); font-size: .78rem; line-height: 1.2; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 .day-detail__stats-card, .day-detail__map-profile-card { display: grid; gap: 10px; }
 /* Base tabbar look — shared by the ride shell's Détails card AND the
  * OFF/transfer shell (which keeps its tabs inside the top sticky header,

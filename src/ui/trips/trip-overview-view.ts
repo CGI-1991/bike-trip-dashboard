@@ -9,6 +9,7 @@
 
 import { computeStageWaypoints, resolveStagePauseSettings } from '../../analysis/waypoint-timeline.ts'
 import { resolveEffectiveMountainMode } from '../../analysis/terrain-context.ts'
+import { selectRaceMode } from '../../trip-core/index.ts'
 import { stageAutomaticPausesAllowed } from '../../route-enrichment/enrichment-jobs.ts'
 import type { LatLngTuple } from '../route-map-model.ts'
 import { routeGeometry } from '../../route-enrichment/route-fingerprint.ts'
@@ -220,7 +221,7 @@ export function buildTripOverview(bundle: TripBundle, now: Date | string | null)
     const daySettings = bundle.settings.days.find((candidate) => candidate.dayId === stage.dayId)
     const settings = { referenceSpeedKph: bundle.settings.global.referenceSpeedKph, departureTime: daySettings?.departureTime ?? '08:00' }
     const stageSettings = bundle.settings.stages.find((candidate) => candidate.stageId === stage.id)
-    const pauseResolution = resolveStagePauseSettings(bundle.settings.global.pausePlanMode, stageSettings)
+    const pauseResolution = resolveStagePauseSettings(bundle.settings.global.pausePlanMode, stageSettings, selectRaceMode(bundle))
     const waypoints = computeStageWaypoints({
       stage, route: route as NonNullable<typeof route>, routePoints: bundle.routePoints, climbs: bundle.climbs, settings,
       manualPauses: pauseResolution.mode === 'custom' ? pauseResolution.manualPauses : undefined,
