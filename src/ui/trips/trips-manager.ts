@@ -52,7 +52,7 @@ import { createEditGuard } from './edit-guard.ts'
 import { openTimeEditDialog } from './time-edit-dialog.ts'
 import type { ChooseOptionRequest, ChooseOptionResult } from './choose-option-dialog.ts'
 import type { TimeEditDialogRequest, TimeEditDialogResult } from './time-edit-dialog.ts'
-import { dayDepartureTime, earliestCompatibleDeparture, groupDayIdsFor, resolveLinkedScheduleConflicts } from '../../trips-manager/linked-stages.ts'
+import { dayDepartureTime, earliestCompatibleDeparture, formatDayMinutes, groupDayIdsFor, previousLinkedArrivalMinutes, resolveLinkedScheduleConflicts } from '../../trips-manager/linked-stages.ts'
 import type { EditContext, EditGuardDecision } from './edit-guard.ts'
 import { defaultConfirmDiscardChanges } from './confirm-discard-changes.ts'
 
@@ -826,11 +826,20 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       hint: previousDay === undefined ? null : `Étape liée : elle suit J${previousDay.displayNumber} le même jour.`,
       validate: (value) => {
         const earliest = earliestCompatibleDeparture(bundle, dayId)
-        if (earliest === null || value >= earliest) return { ok: true }
         // `earliest` is already the first quarter-hour at or after the
-        // previous ETA, so a plain string comparison of two `HH:MM` values
-        // is exact here.
-        return { ok: false, message: `Cette étape ne peut pas partir avant l’arrivée de l’étape précédente.`, suggestion: earliest }
+        // previous ETA, and both values are zero-padded `HH:MM`, so a plain
+        // string comparison is exact here.
+        if (earliest === null || value >= earliest) return { ok: true }
+        const previousArrival = previousLinkedArrivalMinutes(bundle, dayId)
+        const arrivalLabel = previousArrival === null ? null : formatDayMinutes(previousArrival)
+        const previousLabel = previousDay === undefined ? 'l’étape précédente' : `J${previousDay.displayNumber}`
+        return {
+          ok: false,
+          message: arrivalLabel === null
+            ? `Cette étape ne peut pas partir avant l’arrivée de ${previousLabel}.`
+            : `${previousLabel} n’arrive qu’à ${arrivalLabel} : cette étape ne peut pas partir avant.`,
+          suggestion: earliest,
+        }
       },
     })
     if (chosen === null) return

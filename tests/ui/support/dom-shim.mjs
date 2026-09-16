@@ -23,19 +23,25 @@ if (globalThis.CSS === undefined) {
   globalThis.CSS = { escape: (value) => String(value).replaceAll(/([^a-zA-Z0-9_-])/g, '\\$1') }
 }
 
-// `src/ui/trips/trip-editor.ts::escapeHtml` builds a real `<span>` and reads
-// `.innerHTML` back off its own `.textContent` assignment — the one render
-// helper in `tests/ui/*` that needs an actual (if tiny) `document`, unlike
-// every other UI module's manual string-replace `escapeHtml`. A minimal
-// stand-in, scoped to exactly that one use, not a general `document` shim.
+// Two modules under test build a real element rather than a string:
+// `src/ui/trips/trip-editor.ts::escapeHtml` uses a `<span>` and reads
+// `.innerHTML` back off its own `.textContent`, and
+// `trips-manager.ts::reportScheduleResolution` appends a `<p>` status line.
+// A minimal stand-in for exactly those two, not a general `document` shim.
 if (globalThis.document === undefined) {
+  const SUPPORTED_TAGS = new Set(['span', 'p'])
   globalThis.document = {
     createElement(tagName) {
-      if (tagName !== 'span') throw new Error(`dom-shim: document.createElement('${tagName}') is not supported — only 'span' (escapeHtml) is stubbed`)
+      if (!SUPPORTED_TAGS.has(tagName)) throw new Error(`dom-shim: document.createElement('${tagName}') is not supported — only ${[...SUPPORTED_TAGS].join('/')} are stubbed`)
       let text = ''
+      const attributes = new Map()
       return {
+        className: '',
         set textContent(value) { text = value },
         get textContent() { return text },
+        setAttribute(name, value) { attributes.set(name, value) },
+        getAttribute(name) { return attributes.get(name) ?? null },
+        remove() {},
         get innerHTML() {
           return text
             .replaceAll('&', '&amp;')

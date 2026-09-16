@@ -95,8 +95,6 @@ export function createTripEditor(
   /** DER-DES-DER sections 34-36 — in-flight guard + the short confirmation feedback for "Recalculer les données du parcours". */
   let recalculating = false
   let recalculationMessage: string | null = null
-  /** Reported after a save that had to move a departure time inside a group of same-day stages — informational, never silent. */
-  let scheduleMessage: string | null = null
   /**
    * D3.1 sections 1/3-4/17: "Informations" (name/date/speed/terrain) is a
    * genuinely separate category from "Structure" (the GPX/OFF/transfer list
@@ -135,14 +133,22 @@ export function createTripEditor(
   /** Kept only to preview the auto-filled OFF/transfer location (CDC Jalon B4.3 sections 13-14) for slots that already existed before this editing session — a brand-new slot has no neighbouring stage data to preview from yet (it is only produced once this edit is saved and re-analysed). */
   let originalBundle: TripBundle | null = null
 
-  function formatScheduleMessage(
+  /**
+   * "Informer brièvement l'utilisateur si des horaires ont été ajustés" —
+   * said BEFORE leaving the editor, because the save immediately navigates
+   * away and a message rendered here would never be read. One modal, one
+   * "Continuer": informational, never a question.
+   */
+  async function reportScheduleChanges(
     adjustments: readonly { readonly displayNumber: number; readonly from: string; readonly to: string }[],
     overflows: readonly { readonly displayNumber: number }[],
-  ): string | null {
+  ): Promise<void> {
     const parts: string[] = []
     if (adjustments.length > 0) parts.push(`Horaires ajustés : ${adjustments.map((entry) => `J${entry.displayNumber} ${entry.from} → ${entry.to}`).join(', ')}.`)
     if (overflows.length > 0) parts.push(`${overflows.map((entry) => `J${entry.displayNumber}`).join(', ')} dépasse minuit : ces étapes ne tiennent plus dans une même journée.`)
-    return parts.length === 0 ? null : parts.join(' ')
+    if (parts.length === 0) return
+    const notify = deps.chooseOption ?? openChooseOptionDialog
+    await notify({ title: 'Horaires des étapes liées', message: parts.join(' '), options: [{ value: 'ok', label: 'Continuer' }] })
   }
 
   function rideItems(): readonly Extract<EditorItem, { readonly kind: 'ride' }>[] {
@@ -430,7 +436,10 @@ export function createTripEditor(
     errorMessage = null
     fieldErrors = []
     render()
-    const result = await updateTripPreferences({ database: deps.database, tripId, update: currentPreferencesUpdate(), now: deps.now })
+    // `idFactory` matters only for a climb-sensitivity change, which mints
+    // brand-new `Climb` ids — passed through so they come from the app's own
+    // source rather than the module's fallback counter.
+    const result = await updateTripPreferences({ database: deps.database, tripId, update: currentPreferencesUpdate(), now: deps.now, idFactory: deps.idFactory })
     if (result.ok) {
       onSaved(result.bundle)
       return
@@ -488,7 +497,7 @@ export function createTripEditor(
       patched = applyRaceMode(patched, raceMode)
       patched = applyClimbDetectionSensitivity(patched, climbSensitivity, deps.idFactory)
       await tripRepository.saveTripBundle(patched)
-      scheduleMessage = formatScheduleMessage(result.scheduleAdjustments, result.scheduleOverflows)
+      await reportScheduleChanges(result.scheduleAdjustments, result.scheduleOverflows)
       onSaved(patched)
       return
     }
@@ -765,7 +774,6 @@ export function createTripEditor(
         ${renderRecalculationAction()}
       </details>
       ${errorMessage === null ? '' : `<p class='wizard-error' role='alert'>${escapeHtml(errorMessage)}</p>`}
-      ${scheduleMessage === null ? '' : `<p class='field__hint' role='status' data-editor-schedule-notice>${escapeHtml(scheduleMessage)}</p>`}
       ${stage === 'saving' ? `<p role='status'>${escapeHtml(savingMessage)}</p>` : ''}
       <footer class='wizard-actions'><button class='button button--primary' type='button' data-editor-action='save' ${canSave() ? '' : 'disabled'}>Enregistrer les modifications</button><button class='button button--quiet' type='button' data-editor-action='cancel' ${stage === 'saving' ? 'disabled' : ''}>Annuler</button></footer>
       ${validationMessage === null ? '' : `<p class='wizard-validation-reasons'>${escapeHtml(validationMessage)}</p>`}

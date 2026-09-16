@@ -1,3 +1,5 @@
+import '../ui/support/dom-shim.mjs'
+
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
@@ -17,7 +19,10 @@ import {
   resolveLinkedScheduleConflicts,
   withDayDepartureTime,
 } from '../../src/trips-manager/linked-stages.ts'
-import { computeRideArrivalEta } from '../../src/trips-manager/trip-day-temporal-state.ts'
+import { computeRideArrivalEta, deriveTripTemporalState } from '../../src/trips-manager/trip-day-temporal-state.ts'
+import { renderTripDetail } from '../../src/ui/trips/trip-detail-view.ts'
+import { buildTripOverview } from '../../src/ui/trips/trip-overview-view.ts'
+import { buildDayDetail } from '../../src/ui/trips/day-detail-view.ts'
 import { validateTripBundle } from '../../src/trip-core/index.ts'
 import { resolveSharedInfoDayId } from '../../src/analysis/day-location-fill.ts'
 import { createLinkedTripBundle, withLodging } from './support/linked-trip-fixture.mjs'
@@ -237,4 +242,41 @@ test('splitting a group leaves BOTH sub-groups with the lodging, as independent 
   const copy = consolidated.accommodations.find((entry) => entry.id === 'lodging-copy')
   assert.equal(copy.name, 'Gîte A', 'same content, its own identity — edits diverge from here on')
   assert.equal(validateTripBundle(consolidated).ok, true)
+})
+
+// --- the views, with two stages on one date ---------------------------------
+
+test('progression: once the first stage of a group has arrived, the SAME date\u2019s second stage becomes the current one', () => {
+  const bundle = withDayDepartureTime(createLinkedTripBundle({ rideCount: 3, links: [1] }), 'day-1', '14:00')
+  const firstArrival = arrivalMinutes(bundle, 'day-0')
+  const justAfter = `2028-06-01T${formatDayMinutes(Math.ceil(firstArrival) + 5)}:00+02:00`
+
+  const temporal = deriveTripTemporalState(bundle, justAfter)
+  assert.equal(temporal.days.find((entry) => entry.dayId === 'day-0').completed, true)
+  assert.equal(temporal.priorityDayId, 'day-1', 'the next stage of the same day is what comes next')
+  assert.equal(temporal.days.find((entry) => entry.dayId === 'day-1').current, true)
+  assert.equal(temporal.days.find((entry) => entry.dayId === 'day-2').upcoming, true)
+})
+
+test('Voyage: two stages of one group show the same date, each with its own card and its own ETA', () => {
+  const bundle = createLinkedTripBundle({ rideCount: 3, links: [1] })
+  const html = renderTripDetail(bundle, { now: '2028-06-01' })
+  const dates = [...html.matchAll(/<time datetime="([^"]+)">/g)].map((match) => match[1])
+  assert.deepEqual(dates, ['2028-06-01', '2028-06-01', '2028-06-02'])
+  assert.equal((html.match(/data-action="open-day-detail"/g) ?? []).length, 3, 'each stage keeps its own card')
+})
+
+test('D\u00e9tail: each stage of a group keeps its own screen, statistics and GPX', () => {
+  const bundle = createLinkedTripBundle({ rideCount: 2, links: [1] })
+  const first = buildDayDetail(bundle, 'day-0')
+  const second = buildDayDetail(bundle, 'day-1')
+  assert.notEqual(first.sourceFileId, second.sourceFileId, 'the GPX files are never merged')
+  assert.notEqual(first.stageLabel, second.stageLabel)
+  assert.ok(first.waypoints.length > 0 && second.waypoints.length > 0)
+})
+
+test('Aper\u00e7u renders a trip holding a group without complaint', () => {
+  const overview = buildTripOverview(createLinkedTripBundle({ rideCount: 3, links: [1] }), '2028-06-01')
+  assert.equal(overview.mapStages.length, 3)
+  assert.match(overview.html, /trip-overview__progress/)
 })

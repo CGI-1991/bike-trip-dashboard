@@ -7,6 +7,9 @@ import test from 'node:test'
 import { createTripRepository } from '../../src/storage/indexeddb/trip-repository.ts'
 import { openTestDatabase } from '../storage/indexeddb/support/open-test-database.mjs'
 import { createGenericTripBundle } from '../trip-core/support/generic-trip-fixture.mjs'
+import { createLinkedTripBundle, withDayDepartureTime } from './support/linked-departure-fixture.mjs'
+import { ceilToQuarterHour, formatDayMinutes } from '../../src/trips-manager/linked-stages.ts'
+import { computeRideArrivalEta } from '../../src/trips-manager/trip-day-temporal-state.ts'
 import { initializeTripsManager } from '../../src/ui/trips/trips-manager.ts'
 import { buildDayDetail } from '../../src/ui/trips/day-detail-view.ts'
 
@@ -237,6 +240,108 @@ test('an unlinked day never gets a conflict check — any well-formed time valid
     await flush()
     assert.deepEqual(dialog.calls[0].validations[0].validation, { ok: true })
     assert.equal(dialog.calls[0].request.hint, null)
+  } finally {
+    db.close()
+  }
+})
+
+// --- a stage linked onto the same day as the previous one --------------------
+
+async function openLinkedSecondStage(db) {
+  const bundle = createLinkedTripBundle({ rideCount: 2, links: [1] })
+  await createTripRepository(db).saveTripBundle(bundle)
+  const container = createFakeContainer()
+  container.register('[data-day-detail-stats-card]', new FakeElement())
+  const dialog = scriptedDialog()
+  initializeTripsManager(container, noopDeps(db, { openTimeEditDialog: dialog.open }))
+  await flush()
+  container.dispatch('click', { target: fakeActionElement({ action: 'open-trip', tripId: bundle.metadata.id }) })
+  await flush()
+  container.dispatch('click', { target: fakeActionElement({ action: 'open-day-detail', dayId: 'day-1' }) })
+  await flush()
+  const firstArrival = computeRideArrivalEta(bundle, bundle.days[0]).minutesFromDayStart
+  return { bundle, container, dialog, firstArrival }
+}
+
+test('the window explains the link and offers the first compatible time', async () => {
+  const db = await openTestDatabase()
+  try {
+    const { dialog, container, firstArrival } = await openLinkedSecondStage(db)
+    dialog.answerWith(null)
+    container.dispatch('click', { target: fakeActionElement({ action: 'edit-day-departure-time' }) })
+    await flush()
+    assert.match(dialog.calls[0].request.hint, /\u00c9tape li\u00e9e/)
+    const earliest = formatDayMinutes(ceilToQuarterHour(firstArrival))
+    assert.deepEqual(dialog.calls[0].request.validate(earliest), { ok: true })
+  } finally {
+    db.close()
+  }
+})
+
+test('an incompatible entry is reported in the window and never saved as something else', async () => {
+  const db = await openTestDatabase()
+  try {
+    const { bundle, container, dialog, firstArrival } = await openLinkedSecondStage(db)
+    const tooEarly = formatDayMinutes(Math.floor(firstArrival) - 30)
+    dialog.answerWith(tooEarly)
+    container.dispatch('click', { target: fakeActionElement({ action: 'edit-day-departure-time' }) })
+    await flush()
+
+    const { validation } = dialog.calls[0].validations[0]
+    assert.equal(validation.ok, false)
+    assert.equal(validation.suggestion, formatDayMinutes(ceilToQuarterHour(firstArrival)))
+    assert.match(validation.message, /ne peut pas partir avant/)
+
+    const stored = await createTripRepository(db).loadTripBundle(bundle.metadata.id)
+    assert.equal(stored.settings.days.find((entry) => entry.dayId === 'day-1').departureTime, '08:00', 'nothing at all was written')
+  } finally {
+    db.close()
+  }
+})
+
+test('validating a compatible time saves it, and a later stage in conflict is realigned and reported', async () => {
+  const db = await openTestDatabase()
+  try {
+    const { bundle, container, dialog, firstArrival } = await openLinkedSecondStage(db)
+    const compatible = formatDayMinutes(ceilToQuarterHour(firstArrival) + 30)
+    dialog.answerWith(compatible)
+    container.dispatch('click', { target: fakeActionElement({ action: 'edit-day-departure-time' }) })
+    await flush()
+
+    const stored = await createTripRepository(db).loadTripBundle(bundle.metadata.id)
+    assert.equal(stored.settings.days.find((entry) => entry.dayId === 'day-1').departureTime, compatible)
+  } finally {
+    db.close()
+  }
+})
+
+test('moving the FIRST stage later drags the linked stage only as far as the conflict requires', async () => {
+  const db = await openTestDatabase()
+  try {
+    const bundle = withDayDepartureTime(createLinkedTripBundle({ rideCount: 2, links: [1] }), 'day-1', '12:00')
+    await createTripRepository(db).saveTripBundle(bundle)
+    const container = createFakeContainer()
+    container.register('[data-day-detail-stats-card]', new FakeElement())
+    const dialog = scriptedDialog()
+    initializeTripsManager(container, noopDeps(db, { openTimeEditDialog: dialog.open }))
+    await flush()
+    container.dispatch('click', { target: fakeActionElement({ action: 'open-trip', tripId: bundle.metadata.id }) })
+    await flush()
+    container.dispatch('click', { target: fakeActionElement({ action: 'open-day-detail', dayId: 'day-0' }) })
+    await flush()
+
+    dialog.answerWith('11:00')
+    container.dispatch('click', { target: fakeActionElement({ action: 'edit-day-departure-time' }) })
+    await flush()
+
+    const stored = await createTripRepository(db).loadTripBundle(bundle.metadata.id)
+    assert.equal(stored.settings.days.find((entry) => entry.dayId === 'day-0').departureTime, '11:00')
+    const newArrival = computeRideArrivalEta(stored, stored.days[0]).minutesFromDayStart
+    assert.equal(
+      stored.settings.days.find((entry) => entry.dayId === 'day-1').departureTime,
+      formatDayMinutes(ceilToQuarterHour(newArrival)),
+      'the linked stage moves to the first quarter-hour at or after the new ETA — never a restored hour of slack',
+    )
   } finally {
     db.close()
   }
