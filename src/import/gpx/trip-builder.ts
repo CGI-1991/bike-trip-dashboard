@@ -86,7 +86,6 @@ export function assembleTripBundle(input: TripBuilderInput): TripBundle {
       global: {
         referenceSpeedKph: options.referenceSpeedKph,
         pausePlanMode: 'automatic',
-        mountainMode: options.mountainMode,
         climbDetectionSensitivity: options.climbDetectionSensitivity,
       },
       days: dayTripDaySettings,

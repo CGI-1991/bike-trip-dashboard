@@ -18,7 +18,7 @@
  */
 
 import { deriveTripTemporalState } from '../../trips-manager/trip-day-temporal-state.ts'
-import { calendarDaySpan } from '../../trip-core/index.ts'
+import { calendarDaySpan, selectTripDayNumber } from '../../trip-core/index.ts'
 import { formatShortDate } from '../date-format.ts'
 import type { TripBundle, TripDay, TripDayType } from '../../trip-core/index.ts'
 
@@ -81,13 +81,18 @@ function tripSubtitle(bundle: TripBundle, now: Date | string | null): string | n
   const temporal = deriveTripTemporalState(bundle, now)
   const priorityDay = temporal.priorityDayId === null ? undefined : bundle.days.find((day) => day.id === temporal.priorityDayId)
   if (priorityDay === undefined) return null
-  const remaining = bundle.days.length - priorityDay.displayNumber
+  // "Jx sur n" counts CALENDAR days on both sides: the day of the trip this
+  // one falls on, and how many days the trip spans. Two stages ridden on one
+  // date are one day here, not two.
+  const dayCount = calendarDaySpan(bundle.days)
+  const dayNumber = selectTripDayNumber(bundle, priorityDay.id)
+  const remaining = dayCount - dayNumber
   const remainingLabel = remaining <= 0 ? 'Dernier jour' : pluralize(remaining, 'jour') + ' à venir'
-  return `J${priorityDay.displayNumber} sur ${bundle.days.length} · ${remainingLabel}`
+  return `J${dayNumber} sur ${dayCount} · ${remainingLabel}`
 }
 
 function daySubtitle(bundle: TripBundle, day: TripDay): string {
-  return `J${day.displayNumber} sur ${bundle.days.length} · ${DAY_TYPE_LABELS[day.type]}`
+  return `J${selectTripDayNumber(bundle, day.id)} sur ${calendarDaySpan(bundle.days)} · ${DAY_TYPE_LABELS[day.type]}`
 }
 
 export type GenericAppHeaderContext =

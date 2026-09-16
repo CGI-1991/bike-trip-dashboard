@@ -118,6 +118,22 @@ export function addCivilDays(isoDate: string, dayOffset: number): string {
   return date.toISOString().slice(0, 10)
 }
 
+/**
+ * Whole civil days from `fromIsoDate` to `toIsoDate` (`YYYY-MM-DD`), the
+ * exact inverse of `addCivilDays` and anchored in UTC for the same reason:
+ * the result never depends on the host timezone or on a DST transition
+ * between the two dates. Returns `null` when either value is not a valid
+ * ISO date, so callers can fall back rather than propagate a NaN.
+ */
+export function civilDaysBetween(fromIsoDate: string, toIsoDate: string): number | null {
+  const from = ISO_DATE_PATTERN.exec(fromIsoDate)
+  const to = ISO_DATE_PATTERN.exec(toIsoDate)
+  if (from === null || to === null) return null
+  const fromUtc = Date.UTC(Number(from[1]), Number(from[2]) - 1, Number(from[3]))
+  const toUtc = Date.UTC(Number(to[1]), Number(to[2]) - 1, Number(to[3]))
+  return Math.round((toUtc - fromUtc) / 86_400_000)
+}
+
 /** Best-effort IANA timezone check — skipped (never fails) where the runtime lacks the data. */
 export function isKnownIanaTimezone(value: string): boolean {
   try {

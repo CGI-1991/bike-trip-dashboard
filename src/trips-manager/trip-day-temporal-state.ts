@@ -1,6 +1,5 @@
 import { computeStageWaypoints, resolveStagePauseSettings } from '../analysis/waypoint-timeline.ts'
 import { parseClockToMinutes } from '../analysis/timing.ts'
-import { resolveEffectiveMountainMode } from '../analysis/terrain-context.ts'
 import { selectRaceMode } from '../trip-core/selectors/trip-selectors.ts'
 import { stageAutomaticPausesAllowed } from '../route-enrichment/enrichment-jobs.ts'
 import { routeGeometry } from '../route-enrichment/route-fingerprint.ts'
@@ -88,7 +87,6 @@ export function computeRideArrivalEta(bundle: TripBundle, day: TripDay): RideArr
     climbs: bundle.climbs,
     settings: { referenceSpeedKph: bundle.settings.global.referenceSpeedKph, departureTime },
     manualPauses: pauseResolution.mode === 'custom' ? pauseResolution.manualPauses : undefined,
-    mountainMode: resolveEffectiveMountainMode(bundle),
     // An incomplete stage has no automatic pause plan, so its ETA is its
     // moving time — honest, and it stops being wrong once enrichment lands.
     automaticPausesAllowed: stageAutomaticPausesAllowed(bundle, stage.id),

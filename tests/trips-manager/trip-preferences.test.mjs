@@ -73,7 +73,6 @@ test('tripPreferencesUpdateIsNoop: false as soon as any single field genuinely d
   assert.equal(tripPreferencesUpdateIsNoop(bundle, { name: `${bundle.metadata.name} bis` }), false)
   assert.equal(tripPreferencesUpdateIsNoop(bundle, { startDate: '2028-01-01' }), false)
   assert.equal(tripPreferencesUpdateIsNoop(bundle, { referenceSpeedKph: bundle.settings.global.referenceSpeedKph + 1 }), false)
-  assert.equal(tripPreferencesUpdateIsNoop(bundle, { terrainOverride: true }), false)
 })
 
 test('tripPreferencesUpdateIsNoop treats a name that only differs by surrounding whitespace as a no-op (trimmed comparison)', () => {
@@ -137,14 +136,6 @@ test('applyTripPreferences: name is trimmed, Unicode preserved, and applied with
   assert.deepEqual(next.days, bundle.days)
   assert.deepEqual(next.stages, bundle.stages)
   assert.equal(next.metadata.updatedAt, '2028-01-01T00:00:00.000Z')
-})
-
-test('applyTripPreferences: terrainOverride true/false sets settings.global.mountainMode, null clears it back to undefined (automatic)', () => {
-  const bundle = createGenericTripBundle({ dated: true })
-  assert.equal(applyTripPreferences(bundle, { terrainOverride: true }, 't').settings.global.mountainMode, true)
-  assert.equal(applyTripPreferences(bundle, { terrainOverride: false }, 't').settings.global.mountainMode, false)
-  const forced = applyTripPreferences(bundle, { terrainOverride: true }, 't')
-  assert.equal(applyTripPreferences(forced, { terrainOverride: null }, 't2').settings.global.mountainMode, undefined)
 })
 
 test('applyTripPreferences: combining name + startDate + referenceSpeedKph applies all three in one pass', () => {
@@ -368,16 +359,3 @@ test('updateTripPreferences: a referenceSpeedKph save recomputes timing locally 
   }
 })
 
-test('updateTripPreferences: a terrainOverride save round-trips through storage and back', async () => {
-  const bundle = createGenericTripBundle({ dated: true })
-  const database = await seededDatabase(bundle)
-  try {
-    const result = await updateTripPreferences({ database, tripId: bundle.metadata.id, update: { terrainOverride: true }, now: () => '2028-01-01T00:00:00.000Z' })
-    assert.equal(result.ok, true)
-    assert.equal(result.bundle.settings.global.mountainMode, true)
-    const reloaded = await createTripRepository(database).loadTripBundle(bundle.metadata.id)
-    assert.equal(reloaded.settings.global.mountainMode, true)
-  } finally {
-    database.close()
-  }
-})

@@ -118,7 +118,6 @@ function resolveOptions(raw: GpxTripImportOptions): { readonly options: Resolved
       referenceSpeedKph,
       departureTime,
       totalBreakMinutes,
-      mountainMode: raw.mountainMode ?? false,
       climbDetectionSensitivity: raw.climbDetectionSensitivity ?? DEFAULT_CLIMB_DETECTION_SENSITIVITY,
       importedAt: raw.importedAt,
       engineVersion: raw.engineVersion,

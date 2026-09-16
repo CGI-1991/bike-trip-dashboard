@@ -41,7 +41,6 @@ import {
 } from './import-wizard-state.ts'
 import type { TransferTiming } from '../../trip-core/index.ts'
 import type { FileEntryId, StructureItem, WizardStage, WizardState } from './import-wizard-state.ts'
-import { renderTerrainToggle } from './terrain-toggle.ts'
 import { renderRaceModeToggle } from './race-mode-toggle.ts'
 import { climbSensitivityAtIndex, patchClimbSensitivityLabels, renderClimbSensitivitySlider } from './climb-sensitivity-slider.ts'
 
@@ -144,7 +143,6 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
         startDate: state.startDate,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         referenceSpeedKph: state.referenceSpeedKph,
-        mountainMode: state.mountainMode,
         climbDetectionSensitivity: state.climbSensitivity,
         totalBreakMinutes: 'adaptive',
         importedAt,
@@ -413,7 +411,6 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
         ${renderAlerts()}
         <details class="wizard-advanced"><summary>Réglages avancés</summary>
           ${renderRaceModeToggle(state.raceMode)}
-          ${renderTerrainToggle(state.mountainMode)}
           ${state.raceMode ? '' : '<p>Budget de pauses calculé automatiquement selon la distance, la durée et le D+ de chaque étape.</p>'}
           ${renderClimbSensitivitySlider(state.climbSensitivity)}
         </details>
@@ -513,7 +510,6 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
     else if (action === 'remove-structure-item' && position !== null) { removeStructureItem(state, position); render() }
     else if (action === 'link-stage' && position !== null) { setStructureLink(state, position, true); render() }
     else if (action === 'unlink-stage' && position !== null) { setStructureLink(state, position, false); render() }
-    else if (action === 'set-terrain-mode') { state.mountainMode = button.dataset.terrainMode === 'mountain'; render() }
     else if (action === 'set-race-mode') {
       const enabled = button.dataset.raceMode === 'on'
       // Nothing is saved yet at creation time, so there is nothing to

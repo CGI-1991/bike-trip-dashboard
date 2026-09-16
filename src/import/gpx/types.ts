@@ -33,8 +33,6 @@ export interface GpxTripImportOptions {
   readonly departureTime?: string
   /** A fixed budget in minutes, or `'adaptive'` for a per-stage estimate (CDC phase 6C1 section 22) — see `route-analysis.ts`. */
   readonly totalBreakMinutes?: number | 'adaptive'
-  /** Mode montagne (CDC Jalon B4.3 sections 19-20): a trip-level setting, set at creation and editable afterwards — never per-stage/per-day. Defaults to `false` (rolling/local trip) when omitted. */
-  readonly mountainMode?: boolean
   /** Climb-detection sensitivity for the whole trip — `'standard'` (the historical calibration) when omitted. */
   readonly climbDetectionSensitivity?: ClimbDetectionSensitivity
   readonly importedAt: string
@@ -53,7 +51,6 @@ export interface ResolvedGpxTripImportOptions {
   readonly referenceSpeedKph: number
   readonly departureTime: string
   readonly totalBreakMinutes: number | 'adaptive'
-  readonly mountainMode: boolean
   readonly climbDetectionSensitivity: ClimbDetectionSensitivity
   readonly importedAt: string
   readonly engineVersion: string

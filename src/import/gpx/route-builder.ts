@@ -55,6 +55,7 @@ function buildWaypointRoutePoint(
     // Not resolved to a position along the route in this phase — no
     // nearest-point matching is implemented here.
     trackDistanceKm: null,
+    ...(waypoint.markerType === null ? {} : { gpxMarkerType: waypoint.markerType }),
     provenance: gpxProvenance(sourceFileId, engineVersion),
   }
 }

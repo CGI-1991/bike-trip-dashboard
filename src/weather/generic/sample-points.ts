@@ -48,7 +48,6 @@ import { isSignificantWaypoint } from '../../analysis/canonical-waypoints.ts'
 import type { CanonicalWaypoint, CanonicalWaypointKind } from '../../analysis/canonical-waypoints.ts'
 import { resolveOffCoordinates, resolveOffLocation, resolveTransferCoordinates, resolveTransferLocations } from '../../analysis/day-location-fill.ts'
 import { parseClockToMinutes } from '../../analysis/timing.ts'
-import { resolveEffectiveMountainMode } from '../../analysis/terrain-context.ts'
 import { stageAutomaticPausesAllowed } from '../../route-enrichment/enrichment-jobs.ts'
 import { resolvePersistedAutomaticPausePlan } from '../../route-enrichment/automatic-pause-plan.ts'
 import { buildAutomaticPauseEnrichment, computeStageWaypoints, resolveStagePauseSettings } from '../../analysis/waypoint-timeline.ts'
@@ -154,7 +153,6 @@ export function buildRideDayWeatherDefinition(bundle: TripBundle, day: TripDay):
   const waypoints = computeStageWaypoints({
     stage, route, routePoints: bundle.routePoints, climbs: bundle.climbs, settings,
     manualPauses: pauseResolution.mode === 'custom' ? pauseResolution.manualPauses : persistedAutomaticPauses,
-    mountainMode: resolveEffectiveMountainMode(bundle),
     automaticPauseEnrichment: buildAutomaticPauseEnrichment(bundle, stage, day),
     automaticPausesAllowed: stageAutomaticPausesAllowed(bundle, stage.id),
   })

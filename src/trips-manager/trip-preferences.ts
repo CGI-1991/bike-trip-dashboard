@@ -33,8 +33,6 @@ export interface TripPreferencesUpdate {
   /** "YYYY-MM-DD" from a native `<input type="date">`. Absent leaves the calendar untouched; only meaningful for an already-dated trip (CDC section 6 — dating a still-undated trip is out of this milestone's scope). */
   readonly startDate?: string
   readonly referenceSpeedKph?: number
-  /** `undefined` — leave untouched. `null` — clear back to automatic (CDC section 15's "Automatique"). A `boolean` forces `settings.global.mountainMode` explicitly. */
-  readonly terrainOverride?: boolean | null
   /**
    * Mode "Course / Tour". Switching it ON strips every in-stage pause and
    * re-times each stage at a zero budget; switching it OFF re-estimates the
@@ -80,10 +78,6 @@ export function tripPreferencesUpdateIsNoop(bundle: TripBundle, update: TripPref
   if (update.name !== undefined && update.name.trim() !== bundle.metadata.name) return false
   if (update.startDate !== undefined && update.startDate !== bundle.calendar.startDate) return false
   if (update.referenceSpeedKph !== undefined && update.referenceSpeedKph !== bundle.settings.global.referenceSpeedKph) return false
-  if (update.terrainOverride !== undefined) {
-    const currentOverride = bundle.settings.global.mountainMode ?? null
-    if (update.terrainOverride !== currentOverride) return false
-  }
   if (update.raceMode !== undefined && update.raceMode !== (bundle.settings.global.raceMode === true)) return false
   if (update.climbDetectionSensitivity !== undefined && update.climbDetectionSensitivity !== resolveClimbDetectionSensitivity(bundle)) return false
   return true
@@ -207,11 +201,6 @@ export function applyTripPreferences(bundle: TripBundle, update: TripPreferences
 
   if (update.referenceSpeedKph !== undefined) {
     next = applyReferenceSpeed(next, update.referenceSpeedKph)
-  }
-
-  if (update.terrainOverride !== undefined) {
-    const mountainMode = update.terrainOverride === null ? undefined : update.terrainOverride
-    next = { ...next, settings: { ...next.settings, global: { ...next.settings.global, mountainMode } } }
   }
 
   // Course/Tour before the sensitivity: the former re-times every stage, the

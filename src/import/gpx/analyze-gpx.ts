@@ -33,6 +33,8 @@ export interface AnalyzedWaypoint {
   readonly latitude: number
   readonly longitude: number
   readonly elevationM: number | null
+  /** GPX `<type>`/`<sym>` — see `GpxXmlWaypoint.markerType`. */
+  readonly markerType: string | null
 }
 
 export interface RouteProfilePoint {
@@ -297,7 +299,7 @@ export function analyzeGpxDocument(document: GpxXmlDocument, fileName: string): 
   const waypoints: AnalyzedWaypoint[] = []
   document.waypoints.forEach((waypoint: GpxXmlWaypoint, waypointIndex) => {
     if (isValidCoordinatePoint(waypoint)) {
-      waypoints.push({ name: waypoint.name, description: waypoint.description, latitude: waypoint.latitude, longitude: waypoint.longitude, elevationM: waypoint.elevationM })
+      waypoints.push({ name: waypoint.name, description: waypoint.description, latitude: waypoint.latitude, longitude: waypoint.longitude, elevationM: waypoint.elevationM, markerType: waypoint.markerType })
     } else {
       issues.push(
         importIssue('invalid-coordinate', 'warning', `${fileName} : waypoint ${waypointIndex + 1} ignoré (coordonnée invalide).`, {

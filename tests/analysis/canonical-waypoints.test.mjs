@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { buildCanonicalWaypoints, canonicalWaypointPriority, classifyClimbImportance, isSignificantWaypoint } from '../../src/analysis/canonical-waypoints.ts'
+import { buildCanonicalWaypoints, canonicalWaypointPriority, isSignificantWaypoint } from '../../src/analysis/canonical-waypoints.ts'
 
 function baseGeometry() {
   return [
@@ -193,37 +193,6 @@ test('canonicalWaypointPriority orders start/end and mountain-pass ahead of the 
 
 // --- Mode montagne climb classification (CDC Jalon B4.2 section 15) --------
 
-test('classifyClimbImportance: an OSM-confirmed named climb is always principale, regardless of size or mode', () => {
-  const named = climb({ name: 'Col Confirmé', elevationGainM: 30, averageGradientPercent: 1, endDistanceKm: 0.6, provenance: { sourceType: 'osm', sourceId: 'x', fetchedAt: null, engineVersion: 'test', confidence: 'high', manuallyOverridden: false } })
-  assert.equal(classifyClimbImportance(named, false), 'major')
-  assert.equal(classifyClimbImportance(named, true), 'major')
-})
-
-test('classifyClimbImportance: mountain mode ON requires substantially more than mountain mode OFF for a generated (not OSM-named) climb', () => {
-  const modest = climb({ name: 'Montée 3', elevationGainM: 150, averageGradientPercent: 4, endDistanceKm: 2.5, provenance: { sourceType: 'generated', sourceId: null, fetchedAt: null, engineVersion: 'test', confidence: 'medium', manuallyOverridden: false } })
-  assert.equal(classifyClimbImportance(modest, false), 'major', 'permissive rolling profile: a modest climb is already principale')
-  assert.equal(classifyClimbImportance(modest, true), 'secondary', 'stricter mountain profile: the same climb stays secondaire')
-})
-
-test('classifyClimbImportance: a genuinely major ascent stays principale in both modes', () => {
-  const big = climb({ name: 'Montée 7', elevationGainM: 900, averageGradientPercent: 7, endDistanceKm: 12, provenance: { sourceType: 'generated', sourceId: null, fetchedAt: null, engineVersion: 'test', confidence: 'medium', manuallyOverridden: false } })
-  assert.equal(classifyClimbImportance(big, false), 'major')
-  assert.equal(classifyClimbImportance(big, true), 'major')
-})
-
-test('mountainMode reclassifies a bare climb waypoint\'s importance/visibleByDefault but never removes it — GPX detection is untouched', () => {
-  const modest = climb({ name: 'Montée 3', elevationGainM: 150, averageGradientPercent: 4, endDistanceKm: 2.5, provenance: { sourceType: 'generated', sourceId: null, fetchedAt: null, engineVersion: 'test', confidence: 'medium', manuallyOverridden: false } })
-  const rolling = buildCanonicalWaypoints({ stage: stage({ climbIds: ['climb-test'] }), route: route(), routePoints: [], climbs: [modest], mountainMode: false })
-  const mountain = buildCanonicalWaypoints({ stage: stage({ climbIds: ['climb-test'] }), route: route(), routePoints: [], climbs: [modest], mountainMode: true })
-  const rollingClimb = rolling.find((waypoint) => waypoint.kind === 'climb')
-  const mountainClimb = mountain.find((waypoint) => waypoint.kind === 'climb')
-  assert.ok(rollingClimb !== undefined && mountainClimb !== undefined, 'the climb is present in both modes — mountainMode never deletes detected data')
-  assert.equal(rollingClimb.importance, 'major')
-  assert.equal(rollingClimb.visibleByDefault, true)
-  assert.equal(mountainClimb.importance, 'secondary')
-  assert.equal(mountainClimb.visibleByDefault, false)
-})
-
 test('mountainMode defaults to false (permissive) when omitted from the input, matching an absent/legacy GlobalTripSettings.mountainMode', () => {
   const modest = climb({ name: 'Montée 3', elevationGainM: 150, averageGradientPercent: 4, endDistanceKm: 2.5, provenance: { sourceType: 'generated', sourceId: null, fetchedAt: null, engineVersion: 'test', confidence: 'medium', manuallyOverridden: false } })
   const waypoints = buildCanonicalWaypoints({ stage: stage({ climbIds: ['climb-test'] }), route: route(), routePoints: [], climbs: [modest] })
@@ -248,14 +217,6 @@ test('isSignificantWaypoint: an ordinary city/town/village without a pause is ne
   const village = { kind: 'village', importance: 'secondary', visibleByDefault: false, pauseDurationMinutes: null }
   assert.equal(isSignificantWaypoint(city), false)
   assert.equal(isSignificantWaypoint(village), false)
-})
-
-test('isSignificantWaypoint: secondary climbs follow the Montées secondaires filter when there is no pause; a principale climb is never gated by it', () => {
-  const secondaryClimb = { kind: 'climb', importance: 'secondary', visibleByDefault: false, pauseDurationMinutes: null }
-  const majorClimb = { kind: 'climb', importance: 'major', visibleByDefault: true, pauseDurationMinutes: null }
-  assert.equal(isSignificantWaypoint(secondaryClimb), false)
-  assert.equal(isSignificantWaypoint(secondaryClimb, { showSecondaryClimbs: true }), true)
-  assert.equal(isSignificantWaypoint(majorClimb), true)
 })
 
 test('isSignificantWaypoint: mountain-pass/saddle (Col) stay significant even without a pause', () => {

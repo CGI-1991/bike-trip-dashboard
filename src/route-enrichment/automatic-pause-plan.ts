@@ -32,7 +32,6 @@
  */
 
 import { normalizePauseDurationMinutes } from '../analysis/pause-duration.ts'
-import { resolveEffectiveMountainMode } from '../analysis/terrain-context.ts'
 import { buildAutomaticPauseEnrichment, computeStagePauseRecommendations } from '../analysis/waypoint-timeline.ts'
 import type { ManualPauseSetting, WaypointTimelineSettings } from '../analysis/waypoint-timeline.ts'
 import type { RideStageId, RoutePointId, StageAutomaticPausePlan, StagePauseSetting, TripBundle } from '../trip-core/index.ts'
@@ -104,7 +103,6 @@ export function computeAutomaticPausePlanForStage(bundle: TripBundle, stageId: R
   const settings: WaypointTimelineSettings = { referenceSpeedKph: bundle.settings.global.referenceSpeedKph, departureTime: daySettings?.departureTime ?? '08:00' }
   const recommendations = computeStagePauseRecommendations({
     stage, route, routePoints: bundle.routePoints, climbs: bundle.climbs, settings,
-    mountainMode: resolveEffectiveMountainMode(bundle),
     automaticPauseEnrichment: buildAutomaticPauseEnrichment(bundle, stage, day),
   })
   return recommendations

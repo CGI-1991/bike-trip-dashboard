@@ -3328,8 +3328,8 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .trip-settings { display: grid; gap: 14px; padding: 14px max(14px, env(safe-area-inset-right)) 90px max(14px, env(safe-area-inset-left)); }
 .trip-settings__section { display: grid; gap: 8px; }
 
-/* R2.1 sections 18-23: the shared Normal/Montagne segmented toggle
- * (`terrain-toggle.ts`) — a plain two-button group, sober enough not to
+/* The shared two-choice segmented control (`race-mode-toggle.ts`)
+ * — a plain two-button group, sober enough not to
  * compete with a primary action, but a real affordance (not a link/text). */
 .segmented-toggle { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .segmented-toggle__option {

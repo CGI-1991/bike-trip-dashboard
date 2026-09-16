@@ -22,6 +22,7 @@ import { buildDistanceIndexedSeries, smoothElevation } from '../analysis/elevati
 import { buildTerrainSlopeProfile } from '../analysis/terrain-profile.ts'
 import { detectClimbs } from '../analysis/climb-detection.ts'
 import { routeGeometry } from '../route-enrichment/route-fingerprint.ts'
+import { isSegmentMarkerClimbName } from '../analysis/gpx-marker-names.ts'
 import { DEFAULT_CLIMB_DETECTION_SENSITIVITY } from '../trip-core/index.ts'
 import type { Climb, ClimbDetectionSensitivity, RouteId, TripBundle } from '../trip-core/index.ts'
 
@@ -39,9 +40,14 @@ function isManual(climb: Climb): boolean {
   return climb.provenance.sourceType === 'user' || climb.provenance.manuallyOverridden
 }
 
-/** A name worth keeping: one that came from somewhere real, not the `Montée N` placeholder detection itself produces. */
+/**
+ * A name worth keeping: one that came from somewhere real — not the
+ * `Montée N` placeholder detection itself produces, and not a GPX segment
+ * boundary marker, which is an annotation about the route rather than a name
+ * for the place (`analysis/gpx-marker-names.ts`).
+ */
 function hasRealName(climb: Climb): boolean {
-  return climb.name !== null && !/^Montée \d+$/u.test(climb.name)
+  return climb.name !== null && !/^Montée \d+$/u.test(climb.name) && !isSegmentMarkerClimbName(climb.name)
 }
 
 /**
@@ -68,10 +74,15 @@ export function recomputeTripClimbs(bundle: TripBundle, sensitivity: ClimbDetect
       continue
     }
 
-    // No GPX waypoint list survives in the bundle, so detection names every
-    // climb `Montée N` here; the real names are re-attached right below from
-    // the climbs that already carried one.
-    const detected = detectClimbs(profile, [], route.id, idFactory, ENGINE_VERSION, sensitivity)
+    // The GPX `<wpt>` list survives in the bundle as this route's own
+    // GPX-provenance `RoutePoint`s, marker type included — so a recomputation
+    // names climbs by exactly the same rule the import did, rather than
+    // starting from nothing. Real names already attached (OSM, or a manual
+    // one) are re-applied right below.
+    const namingCandidates = bundle.routePoints
+      .filter((point) => point.routeId === route.id && point.provenance.sourceType === 'gpx')
+      .map((point) => ({ name: point.name, latitude: point.latitude, longitude: point.longitude, markerType: point.gpxMarkerType ?? null }))
+    const detected = detectClimbs(profile, namingCandidates, route.id, idFactory, ENGINE_VERSION, sensitivity)
     const named = detected.map((climb) => {
       const source = previousForRoute
         .filter((candidate) => hasRealName(candidate) && Math.abs(candidate.endDistanceKm - climb.endDistanceKm) <= NAME_TRANSFER_TOLERANCE_KM)

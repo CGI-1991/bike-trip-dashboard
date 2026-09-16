@@ -17,7 +17,7 @@ import type { TripDayTemporalState } from '../../trips-manager/trip-day-temporal
 import type { StagePreparationStatus } from '../../trips-manager/stage-preparation.ts'
 import { formatShortDate } from '../date-format.ts'
 import { compactPlaceName } from '../compact-place-name.ts'
-import { selectStageCustomName } from '../../trip-core/index.ts'
+import { selectStageCustomName, selectTripDayNumber } from '../../trip-core/index.ts'
 import type { TripBundle, TripDayId } from '../../trip-core/index.ts'
 
 export interface TripDetailRenderOptions {
@@ -113,9 +113,11 @@ function formatKilometers(value: number): string {
  * every card variant — kept as one shared fragment so the fixed-width
  * column never drifts between ride/OFF/transfer cards.
  */
-function renderDayNumberGroup(day: TripBundle['days'][number]): string {
+function renderDayNumberGroup(bundle: TripBundle, day: TripBundle['days'][number]): string {
   const dateLabel = day.date === null ? null : formatShortDate(day.date)
-  return `<span class="trip-day-card__number-group"><strong>J${day.displayNumber}</strong>${day.date === null ? '' : `<time datetime="${day.date}">${escapeHtml(dateLabel ?? '')}</time>`}</span>`
+  // The J badge is the day OF THE TRIP, so two stages ridden on one date
+  // both read J1 — never a stage counter (`selectTripDayNumber`).
+  return `<span class="trip-day-card__number-group"><strong>J${selectTripDayNumber(bundle, day.id)}</strong>${day.date === null ? '' : `<time datetime="${day.date}">${escapeHtml(dateLabel ?? '')}</time>`}</span>`
 }
 
 function renderRideDayCard(bundle: TripBundle, day: TripBundle['days'][number], stage: TripBundle['stages'][number], temporal: TripDayTemporalState, isPriority: boolean, prepStatus: StagePreparationStatus | null | undefined): string {
@@ -149,7 +151,7 @@ function renderRideDayCard(bundle: TripBundle, day: TripBundle['days'][number], 
   // `stale`/re-queued (CDC section 3: "progression compacte" while active).
   return `<li>
     <button class="trip-day-card trip-day-card--ride${isPriority ? ' is-priority' : ''}" type="button" data-action="open-day-detail" data-day-id="${escapeHtml(day.id)}"${isPriority ? ' data-trip-priority-day' : ''}>
-      ${renderDayNumberGroup(day)}
+      ${renderDayNumberGroup(bundle, day)}
       <span class="trip-day-card__content">
         <span class="trip-day-card__route" title="${escapeHtml(fullRoute)}" aria-label="${escapeHtml(fullRoute)}">${locations}</span>
         <span class="trip-day-card__metrics"><span>${stage.distanceKm === null ? '—' : formatKilometers(stage.distanceKm)}</span><span>${stage.elevationGainM === null ? '—' : `+${Math.round(stage.elevationGainM)} m`}</span></span>
@@ -174,7 +176,7 @@ function renderOffDayCard(bundle: TripBundle, day: TripBundle['days'][number], i
   const fullLocation = location.name ?? 'Lieu à préciser'
   return `<li>
     <button class="trip-day-card trip-day-card--off${isPriority ? ' is-priority' : ''}" type="button" data-action="open-day-detail" data-day-id="${escapeHtml(day.id)}"${isPriority ? ' data-trip-priority-day' : ''}>
-      ${renderDayNumberGroup(day)}
+      ${renderDayNumberGroup(bundle, day)}
       <span class="trip-day-card__content">
         <span class="trip-day-card__route" title="${escapeHtml(fullLocation)}" aria-label="${escapeHtml(fullLocation)}">${escapeHtml(compactPlaceName(fullLocation))}</span>
         <span class="trip-day-card__weather-mount" data-trip-day-weather-mount data-day-id="${escapeHtml(day.id)}"></span>
@@ -193,7 +195,7 @@ function renderTransferDayCard(bundle: TripBundle, day: TripBundle['days'][numbe
   const modeAndTimes = formatTransferModeAndTimes(day)
   return `<li>
     <button class="trip-day-card trip-day-card--transfer${isPriority ? ' is-priority' : ''}" type="button" data-action="open-day-detail" data-day-id="${escapeHtml(day.id)}"${isPriority ? ' data-trip-priority-day' : ''}>
-      ${renderDayNumberGroup(day)}
+      ${renderDayNumberGroup(bundle, day)}
       <span class="trip-day-card__content">
         <span class="trip-day-card__route" title="${escapeHtml(fullRoute)}" aria-label="${escapeHtml(fullRoute)}">${escapeHtml(route)}</span>
         ${modeAndTimes === null ? '' : `<span class="trip-day-card__transfer-meta">${escapeHtml(modeAndTimes)}</span>`}

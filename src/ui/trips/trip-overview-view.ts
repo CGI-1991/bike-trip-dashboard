@@ -8,8 +8,7 @@
  */
 
 import { computeStageWaypoints, resolveStagePauseSettings } from '../../analysis/waypoint-timeline.ts'
-import { resolveEffectiveMountainMode } from '../../analysis/terrain-context.ts'
-import { selectRaceMode, selectStageCustomName } from '../../trip-core/index.ts'
+import { selectRaceMode, selectStageCustomName, selectTripDayNumber } from '../../trip-core/index.ts'
 import { stageAutomaticPausesAllowed } from '../../route-enrichment/enrichment-jobs.ts'
 import type { LatLngTuple } from '../route-map-model.ts'
 import { routeGeometry } from '../../route-enrichment/route-fingerprint.ts'
@@ -87,7 +86,13 @@ interface TripProgress {
   readonly elevationGainDoneM: number
   readonly elevationGainRemainingM: number
   readonly ridesCompleted: number
-  readonly daysRemaining: number
+  /**
+   * Rides still to do — counted per STAGE, never per calendar day: two
+   * stages ridden the same date count twice, and OFF days and transfers
+   * count for nothing. `TripDayTemporalState.completed` stays the single
+   * rule for "done" (a ride dated today completes once its ETA is reached).
+   */
+  readonly stagesRemaining: number
 }
 
 /**
@@ -120,11 +125,12 @@ function computeTripProgress(bundle: TripBundle, now: Date | string | null): Tri
     }
   }
 
+  const rideDayIds = new Set(rideDays.filter((day) => stagesByDayId.has(day.id)).map((day) => day.id))
   return {
     distanceTotalKm, distanceDoneKm, distanceRemainingKm: distanceTotalKm - distanceDoneKm,
     elevationGainTotalM, elevationGainDoneM, elevationGainRemainingM: elevationGainTotalM - elevationGainDoneM,
     ridesCompleted,
-    daysRemaining: temporal.days.filter((day) => !day.completed).length,
+    stagesRemaining: temporal.days.filter((day) => rideDayIds.has(day.dayId) && !day.completed).length,
   }
 }
 
@@ -136,7 +142,7 @@ function renderProgressStats(progress: TripProgress): string {
     ['D+ total', `${Math.round(progress.elevationGainTotalM)} m`],
     ['D+ restant', `${Math.round(progress.elevationGainRemainingM)} m`],
     ['Étapes terminées', String(progress.ridesCompleted)],
-    ['Journées restantes', String(progress.daysRemaining)],
+    ['Étapes restantes', String(progress.stagesRemaining)],
   ]
   const cells = rows.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join('')
   return `<section class="card trip-overview__progress" data-trip-overview-progress>
@@ -168,7 +174,7 @@ function renderHighlightedDay(bundle: TripBundle, highlightedDayId: TripDayId | 
           const { origin, destination } = resolveTransferLocations(bundle, day)
           return origin !== null && origin === destination ? escapeHtml(origin) : `${escapeHtml(origin ?? '—')} → ${escapeHtml(destination ?? '—')}`
         })()
-    const headerParts = [`J${day.displayNumber}`, typeLabel, dateLabel].filter((part): part is string => part !== null)
+    const headerParts = [`J${selectTripDayNumber(bundle, day.id)}`, typeLabel, dateLabel].filter((part): part is string => part !== null)
     // R2 section 12: same compact mode/heures line as the Voyage card —
     // only when actually filled in, never fabricated.
     const modeAndTimes = day.type === 'transfer' ? formatTransferModeAndTimes(day) : null
@@ -184,7 +190,7 @@ function renderHighlightedDay(bundle: TripBundle, highlightedDayId: TripDayId | 
   // the départ → arrivée stays available underneath.
   const customName = selectStageCustomName(stage)
   const locations = `${escapeHtml(stage?.startLocationName ?? '—')} → ${escapeHtml(stage?.endLocationName ?? '—')}`
-  const headerParts = [`J${day.displayNumber}`, customName === null ? locations : escapeHtml(customName)].filter((part): part is string => part !== null)
+  const headerParts = [`J${selectTripDayNumber(bundle, day.id)}`, customName === null ? locations : escapeHtml(customName)].filter((part): part is string => part !== null)
   const daySettings = bundle.settings.days.find((candidate) => candidate.dayId === day.id)
   const departureTime = daySettings?.departureTime ?? null
   const eta = getTripDayTemporalState(deriveTripTemporalState(bundle, now), day.id)?.arrivalEta?.label ?? null
@@ -229,7 +235,6 @@ export function buildTripOverview(bundle: TripBundle, now: Date | string | null)
     const waypoints = computeStageWaypoints({
       stage, route: route as NonNullable<typeof route>, routePoints: bundle.routePoints, climbs: bundle.climbs, settings,
       manualPauses: pauseResolution.mode === 'custom' ? pauseResolution.manualPauses : undefined,
-      mountainMode: resolveEffectiveMountainMode(bundle),
       // Aperçu must never show a pause plan derived from a stage that is
       // only half enriched — that is precisely the false "looks ready"
       // signal this gate exists to prevent.

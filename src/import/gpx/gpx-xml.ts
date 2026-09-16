@@ -40,6 +40,13 @@ export interface GpxXmlWaypoint {
   readonly latitude: number
   readonly longitude: number
   readonly elevationM: number | null
+  /**
+   * The waypoint's declared role — GPX `<type>`, falling back to `<sym>`.
+   * Planners put "Segment Start"/"Segment End"/"Alert"/"Summit"… here, and
+   * that is the only reliable way to tell a place from a route annotation
+   * (`analysis/gpx-marker-names.ts`). `null` when the file declares neither.
+   */
+  readonly markerType: string | null
 }
 
 export interface GpxXmlDocument {
@@ -110,6 +117,7 @@ function parseWaypoint(waypointElement: Element): GpxXmlWaypoint {
     latitude: parseCoordinateAttribute(waypointElement, 'lat'),
     longitude: parseCoordinateAttribute(waypointElement, 'lon'),
     elevationM: parseElevation(waypointElement),
+    markerType: getDirectChildText(waypointElement, 'type') ?? getDirectChildText(waypointElement, 'sym'),
   }
 }
 

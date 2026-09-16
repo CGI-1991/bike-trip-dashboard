@@ -96,20 +96,6 @@ test('a major climb with no matching col/saddle landmark becomes its own "summit
   assert.equal(point.type, 'summit')
 })
 
-test('a secondary climb (not principal) is excluded from the weather points, same as the default Parcours view', () => {
-  const bundle = createGenericTripBundle()
-  bundle.climbs.push({
-    id: 'climb-minor', routeId: bundle.routes[0].id, name: 'Petite Bosse',
-    startDistanceKm: 10, endDistanceKm: 10.3, elevationGainM: 20,
-    averageGradientPercent: 2, maxGradientPercent: 3, startAltitudeM: 300, endAltitudeM: 320,
-    confidence: 'probable',
-    provenance: { sourceType: 'generated', sourceId: null, fetchedAt: null, engineVersion: 'route-enrichment@4', confidence: 'low', manuallyOverridden: false },
-  })
-  bundle.stages[0].climbIds.push('climb-minor')
-  const definition = buildRideDayWeatherDefinition(bundle, bundle.days[0])
-  assert.equal(findPoint(definition, 'Petite Bosse'), undefined)
-})
-
 test('a col landmark merged with its detected climb is a single weather point, never duplicated', () => {
   const bundle = createGenericTripBundle()
   bundle.climbs.push({

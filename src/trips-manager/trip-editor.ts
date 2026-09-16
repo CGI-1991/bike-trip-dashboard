@@ -473,7 +473,6 @@ export async function editGpxTrip(input: EditGpxTripInput): Promise<EditGpxTripR
       language: existing.metadata.language,
       units: 'metric',
       referenceSpeedKph: existing.settings.global.referenceSpeedKph,
-      mountainMode: existing.settings.global.mountainMode,
       // Without this, a structural edit would silently re-detect every
       // climb at the DEFAULT sensitivity, quietly undoing the trip's own
       // setting (which `mergeEditedTripBundle` then dutifully preserves,

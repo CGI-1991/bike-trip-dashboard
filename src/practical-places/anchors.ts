@@ -21,7 +21,6 @@
 import { buildCanonicalWaypoints } from '../analysis/canonical-waypoints.ts'
 import type { CanonicalWaypoint } from '../analysis/canonical-waypoints.ts'
 import { isAnchorCandidate } from '../analysis/pause-placement.ts'
-import { resolveEffectiveMountainMode } from '../analysis/terrain-context.ts'
 import type { RideStage, Route, TripBundle } from '../trip-core/index.ts'
 import type { PracticalPlaceAnchor } from './types.ts'
 
@@ -48,7 +47,6 @@ export function computeStagePracticalPlaceAnchors(bundle: TripBundle, stage: Rid
     route,
     routePoints: bundle.routePoints,
     climbs: bundle.climbs,
-    mountainMode: resolveEffectiveMountainMode(bundle),
   })
   return waypoints.filter(isPracticalPlaceAnchorWaypoint).map((waypoint) => ({ latitude: waypoint.latitude, longitude: waypoint.longitude }))
 }

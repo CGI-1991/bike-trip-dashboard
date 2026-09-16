@@ -47,5 +47,14 @@ export interface RoutePoint {
   readonly osmFeatureType?: OsmRouteFeatureType | null
   /** Straight-line distance to the GPX trace; absent on historical records. */
   readonly lateralDistanceKm?: Kilometers | null
+  /**
+   * For a point that came from a GPX `<wpt>`: its declared role (`<type>`,
+   * else `<sym>`) — "Segment Start", "Segment End", "Alert", "Summit"…
+   * Kept because it is what tells a real place from a route annotation
+   * (`analysis/gpx-marker-names.ts`), and re-running climb detection over a
+   * stored trip needs the same signal the import had. Optional/absent on
+   * historical records and on every non-GPX point.
+   */
+  readonly gpxMarkerType?: string | null
   readonly provenance: DataProvenance
 }

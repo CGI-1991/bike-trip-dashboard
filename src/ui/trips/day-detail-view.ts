@@ -32,8 +32,7 @@ import { routeGeometry } from '../../route-enrichment/route-fingerprint.ts'
 import { resolvePersistedAutomaticPausePlan } from '../../route-enrichment/automatic-pause-plan.ts'
 import { resolveOffCoordinates, resolveOffLocation, resolveSharedInfoDayId, resolveTransferCoordinates, resolveTransferLocations } from '../../analysis/day-location-fill.ts'
 import type { RouteMapMarkerModel, RouteMapModel } from '../route-map-model.ts'
-import { resolveEffectiveMountainMode } from '../../analysis/terrain-context.ts'
-import { selectRaceMode, selectStageCustomName } from '../../trip-core/index.ts'
+import { selectRaceMode, selectStageCustomName, selectTripDayNumber } from '../../trip-core/index.ts'
 import { formatShortDate } from '../date-format.ts'
 import { compactPlaceName } from '../compact-place-name.ts'
 import {
@@ -102,11 +101,11 @@ function formatPercent(value: number | null): string {
  * always been: one `day-detail__identity-route` line carrying the route,
  * and no subtitle element at all.
  */
-function renderDayIdentityHeader(day: TripDay, mainLabel: string, fullMainLabel: string, customName: string | null = null): string {
+function renderDayIdentityHeader(day: TripDay, dayNumber: number, mainLabel: string, fullMainLabel: string, customName: string | null = null): string {
   const dateLabel = day.date === null ? null : formatShortDate(day.date)
   const accessibleLabel = customName === null ? fullMainLabel : `${customName} — ${fullMainLabel}`
   return `<header class="day-detail__sticky-identity" data-day-detail-identity title="${escapeHtml(accessibleLabel)}" aria-label="${escapeHtml(accessibleLabel)}">
-    <span class="day-detail__identity-number"><strong>J${day.displayNumber}</strong>${dateLabel === null ? '' : `<time datetime="${day.date}">${escapeHtml(dateLabel)}</time>`}</span>
+    <span class="day-detail__identity-number"><strong>J${dayNumber}</strong>${dateLabel === null ? '' : `<time datetime="${day.date}">${escapeHtml(dateLabel)}</time>`}</span>
     <span class="day-detail__identity-route">${customName === null ? mainLabel : escapeHtml(customName)}</span>
     ${customName === null ? '' : `<span class="day-detail__identity-subtitle" data-day-detail-identity-subtitle>${mainLabel}</span>`}
   </header>`
@@ -358,13 +357,10 @@ function renderClimbCard(waypoint: CanonicalWaypoint, climb: Climb, routeGeometr
  * départ/arrivée/pauses/significant relief show (`isSignificantWaypoint`) —
  * the exact same policy the map/profile use.
  */
-// Jalon C2.5 section 61: the "Montées secondaires" user toggle is gone — the
-// Parcours list now always uses `isSignificantWaypoint`'s own default
-// policy (no filters), exactly like the Aperçu screen and the generic
-// weather sampler already do. Secondary climbs stay fully detected/
-// classified internally (`classifyClimbImportance`, `climb-detection.ts`)
-// — only this display-level filter disappears; nothing here mutates the
-// underlying topographic analysis.
+// The Parcours list uses `isSignificantWaypoint`'s own policy, exactly like
+// the Aperçu screen and the generic weather sampler. No display-level climb
+// filter exists any more: which climbs are shown is decided by which climbs
+// the trip's detection sensitivity produced (`climb-detection.ts`).
 function renderTimelineList(waypoints: readonly CanonicalWaypoint[], climbs: readonly Climb[], routeGeometryFull: readonly RouteGeometryPoint[] | null): string {
   const visible = waypoints.filter((waypoint) => isSignificantWaypoint(waypoint))
   if (visible.length === 0) return '<p>Aucun point de passage disponible.</p>'
@@ -868,7 +864,7 @@ function buildOffOrTransferMapModel(bundle: TripBundle, day: TripDay): RouteMapM
  */
 function buildOffOrTransferDayDetail(bundle: TripBundle, day: TripDay): DayDetail {
   const typeLabel = day.type === 'off' ? 'Journée OFF' : 'Transfert'
-  const stageLabel = `J${day.displayNumber} — ${typeLabel}`
+  const stageLabel = `J${selectTripDayNumber(bundle, day.id)} — ${typeLabel}`
   // The identity bandeau's right side reuses the same canonical resolvers
   // the Voyage day card and Aperçu's highlighted-day card already go
   // through (`day-location-fill.ts`) — never a second, divergent resolution
@@ -916,7 +912,7 @@ function buildOffOrTransferDayDetail(bundle: TripBundle, day: TripDay): DayDetai
   // R2.1 sections 28-29: no tablist for OFF/transfer any more — Résumé,
   // Météo and Infos all render directly, at the top level, in that fixed
   // order (never a Parcours/profil/montées section — this day has none).
-  const identityHtml = renderDayIdentityHeader(day, mainLabel, fullMainLabel)
+  const identityHtml = renderDayIdentityHeader(day, selectTripDayNumber(bundle, day.id), mainLabel, fullMainLabel)
   const html = `<div class="day-detail" data-day-detail>
     <div class="day-detail__sticky-header" data-day-detail-sticky-header>
       ${identityHtml}
@@ -1025,7 +1021,6 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
   const waypointsInput = {
     stage, route, routePoints: bundle.routePoints, climbs: bundle.climbs, settings,
     manualPauses: pauseResolution.mode === 'custom' ? pauseResolution.manualPauses : persistedAutomaticPauses,
-    mountainMode: resolveEffectiveMountainMode(bundle),
     automaticPauseEnrichment,
   }
   const waypoints = computeStageWaypoints(waypointsInput)
@@ -1066,7 +1061,8 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
   // NAMED, while départ/arrivée stays the subtitle. `null` (absent, empty or
   // whitespace-only) keeps every label exactly as it was.
   const customName = selectStageCustomName(stage)
-  const stageLabel = `J${day.displayNumber} — ${customName ?? fullLocations}`
+  const dayNumber = selectTripDayNumber(bundle, day.id)
+  const stageLabel = `J${dayNumber} — ${customName ?? fullLocations}`
 
   const arrival = waypoints.length === 0 ? null : waypoints[waypoints.length - 1]
   const totalDurationSeconds = arrival?.elapsedMinutes === null || arrival?.elapsedMinutes === undefined
@@ -1134,7 +1130,7 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
   // — the tabbar moved into the Détails card itself and sticks contextually
   // there (`--day-sticky-header-h`, `sticky-header-offset.ts`), not from the
   // very top of the screen (section 10).
-  const identityHtml = renderDayIdentityHeader(day, locations, fullLocations, customName)
+  const identityHtml = renderDayIdentityHeader(day, dayNumber, locations, fullLocations, customName)
   const html = `<div class="day-detail" data-day-detail>
     <div class="day-detail__sticky-header" data-day-detail-sticky-header>
       ${identityHtml}

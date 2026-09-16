@@ -67,14 +67,6 @@ export interface WizardState {
   duplicateSelectionNotice: string | null
   /** Trip-level settings (CDC Jalon B4.3 sections 19-21): reference speed and Mode montagne belong to the trip, set here at creation and editable afterwards via "Modifier le voyage" — never per-stage/per-day, never a separate global settings screen. */
   referenceSpeedKph: number
-  /**
-   * R2.1 section 23 (correcting C2.5 sections 63-66): always `false`
-   * ("Normal") at the start of a new wizard session, whatever the uploaded
-   * GPX profile looks like — `deriveMountainModeDefault` below is no longer
-   * auto-applied here (CDC: "Terrain = Normal par défaut", unconditionally).
-   * The user picks Normal/Montagne explicitly in Réglages avancés.
-   */
-  mountainMode: boolean
   /** Mode "Course / Tour" — `false` (Classique) for a new trip, like every existing one. */
   raceMode: boolean
   /** Climb-detection sensitivity — `'standard'` (the historical calibration) for a new trip. */
@@ -98,33 +90,9 @@ export function createEmptyWizardState(): WizardState {
     errorMessage: null,
     duplicateSelectionNotice: null,
     referenceSpeedKph: 18,
-    mountainMode: false,
     raceMode: false,
     climbSensitivity: 'standard',
   }
-}
-
-/**
- * Jalon C2.5 sections 63-66: `mountainMode` used to always default to
- * `false`, asking the user to manually declare "this trip is mountainous"
- * even though the GPX they just uploaded already answers that. A simple,
- * explicit heuristic — average elevation gain per kilometre across every
- * successfully pre-analyzed, active ride file — pre-fills the checkbox
- * instead. `MOUNTAIN_MODE_ELEVATION_GAIN_PER_KM_THRESHOLD` is a rough,
- * honestly-labelled cutoff (a rolling/local tour is typically well under
- * 10 m/km; a genuinely alpine one is comfortably above 20), not a precise
- * classification — the checkbox stays fully overridable, and this function
- * only ever proposes a default, never forces a value once the user has
- * touched it (`WizardState.mountainModeTouched`).
- */
-const MOUNTAIN_MODE_ELEVATION_GAIN_PER_KM_THRESHOLD = 18
-
-export function deriveMountainModeDefault(entries: readonly FileEntry[]): boolean {
-  const valid = entries.filter((entry) => !entry.removed && entry.preAnalysis?.status === 'valid')
-  const totalDistanceKm = valid.reduce((total, entry) => total + (entry.preAnalysis?.distanceKm ?? 0), 0)
-  if (totalDistanceKm <= 0) return false
-  const totalElevationGainM = valid.reduce((total, entry) => total + (entry.preAnalysis?.elevationGainM ?? 0), 0)
-  return totalElevationGainM / totalDistanceKm >= MOUNTAIN_MODE_ELEVATION_GAIN_PER_KM_THRESHOLD
 }
 
 export function activeFiles(state: WizardState): readonly FileEntry[] {

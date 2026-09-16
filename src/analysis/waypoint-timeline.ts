@@ -102,8 +102,6 @@ export interface ComputeStageWaypointsInput {
    * pipeline the automatic mode already uses). Omit for automatic mode.
    */
   readonly manualPauses?: readonly ManualPauseSetting[]
-  /** `GlobalTripSettings.mountainMode` (Jalon B4.2 section 15) — forwarded as-is to `buildCanonicalWaypoints`; `false` when omitted. */
-  readonly mountainMode?: boolean
   /**
    * C3 (CDC C3 section 26): when supplied, AUTOMATIC-mode placement uses
    * `pause-recommendation.ts`'s explainable scoring (terrain + timing +
@@ -229,8 +227,8 @@ function resolveAutomaticPlacedPauses(
  * geometry (same degenerate case as `buildCanonicalWaypoints`).
  */
 export function computeStageWaypoints(input: ComputeStageWaypointsInput): readonly CanonicalWaypoint[] {
-  const { stage, route, routePoints, climbs, settings, mountainMode } = input
-  const baseWaypoints = buildCanonicalWaypoints({ stage, route, routePoints, climbs, mountainMode })
+  const { stage, route, routePoints, climbs, settings } = input
+  const baseWaypoints = buildCanonicalWaypoints({ stage, route, routePoints, climbs })
   if (baseWaypoints.length === 0) return []
 
   const geometryWithDistances = routeGeometryWithDistances(route)
@@ -301,8 +299,8 @@ export function computeStagePauseRecommendations(input: ComputeStageWaypointsInp
   if (input.manualPauses !== undefined || input.automaticPauseEnrichment === undefined) return []
   // Nothing to explain while the stage has no automatic plan to explain.
   if (input.automaticPausesAllowed === false) return []
-  const { stage, route, routePoints, climbs, settings, mountainMode } = input
-  const baseWaypoints = buildCanonicalWaypoints({ stage, route, routePoints, climbs, mountainMode })
+  const { stage, route, routePoints, climbs, settings } = input
+  const baseWaypoints = buildCanonicalWaypoints({ stage, route, routePoints, climbs })
   if (baseWaypoints.length === 0) return []
 
   const geometryWithDistances = routeGeometryWithDistances(route)
@@ -366,8 +364,8 @@ export interface StageTimingCurve {
  * conditions `computeStageWaypoints` itself treats as "untimed".
  */
 export function computeStageTimingCurve(input: ComputeStageWaypointsInput): StageTimingCurve | null {
-  const { stage, route, routePoints, climbs, settings, mountainMode } = input
-  const baseWaypoints = buildCanonicalWaypoints({ stage, route, routePoints, climbs, mountainMode })
+  const { stage, route, routePoints, climbs, settings } = input
+  const baseWaypoints = buildCanonicalWaypoints({ stage, route, routePoints, climbs })
   if (baseWaypoints.length === 0) return null
 
   const geometryWithDistances = routeGeometryWithDistances(route)

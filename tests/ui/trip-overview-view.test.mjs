@@ -98,7 +98,7 @@ test('buildTripOverview shows exactly the six D1 progress metrics', () => {
   const overview = buildTripOverview(bundle, '2027-05-01')
   for (const label of [
     'Distance totale', 'Distance restante', 'D+ total', 'D+ restant',
-    'Étapes terminées', 'Journées restantes',
+    'Étapes terminées', 'Étapes restantes',
   ]) {
     assert.match(overview.html, new RegExp(`<dt>${label.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&')}</dt>`), `missing metric: ${label}`)
   }
@@ -108,7 +108,9 @@ test('buildTripOverview shows exactly the six D1 progress metrics', () => {
   const progressBlock = overview.html.match(/<section class="card trip-overview__progress"[\s\S]*?<\/section>/)?.[0] ?? ''
   assert.equal((progressBlock.match(/<dt>/g) ?? []).length, 6)
   assert.match(overview.html, /<dt>Étapes terminées<\/dt><dd>0<\/dd>/)
-  assert.match(overview.html, /<dt>Journées restantes<\/dt><dd>4<\/dd>/)
+  // Stages, not calendar days: the fixture has two ride days (one OFF and
+  // one transfer, which never count here) and neither is done yet.
+  assert.match(overview.html, /<dt>Étapes restantes<\/dt><dd>2<\/dd>/)
 })
 
 test('a ride day already in the past is removed from remaining distance and D+', () => {

@@ -387,6 +387,10 @@ export function validateTripBundle(value: unknown): ValidationResult<TripBundle>
     if (point.osmFeatureType !== undefined && point.osmFeatureType !== null && !isOneOf(point.osmFeatureType, OSM_ROUTE_FEATURE_TYPES)) {
       issues.push(issue(`${path}.osmFeatureType`, 'invalid-enum', 'osmFeatureType invalide.'))
     }
+    // Purely additive, like `osmFeatureType`/`lateralDistanceKm` above.
+    if (point.gpxMarkerType !== undefined && point.gpxMarkerType !== null && !isNonEmptyString(point.gpxMarkerType)) {
+      issues.push(issue(`${path}.gpxMarkerType`, 'invalid-value', 'gpxMarkerType doit être une chaîne non vide, null ou absent.'))
+    }
     if (point.lateralDistanceKm !== undefined && point.lateralDistanceKm !== null && !isNonNegativeNumber(point.lateralDistanceKm)) {
       issues.push(issue(`${path}.lateralDistanceKm`, 'invalid-value', 'lateralDistanceKm doit être ≥ 0 ou null.'))
     }

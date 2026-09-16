@@ -62,7 +62,7 @@ test('parses multiple segments inside one track, preserving document order', () 
 test('parses a waypoint with name/description/elevation', () => {
   const xml = buildGpxXml({ waypoints: [{ name: 'Col', desc: 'Mountain pass', lat: 45.2, lon: 6.2, ele: 1800 }] })
   const document = parseGpxXml(xml)
-  assert.deepEqual(document.waypoints[0], { name: 'Col', description: 'Mountain pass', latitude: 45.2, longitude: 6.2, elevationM: 1800 })
+  assert.deepEqual(document.waypoints[0], { name: 'Col', description: 'Mountain pass', latitude: 45.2, longitude: 6.2, elevationM: 1800, markerType: null })
 })
 
 test('altitude is optional: a point with no <ele> yields elevationM null, never a fabricated 0', () => {

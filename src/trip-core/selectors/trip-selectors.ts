@@ -7,6 +7,7 @@ import type { RideStage } from '../model/ride-stage.ts'
 import type { Route } from '../model/route.ts'
 import type { RoutePoint } from '../model/route-point.ts'
 import type { TripDay } from '../model/trip-day.ts'
+import { calendarDayNumbers } from '../calendar/day-offsets.ts'
 
 /**
  * Pure, UI-independent read helpers over a validated `TripBundle`. No DOM
@@ -37,6 +38,23 @@ export function selectTransferDays(bundle: TripBundle): readonly TripDay[] {
 
 export function selectDayById(bundle: TripBundle, dayId: TripDayId): TripDay | null {
   return bundle.days.find((day) => day.id === dayId) ?? null
+}
+
+/**
+ * The displayed "Jx" for every day of the trip, keyed by day id — the day
+ * of the TRIP, not a stage counter (see `calendarDayNumbers`). Two stages
+ * ridden on one date share one number; OFF days and transfers take their own
+ * place in the count exactly like any other calendar day.
+ */
+export function selectTripDayNumbers(bundle: TripBundle): ReadonlyMap<TripDayId, number> {
+  const ordered = selectOrderedDays(bundle)
+  const numbers = calendarDayNumbers(ordered, bundle.calendar.startDate)
+  return new Map(ordered.map((day, index) => [day.id, numbers[index] ?? day.displayNumber]))
+}
+
+/** The displayed "Jx" for one day — falls back to its own `displayNumber` for a day this bundle does not hold. */
+export function selectTripDayNumber(bundle: TripBundle, dayId: TripDayId): number {
+  return selectTripDayNumbers(bundle).get(dayId) ?? bundle.days.find((day) => day.id === dayId)?.displayNumber ?? 1
 }
 
 export function selectStageById(bundle: TripBundle, stageId: RideStageId): RideStage | null {

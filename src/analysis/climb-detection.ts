@@ -22,6 +22,7 @@ import { climbId, DEFAULT_CLIMB_DETECTION_SENSITIVITY } from '../trip-core/index
 import type { TerrainProfilePoint } from '../route/types.ts'
 import { deriveTerrainLabelFromElevationGainPerKm } from './terrain-context.ts'
 import type { TripTerrainLabel } from './terrain-context.ts'
+import { isRouteAnnotationMarker } from './gpx-marker-names.ts'
 
 /** CDC section 13.4 — "règles initiales". */
 export interface ClimbSignificanceMetrics {
@@ -211,6 +212,8 @@ export interface NamedWaypointCandidate {
   readonly name: string | null
   readonly latitude: number
   readonly longitude: number
+  /** GPX `<type>`/`<sym>`, when the file declares one — see `gpx-marker-names.ts`. */
+  readonly markerType?: string | null
 }
 
 interface Pivot {
@@ -387,6 +390,11 @@ function findNamedWaypointNear(
 
   for (const waypoint of waypoints) {
     if (waypoint.name === null || waypoint.name.trim().length === 0) continue
+    // A segment boundary or a route alert is an annotation about the route,
+    // not a name for the place the climb tops out at — "Fin grimpeur",
+    // "Début Sprint" or "Arrivée Bleu" must leave the climb called
+    // "Montée N" (`gpx-marker-names.ts` explains what that repairs).
+    if (isRouteAnnotationMarker(waypoint.name, waypoint.markerType)) continue
     const distanceKm = calculateHaversineDistanceKm({ latitude, longitude, elevationM: null }, { latitude: waypoint.latitude, longitude: waypoint.longitude, elevationM: null })
     if (distanceKm <= toleranceKm && distanceKm < bestDistanceKm) {
       bestDistanceKm = distanceKm

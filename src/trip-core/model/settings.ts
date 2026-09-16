@@ -26,16 +26,14 @@ export const DEFAULT_CLIMB_DETECTION_SENSITIVITY: ClimbDetectionSensitivity = 's
 export interface GlobalTripSettings {
   readonly referenceSpeedKph: KilometersPerHour
   readonly pausePlanMode: PausePlanMode
-  /**
-   * Jalon B4.2 section 15: adapts the importance threshold used to classify
-   * detected climbs as "principale"/"secondaire" (`analysis/canonical-
-   * waypoints.ts::classifyClimbImportance`) — never re-runs GPX detection
-   * itself. `true` for an alpine/mountain trip (stricter threshold, only
-   * genuinely major ascents stay principale by default); `false` for a
-   * rolling/local trip (permissive threshold, a modest climb can already be
-   * principale). Optional/absent on historical records — treat as `false`.
+  /*
+   * NOTE — a record saved before this setting was removed may still carry a
+   * `mountainMode` boolean. It is deliberately absent from this interface
+   * and read by nothing: the Normal/Montagne selector it drove hid detected
+   * climbs, and choosing which climbs exist is now
+   * `climbDetectionSensitivity`'s job alone. The stored key is inert, so no
+   * migration is needed and no saved preference can hide a climb any more.
    */
-  readonly mountainMode?: boolean
   /**
    * Mode "Course / Tour": in-stage pauses/arrêts are disabled outright —
    * never proposed for configuration, never folded into an ETA. OFF days,

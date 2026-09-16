@@ -53,6 +53,7 @@ import { openTimeEditDialog } from './time-edit-dialog.ts'
 import type { ChooseOptionRequest, ChooseOptionResult } from './choose-option-dialog.ts'
 import type { TimeEditDialogRequest, TimeEditDialogResult } from './time-edit-dialog.ts'
 import { dayDepartureTime, earliestCompatibleDeparture, formatDayMinutes, groupDayIdsFor, previousLinkedArrivalMinutes, resolveLinkedScheduleConflicts } from '../../trips-manager/linked-stages.ts'
+import { repairSegmentMarkerClimbNames } from '../../trips-manager/climb-name-repair.ts'
 import type { EditContext, EditGuardDecision } from './edit-guard.ts'
 import { defaultConfirmDiscardChanges } from './confirm-discard-changes.ts'
 
@@ -823,7 +824,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       title: 'Heure de départ',
       label: 'Départ',
       value: dayDepartureTime(bundle, dayId),
-      hint: previousDay === undefined ? null : `Étape liée : elle suit J${previousDay.displayNumber} le même jour.`,
+      hint: previousDay === undefined ? null : 'Étape liée : elle suit l’étape précédente, le même jour.',
       validate: (value) => {
         const earliest = earliestCompatibleDeparture(bundle, dayId)
         // `earliest` is already the first quarter-hour at or after the
@@ -832,7 +833,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
         if (earliest === null || value >= earliest) return { ok: true }
         const previousArrival = previousLinkedArrivalMinutes(bundle, dayId)
         const arrivalLabel = previousArrival === null ? null : formatDayMinutes(previousArrival)
-        const previousLabel = previousDay === undefined ? 'l’étape précédente' : `J${previousDay.displayNumber}`
+        const previousLabel = 'l’étape précédente'
         return {
           ok: false,
           message: arrivalLabel === null
@@ -867,10 +868,10 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     existing?.remove()
     const messages: string[] = []
     if (resolution.adjustments.length > 0) {
-      messages.push(`Horaires ajustés : ${resolution.adjustments.map((entry) => `J${entry.displayNumber} ${entry.from} → ${entry.to}`).join(', ')}.`)
+      messages.push(`Horaires ajustés : ${resolution.adjustments.map((entry) => `${entry.stageLabel} ${entry.from} → ${entry.to}`).join(', ')}.`)
     }
     if (resolution.overflows.length > 0) {
-      messages.push(`${resolution.overflows.map((entry) => `J${entry.displayNumber}`).join(', ')} dépasse minuit : ces étapes ne tiennent plus dans une même journée.`)
+      messages.push(`${resolution.overflows.map((entry) => entry.stageLabel).join(', ')} dépasse minuit : ces étapes ne tiennent plus dans une même journée.`)
     }
     if (messages.length === 0) return
     const notice = document.createElement('p')
@@ -971,8 +972,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   async function renderOverview(tripId: TripId, options: { readonly diffGated?: boolean } = {}): Promise<void> {
     teardownSubComponent()
     if (options.diffGated !== true) container.innerHTML = '<p role="status">Chargement du voyage…</p>'
-    const tripRepository = createTripRepository(deps.database)
-    const bundle = await tripRepository.loadTripBundle(tripId)
+    const bundle = await loadRepairedTripBundle(tripId)
     if (bundle === null) {
       if (options.diffGated === true) return
       mode = { kind: 'list' }
@@ -1852,6 +1852,24 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       },
     )
     activeSubComponent = editor
+  }
+
+  /**
+   * Loads a trip and repairs, once, the climbs a GPX segment marker named
+   * before that stopped being allowed (`climb-name-repair.ts`): those names
+   * blocked the OSM col rename AND the col↔climb merge, so affected stages
+   * showed no named col at all on the Aperçu "Détail" layer. Idempotent and
+   * offline — a trip with nothing to repair is returned as loaded and
+   * nothing is written.
+   */
+  async function loadRepairedTripBundle(tripId: TripId): Promise<TripBundle | null> {
+    const repository = createTripRepository(deps.database)
+    const bundle = await repository.loadTripBundle(tripId)
+    if (bundle === null) return null
+    const repaired = repairSegmentMarkerClimbNames(bundle)
+    if (repaired === bundle) return bundle
+    await repository.saveTripBundle(repaired)
+    return repaired
   }
 
   /** Persists a full-bundle mutation the same way every other action in this file does — load, mutate, save, return the fresh bundle (or `null` if the trip vanished meanwhile). */

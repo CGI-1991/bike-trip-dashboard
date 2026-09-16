@@ -5,14 +5,12 @@ import { checkChainContinuity, detectStrictDuplicates, editGpxTrip, loadTripEdit
 import type { GpxPreAnalysis, TripEditSlot } from '../../trips-manager/index.ts'
 import { shiftTripStartDate, updateTripPreferences, TRIP_REFERENCE_SPEED_MAX_KPH, TRIP_REFERENCE_SPEED_MIN_KPH, validateTripPreferencesUpdate } from '../../trips-manager/trip-preferences.ts'
 import type { TripPreferencesFieldError, TripPreferencesUpdate } from '../../trips-manager/trip-preferences.ts'
-import { deriveTripTerrainContext } from '../../analysis/terrain-context.ts'
 import { createTripRepository } from '../../storage/indexeddb/trip-repository.ts'
 import { resolveOffLocation, resolveTransferLocations } from '../../analysis/day-location-fill.ts'
 import { resetEnrichmentForRecalculation } from '../../route-enrichment/settled-stages.ts'
 import { enrichableStageFingerprints } from '../../route-enrichment/enrichment-jobs.ts'
 import { createRouteEnrichmentCacheRepository } from '../../storage/indexeddb/route-enrichment-cache-repository.ts'
 import { formatShortDate } from '../date-format.ts'
-import { renderTerrainToggle } from './terrain-toggle.ts'
 import { climbSensitivityAtIndex, patchClimbSensitivityLabels, renderClimbSensitivitySlider } from './climb-sensitivity-slider.ts'
 import { renderRaceModeToggle } from './race-mode-toggle.ts'
 import { openChooseOptionDialog } from './choose-option-dialog.ts'
@@ -100,24 +98,14 @@ export function createTripEditor(
    * genuinely separate category from "Structure" (the GPX/OFF/transfer list
    * below) — saved through the light `updateTripPreferences` path whenever
    * nothing structural actually changed (section 28-29), never through
-   * `editGpxTrip`'s heavy rebuild. `name`/`startDate`/`referenceSpeedKph`/
-   * `terrainOverride` are the live-edited values; the `original*` copies
-   * (captured once in `initialize()`) are what dirty-state/no-op detection
-   * and the structural-vs-light routing decision compare against.
+   * `editGpxTrip`'s heavy rebuild. `name`/`startDate`/`referenceSpeedKph`
+   * are the live-edited values; the `original*` copies (captured once in
+   * `initialize()`) are what dirty-state/no-op detection and the
+   * structural-vs-light routing decision compare against.
    */
   let name = ''
   let startDate: string | null = null
   let referenceSpeedKph = 18
-  /**
-   * R2.1 sections 19-23: always a concrete boolean once the editor has
-   * loaded — exactly two selectable states (Normal/Montagne), never a third
-   * "Automatique" option in the UI any more. Legacy compatibility (CDC
-   * section 22) lives entirely in how this gets its INITIAL value in
-   * `initialize()` below: an old bundle with `mountainMode: undefined` is
-   * pre-selected as Normal or Montagne from its own current derived label,
-   * never left in a tristate the control itself can't represent.
-   */
-  let terrainOverride = false
   /** Mode "Course / Tour" — in-stage pauses disabled, and the only mode in which stages may be linked onto one day. */
   let raceMode = false
   let climbSensitivity: ClimbDetectionSensitivity = 'standard'
@@ -126,7 +114,6 @@ export function createTripEditor(
   let originalName = ''
   let originalStartDate: string | null = null
   let originalReferenceSpeedKph = 18
-  let originalTerrainOverride = false
   let originalRaceMode = false
   let originalClimbSensitivity: ClimbDetectionSensitivity = 'standard'
   let originalStructureSnapshot = ''
@@ -140,12 +127,12 @@ export function createTripEditor(
    * "Continuer": informational, never a question.
    */
   async function reportScheduleChanges(
-    adjustments: readonly { readonly displayNumber: number; readonly from: string; readonly to: string }[],
-    overflows: readonly { readonly displayNumber: number }[],
+    adjustments: readonly { readonly stageLabel: string; readonly from: string; readonly to: string }[],
+    overflows: readonly { readonly stageLabel: string }[],
   ): Promise<void> {
     const parts: string[] = []
-    if (adjustments.length > 0) parts.push(`Horaires ajustés : ${adjustments.map((entry) => `J${entry.displayNumber} ${entry.from} → ${entry.to}`).join(', ')}.`)
-    if (overflows.length > 0) parts.push(`${overflows.map((entry) => `J${entry.displayNumber}`).join(', ')} dépasse minuit : ces étapes ne tiennent plus dans une même journée.`)
+    if (adjustments.length > 0) parts.push(`Horaires ajustés : ${adjustments.map((entry) => `${entry.stageLabel} ${entry.from} → ${entry.to}`).join(', ')}.`)
+    if (overflows.length > 0) parts.push(`${overflows.map((entry) => entry.stageLabel).join(', ')} dépasse minuit : ces étapes ne tiennent plus dans une même journée.`)
     if (parts.length === 0) return
     const notify = deps.chooseOption ?? openChooseOptionDialog
     await notify({ title: 'Horaires des étapes liées', message: parts.join(' '), options: [{ value: 'ok', label: 'Continuer' }] })
@@ -214,7 +201,6 @@ export function createTripEditor(
     return name.trim() !== originalName
       || (startDate !== null && startDate !== originalStartDate)
       || referenceSpeedKph !== originalReferenceSpeedKph
-      || terrainOverride !== originalTerrainOverride
       || raceMode !== originalRaceMode
       || climbSensitivity !== originalClimbSensitivity
   }
@@ -225,7 +211,6 @@ export function createTripEditor(
       ...(name.trim() !== originalName ? { name } : {}),
       ...(startDate !== null && startDate !== originalStartDate ? { startDate } : {}),
       ...(referenceSpeedKph !== originalReferenceSpeedKph ? { referenceSpeedKph } : {}),
-      ...(terrainOverride !== originalTerrainOverride ? { terrainOverride } : {}),
       ...(raceMode !== originalRaceMode ? { raceMode } : {}),
       ...(climbSensitivity !== originalClimbSensitivity ? { climbDetectionSensitivity: climbSensitivity } : {}),
     }
@@ -338,7 +323,11 @@ export function createTripEditor(
       if (day === undefined || day.accommodationId === null) continue
       if (options.some((option) => option.accommodationId === day.accommodationId)) continue
       const accommodation = originalBundle.accommodations.find((candidate) => candidate.id === day.accommodationId)
-      options.push({ dayId: day.id, accommodationId: day.accommodationId, label: `J${day.displayNumber} — ${accommodation?.name ?? 'Hébergement'}` })
+      const stage = originalBundle.stages.find((candidate) => candidate.id === day.stageId)
+      const stageLabel = stage?.customName?.trim() !== undefined && stage?.customName?.trim() !== ''
+        ? stage.customName as string
+        : `${stage?.startLocationName ?? '—'} → ${stage?.endLocationName ?? '—'}`
+      options.push({ dayId: day.id, accommodationId: day.accommodationId, label: `${accommodation?.name ?? 'Hébergement'} (${stageLabel})` })
     }
     return options
   }
@@ -396,19 +385,19 @@ export function createTripEditor(
   }
 
   /**
-   * Course/Tour on: existing stops are removed and every ETA recomputed
-   * without them — confirmed first, and cancelling leaves the trip intact.
-   * Course/Tour off: linked stages can no longer exist, so they are
-   * separated (each back onto its own day) rather than left as orphan links
-   * the UI would no longer show. Also confirmed first.
+   * Tour on: existing stops are removed and every ETA recomputed without
+   * them — confirmed first, and cancelling leaves the trip intact. Back to
+   * Voyage: linked stages can no longer exist, so they are separated (each
+   * onto its own day) rather than left as orphan links the UI would no
+   * longer show. Also confirmed first.
    */
   async function setRaceMode(enabled: boolean): Promise<void> {
     if (enabled === raceMode) return
     if (enabled && originalBundle !== null && hasConfiguredStagePauses(originalBundle)) {
-      if (!window.confirm('Passer en mode Course / Tour ?\n\nLes arrêts prévus pendant les étapes seront retirés et les heures d’arrivée recalculées sans eux. Les journées OFF, les transferts et les points d’intérêt sont conservés.')) return
+      if (!window.confirm('Passer en mode Tour ?\n\nLes arrêts prévus pendant les étapes seront retirés et les heures d’arrivée recalculées sans eux. Les journées OFF, les transferts et les points d’intérêt sont conservés.')) return
     }
     if (!enabled && items.some((item) => item.kind === 'ride' && item.linkedToPrevious)) {
-      if (!window.confirm('Quitter le mode Course / Tour ?\n\nLes étapes liées seront replacées chacune sur sa propre journée et la suite du planning sera décalée.')) return
+      if (!window.confirm('Revenir en mode Voyage ?\n\nLes étapes liées seront replacées chacune sur sa propre journée et la suite du planning sera décalée.')) return
       items = items.map((item) => (item.kind === 'ride' && item.linkedToPrevious ? { ...item, linkedToPrevious: false } : item))
       lodgingResolutions.clear()
     }
@@ -487,7 +476,7 @@ export function createTripEditor(
       let patched: TripBundle = {
         ...result.bundle,
         metadata: { ...result.bundle.metadata, name: trimmedName === '' ? result.bundle.metadata.name : trimmedName },
-        settings: { ...result.bundle.settings, global: { ...result.bundle.settings.global, referenceSpeedKph, mountainMode: terrainOverride } },
+        settings: { ...result.bundle.settings, global: { ...result.bundle.settings.global, referenceSpeedKph } },
       }
       if (startDate !== null && startDate !== patched.calendar.startDate) patched = shiftTripStartDate(patched, startDate as IsoDate)
       // Both go through the same functions the light path uses, so a
@@ -768,8 +757,6 @@ export function createTripEditor(
       ${renderWarnings()}
       <details class='wizard-advanced'><summary>Réglages avancés</summary>
         ${renderRaceModeToggle(raceMode)}
-        ${renderTerrainToggle(terrainOverride)}
-        <p class='field__hint'>Change uniquement le seuil utilisé pour distinguer les montées principales des secondaires.</p>
         ${renderClimbSensitivitySlider(climbSensitivity)}
         ${renderRecalculationAction()}
       </details>
@@ -798,18 +785,6 @@ export function createTripEditor(
       originalStartDate = draft.bundle.calendar.startDate
       referenceSpeedKph = draft.bundle.settings.global.referenceSpeedKph
       originalReferenceSpeedKph = draft.bundle.settings.global.referenceSpeedKph
-      // R2.1 section 22 — legacy compatibility: an old/untouched bundle
-      // (`mountainMode: undefined`, i.e. "automatic") is pre-selected from
-      // its own current derived terrain label, never left in a tristate the
-      // 2-choice control can't represent — "non explicitement montagne" (a
-      // 'rolling'/'mixed' label) pre-selects Normal, "explicitement
-      // montagne" (a 'mountain' label) pre-selects Montagne. Saving from
-      // here always writes back an explicit boolean from now on (see
-      // `currentPreferencesUpdate`), so this tristate→boolean collapse only
-      // ever happens once, on first open, never a destructive migration.
-      terrainOverride = draft.bundle.settings.global.mountainMode
-        ?? deriveTripTerrainContext(draft.bundle).label === 'mountain'
-      originalTerrainOverride = terrainOverride
       // Both default to what the bundle already means for a trip saved
       // before these settings existed: Classique, and the historical
       // detection calibration.
@@ -933,17 +908,9 @@ export function createTripEditor(
   container.addEventListener('click', (event) => {
     const target = event.target
     if (!(target instanceof Element)) return
-    // The shared Normal/Montagne toggle (`terrain-toggle.ts`, also used by
-    // the creation wizard) carries a plain `data-action`, not this file's
-    // own `data-editor-action` convention — checked first, on its own.
-    const terrainButton = target.closest<HTMLElement>('[data-action="set-terrain-mode"]')
-    if (terrainButton !== null) {
-      terrainOverride = terrainButton.dataset.terrainMode === 'mountain'
-      render()
-      return
-    }
-    // The shared Classique/Course·Tour control (`race-mode-toggle.ts`, also
-    // used by the creation wizard) carries a plain `data-action` too.
+    // The shared Voyage/Tour control (`race-mode-toggle.ts`, also used by
+    // the creation wizard) carries a plain `data-action`, not this file's own
+    // `data-editor-action` convention — checked first, on its own.
     const raceButton = target.closest<HTMLElement>('[data-action="set-race-mode"]')
     if (raceButton !== null) {
       void setRaceMode(raceButton.dataset.raceMode === 'on')

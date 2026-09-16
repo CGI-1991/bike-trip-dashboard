@@ -127,6 +127,20 @@ export function groupHeadDayId(bundle: TripBundle, dayId: TripDayId): TripDayId 
 
 // --- departure-time helpers -------------------------------------------------
 
+/**
+ * How a stage is named in a message about a GROUP: its own départ →
+ * arrivée, or the traveller's own stage name when there is one. A J number
+ * would not do — every stage of a group shares it.
+ */
+function stageLabelFor(bundle: TripBundle, dayId: TripDayId): string {
+  const day = bundle.days.find((candidate) => candidate.id === dayId)
+  const stage = day?.stageId === null || day?.stageId === undefined ? undefined : bundle.stages.find((candidate) => candidate.id === day.stageId)
+  const customName = stage?.customName?.trim()
+  if (customName !== undefined && customName !== '') return customName
+  if (stage === undefined) return 'Étape'
+  return `${stage.startLocationName ?? '—'} → ${stage.endLocationName ?? '—'}`
+}
+
 export function dayDepartureTime(bundle: TripBundle, dayId: TripDayId): string {
   return bundle.settings.days.find((entry) => entry.dayId === dayId)?.departureTime ?? DEFAULT_DEPARTURE_TIME
 }
@@ -197,14 +211,15 @@ export function initializeLinkedGroupDepartures(previous: TripBundle | null, nex
 
 export interface LinkedScheduleAdjustment {
   readonly dayId: TripDayId
-  readonly displayNumber: number
+  /** The stage's own départ → arrivée — every stage of a group shares one J number, so only this identifies which one moved. */
+  readonly stageLabel: string
   readonly from: string
   readonly to: string
 }
 
 export interface LinkedScheduleOverflow {
   readonly dayId: TripDayId
-  readonly displayNumber: number
+  readonly stageLabel: string
 }
 
 export interface LinkedScheduleResult {
@@ -242,14 +257,14 @@ export function resolveLinkedScheduleConflicts(bundle: TripBundle): LinkedSchedu
       if (conflict === 'overflow') {
         // The previous stage already finishes after midnight: there is no
         // compatible same-day departure to offer. Reported, never guessed.
-        overflows.push({ dayId, displayNumber: day.displayNumber })
+        overflows.push({ dayId, stageLabel: stageLabelFor(next, dayId) })
       } else if (conflict !== null) {
         next = withDayDepartureTime(next, dayId, conflict.repairedTime)
-        adjustments.push({ dayId, displayNumber: day.displayNumber, from: currentTime, to: conflict.repairedTime })
+        adjustments.push({ dayId, stageLabel: stageLabelFor(next, dayId), from: currentTime, to: conflict.repairedTime })
       }
       const arrival = arrivalMinutes(next, dayId)
       if (arrival !== null && arrival >= MINUTES_PER_DAY && !overflows.some((entry) => entry.dayId === dayId)) {
-        overflows.push({ dayId, displayNumber: day.displayNumber })
+        overflows.push({ dayId, stageLabel: stageLabelFor(next, dayId) })
       }
       previousArrival = arrival
     }
@@ -286,7 +301,7 @@ export function previousLinkedArrivalMinutes(bundle: TripBundle, dayId: TripDayI
 
 export interface LinkedLodgingOption {
   readonly dayId: TripDayId
-  readonly displayNumber: number
+  readonly stageLabel: string
   readonly accommodationId: AccommodationId
   readonly accommodationName: string
 }
@@ -306,7 +321,7 @@ function lodgingOptionsFor(bundle: TripBundle, dayIds: readonly TripDayId[]): re
     const accommodation = bundle.accommodations.find((candidate) => candidate.id === day.accommodationId)
     options.push({
       dayId,
-      displayNumber: day.displayNumber,
+      stageLabel: stageLabelFor(bundle, dayId),
       accommodationId: day.accommodationId,
       accommodationName: accommodation?.name ?? 'Hébergement',
     })
