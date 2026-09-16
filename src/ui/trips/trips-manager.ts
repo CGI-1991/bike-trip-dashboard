@@ -557,11 +557,33 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       </div>`
   }
 
+  /**
+   * The one load every trip SCREEN goes through — Voyage, Étape and Aperçu
+   * alike — so a legacy trip is repaired before it is shown, whichever screen
+   * the visitor opens first (a deep link straight into Étape used to bypass
+   * it entirely).
+   *
+   * The repair (`climb-name-repair.ts`) undoes climb names a GPX segment
+   * marker supplied before that stopped being allowed: those names blocked
+   * the OSM col rename AND the name-based col↔climb merge, so affected
+   * stages surfaced no named col at all. It stays offline and idempotent,
+   * never touches a manual or OSM-named climb, and a trip with nothing to
+   * repair is returned exactly as loaded with nothing written.
+   */
+  async function loadTripBundleForScreen(tripId: TripId): Promise<TripBundle | null> {
+    const repository = createTripRepository(deps.database)
+    const bundle = await repository.loadTripBundle(tripId)
+    if (bundle === null) return null
+    const repaired = repairSegmentMarkerClimbNames(bundle)
+    if (repaired === bundle) return bundle
+    await repository.saveTripBundle(repaired)
+    return repaired
+  }
+
   async function renderDetail(tripId: TripId): Promise<void> {
     teardownSubComponent()
     container.innerHTML = '<p role="status">Chargement du voyage…</p>'
-    const tripRepository = createTripRepository(deps.database)
-    const bundle = await tripRepository.loadTripBundle(tripId)
+    const bundle = await loadTripBundleForScreen(tripId)
     if (bundle === null) {
       mode = { kind: 'list' }
       await renderList()
@@ -587,8 +609,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   async function renderDay(tripId: TripId, dayId: TripDayId): Promise<void> {
     teardownSubComponent()
     container.innerHTML = '<p role="status">Chargement de la journée…</p>'
-    const tripRepository = createTripRepository(deps.database)
-    const bundle = await tripRepository.loadTripBundle(tripId)
+    const bundle = await loadTripBundleForScreen(tripId)
     if (bundle === null) {
       mode = { kind: 'list' }
       await renderList()
@@ -972,7 +993,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   async function renderOverview(tripId: TripId, options: { readonly diffGated?: boolean } = {}): Promise<void> {
     teardownSubComponent()
     if (options.diffGated !== true) container.innerHTML = '<p role="status">Chargement du voyage…</p>'
-    const bundle = await loadRepairedTripBundle(tripId)
+    const bundle = await loadTripBundleForScreen(tripId)
     if (bundle === null) {
       if (options.diffGated === true) return
       mode = { kind: 'list' }
@@ -1852,24 +1873,6 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       },
     )
     activeSubComponent = editor
-  }
-
-  /**
-   * Loads a trip and repairs, once, the climbs a GPX segment marker named
-   * before that stopped being allowed (`climb-name-repair.ts`): those names
-   * blocked the OSM col rename AND the col↔climb merge, so affected stages
-   * showed no named col at all on the Aperçu "Détail" layer. Idempotent and
-   * offline — a trip with nothing to repair is returned as loaded and
-   * nothing is written.
-   */
-  async function loadRepairedTripBundle(tripId: TripId): Promise<TripBundle | null> {
-    const repository = createTripRepository(deps.database)
-    const bundle = await repository.loadTripBundle(tripId)
-    if (bundle === null) return null
-    const repaired = repairSegmentMarkerClimbNames(bundle)
-    if (repaired === bundle) return bundle
-    await repository.saveTripBundle(repaired)
-    return repaired
   }
 
   /** Persists a full-bundle mutation the same way every other action in this file does — load, mutate, save, return the fresh bundle (or `null` if the trip vanished meanwhile). */

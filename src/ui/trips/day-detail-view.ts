@@ -104,7 +104,13 @@ function formatPercent(value: number | null): string {
 function renderDayIdentityHeader(day: TripDay, dayNumber: number, mainLabel: string, fullMainLabel: string, customName: string | null = null): string {
   const dateLabel = day.date === null ? null : formatShortDate(day.date)
   const accessibleLabel = customName === null ? fullMainLabel : `${customName} — ${fullMainLabel}`
-  return `<header class="day-detail__sticky-identity" data-day-detail-identity title="${escapeHtml(accessibleLabel)}" aria-label="${escapeHtml(accessibleLabel)}">
+  // The two-line composition (nom manuel / départ → arrivée) is expressed
+  // with explicit grid lines in CSS, never by changing the shape of this
+  // markup. A stage with no custom name gets the modifier below, which lets
+  // its single line span both rows instead of leaving an empty one — same
+  // header height, same `Jx` position, whichever stage is open.
+  const modifier = customName === null ? ' day-detail__sticky-identity--single' : ''
+  return `<header class="day-detail__sticky-identity${modifier}" data-day-detail-identity title="${escapeHtml(accessibleLabel)}" aria-label="${escapeHtml(accessibleLabel)}">
     <span class="day-detail__identity-number"><strong>J${dayNumber}</strong>${dateLabel === null ? '' : `<time datetime="${day.date}">${escapeHtml(dateLabel)}</time>`}</span>
     <span class="day-detail__identity-route">${customName === null ? mainLabel : escapeHtml(customName)}</span>
     ${customName === null ? '' : `<span class="day-detail__identity-subtitle" data-day-detail-identity-subtitle>${mainLabel}</span>`}

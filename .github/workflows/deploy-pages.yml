@@ -30,6 +30,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Nothing is published unless the suite passes. `npm run build` below
+      # already covers TypeScript and the RGA package/golden drift checks
+      # (its own `prebuild`), so this step adds the one gate that was missing.
+      - name: Run tests
+        run: npm test
+
       - name: Build site
         run: npm run build
 

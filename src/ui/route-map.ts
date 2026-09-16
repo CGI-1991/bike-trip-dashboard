@@ -18,6 +18,8 @@ import {
   getRouteMarkerLegendEntries,
   getRouteMarkerStyle,
 } from './route-marker-style.ts'
+import { NO_MARKER_OFFSET, resolveMarkerIconOffsets } from './marker-collision-offsets.ts'
+import type { MarkerIconOffset } from './marker-collision-offsets.ts'
 import type { RouteMarkerCategory, RouteMarkerShape } from './route-marker-style.ts'
 import {
   disposePracticalLayerPanel,
@@ -180,9 +182,19 @@ function shapeStyle(shape: RouteMarkerShape): string {
   return 'border-radius: 20%; transform: rotate(45deg);'
 }
 
-function createRouteDivIcon(category: RouteMarkerCategory, options: { readonly offRoute?: boolean; readonly pauseActive?: boolean } = {}): L.DivIcon {
+/**
+ * `iconOffset` displaces the ICON only, through Leaflet's `iconAnchor`
+ * (the point of the icon that lands on the geographic coordinate). Moving
+ * the anchor by `-offset` moves the drawn icon by `+offset`, so two markers
+ * pinned to the very same place stop covering each other while both stay
+ * anchored to their own, untouched coordinate
+ * (`marker-collision-offsets.ts`). `NO_MARKER_OFFSET` — every marker that
+ * collides with nothing — reproduces the previous anchor exactly.
+ */
+function createRouteDivIcon(category: RouteMarkerCategory, options: { readonly offRoute?: boolean; readonly pauseActive?: boolean; readonly iconOffset?: MarkerIconOffset } = {}): L.DivIcon {
   const style = getRouteMarkerStyle(category)
   const size = style.sizePx
+  const offset = options.iconOffset ?? NO_MARKER_OFFSET
   const ring = options.pauseActive === true ? `box-shadow: 0 0 0 3px ${PAUSE_ACCENT_COLOR_HEX};` : ''
   const surface = options.offRoute === true
     ? `background: transparent; border: 2px dashed ${style.colorHex};`
@@ -190,7 +202,7 @@ function createRouteDivIcon(category: RouteMarkerCategory, options: { readonly o
   const counterRotate = style.shape === 'diamond' ? 'transform: rotate(-45deg);' : ''
   const symbolMarkup = style.symbol === '' ? '' : `<span style="display:block; ${counterRotate} font: 700 ${Math.round(size * 0.55)}px/1 system-ui, sans-serif; color:#ffffff;">${style.symbol}</span>`
   const html = `<span role="img" aria-label="${style.label}" style="box-sizing:border-box; display:flex; align-items:center; justify-content:center; width:${size}px; height:${size}px; ${shapeStyle(style.shape)} ${surface} ${ring}">${symbolMarkup}</span>`
-  return L.divIcon({ html, className: `route-marker route-marker--${category}`, iconSize: [size, size], iconAnchor: [size / 2, size / 2] })
+  return L.divIcon({ html, className: `route-marker route-marker--${category}`, iconSize: [size, size], iconAnchor: [size / 2 - offset.x, size / 2 - offset.y] })
 }
 
 function markerTooltip(marker: RouteMapMarkerModel): string {
@@ -233,12 +245,17 @@ export function createRouteMap(container: HTMLElement, model: RouteMapModel, opt
   for (const segment of lineSegments) {
     bounds.extend(L.polyline(segment.map(toLatLng), { color: '#0f766e', weight: 4 }).addTo(map).getBounds())
   }
-  for (const marker of model.markers) {
+  // Offsets are resolved across the whole set drawn together, so a climb
+  // summiting exactly on the arrival line keeps both markers visible and
+  // reachable (`marker-collision-offsets.ts`). Coordinates are untouched —
+  // `bounds` still uses the real ones.
+  const markerOffsets = resolveMarkerIconOffsets(model.markers)
+  model.markers.forEach((marker, index) => {
     bounds.extend(toLatLng(marker.coordinate))
-    L.marker(toLatLng(marker.coordinate), { icon: createRouteDivIcon(marker.category, { offRoute: marker.offRoute, pauseActive: marker.pauseActive }) })
+    L.marker(toLatLng(marker.coordinate), { icon: createRouteDivIcon(marker.category, { offRoute: marker.offRoute, pauseActive: marker.pauseActive, iconOffset: markerOffsets[index] }) })
       .bindTooltip(markerTooltip(marker))
       .addTo(map)
-  }
+  })
   if (bounds.isValid()) {
     if (options.invalidateBeforeInitialFit === true) map.invalidateSize()
     map.fitBounds(bounds, {
@@ -378,8 +395,9 @@ function installMapLayerPanel(dialog: HTMLDialogElement, map: L.Map, layers: rea
     label.append(input, symbol, name, count)
     list.appendChild(label)
 
-    const group = L.layerGroup(layer.markers.map((marker) => {
-      const built = L.marker(toLatLng(marker.coordinate), { icon: createRouteDivIcon(marker.category, { offRoute: marker.offRoute, pauseActive: marker.pauseActive }) })
+    const layerOffsets = resolveMarkerIconOffsets(layer.markers)
+    const group = L.layerGroup(layer.markers.map((marker, markerIndex) => {
+      const built = L.marker(toLatLng(marker.coordinate), { icon: createRouteDivIcon(marker.category, { offRoute: marker.offRoute, pauseActive: marker.pauseActive, iconOffset: layerOffsets[markerIndex] }) })
         .bindTooltip(markerTooltip(marker))
       // C2 (CDC section 19): a practical-POI marker carries its own rich
       // popup, opened on click — every structural marker leaves `popupHtml`
@@ -493,8 +511,9 @@ function installDirectLayerToggle(dialog: HTMLDialogElement, map: L.Map, layers:
   toggle.hidden = markers.length === 0
   toggle.setAttribute('aria-pressed', 'false')
   if (markers.length === 0) return
-  const group = L.layerGroup(markers.map((marker) =>
-    L.marker(toLatLng(marker.coordinate), { icon: createRouteDivIcon(marker.category, { offRoute: marker.offRoute, pauseActive: marker.pauseActive }) })
+  const toggleOffsets = resolveMarkerIconOffsets(markers)
+  const group = L.layerGroup(markers.map((marker, index) =>
+    L.marker(toLatLng(marker.coordinate), { icon: createRouteDivIcon(marker.category, { offRoute: marker.offRoute, pauseActive: marker.pauseActive, iconOffset: toggleOffsets[index] }) })
       .bindTooltip(markerTooltip(marker)),
   ))
   const handler = (): void => {

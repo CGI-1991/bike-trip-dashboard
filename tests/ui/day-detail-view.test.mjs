@@ -453,7 +453,7 @@ test('the generic Détail tabbar lays out its (2) tabs in 2 equal columns — ne
 test('K: the identity bandeau carries Jx, a short date, and départ → arrivée — nothing else', () => {
   const bundle = createGenericTripBundle()
   const detail = buildDayDetail(bundle, 'day-alpha')
-  const identityBlock = detail.html.match(/<header class="day-detail__sticky-identity"[\s\S]*?<\/header>/)?.[0] ?? ''
+  const identityBlock = detail.html.match(/<header class="day-detail__sticky-identity[^"]*"[\s\S]*?<\/header>/)?.[0] ?? ''
   assert.match(identityBlock, /<strong>J1<\/strong>/)
   assert.match(identityBlock, /<time datetime="2027-05-10">10 mai<\/time>/)
   assert.match(identityBlock, /Riverside → Hilltown/)
@@ -462,7 +462,7 @@ test('K: the identity bandeau carries Jx, a short date, and départ → arrivée
 test('L: the bandeau never duplicates distance/D+/départ-heure/ETA/météo — those stay in the Stats/Météo blocks only', () => {
   const bundle = createGenericTripBundle()
   const detail = buildDayDetail(bundle, 'day-alpha')
-  const identityBlock = detail.html.match(/<header class="day-detail__sticky-identity"[\s\S]*?<\/header>/)?.[0] ?? ''
+  const identityBlock = detail.html.match(/<header class="day-detail__sticky-identity[^"]*"[\s\S]*?<\/header>/)?.[0] ?? ''
   assert.doesNotMatch(identityBlock, /km|D\+|D−|°C|Départ|ETA/)
 })
 
