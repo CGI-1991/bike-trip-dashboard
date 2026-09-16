@@ -44,6 +44,40 @@ export function formatDayMinutes(minutes: number): string | null {
   return `${String(Math.floor(rounded / 60)).padStart(2, '0')}:${String(rounded % 60).padStart(2, '0')}`
 }
 
+/**
+ * The departure time proposed for a stage the moment it BECOMES linked
+ * (CDC section 4.A): the previous stage's ETA plus one hour, rounded up to
+ * the next quarter-hour — ETA 12:07 → 13:15, and an ETA already landing on
+ * a quarter keeps its exact +1 h. `null` past midnight.
+ *
+ * Pure and exported on its own so the rule can be checked directly, and so
+ * it is stated once rather than inlined at its single call site.
+ */
+export function initialDepartureAfter(previousArrivalMinutes: number): string | null {
+  return formatDayMinutes(ceilToQuarterHour(previousArrivalMinutes + LINKED_STAGE_INITIAL_GAP_MINUTES))
+}
+
+/**
+ * The one conflict rule (CDC section 4.B). A conflict exists ONLY when the
+ * departure is strictly earlier than the previous stage's ETA:
+ *
+ * - equal is accepted;
+ * - less than an hour of slack is accepted — the initial hour was a
+ *   proposal, never a minimum to maintain;
+ * - an ETA that merely moved earlier never drags the next departure with
+ *   it, because a larger gap is not a conflict.
+ *
+ * The repair is the first quarter-hour at or after that ETA — never a
+ * restored hour of slack. Returns `null` when there is nothing to change,
+ * and `'overflow'` when the previous stage only arrives after midnight, so
+ * no same-day departure can work at all.
+ */
+export function resolveDepartureConflict(previousArrivalMinutes: number, departureMinutes: number): { readonly repairedTime: string } | 'overflow' | null {
+  if (departureMinutes >= previousArrivalMinutes) return null
+  const repairedTime = formatDayMinutes(ceilToQuarterHour(previousArrivalMinutes))
+  return repairedTime === null ? 'overflow' : { repairedTime }
+}
+
 // --- groups -----------------------------------------------------------------
 
 export interface LinkedDayGroup {
@@ -149,7 +183,7 @@ export function initializeLinkedGroupDepartures(previous: TripBundle | null, nex
       if (wasLinked.has(dayId)) continue
       const previousArrival = arrivalMinutes(bundle, group.dayIds[position - 1] as TripDayId)
       if (previousArrival === null) continue
-      const proposed = formatDayMinutes(ceilToQuarterHour(previousArrival + LINKED_STAGE_INITIAL_GAP_MINUTES))
+      const proposed = initialDepartureAfter(previousArrival)
       // Past midnight there is no same-day time to propose — left untouched
       // and reported by `resolveLinkedScheduleConflicts` instead of wrapped.
       if (proposed === null) continue
@@ -204,17 +238,14 @@ export function resolveLinkedScheduleConflicts(bundle: TripBundle): LinkedSchedu
       const day = next.days.find((candidate) => candidate.id === dayId)
       if (day === undefined) continue
       const currentTime = dayDepartureTime(next, dayId)
-      const currentMinutes = parseClockToMinutes(currentTime)
-      if (previousArrival !== null && currentMinutes < previousArrival) {
-        const repaired = formatDayMinutes(ceilToQuarterHour(previousArrival))
-        if (repaired === null) {
-          // The previous stage already finishes after midnight: there is no
-          // compatible same-day departure to offer. Reported, never guessed.
-          overflows.push({ dayId, displayNumber: day.displayNumber })
-        } else {
-          next = withDayDepartureTime(next, dayId, repaired)
-          adjustments.push({ dayId, displayNumber: day.displayNumber, from: currentTime, to: repaired })
-        }
+      const conflict = previousArrival === null ? null : resolveDepartureConflict(previousArrival, parseClockToMinutes(currentTime))
+      if (conflict === 'overflow') {
+        // The previous stage already finishes after midnight: there is no
+        // compatible same-day departure to offer. Reported, never guessed.
+        overflows.push({ dayId, displayNumber: day.displayNumber })
+      } else if (conflict !== null) {
+        next = withDayDepartureTime(next, dayId, conflict.repairedTime)
+        adjustments.push({ dayId, displayNumber: day.displayNumber, from: currentTime, to: conflict.repairedTime })
       }
       const arrival = arrivalMinutes(next, dayId)
       if (arrival !== null && arrival >= MINUTES_PER_DAY && !overflows.some((entry) => entry.dayId === dayId)) {
@@ -241,6 +272,14 @@ export function earliestCompatibleDeparture(bundle: TripBundle, dayId: TripDayId
   const previousArrival = arrivalMinutes(bundle, group[position - 1] as TripDayId)
   if (previousArrival === null) return null
   return formatDayMinutes(ceilToQuarterHour(previousArrival))
+}
+
+/** The previous stage's ETA in minutes from that day's midnight — `null` when this day has no linked predecessor or no computable ETA. Exposed for the departure dialog's own conflict message. */
+export function previousLinkedArrivalMinutes(bundle: TripBundle, dayId: TripDayId): number | null {
+  const group = groupDayIdsFor(bundle, dayId)
+  const position = group.indexOf(dayId)
+  if (position <= 0) return null
+  return arrivalMinutes(bundle, group[position - 1] as TripDayId)
 }
 
 // --- lodging ----------------------------------------------------------------
