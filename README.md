@@ -2,6 +2,7 @@
 
 La [feuille de route Trip(+)](docs/ROADMAP.md) mémorise les évolutions prévues : itinérance à pied, allure et détection des montées sur cinq niveaux, puis refonte mobile.
 Le [premier lot de fiabilisation des POI](docs/POI_RELIABILITY.md) décrit la recherche progressive, la reprise et la compatibilité avec les voyages existants.
+Le [deuxième lot](docs/POI_PROVIDER_RESILIENCE.md) précise la gestion des erreurs fournisseur et les limites du cache, en préservant les lieux sauvegardés dans les voyages.
 
 Moteur générique de voyages à vélo, hérité techniquement du dépôt
 `CGI-1991/rga-2026-dashboard`. Le voyage actuellement chargé reste la **Route des

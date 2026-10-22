@@ -1,3 +1,4 @@
+import { EnrichmentTimeoutError } from '../../src/route-enrichment/enrichment-failure.ts'
 import '../storage/indexeddb/support/setup-fake-indexeddb.mjs'
 
 import assert from 'node:assert/strict'
@@ -83,7 +84,7 @@ test('a 120 km stage whose middle stretch times out: successes kept, incomplete 
     const stored = await runPipeline(database, bundle, {
       structural: (search) => {
         // The 60–80 km stretch of the first stage never answers.
-        if (search.stageId === bundle.stages[0].id && startsPast(search, 60) && !startsPast(search, 80)) throw new Error('timeout')
+        if (search.stageId === bundle.stages[0].id && startsPast(search, 60) && !startsPast(search, 80)) throw new EnrichmentTimeoutError(30_000)
         return okStructural()
       },
       practical: () => { practicalCalls += 1; return okPractical() },
@@ -109,7 +110,7 @@ test('the same trip completes by itself on the next open, and only then does POI
     let failing = true
     await runPipeline(database, bundle, {
       structural: (search) => {
-        if (failing && search.stageId === bundle.stages[0].id && startsPast(search, 60) && !startsPast(search, 80)) throw new Error('timeout')
+        if (failing && search.stageId === bundle.stages[0].id && startsPast(search, 60) && !startsPast(search, 80)) throw new EnrichmentTimeoutError(30_000)
         return okStructural()
       },
       practical: okPractical,
@@ -145,7 +146,7 @@ test('an incomplete stage defers only its own POI; the ready stage completes', a
     const stored = await runPipeline(database, bundle, {
       // The SECOND stage fails entirely; the first is perfectly fine.
       structural: (search) => {
-        if (search.stageId === bundle.stages[1].id) throw new Error('timeout')
+        if (search.stageId === bundle.stages[1].id) throw new EnrichmentTimeoutError(30_000)
         return okStructural()
       },
       practical: () => { practicalCalls += 1; return okPractical() },
@@ -180,7 +181,7 @@ test('a stage with complete structure but incomplete POI may not compute its pau
       // The 40 km stage is covered by two jobs (0–20 and 19–40): fail only
       // the later one, so its POI phase is genuinely partial.
       practical: (search) => {
-        if (search.stageId === bundle.stages[0].id && startsPast(search, 10)) throw new Error('timeout')
+        if (search.stageId === bundle.stages[0].id && startsPast(search, 10)) throw new EnrichmentTimeoutError(30_000)
         return okPractical()
       },
     })
@@ -213,7 +214,7 @@ test('an incomplete stage produces NO automatic pause, even where real places we
     // to place a pause on, and must still refuse to.
     const stored = await runPipeline(database, bundle, {
       structural: (search) => {
-        if (search.stageId === bundle.stages[0].id && startsPast(search, 60) && !startsPast(search, 80)) throw new Error('timeout')
+        if (search.stageId === bundle.stages[0].id && startsPast(search, 60) && !startsPast(search, 80)) throw new EnrichmentTimeoutError(30_000)
         return {
           ...okStructural(),
           candidates: [{ osmType: 'node', osmId: `v-${search.geometry[0].latitude.toFixed(4)}`, featureType: 'village', name: 'Village', latitude: search.geometry[0].latitude, longitude: 6, elevationM: null }],
@@ -250,7 +251,7 @@ test('a manual pause is never gated — the traveller\'s own choices do not depe
     const bundle = bundleWithLongStage(120)
     const stored = await runPipeline(database, bundle, {
       structural: (search) => {
-        if (search.stageId === bundle.stages[0].id && startsPast(search, 60)) throw new Error('timeout')
+        if (search.stageId === bundle.stages[0].id && startsPast(search, 60)) throw new EnrichmentTimeoutError(30_000)
         return {
           ...okStructural(),
           candidates: [{ osmType: 'node', osmId: 'manual-anchor', featureType: 'village', name: 'Halte', latitude: 45.1, longitude: 6, elevationM: null }],

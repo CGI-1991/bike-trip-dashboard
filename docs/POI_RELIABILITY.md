@@ -48,7 +48,7 @@ npm exec -- vite build
 
 - Valider sur l’iPhone réel : verrouillage, fermeture, changement de réseau, conservation des voyages après mise à jour et absence de gel perceptible.
 - Ajouter la sauvegarde/restauration complète et un parcours explicite de mise à jour de la PWA. Aucun effacement ni réinstallation ne doit être proposé pour corriger un cache.
-- Définir la fraîcheur et la taille maximale du cache ; distinguer plus finement les réponses non valides, les indisponibilités fournisseur et les erreurs permanentes.
+- Le [deuxième lot](POI_PROVIDER_RESILIENCE.md) définit les durées et le budget du cache et distingue réponses invalides, indisponibilités et refus permanents. Restent la prise en compte de `Retry-After` et une suspension partagée par fournisseur.
 - Permettre aux catégories de corridor de progresser avant la fin des localités de leur propre étape ; actuellement, seule l’indépendance entre étapes est livrée.
 - Distinguer proximité géométrique et accès/détour réellement praticable. Étendre ensuite cette politique à la marche.
 - Introduire un worker de calcul si les mesures sur les appareils cibles montrent encore des tâches longues. L’index spatial est la première réduction du coût.

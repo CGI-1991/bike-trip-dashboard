@@ -1,3 +1,4 @@
+import { EnrichmentTimeoutError } from '../../src/route-enrichment/enrichment-failure.ts'
 import '../storage/indexeddb/support/setup-fake-indexeddb.mjs'
 
 import assert from 'node:assert/strict'
@@ -104,10 +105,10 @@ test('network failure is non-blocking and leaves previously enriched practical p
   const failed = await enrichTripPracticalPlaces({
     bundle: enriched.bundle,
     cache: memoryCache,
-    provider: provider(async () => { throw new Error('offline') }),
+    provider: provider(async () => { throw new TypeError('Failed to fetch') }),
     now: () => '2028-08-04T10:00:00.000Z',
   })
-  assert.equal(failed.networkErrorCount, 5)
+  assert.equal(failed.networkErrorCount, 1, 'an offline stage stops after its first failure instead of subdividing')
   assert.deepEqual(failed.bundle.practicalPlaces, beforeFailure)
   assert.equal(failed.bundle.enrichmentMetadata.providers.find((state) => state.provider === 'postpass-practical-places')?.status, 'error')
   // A stretch that could not be answered is OUTSTANDING WORK, not a settled
@@ -183,7 +184,7 @@ test('a stage whose ground could not all be covered keeps what it found, and the
     bundle,
     cache: memoryCache,
     provider: provider(async (search) => {
-      if (search.stageId === 'stage-alpha') throw new Error('timeout')
+      if (search.stageId === 'stage-alpha') throw new EnrichmentTimeoutError(30_000)
       const point = search.geometry[0]
       return result([candidate({ osmId: 'second-stage-only', latitude: point.latitude, longitude: point.longitude })])
     }),
@@ -337,7 +338,7 @@ test('E: E2 timeout/error does not stop E3 — each stage is still attempted, ch
         calls++
         if (seenStageIds.at(-1) !== search.stageId) seenStageIds.push(search.stageId)
         // Every request belonging to the middle stage fails.
-        if (search.stageId === bundle.stages[1].id) throw new Error('timeout')
+        if (search.stageId === bundle.stages[1].id) throw new EnrichmentTimeoutError(30_000)
         return result([candidate({ osmId: `call-${calls}` })])
       }),
       now: () => '2028-08-03T10:00:00.000Z',
@@ -364,7 +365,7 @@ test('section 18: a stage-scoped POI failure is recorded per-stage in practicalP
         calls++
         // Every request belonging to the SECOND stage fails, so exactly one
         // stage ends up incomplete.
-        if (search.stageId === bundle.stages[1].id) throw new Error('timeout')
+        if (search.stageId === bundle.stages[1].id) throw new EnrichmentTimeoutError(30_000)
         return result([candidate({ osmId: `call-${calls}` })])
       }),
       now: () => '2028-08-03T10:00:00.000Z',

@@ -14,9 +14,9 @@
  * Getting this wrong in the "too heavy" direction is wasteful; getting it
  * wrong in the "unavailable" direction is worse, because a genuinely heavy
  * segment would then never be subdivided and the stage would never complete.
- * So the classifier only answers `unavailable` on positive evidence that the
- * network is the problem, and treats everything else — including a plain
- * timeout, the most common symptom of an over-large query — as `too-heavy`.
+ * Only positive evidence of excessive cost warrants subdivision. Invalid
+ * payloads, rejected requests and programming errors cannot be repaired by
+ * halving the route and must leave the work pending without fan-out.
  */
 
 /** Thrown by a provider when its own request timeout elapsed (as opposed to an external cancellation). */
@@ -39,6 +39,22 @@ export class EnrichmentHttpError extends Error {
   }
 }
 
+export class EnrichmentResponseError extends Error {
+  constructor(cause?: unknown) {
+    super('Réponse GeoJSON Postpass invalide. Les lieux déjà enregistrés sont conservés.', { cause })
+    this.name = 'EnrichmentResponseError'
+  }
+}
+
+/** Keep transport/read failures distinct from a response containing invalid JSON. */
+export async function readEnrichmentJson(response: Pick<Response, 'json'>): Promise<unknown> {
+  try { return await response.json() }
+  catch (error) {
+    if (error instanceof SyntaxError) throw new EnrichmentResponseError(error)
+    throw error
+  }
+}
+
 export class EnrichmentStorageError extends Error {
   constructor(cause: unknown) {
     super('La recherche a répondu, mais les données ne peuvent pas être enregistrées sur cet appareil. Vérifiez l’espace de stockage disponible.', { cause })
@@ -46,14 +62,10 @@ export class EnrichmentStorageError extends Error {
   }
 }
 
-export type EnrichmentFailureKind = 'too-heavy' | 'unavailable'
+export type EnrichmentFailureKind = 'too-heavy' | 'unavailable' | 'invalid-response' | 'permanent' | 'cancelled'
 
-/**
- * HTTP statuses that mean "the server is fine, but not for you right now".
- * Splitting the query would not help and would multiply the pressure, so
- * these suspend instead — the same answer as being offline.
- */
-const SERVER_UNAVAILABLE_STATUSES = new Set([429, 500, 502, 503, 504])
+/** Explicit request timeout or size limits; other 4xx failures do not justify splitting. */
+const EXPENSIVE_REQUEST_STATUSES = new Set([408, 413, 414])
 
 function looksLikeNetworkFailure(error: unknown): boolean {
   if (!(error instanceof Error)) return false
@@ -72,14 +84,30 @@ export interface ClassifyFailureContext {
 }
 
 export function classifyEnrichmentFailure(error: unknown, context: ClassifyFailureContext = {}): EnrichmentFailureKind {
+  if (error instanceof Error && error.name === 'AbortError') return 'cancelled'
   // A confirmed-offline device explains every failure, whatever it looks
   // like — no amount of subdividing will help.
   if (context.online === false) return 'unavailable'
   if (looksLikeNetworkFailure(error)) return 'unavailable'
-  if (error instanceof EnrichmentHttpError && SERVER_UNAVAILABLE_STATUSES.has(error.status)) return 'unavailable'
-  // Everything else — a timeout above all, but also a 4xx from an
-  // over-large query — is treated as "this request asked for too much".
-  return 'too-heavy'
+  if (error instanceof EnrichmentResponseError || error instanceof SyntaxError) return 'invalid-response'
+  if (error instanceof EnrichmentTimeoutError) return 'too-heavy'
+  if (error instanceof EnrichmentHttpError) {
+    if (error.status === 429 || error.status >= 500) return 'unavailable'
+    return EXPENSIVE_REQUEST_STATUSES.has(error.status) ? 'too-heavy' : 'permanent'
+  }
+  return 'permanent'
+}
+
+/** A short explanation suitable for the saved provider status and mobile UI. */
+export function enrichmentFailureMessage(error: unknown): string {
+  const kind = classifyEnrichmentFailure(error)
+  if (kind === 'invalid-response') return new EnrichmentResponseError().message
+  if (kind === 'cancelled') return 'Recherche interrompue ; les lieux acquis sont conservés.'
+  if (kind === 'unavailable') return 'Le service de recherche est momentanément indisponible ou la connexion est interrompue. Les lieux acquis sont conservés.'
+  if (kind === 'too-heavy') return 'Une zone demande trop de temps de recherche ; les lieux acquis sont conservés.'
+  return error instanceof EnrichmentHttpError
+    ? `Le service de recherche a refusé la requête (HTTP ${error.status}). Les lieux acquis sont conservés.`
+    : 'La recherche a rencontré une erreur ; les lieux acquis sont conservés.'
 }
 
 /** Reads `navigator.onLine` where it exists, without assuming a browser. */

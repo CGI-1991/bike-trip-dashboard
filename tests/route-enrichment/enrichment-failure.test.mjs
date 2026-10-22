@@ -4,6 +4,7 @@ import test from 'node:test'
 import {
   classifyEnrichmentFailure,
   EnrichmentHttpError,
+  EnrichmentResponseError,
   EnrichmentTimeoutError,
 } from '../../src/route-enrichment/enrichment-failure.ts'
 
@@ -17,13 +18,13 @@ test('a timeout means the request asked for too much — split it', () => {
   assert.equal(classifyEnrichmentFailure(new EnrichmentTimeoutError(30_000)), 'too-heavy')
 })
 
-test('an unrecognised error is treated as too heavy — subdividing is the recoverable guess', () => {
-  assert.equal(classifyEnrichmentFailure(new Error('something odd')), 'too-heavy')
+test('an unrecognised error does not justify multiplying network requests', () => {
+  assert.equal(classifyEnrichmentFailure(new Error('something odd')), 'permanent')
 })
 
-test('a 4xx is treated as too heavy — an over-large query is the usual cause', () => {
-  assert.equal(classifyEnrichmentFailure(new EnrichmentHttpError(400)), 'too-heavy')
-  assert.equal(classifyEnrichmentFailure(new EnrichmentHttpError(413)), 'too-heavy')
+test('only request size/time limits justify subdividing an HTTP failure', () => {
+  for (const status of [408, 413, 414]) assert.equal(classifyEnrichmentFailure(new EnrichmentHttpError(status)), 'too-heavy')
+  for (const status of [400, 401, 403, 404, 405, 422]) assert.equal(classifyEnrichmentFailure(new EnrichmentHttpError(status)), 'permanent')
 })
 
 test('a failed fetch is a network failure, whatever the engine calls it', () => {
@@ -43,11 +44,17 @@ test('an unknown connectivity state does not by itself mean offline', () => {
 })
 
 test('429 and 5xx mean "not for you right now" — suspend rather than pile on', () => {
-  for (const status of [429, 500, 502, 503, 504]) {
+  for (const status of [429, 500, 501, 502, 503, 504, 507]) {
     assert.equal(classifyEnrichmentFailure(new EnrichmentHttpError(status)), 'unavailable', `HTTP ${status}`)
   }
 })
 
 test('a TypeError unrelated to the network is not mistaken for one', () => {
-  assert.equal(classifyEnrichmentFailure(new TypeError('x.map is not a function')), 'too-heavy')
+  assert.equal(classifyEnrichmentFailure(new TypeError('x.map is not a function')), 'permanent')
+})
+
+test('invalid JSON, invalid GeoJSON and external cancellation never fan out', () => {
+  assert.equal(classifyEnrichmentFailure(new SyntaxError('Unexpected <')), 'invalid-response')
+  assert.equal(classifyEnrichmentFailure(new EnrichmentResponseError()), 'invalid-response')
+  assert.equal(classifyEnrichmentFailure(new DOMException('Cancelled', 'AbortError')), 'cancelled')
 })

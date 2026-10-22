@@ -1,3 +1,4 @@
+import { EnrichmentTimeoutError } from '../../src/route-enrichment/enrichment-failure.ts'
 import '../storage/indexeddb/support/setup-fake-indexeddb.mjs'
 
 import assert from 'node:assert/strict'
@@ -77,7 +78,7 @@ function densityLimitedProvider(perKm, objectLimit, counters) {
       const candidates = villagesFor(search, perKm)
       if (candidates.length > objectLimit) {
         counters.rejected += 1
-        throw new Error('temps de recherche Postpass dépassé')
+        throw new EnrichmentTimeoutError(30_000)
       }
       return { candidates, durationMs: 5, rawCandidateCount: candidates.length, httpStatus: 200, payloadBytes: 0, startedAt: '2028-01-01T00:00:00.000Z', finishedAt: '2028-01-01T00:00:00.005Z' }
     },
