@@ -39,6 +39,13 @@ export class EnrichmentHttpError extends Error {
   }
 }
 
+export class EnrichmentStorageError extends Error {
+  constructor(cause: unknown) {
+    super('La recherche a répondu, mais les données ne peuvent pas être enregistrées sur cet appareil. Vérifiez l’espace de stockage disponible.', { cause })
+    this.name = 'EnrichmentStorageError'
+  }
+}
+
 export type EnrichmentFailureKind = 'too-heavy' | 'unavailable'
 
 /**

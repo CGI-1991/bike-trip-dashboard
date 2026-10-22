@@ -73,7 +73,7 @@ import {
   renderTripDayRouteTimeline,
 } from './ui/route-engine.ts'
 import { renderElevationProfile } from './ui/elevation-profile.ts'
-import { closeExpandedRouteMap, getRouteMapInteractionHandle, mountLocationPicker, renderCompactRouteMapModel, renderGenericRouteMap, renderRouteMap } from './ui/route-map.ts'
+import { closeExpandedRouteMap, getRouteMapInteractionHandle, mountLocationPicker, renderCompactRouteMapModel, renderGenericRouteMap, renderRouteMap, updateGenericRouteMapLayers } from './ui/route-map.ts'
 import { closeExpandedOverviewMap, renderOverviewMap } from './ui/overview-map.ts'
 import { buildOverviewViewModel } from './ui/overview-view-model.ts'
 import { renderOverviewView } from './ui/overview-view.ts'
@@ -1097,6 +1097,7 @@ void openBikeTripDatabase()
       onNavigateToView: navigateGenericTripView,
       onHeaderChange: applyGenericAppHeader,
       renderMap: renderGenericRouteMap,
+      updateMapLayers: updateGenericRouteMapLayers,
       closeMap: closeExpandedRouteMap,
       getMapInteractionHandle: getRouteMapInteractionHandle,
       mountLocationPicker: (pickerContainer, initial) => mountLocationPicker(pickerContainer, initial, () => {

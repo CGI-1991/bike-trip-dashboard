@@ -241,8 +241,8 @@ test('opening a trip that still has outstanding work resumes it automatically â€
     bundle.enrichmentMetadata = {
       providers: [{ provider: 'postpass-practical-places', status: 'partial', lastAttemptedAt: '2027-05-01T08:00:00.000Z', lastSuccessAt: '2027-05-01T08:00:00.000Z', message: null }],
       enrichmentJobs: [
-        { stageId: bundle.stages[0].id, routeFingerprint: `sha256:${bundle.sourceFiles[0].sha256}`, jobs: [{ kind: 'practical', startKm: 0, endKm: 40, status: 'success', attempts: 1 }] },
-        { stageId: bundle.stages[1].id, routeFingerprint: `sha256:${bundle.sourceFiles[1].sha256}`, jobs: [{ kind: 'practical', startKm: 0, endKm: 20, status: 'pending', attempts: 1 }] },
+        { stageId: bundle.stages[0].id, routeFingerprint: `sha256:${bundle.sourceFiles[0].sha256}`, planVersion: 2, jobs: [{ kind: 'practical', startKm: 0, endKm: 40, status: 'success', attempts: 1 }] },
+        { stageId: bundle.stages[1].id, routeFingerprint: `sha256:${bundle.sourceFiles[1].sha256}`, planVersion: 2, jobs: [{ kind: 'practical', startKm: 0, endKm: 20, status: 'pending', attempts: 1 }] },
       ],
     }
     await createTripRepository(db).saveTripBundle(bundle)

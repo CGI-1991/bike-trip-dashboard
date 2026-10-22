@@ -1,5 +1,8 @@
 # Bike Trip Dashboard
 
+La [feuille de route Trip(+)](docs/ROADMAP.md) mémorise les évolutions prévues : itinérance à pied, allure et détection des montées sur cinq niveaux, puis refonte mobile.
+Le [premier lot de fiabilisation des POI](docs/POI_RELIABILITY.md) décrit la recherche progressive, la reprise et la compatibilité avec les voyages existants.
+
 Moteur générique de voyages à vélo, hérité techniquement du dépôt
 `CGI-1991/rga-2026-dashboard`. Le voyage actuellement chargé reste la **Route des
 Grandes Alpes 2026** (Thonon-les-Bains → Nice, 12 jours, 10 journées roulées et

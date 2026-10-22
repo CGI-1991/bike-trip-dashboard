@@ -73,3 +73,92 @@ export function locatePointOnRoute(
     lateralDistanceMeters: best.lateralMeters,
   }
 }
+
+interface RouteIndexNode {
+  readonly minLatitude: number
+  readonly maxLatitude: number
+  readonly minLongitude: number
+  readonly maxLongitude: number
+  readonly first: number
+  readonly last: number
+  readonly left?: RouteIndexNode
+  readonly right?: RouteIndexNode
+}
+
+export interface RouteLocator {
+  locate(candidate: { readonly latitude: number; readonly longitude: number }): LocatedRoutePosition | null
+}
+
+const routeLocators = new WeakMap<readonly RouteGeometryPoint[], RouteLocator>()
+
+/** Reusable spatial hierarchy over contiguous route segments. Building it
+ * is linear; a nearby candidate normally visits only a small part of the
+ * trace. Chainage is computed once, independently of the candidate.
+ */
+export function createRouteLocator(geometry: readonly RouteGeometryPoint[]): RouteLocator {
+  const cached = routeLocators.get(geometry)
+  if (cached !== undefined) return cached
+  const distances = [0]
+  for (let i = 1; i < geometry.length; i++) {
+    const start = geometry[i - 1]!
+    const end = geometry[i]!
+    const x = (end.longitude - start.longitude) * Math.cos((start.latitude + end.latitude) / 2 * RADIANS)
+    const y = end.latitude - start.latitude
+    distances.push(distances[i - 1]! + Math.hypot(x, y) * EARTH_RADIUS_METERS * RADIANS)
+  }
+  function build(first: number, last: number): RouteIndexNode {
+    if (last - first <= 8) {
+      let minLatitude = Infinity, maxLatitude = -Infinity, minLongitude = Infinity, maxLongitude = -Infinity
+      for (let i = first; i <= last; i++) {
+        const point = geometry[i]!
+        minLatitude = Math.min(minLatitude, point.latitude); maxLatitude = Math.max(maxLatitude, point.latitude)
+        minLongitude = Math.min(minLongitude, point.longitude); maxLongitude = Math.max(maxLongitude, point.longitude)
+      }
+      return { first, last, minLatitude, maxLatitude, minLongitude, maxLongitude }
+    }
+    const middle = (first + last) >>> 1
+    const left = build(first, middle)
+    const right = build(middle, last)
+    return { first, last, left, right,
+      minLatitude: Math.min(left.minLatitude, right.minLatitude), maxLatitude: Math.max(left.maxLatitude, right.maxLatitude),
+      minLongitude: Math.min(left.minLongitude, right.minLongitude), maxLongitude: Math.max(left.maxLongitude, right.maxLongitude) }
+  }
+  const root = geometry.length < 2 ? null : build(0, geometry.length - 1)
+  function lowerBound(node: RouteIndexNode, candidate: { readonly latitude: number; readonly longitude: number }): number {
+    const dx = Math.max(node.minLongitude - candidate.longitude, 0, candidate.longitude - node.maxLongitude)
+    const dy = Math.max(node.minLatitude - candidate.latitude, 0, candidate.latitude - node.maxLatitude)
+    // Conservative longitude scale: the exact projection's reference
+    // latitude lies inside the candidate/node latitude interval.
+    const latitude = Math.max(Math.abs(candidate.latitude), Math.abs(node.minLatitude), Math.abs(node.maxLatitude))
+    return Math.hypot(dx * Math.cos(latitude * RADIANS), dy) * EARTH_RADIUS_METERS * RADIANS
+  }
+  const locator: RouteLocator = {
+    locate(candidate) {
+      if (root === null) return null
+      let bestDistance = Infinity
+      let bestAlong = 0
+      let bestSegment = Infinity
+      function visit(node: RouteIndexNode): void {
+        if (lowerBound(node, candidate) > bestDistance) return
+        if (node.left !== undefined && node.right !== undefined) {
+          const leftFirst = lowerBound(node.left, candidate) <= lowerBound(node.right, candidate)
+          visit(leftFirst ? node.left : node.right)
+          visit(leftFirst ? node.right : node.left)
+          return
+        }
+        for (let i = node.first; i < node.last; i++) {
+          const projected = projectOnSegment(candidate, geometry[i]!, geometry[i + 1]!)
+          if (projected.distanceMeters < bestDistance || (projected.distanceMeters === bestDistance && i < bestSegment)) {
+            bestDistance = projected.distanceMeters
+            bestSegment = i
+            bestAlong = distances[i]! + (distances[i + 1]! - distances[i]!) * projected.ratio
+          }
+        }
+      }
+      visit(root)
+      return { trackDistanceKm: bestAlong / 1_000, lateralDistanceMeters: bestDistance }
+    },
+  }
+  routeLocators.set(geometry, locator)
+  return locator
+}

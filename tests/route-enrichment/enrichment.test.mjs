@@ -117,7 +117,7 @@ test('village shares the locality threshold — hamlet/peak are never searched, 
   assert.equal(report.bundle.climbs[0].name, 'Montée 1')
 })
 
-test('wider server recall recovers candidates displaced by simplification while full GPX thresholds stay strict', async () => {
+test('search clips the full GPX instead of trusting a displaced stored simplification; client thresholds stay strict', async () => {
   const bundle = climbBundle()
   const metersPerLatitudeDegree = 111_195
   const simplifiedOffsetMeters = 180
@@ -164,8 +164,8 @@ test('wider server recall recovers candidates displaced by simplification while 
     .filter((point) => point.provenance.engineVersion === 'route-enrichment@4')
     .map((point) => point.name)
   assert.deepEqual(structuralNames, ['Town accepted', 'Pass accepted'])
-  assert.ok(collectedDistances.get('pass-recalled') > 250)
-  assert.ok(collectedDistances.get('town-recalled') > 1_500)
+  assert.ok(Math.abs(collectedDistances.get('pass-recalled') - 100) < 2)
+  assert.ok(Math.abs(collectedDistances.get('town-recalled') - 1_400) < 2)
   assert.equal(progress[0].rawCandidateCount, 4)
   assert.equal(progress[0].retainedCandidateCount, 2)
   assert.equal(progress[0].rejectedCandidateCount, 2)

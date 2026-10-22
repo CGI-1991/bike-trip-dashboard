@@ -11,7 +11,7 @@ import { createGenericTripBundle } from '../trip-core/support/generic-trip-fixtu
 /**
  * DER-DES-DER sections 4/9-10/15/19 / tests D-H — the pipeline's chronology.
  *
- * IMPORT → endpoints (global) → structure (global) → then, per stage in
+ * IMPORT → endpoints (global) → structure (per stage) → then, per stage in
  * strict chronological order: POI → pauses → ready. The two global phases
  * come first because a stage's POI search needs its structural geography
  * (départ, arrivée, villes, cols) as its anchors, and its pauses need the
@@ -83,31 +83,30 @@ test('D: every endpoint lookup happens before any structural lookup', async () =
   }
 })
 
-test('E: every structural lookup happens before any POI lookup — the POI anchors need the structure', async () => {
+test('each stage finishes its own structure before its POI, without waiting for later stages', async () => {
   const database = await openTestDatabase()
   try {
-    const calls = await runPipeline(database, withTwoEnrichableStages(createGenericTripBundle()))
-    const lastStructural = calls.map((call) => call.startsWith('structural:')).lastIndexOf(true)
-    const firstPractical = calls.findIndex((call) => call.startsWith('practical:'))
-    assert.ok(lastStructural >= 0 && firstPractical >= 0, `expected both phases in ${JSON.stringify(calls)}`)
-    assert.ok(lastStructural < firstPractical, 'structure finishes globally before POI begins')
-  } finally {
-    database.close()
-  }
+    const bundle = withTwoEnrichableStages(createGenericTripBundle())
+    const calls = await runPipeline(database, bundle)
+    for (const stage of bundle.stages) {
+      const lastStructure = calls.lastIndexOf(`structural:${stage.id}`)
+      const firstPoi = calls.indexOf(`practical:${stage.id}`)
+      assert.ok(lastStructure >= 0 && firstPoi > lastStructure)
+    }
+    assert.ok(calls.indexOf(`practical:${bundle.stages[0].id}`) < calls.indexOf(`structural:${bundle.stages[1].id}`), 'the first stage is usable before the second stage is prepared')
+  } finally { database.close() }
 })
 
-test('sections 9-10/15: the two global phases are complete before the per-stage phase starts — never interleaved', async () => {
+test('endpoints precede searches, then structure and POI progress stage by stage', async () => {
   const database = await openTestDatabase()
   try {
     const calls = await runPipeline(database, withTwoEnrichableStages(createGenericTripBundle()))
-    const phases = calls.map((call) => call.split(':')[0])
-    const firstPracticalIndex = phases.indexOf('practical')
-    assert.ok(firstPracticalIndex > 0)
-    assert.ok(!phases.slice(firstPracticalIndex).includes('structural'), 'no structural call after POI started')
-    assert.ok(!phases.slice(firstPracticalIndex).includes('endpoints'), 'no endpoint call after POI started')
-  } finally {
-    database.close()
-  }
+    const phases = calls.map(call => call.split(':')[0])
+    const firstPoi = phases.indexOf('practical')
+    assert.ok(firstPoi > 0)
+    assert.ok(phases.slice(firstPoi).includes('structural'), 'later structure can follow already-acquired POI')
+    assert.ok(!phases.slice(firstPoi).includes('endpoints'))
+  } finally { database.close() }
 })
 
 test('section 15: stages are enriched in strict chronological order, never reordered by "today"', async () => {

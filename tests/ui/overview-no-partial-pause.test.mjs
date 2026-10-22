@@ -38,6 +38,7 @@ function withJobs(bundle, statuses) {
     enrichmentJobs: [{
       stageId: STAGE_ID,
       routeFingerprint: `sha256:${sourceFile.sha256}`,
+      planVersion: 2,
       jobs: [
         { kind: 'structural', startKm: 0, endKm: 20, status: statuses.structural, attempts: 1 },
         { kind: 'practical', startKm: 0, endKm: 20, status: statuses.practical, attempts: 1 },

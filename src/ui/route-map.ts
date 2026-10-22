@@ -308,6 +308,28 @@ export interface MapLayerDefinition {
   readonly defaultVisible: boolean
 }
 
+const genericLayerStates = new WeakMap<HTMLElement, { layers: readonly MapLayerDefinition[] }>()
+
+/** Replace only optional marker layers, keeping the map, zoom and route. */
+export function updateGenericRouteMapLayers(container: HTMLElement, dialog: HTMLDialogElement, layers: readonly MapLayerDefinition[]): void {
+  const state = genericLayerStates.get(container)
+  if (state === undefined) return
+  state.layers = layers
+  const expanded = dialog.querySelector<HTMLElement>('[data-route-map-expanded]')
+  const map = expanded === null ? undefined : mapInstances.get(expanded)
+  if (!dialog.open || map === undefined) return
+  const selected = new Map(Array.from(dialog.querySelectorAll<HTMLInputElement>('input[data-map-layer]')).map(input => [input.dataset.mapLayer, input.checked]))
+  const panel = dialog.querySelector<HTMLElement>('[data-map-layers-panel]')
+  const wasOpen = panel !== null && !panel.hidden
+  installMapLayerPanel(dialog, map, layers.map(layer => ({ ...layer, defaultVisible: selected.get(layer.id) ?? layer.defaultVisible })))
+  if (wasOpen) {
+    if (panel !== null) panel.hidden = false
+    const backdrop = dialog.querySelector<HTMLElement>('[data-map-layers-backdrop]')
+    if (backdrop !== null) backdrop.hidden = false
+    dialog.querySelector('[data-map-layers-toggle]')?.setAttribute('aria-expanded', 'true')
+  }
+}
+
 export function disposeMapLayerPanel(dialog: HTMLDialogElement): void {
   mapLayerControllers.get(dialog)?.dispose()
   mapLayerControllers.delete(dialog)
@@ -681,6 +703,8 @@ export function renderRouteMap(container: HTMLElement, dialog: HTMLDialogElement
  * layer to offer, so a panel just to pick it is one needless step.
  */
 export function renderGenericRouteMap(container: HTMLElement, dialog: HTMLDialogElement, model: RouteMapModel | null, layers: readonly MapLayerDefinition[] = [], options: { readonly directLayerToggle?: boolean } = {}): void {
+  const layerState = { layers }
+  genericLayerStates.set(container, layerState)
   destroy(container)
   if (dialog.open || scrollUnlocks.has(dialog) || expandedHistory.has(dialog)) {
     closeExpandedRouteMap(dialog)
@@ -752,8 +776,8 @@ export function renderGenericRouteMap(container: HTMLElement, dialog: HTMLDialog
         )
         map.on('popupopen', () => { popupOpen = true })
         map.on('popupclose', () => { popupOpen = false })
-        if (options.directLayerToggle === true) installDirectLayerToggle(dialog, map, layers)
-        else installMapLayerPanel(dialog, map, layers)
+        if (options.directLayerToggle === true) installDirectLayerToggle(dialog, map, layerState.layers)
+        else installMapLayerPanel(dialog, map, layerState.layers)
       } catch {
         closeExpandedRouteMap(dialog)
       }
