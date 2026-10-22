@@ -29,6 +29,7 @@ function withJobs(bundle, stageId, kind, statuses) {
       enrichmentJobs: [...others, {
         stageId,
         routeFingerprint: stageFingerprintFor(bundle, stageId),
+      planVersion: 2,
         jobs: [...kept, ...added],
       }],
     },

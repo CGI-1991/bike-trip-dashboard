@@ -68,6 +68,7 @@ function bundleWithTwoVillageCandidates() {
     enrichmentJobs: [{
       stageId: stage.id,
       routeFingerprint: fingerprint,
+      planVersion: 2,
       jobs: [
         { kind: 'structural', startKm: 0, endKm: 100, status: 'success', attempts: 1 },
         { kind: 'practical', startKm: 0, endKm: 100, status: 'success', attempts: 1 },

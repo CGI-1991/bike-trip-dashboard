@@ -7,9 +7,7 @@ import { shiftTripStartDate, updateTripPreferences, TRIP_REFERENCE_SPEED_MAX_KPH
 import type { TripPreferencesFieldError, TripPreferencesUpdate } from '../../trips-manager/trip-preferences.ts'
 import { createTripRepository } from '../../storage/indexeddb/trip-repository.ts'
 import { resolveOffLocation, resolveTransferLocations } from '../../analysis/day-location-fill.ts'
-import { resetEnrichmentForRecalculation } from '../../route-enrichment/settled-stages.ts'
-import { enrichableStageFingerprints } from '../../route-enrichment/enrichment-jobs.ts'
-import { createRouteEnrichmentCacheRepository } from '../../storage/indexeddb/route-enrichment-cache-repository.ts'
+import { resetPracticalPlacesForRefresh } from '../../route-enrichment/settled-stages.ts'
 import { formatShortDate } from '../date-format.ts'
 import { climbSensitivityAtIndex, patchClimbSensitivityLabels, renderClimbSensitivitySlider } from './climb-sensitivity-slider.ts'
 import { renderRaceModeToggle } from './race-mode-toggle.ts'
@@ -83,6 +81,7 @@ export function createTripEditor(
   tripId: TripId,
   onSaved: (bundle: TripBundle) => void,
   onCancelled: () => void,
+  onRefreshRequested?: () => void,
 ): TripEditorHandle {
   const controller = new AbortController()
   let stage: EditorStage = 'loading'
@@ -495,39 +494,24 @@ export function createTripEditor(
     render()
   }
 
-  /**
-   * DER-DES-DER sections 34-37 — "Recalculer les données du parcours".
-   *
-   * Section 36 asks for a confirmation first, in plain terms. Section 33's
-   * "invalidation explicite" then happens through the one function that owns
-   * that concept (`resetEnrichmentForRecalculation`): every provider drops
-   * back to `pending` and forgets its settled fingerprints, which is exactly
-   * what makes the next automatic pass re-query every stage. The pass itself
-   * is not started here — reopening the trip runs it, through the same single
-   * orchestration entry point everything else uses (section 38: never a
-   * second, parallel enrichment path).
+  /** Refresh only POI, retaining the displayed snapshot and manual data.
+   * A new cache generation supersedes any older in-flight response.
    */
   async function recalculate(): Promise<void> {
     if (recalculating || stage === 'saving') return
-    if (!window.confirm('Recalculer les lieux, services et pauses du voyage ?\n\nLes données automatiques seront rafraîchies à la prochaine ouverture du voyage. Vos saisies manuelles sont conservées.')) return
+    if (!window.confirm('Actualiser les services du voyage ?\n\nLes lieux déjà trouvés restent disponibles pendant la recherche. Vos traces, logements, réglages et pauses sont conservés.')) return
     recalculating = true
     recalculationMessage = null
     render()
     try {
       const repository = createTripRepository(deps.database)
-      const bundle = await repository.loadTripBundle(tripId)
+      const bundle = await repository.updateTripBundle(tripId, latest => resetPracticalPlacesForRefresh(latest))
       if (bundle === null) {
         recalculationMessage = 'Voyage introuvable.'
         return
       }
-      // Clearing the job record alone would achieve nothing: every request
-      // would be answered from the provider cache with exactly what it
-      // returned before. This action exists to pick up changes in OSM
-      // itself, so the cached answers for this trip's routes go too.
-      await createRouteEnrichmentCacheRepository(deps.database)
-        .clearForRouteFingerprints(enrichableStageFingerprints(bundle))
-      await repository.saveTripBundle(resetEnrichmentForRecalculation(bundle))
-      recalculationMessage = 'Les données seront rafraîchies à la prochaine ouverture du voyage.'
+      onRefreshRequested?.()
+      recalculationMessage = 'Recherche des services relancée. Les lieux déjà trouvés restent disponibles.'
     } catch {
       recalculationMessage = 'Le recalcul n’a pas pu être préparé. Réessayez plus tard.'
     } finally {
@@ -725,8 +709,8 @@ export function createTripEditor(
    */
   function renderRecalculationAction(): string {
     return `<div class='wizard-advanced__action'>
-      <button class='button button--quiet' type='button' data-editor-action='recalculate' ${stage === 'saving' || recalculating ? 'disabled' : ''}>Recalculer les données du parcours</button>
-      <p class='field__hint'>Relance la recherche des lieux, services et pauses automatiques. Vos saisies (pauses choisies, notes, logement, réservations) sont conservées.</p>
+      <button class='button button--quiet' type='button' data-editor-action='recalculate' ${stage === 'saving' || recalculating ? 'disabled' : ''}>Actualiser les services</button>
+      <p class='field__hint'>Actualise les points d’intérêt. Les lieux déjà trouvés restent disponibles pendant la recherche ; vos autres données sont conservées.</p>
       ${recalculationMessage === null ? '' : `<p class='field__hint' role='status'>${escapeHtml(recalculationMessage)}</p>`}
     </div>`
   }
@@ -747,6 +731,7 @@ export function createTripEditor(
     // D3.1 section 27: a light preferences-only save never claims to
     // "recalculer" GPX — only a real structural rebuild does.
     const savingMessage = isStructureDirty() ? 'Recalcul et enregistrement atomique…' : 'Enregistrement…'
+    const advancedOpen = container.querySelector<HTMLDetailsElement>('details.wizard-advanced')?.open === true
     container.innerHTML = `<div class='wizard' data-trip-editor>
       <header class='view-heading'><p class='eyebrow'>Mes voyages</p><h2>Modifier ${escapeHtml(tripName)}</h2></header>
       ${renderInformationsSection()}
@@ -755,7 +740,7 @@ export function createTripEditor(
       <input id='editor-add-files' class='visually-hidden' type='file' accept='.gpx' multiple data-editor-field='add' tabindex='-1' aria-hidden='true'>
       <ul class='wizard-structure__list'>${renderStructureList()}</ul>
       ${renderWarnings()}
-      <details class='wizard-advanced'><summary>Réglages avancés</summary>
+      <details class='wizard-advanced' ${advancedOpen ? 'open' : ''}><summary>Réglages avancés</summary>
         ${renderRaceModeToggle(raceMode)}
         ${renderClimbSensitivitySlider(climbSensitivity)}
         ${renderRecalculationAction()}

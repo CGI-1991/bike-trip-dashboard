@@ -84,7 +84,7 @@ test('route-fingerprint cache prevents a second provider call, including after t
       bundle: first.bundle, cache, provider: mock, now: () => '2028-08-04T10:00:00.000Z',
     })
     assert.equal(calls, STAGE_JOB_COUNT, 'the second pass adds no request at all — every micro-segment is cached')
-    assert.equal(second.cacheHitCount, 1)
+    assert.equal(second.cacheHitCount, STAGE_JOB_COUNT)
     assert.equal(second.placeCount, 1)
   } finally {
     database.close()
@@ -107,7 +107,7 @@ test('network failure is non-blocking and leaves previously enriched practical p
     provider: provider(async () => { throw new Error('offline') }),
     now: () => '2028-08-04T10:00:00.000Z',
   })
-  assert.equal(failed.networkErrorCount, 1)
+  assert.equal(failed.networkErrorCount, 5)
   assert.deepEqual(failed.bundle.practicalPlaces, beforeFailure)
   assert.equal(failed.bundle.enrichmentMetadata.providers.find((state) => state.provider === 'postpass-practical-places')?.status, 'error')
   // A stretch that could not be answered is OUTSTANDING WORK, not a settled
@@ -343,7 +343,7 @@ test('E: E2 timeout/error does not stop E3 — each stage is still attempted, ch
       now: () => '2028-08-03T10:00:00.000Z',
     })
     assert.deepEqual(seenStageIds, ['stage-alpha', bundle.stages[1].id, 'stage-charlie'], 'strict chronological E1→E2→E3 order, and E2\'s failure never stopped E3')
-    assert.equal(report.networkErrorCount, 1)
+    assert.equal(report.networkErrorCount, 5)
     assert.equal(report.bundle.enrichmentMetadata.providers.find((state) => state.provider === 'postpass-practical-places')?.status, 'partial')
   } finally {
     database.close()
@@ -457,7 +457,7 @@ test('AI/AJ: changing only a pause\'s duration (same anchor position) never re-t
     // Same anchor (routePointId unchanged), only the duration differs.
     const second = await enrichTripPracticalPlaces({ bundle: withManualPause(first.bundle, 1_200), cache, provider: mock, now: () => '2028-08-04T10:00:00.000Z' })
     assert.equal(calls, STAGE_JOB_COUNT, 'a duration-only change must never re-trigger Postpass — the anchor set (positions) is unchanged')
-    assert.equal(second.cacheHitCount, 1)
+    assert.equal(second.cacheHitCount, STAGE_JOB_COUNT)
   } finally {
     database.close()
   }

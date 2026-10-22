@@ -392,6 +392,7 @@ test('"Rétablir Auto" on a fully-enriched stage recomputes and persists a fresh
       providers: bundle.enrichmentMetadata.providers,
       enrichmentJobs: [{
         stageId, routeFingerprint: fingerprint,
+      planVersion: 2,
         jobs: [
           { kind: 'structural', startKm: 0, endKm: 40, status: 'success', attempts: 1 },
           { kind: 'practical', startKm: 0, endKm: 40, status: 'success', attempts: 1 },

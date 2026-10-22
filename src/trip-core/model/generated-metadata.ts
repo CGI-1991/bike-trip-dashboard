@@ -23,6 +23,8 @@ export interface EnrichmentJob {
 export interface StageEnrichmentJobs {
   readonly stageId: RideStageId
   readonly routeFingerprint: string
+  /** Absent on older searches whose geometry coverage was not guaranteed. */
+  readonly planVersion?: number
   readonly jobs: readonly EnrichmentJob[]
 }
 
@@ -93,6 +95,8 @@ export interface EnrichmentProviderState {
 /** Bundle-level view of external enrichment (OSM, Open-Meteo, ...) freshness. */
 export interface TripEnrichmentMetadata {
   readonly providers: readonly EnrichmentProviderState[]
+  /** Explicit POI refreshes get their own cache generation; old results stay visible. */
+  readonly practicalPlacesGeneration?: number
   /**
    * The ride days whose POI phase is not finished, as of the last pass.
    *

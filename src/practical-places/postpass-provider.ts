@@ -99,6 +99,7 @@ export function buildPostpassMultiPoint(anchors: readonly PracticalPlaceAnchor[]
  * than emitting an invalid empty `MULTIPOINT()`.
  */
 export function buildPostpassPracticalPlacesQuery(search: PracticalPlacesSearch): string {
+  if (!Number.isFinite(search.corridorRadiusMeters) || search.corridorRadiusMeters <= 0 || !Number.isFinite(search.anchorRadiusMeters) || search.anchorRadiusMeters <= 0) throw new Error('Rayon de recherche POI invalide.')
   const lineString = buildPostpassLineString(search.geometry)
   const hasAnchors = search.anchors.length > 0
   const anchorsCte = hasAnchors ? `, anchors AS (\n  SELECT ST_GeomFromText('${buildPostpassMultiPoint(search.anchors)}', 4326) AS geom\n)` : ''
@@ -106,14 +107,14 @@ export function buildPostpassPracticalPlacesQuery(search: PracticalPlacesSearch)
   const corridorBranch = `(
       (source.tags->>'amenity' IN ('drinking_water', 'shelter', 'toilets')
         OR (source.tags->>'amenity' = 'fountain' AND source.tags->>'drinking_water' = 'yes'))
-      AND ST_DWithin(source.geom::geography, route.geom::geography, ${PRACTICAL_PLACES_CORRIDOR_RADIUS_METERS})
+      AND ST_DWithin(source.geom::geography, route.geom::geography, ${Math.round(search.corridorRadiusMeters)})
     )`
   const anchorBranch = hasAnchors
     ? `
     OR (
       (source.tags->>'shop' = 'bicycle' OR source.tags->>'amenity' = 'bicycle_repair_station'
         OR source.tags->>'shop' IN ('supermarket', 'convenience', 'grocery') OR source.tags->>'shop' = 'bakery')
-      AND ST_DWithin(source.geom::geography, anchors.geom::geography, ${PRACTICAL_PLACES_ANCHOR_RADIUS_METERS})
+      AND ST_DWithin(source.geom::geography, anchors.geom::geography, ${Math.round(search.anchorRadiusMeters)})
     )`
     : ''
   return `WITH route AS (
@@ -191,6 +192,8 @@ function category(properties: Record<string, unknown>): PracticalPlaceCategory |
 }
 
 const USEFUL_TAG_COLUMNS: ReadonlyMap<string, string> = new Map([
+  ['amenity', 'amenity'],
+  ['shop', 'shop'],
   ['opening_hours', 'opening_hours'],
   ['access', 'access'],
   ['fee', 'fee'],

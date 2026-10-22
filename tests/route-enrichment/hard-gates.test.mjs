@@ -75,7 +75,7 @@ const startsPast = (search, km, startLat = 45) => search.geometry[0].latitude >=
 
 // --- the prompt's central scenario -----------------------------------------
 
-test('a 120 km stage whose middle stretch times out: successes kept, stage incomplete, ZERO POI calls, no pauses', async () => {
+test('a 120 km stage whose middle stretch times out: successes kept, incomplete stage deferred, other stage gets POI', async () => {
   const database = await openTestDatabase()
   try {
     const bundle = bundleWithLongStage(120)
@@ -95,7 +95,7 @@ test('a 120 km stage whose middle stretch times out: successes kept, stage incom
 
     assert.equal(isStagePhaseComplete(stored, bundle.stages[0].id, 'structural'), false, 'the stage is not structurally complete')
     assert.equal(isStructuralGloballyComplete(stored), false, 'so the trip is not either')
-    assert.equal(practicalCalls, 0, 'and NOT ONE POI request was made')
+    assert.ok(practicalCalls > 0, 'the other stage continues'); assert.equal(isStagePhaseComplete(stored, bundle.stages[0].id, 'practical'), false); assert.equal(isStagePhaseComplete(stored, bundle.stages[1].id, 'practical'), true)
     assert.equal(stageAutomaticPausesAllowed(stored, bundle.stages[0].id), false, 'nor may any automatic pause be shown')
   } finally {
     database.close()
@@ -137,7 +137,7 @@ test('the same trip completes by itself on the next open, and only then does POI
 
 // --- structural → practical ------------------------------------------------
 
-test('one incomplete stage out of two blocks POI for the WHOLE trip, not just for itself', async () => {
+test('an incomplete stage defers only its own POI; the ready stage completes', async () => {
   const database = await openTestDatabase()
   try {
     const bundle = bundleWithLongStage(40)
@@ -151,7 +151,7 @@ test('one incomplete stage out of two blocks POI for the WHOLE trip, not just fo
       practical: () => { practicalCalls += 1; return okPractical() },
     })
     assert.equal(isStagePhaseComplete(stored, bundle.stages[0].id, 'structural'), true, 'stage 1 is genuinely done')
-    assert.equal(practicalCalls, 0, 'yet no POI work starts anywhere — the gate is trip-wide by design')
+    assert.ok(practicalCalls > 0); assert.equal(isStagePhaseComplete(stored, bundle.stages[0].id, 'practical'), true); assert.equal(isStagePhaseComplete(stored, bundle.stages[1].id, 'practical'), false)
   } finally {
     database.close()
   }

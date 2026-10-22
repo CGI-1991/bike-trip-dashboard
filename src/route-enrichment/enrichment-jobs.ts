@@ -56,6 +56,7 @@ export type { EnrichmentJob, EnrichmentJobPhase, EnrichmentJobStatus, StageEnric
  * the hard routes entirely.
  */
 export const INITIAL_SEGMENT_KM = 20
+export const SEARCH_PLAN_VERSION = 2
 
 /**
  * Segments overlap slightly so a village, col or POI sitting exactly on a
@@ -219,6 +220,7 @@ export function stageFingerprintFor(bundle: TripBundle, stageId: RideStageId): s
 export function isStagePhaseComplete(bundle: TripBundle, stageId: RideStageId, kind: EnrichmentJobPhase): boolean {
   const record = stageJobsFor(bundle, stageId)
   if (record === undefined) return false
+  if (record.planVersion !== SEARCH_PLAN_VERSION) return false
   if (record.routeFingerprint !== stageFingerprintFor(bundle, stageId)) return false
   const phaseJobs = record.jobs.filter((job) => job.kind === kind)
   if (phaseJobs.length === 0) return false
@@ -251,6 +253,12 @@ export function isStructuralGloballyComplete(bundle: TripBundle): boolean {
     .some((state) => state.provider === 'postpass-route-enrichment' && state.lastAttemptedAt !== null)
   if (!structuralAttempted) return true
   return stageIds.every((stageId) => isStagePhaseComplete(bundle, stageId, 'structural'))
+}
+
+/** Only this stage's geography is a prerequisite for its anchor search. */
+export function isStageStructureReady(bundle: TripBundle, stageId: RideStageId): boolean {
+  const attempted = bundle.enrichmentMetadata.providers.some(state => state.provider === 'postpass-route-enrichment' && state.lastAttemptedAt !== null)
+  return !attempted || isStagePhaseComplete(bundle, stageId, 'structural')
 }
 
 /** A stage is ready for its pauses once both of its phases have really finished. */
@@ -314,8 +322,8 @@ export function ensureStageJobs(bundle: TripBundle, stageId: RideStageId, kind: 
   // A different fingerprint means a different route: the old plan's
   // kilometre ranges no longer describe anything real, so it is replaced
   // wholesale rather than merged.
-  const carried = existing !== undefined && existing.routeFingerprint === fingerprint ? existing.jobs : []
+  const carried = existing !== undefined && existing.routeFingerprint === fingerprint && existing.planVersion === SEARCH_PLAN_VERSION ? existing.jobs : []
   const hasPhase = carried.some((job) => job.kind === kind)
   const jobs = hasPhase ? carried : [...carried, ...planStageJobs(totalKm, kind)]
-  return { stageId, routeFingerprint: fingerprint, jobs: sortJobs(jobs) }
+  return { stageId, routeFingerprint: fingerprint, planVersion: SEARCH_PLAN_VERSION, jobs: sortJobs(jobs) }
 }

@@ -41,6 +41,11 @@ export interface SaveTripBundleOptions {
 
 export interface TripRepository {
   saveTripBundle(bundle: TripBundle, options?: SaveTripBundleOptions): Promise<void>
+  /** Apply a synchronous update to the latest trip in the write transaction.
+   * Only changed collections are written; original GPX payloads are retained.
+   * A missing/deleted trip is never recreated by background work.
+   */
+  updateTripBundle(tripId: TripId, update: (latest: TripBundle) => TripBundle | null): Promise<TripBundle | null>
   loadTripBundle(tripId: TripId): Promise<TripBundle | null>
   listTrips(): Promise<readonly TripMetadata[]>
   deleteTrip(tripId: TripId): Promise<boolean>
@@ -165,6 +170,41 @@ async function readTripRecordSet(tx: IDBTransaction, tripId: TripId): Promise<Tr
 
 export function createTripRepository(db: IDBDatabase): TripRepository {
   return {
+    async updateTripBundle(tripId, update) {
+      return runInTransaction(db, ALL_TRIP_STORE_NAMES, 'readwrite', async tx => {
+        const records = await readTripRecordSet(tx, tripId)
+        if (records === null) return null
+        const previous = fromTripRecordSet(records)
+        const next = update(previous)
+        if (next === null) return null
+        if (next === previous) return previous
+        if (next.metadata.id !== tripId) throw new Error('Une mise à jour ne peut pas changer l’identité du voyage.')
+        const validation = validateTripBundle(next)
+        if (!validation.ok) throw new TripValidationError(validation.issues)
+        const converted = toTripRecordSet(next)
+        tx.objectStore(OBJECT_STORE_NAMES.trips).put(converted.trip)
+        if (previous.settings !== next.settings) tx.objectStore(OBJECT_STORE_NAMES.tripSettings).put(converted.tripSettings)
+        const changed = new Set<string>()
+        if (previous.sourceFiles !== next.sourceFiles) changed.add(OBJECT_STORE_NAMES.sourceFiles)
+        if (previous.days !== next.days) changed.add(OBJECT_STORE_NAMES.tripDays)
+        if (previous.stages !== next.stages) changed.add(OBJECT_STORE_NAMES.stages)
+        if (previous.routes !== next.routes) { changed.add(OBJECT_STORE_NAMES.routes); changed.add(OBJECT_STORE_NAMES.routeGeometries) }
+        if (previous.climbs !== next.climbs) changed.add(OBJECT_STORE_NAMES.climbs)
+        if (previous.routePoints !== next.routePoints) changed.add(OBJECT_STORE_NAMES.routePoints)
+        if (previous.practicalPlaces !== next.practicalPlaces) changed.add(OBJECT_STORE_NAMES.practicalPlaces)
+        if (previous.accommodations !== next.accommodations) changed.add(OBJECT_STORE_NAMES.accommodations)
+        if (previous.weather !== next.weather) changed.add(OBJECT_STORE_NAMES.weatherCache)
+        if (previous.overrides !== next.overrides) changed.add(OBJECT_STORE_NAMES.overrides)
+        for (const [storeName, items] of collectionStoreEntries(converted)) {
+          if (!changed.has(storeName)) continue
+          const store = tx.objectStore(storeName)
+          await deleteAllByTripId(store, tripId)
+          for (const item of items) store.put(item)
+        }
+        if (previous.sourceFiles !== next.sourceFiles) await writeSourcePayloads(tx, tripId, next, [])
+        return next
+      })
+    },
     async saveTripBundle(bundle, options = {}) {
       const validation = validateTripBundle(bundle)
       if (!validation.ok) {

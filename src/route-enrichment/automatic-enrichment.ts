@@ -7,9 +7,10 @@ import { createTripRepository } from '../storage/indexeddb/trip-repository.ts'
 import type { TripBundle, TripId } from '../trip-core/index.ts'
 import { ensureAutomaticPausePlans, tripNeedsAutomaticPausePlans } from './automatic-pause-plan.ts'
 import { enrichStoredTripRoute, tripNeedsRouteEnrichment } from './enrichment.ts'
-import { isStructuralGloballyComplete } from './enrichment-jobs.ts'
+import { enrichableStageIds, isStagePhaseComplete } from './enrichment-jobs.ts'
 import { migrateEnrichmentJobs } from './settled-stages.ts'
 import type { RouteEnrichmentProgress, RouteEnrichmentProvider } from './types.ts'
+import { EnrichmentStorageError } from './enrichment-failure.ts'
 
 export type AutomaticEnrichmentProgress =
   | { readonly phase: 'endpoints' }
@@ -46,6 +47,7 @@ export interface AutomaticEnrichmentInput {
    * resumes from (section 40). Omitted = never cancelled.
    */
   readonly shouldContinue?: () => boolean
+  readonly onUpdated?: (bundle: TripBundle, dayId: import('../trip-core/index.ts').TripDayId) => void | Promise<void>
 }
 
 export interface AutomaticEnrichmentReport {
@@ -95,61 +97,43 @@ export async function runStoredTripAutomaticEnrichment(input: AutomaticEnrichmen
     if (bundle === null) return { bundle: null, endpointAttempted, routeAttempted, practicalPlacesAttempted, partial: true }
   }
 
-  if (active() && input.routeEnrichmentProvider !== undefined && tripNeedsRouteEnrichment(bundle)) {
-    routeAttempted = true
-    await enrichStoredTripRoute({
-      database: input.database,
-      tripId: input.tripId,
-      provider: input.routeEnrichmentProvider,
-      idFactory: input.idFactory,
-      now: input.now,
-      onProgress: (detail) => input.onProgress?.({ phase: 'route', detail }),
-      ...(input.shouldContinue === undefined ? {} : { shouldContinue: input.shouldContinue }),
-    })
-    bundle = await repository.loadTripBundle(input.tripId)
-    if (bundle === null) return { bundle: null, endpointAttempted, routeAttempted, practicalPlacesAttempted, partial: true }
-  }
-
-  // The hard gate between the two Postpass phases. POI are searched around
-  // the real places the structural phase found, so no stage may start its
-  // POI work until EVERY ride stage knows all of its places. Checked here as
-  // well as inside `enrichStoredTripPracticalPlaces` so the ordering is
-  // visible at the orchestration level, not only enforced deep inside.
-  //
-  // Only meaningful when a structural provider exists: with none configured,
-  // structural completion is unreachable by construction and gating on it
-  // would block POI forever rather than ordering them.
-  if (input.routeEnrichmentProvider !== undefined && !isStructuralGloballyComplete(migrateEnrichmentJobs(bundle))) {
-    return { bundle, endpointAttempted, routeAttempted, practicalPlacesAttempted, partial: true }
-  }
-
-  if (active() && input.practicalPlacesProvider !== undefined && tripNeedsPracticalPlacesEnrichment(bundle)) {
-    practicalPlacesAttempted = true
-    await enrichStoredTripPracticalPlaces({
-      database: input.database,
-      tripId: input.tripId,
-      provider: input.practicalPlacesProvider,
-      now: input.now,
-      onProgress: (detail) => input.onProgress?.({ phase: 'practical-places', detail }),
-      ...(input.shouldContinue === undefined ? {} : { shouldContinue: input.shouldContinue }),
-    })
-    bundle = await repository.loadTripBundle(input.tripId)
-  }
-
-  // Integrity-hardening — CDC's own "PHASE 5 — Pauses de Ei" step: once a
-  // stage's structural+POI work is genuinely complete (whether it just
-  // finished above, or was already complete before this feature existed —
-  // see `tripNeedsAutomaticEnrichment`'s own extra OR-clause), its automatic
-  // pause plan is computed and persisted here, exactly once. Pure and local
-  // — no network, no provider, so it runs regardless of `shouldContinue`
-  // (nothing here could be a long-running operation worth cancelling) and
-  // regardless of which providers this deployment even configures.
-  if (bundle !== null) {
-    const withPausePlans = ensureAutomaticPausePlans(bundle, input.idFactory)
-    if (withPausePlans !== bundle) {
-      await repository.saveTripBundle(withPausePlans)
-      bundle = withPausePlans
+  // Work stage by stage: an unfinished remote stage never delays the POI
+  // already searchable on the stage the traveller is preparing.
+  const enrichable = new Set(enrichableStageIds(bundle))
+  for (const stage of bundle.stages) {
+    if (!enrichable.has(stage.id)) continue
+    if (!active()) break
+    let current = migrateEnrichmentJobs(bundle)
+    if (input.routeEnrichmentProvider !== undefined && !isStagePhaseComplete(current, stage.id, 'structural')) {
+      routeAttempted = true
+      await enrichStoredTripRoute({ database: input.database, tripId: input.tripId,
+        provider: input.routeEnrichmentProvider, idFactory: input.idFactory, now: input.now,
+        onlyDayId: stage.dayId, shouldContinue: input.shouldContinue, onUpdated: input.onUpdated,
+        onProgress: detail => input.onProgress?.({ phase: 'route', detail }) })
+      bundle = await repository.loadTripBundle(input.tripId)
+      if (bundle === null) return { bundle: null, endpointAttempted, routeAttempted, practicalPlacesAttempted, partial: true }
+      current = migrateEnrichmentJobs(bundle)
     }
+    const structureReady = input.routeEnrichmentProvider === undefined || isStagePhaseComplete(current, stage.id, 'structural')
+    if (active() && structureReady && input.practicalPlacesProvider !== undefined && !isStagePhaseComplete(current, stage.id, 'practical')) {
+      practicalPlacesAttempted = true
+      const practicalReport = await enrichStoredTripPracticalPlaces({ database: input.database, tripId: input.tripId,
+        provider: input.practicalPlacesProvider, now: input.now, onlyDayId: stage.dayId,
+        shouldContinue: input.shouldContinue, onUpdated: input.onUpdated,
+        onProgress: detail => input.onProgress?.({ phase: 'practical-places', detail }) })
+      if ((practicalReport?.storageErrorCount ?? 0) > 0) throw new EnrichmentStorageError(new Error('Écriture du cache impossible.'))
+      bundle = await repository.loadTripBundle(input.tripId)
+      if (bundle === null) return { bundle: null, endpointAttempted, routeAttempted, practicalPlacesAttempted, partial: true }
+    }
+    let plansChanged = false
+    const withPlans = await repository.updateTripBundle(input.tripId, latest => {
+      const updated = ensureAutomaticPausePlans(latest, input.idFactory)
+      plansChanged = updated !== latest
+      return updated
+    })
+    if (withPlans === null) return { bundle: null, endpointAttempted, routeAttempted, practicalPlacesAttempted, partial: true }
+    bundle = withPlans
+    if (plansChanged) await input.onUpdated?.(withPlans, stage.dayId)
   }
 
   const partial = bundle?.enrichmentMetadata.providers.some((state) =>

@@ -2,11 +2,11 @@ import { distanceBetweenCoordinatesMeters, locatePointOnRoute } from '../route/r
 import { createRouteEnrichmentCacheRepository } from '../storage/indexeddb/route-enrichment-cache-repository.ts'
 import type { RouteEnrichmentCacheRepository } from '../storage/indexeddb/route-enrichment-cache-repository.ts'
 import { createTripRepository } from '../storage/indexeddb/trip-repository.ts'
-import type { Climb, EnrichmentProviderState, RideStage, Route, RouteGeometryPoint, RoutePoint, RoutePointId, TripBundle, TripId } from '../trip-core/index.ts'
+import type { Climb, EnrichmentProviderState, RideStage, Route, RouteGeometryPoint, RoutePoint, RoutePointId, StageEnrichmentJobs, TripBundle, TripDayId, TripId } from '../trip-core/index.ts'
 import { routePointId } from '../trip-core/index.ts'
 import { cumulativeGeometryDistances } from './chunking.ts'
 import { routeFingerprint, routeGeometry } from './route-fingerprint.ts'
-import { classifyEnrichmentFailure, currentOnlineState } from './enrichment-failure.ts'
+import { classifyEnrichmentFailure, currentOnlineState, EnrichmentStorageError } from './enrichment-failure.ts'
 import {
   ensureStageJobs,
   enrichableStageIds,
@@ -19,7 +19,7 @@ import {
 } from './enrichment-jobs.ts'
 import type { EnrichmentJob, EnrichmentJobStatus } from './enrichment-jobs.ts'
 import { migrateEnrichmentJobs } from './settled-stages.ts'
-import { structuralSearchGeometry } from './search-geometry.ts'
+import { indexRouteGeometry, simplifySearchCorridor, sliceRouteGeometry } from './segment-geometry.ts'
 import {
   KNOWN_ROUTE_FEATURE_TYPES,
   STRUCTURAL_LANDMARK_COLLECTION_RADIUS_METERS,
@@ -80,11 +80,14 @@ export interface EnrichTripRouteInput {
   readonly onProgress?: (progress: RouteEnrichmentProgress) => void
   /** DER-DES-DER sections 38-39 — checked between stages; `false` stops the pass cleanly, keeping every stage already collected. */
   readonly shouldContinue?: () => boolean
+  readonly onlyDayId?: TripDayId
+  readonly onStageComplete?: (result: StageResult, jobs: StageEnrichmentJobs) => Promise<void>
 }
 
 export interface EnrichStoredTripRouteInput extends Omit<EnrichTripRouteInput, 'bundle' | 'cache'> {
   readonly database: IDBDatabase
   readonly tripId: TripId
+  readonly onUpdated?: (bundle: TripBundle, dayId: TripDayId) => void | Promise<void>
 }
 
 export function normalizeName(value: string | null): string | null {
@@ -278,8 +281,7 @@ async function fetchStage(
   shouldContinue: () => boolean | Promise<boolean>,
   onProgress?: (progress: RouteEnrichmentProgress) => void,
 ): Promise<{ readonly result: StageResult; readonly cacheHits: number; readonly jobs: readonly EnrichmentJob[] }> {
-  const searchGeometry = structuralSearchGeometry(route)
-  if (searchGeometry === null) throw new Error(`Géométrie indisponible pour l’étape ${stage.id}.`)
+  const indexedGeometry = indexRouteGeometry(geometry)
   const fingerprint = routeFingerprint(bundle, route)
 
   function resultFromCandidates(
@@ -348,7 +350,7 @@ async function fetchStage(
     if (job === undefined || job.kind !== 'structural') continue
     if (!(await shouldContinue())) break
 
-    const segment = jobGeometry(searchGeometry.geometry, job)
+    const segment = simplifySearchCorridor(sliceRouteGeometry(indexedGeometry, job.startKm, job.endKm), 100)
     const identity = jobCacheIdentity(provider.id, fingerprint, job)
     sentPointCount += segment.length
 
@@ -375,13 +377,14 @@ async function fetchStage(
         localityCollectionRadiusMeters: STRUCTURAL_LOCALITY_COLLECTION_RADIUS_METERS,
         landmarkCollectionRadiusMeters: STRUCTURAL_LANDMARK_COLLECTION_RADIUS_METERS,
       })
-      await cache.put(identity, response.candidates, attemptedAt)
+      await cache.put(identity, response.candidates, attemptedAt).catch(error => { throw new EnrichmentStorageError(error) })
       collected.push(...response.candidates)
       rawCandidateCount += response.rawCandidateCount
       durationMs += response.durationMs
       networkRequests += 1
       outcomes.push({ job, status: response.candidates.length === 0 ? 'empty' : 'success' })
     } catch (error) {
+      if (error instanceof EnrichmentStorageError) throw error
       networkRequests += 1
       const failure = classifyEnrichmentFailure(error, { online: currentOnlineState() })
       if (failure === 'unavailable') {
@@ -465,23 +468,9 @@ function jobCacheIdentity(providerId: string, fingerprint: string, job: Enrichme
     providerId,
     routeFingerprint: fingerprint,
     enrichmentType: 'structural-points',
-    chunkKey: jobId(job),
+    chunkKey: `geometry-v2|${jobId(job)}`,
     engineVersion: ROUTE_ENRICHMENT_ENGINE_VERSION,
   }
-}
-
-/** The simplified search geometry covering one job's kilometre range. */
-function jobGeometry(geometry: readonly RouteGeometryPoint[], job: EnrichmentJob): readonly RouteGeometryPoint[] {
-  const distances = cumulativeGeometryDistances(geometry)
-  const points = geometry.filter((_point, index) => {
-    const distance = distances[index] ?? 0
-    return distance >= job.startKm && distance <= job.endKm
-  })
-  // A search area must always be a line, never a single point — a very
-  // sparse geometry can otherwise leave a short range with one sample.
-  if (points.length >= 2) return points
-  const startIndex = Math.max(0, distances.findIndex((distance) => distance >= job.startKm))
-  return geometry.slice(startIndex, startIndex + 2).length >= 2 ? geometry.slice(startIndex, startIndex + 2) : geometry.slice(0, 2)
 }
 
 function featurePoint(feature: LocatedFeature, route: Route, idFactory: () => string, attemptedAt: string): RoutePoint | null {
@@ -511,16 +500,21 @@ function featurePoint(feature: LocatedFeature, route: Route, idFactory: () => st
 function applyResults(bundle: TripBundle, results: readonly StageResult[], idFactory: () => string, attemptedAt: string): TripBundle {
   const completelyRefreshedRouteIds = new Set(results.filter((result) => result.errorRequests === 0).map((result) => result.route.id))
   const isAutomaticRoutePoint = (point: RoutePoint | undefined): boolean => point?.provenance.engineVersion.startsWith('route-enrichment@') ?? false
+  const manualAnchors = new Set(bundle.settings.stages.flatMap(setting => setting.pauses.map(pause => pause.routePointId)))
   const retainedPoints = bundle.routePoints.filter((point) =>
-    !isAutomaticRoutePoint(point) || !completelyRefreshedRouteIds.has(point.routeId))
+    !isAutomaticRoutePoint(point) || !completelyRefreshedRouteIds.has(point.routeId) || point.provenance.manuallyOverridden || manualAnchors.has(point.id))
   const generatedPoints = results.flatMap((result) => [...result.localities, ...result.landmarks]
-    .map((feature) => featurePoint(feature, result.route, idFactory, attemptedAt))
+    .map((feature) => {
+      const point = featurePoint(feature, result.route, idFactory, attemptedAt)
+      const previous = point === null ? undefined : bundle.routePoints.find(existing => existing.routeId === point.routeId && existing.provenance.sourceId === point.provenance.sourceId)
+      return previous === undefined || point === null ? point : previous.provenance.manuallyOverridden ? previous : { ...point, id: previous.id }
+    })
     .filter((point): point is RoutePoint => point !== null))
   const routePoints = [...retainedPoints]
   for (const point of generatedPoints) {
-    const duplicateIndex = point.provenance.sourceId === null ? -1 : routePoints.findIndex((existing) =>
-      existing.provenance.engineVersion === ROUTE_ENRICHMENT_ENGINE_VERSION
-      && existing.provenance.sourceId === point.provenance.sourceId)
+    const duplicateIndex = routePoints.findIndex((existing) => existing.id === point.id || (
+      point.provenance.sourceId !== null && existing.provenance.engineVersion === ROUTE_ENRICHMENT_ENGINE_VERSION
+      && existing.routeId === point.routeId && existing.provenance.sourceId === point.provenance.sourceId))
     if (duplicateIndex < 0) routePoints.push(point)
     else routePoints[duplicateIndex] = point
   }
@@ -538,10 +532,10 @@ function applyResults(bundle: TripBundle, results: readonly StageResult[], idFac
   const stages = bundle.stages.map((stage) => ({
     ...stage,
     climbIds: stage.climbIds.filter((id) => climbIds.has(id)),
-    routePointIds: [
-      ...stage.routePointIds.filter((id) => !completelyRefreshedRouteIds.has(stage.sourceRouteId) || !isAutomaticRoutePoint(bundle.routePoints.find((point) => point.id === id))),
+    routePointIds: [...new Set([
+      ...stage.routePointIds.filter((id) => retainedPoints.some(point => point.id === id)),
       ...(routePointIdsByRoute.get(stage.sourceRouteId) ?? []),
-    ],
+    ])],
   }))
   const successes = results.reduce((total, result) => total + result.successRequests, 0)
   const errors = results.reduce((total, result) => total + result.errorRequests, 0)
@@ -605,6 +599,7 @@ export async function enrichTripRoute(input: EnrichTripRouteInput): Promise<Rout
     // reached simply stay outstanding for a later pass.
     if (!(input.shouldContinue?.() ?? true)) break
     const stage = working.stages[stageIndex]
+    if (input.onlyDayId !== undefined && stage?.dayId !== input.onlyDayId) continue
     const route = stage === undefined ? undefined : routeById.get(stage.sourceRouteId)
     const geometry = route === undefined ? null : routeGeometry(route)
     if (stage === undefined || route === undefined || geometry === null) continue
@@ -624,6 +619,7 @@ export async function enrichTripRoute(input: EnrichTripRouteInput): Promise<Rout
     requestCount += fetched.result.networkRequests
     cacheHitCount += fetched.cacheHits
     working = withStageJobs(working, { ...planned, jobs: fetched.jobs })
+    await input.onStageComplete?.(fetched.result, { ...planned, jobs: fetched.jobs })
   }
   const bundle = applyResults(working, results, input.idFactory, attemptedAt)
   return {
@@ -644,17 +640,37 @@ export async function enrichStoredTripRoute(input: EnrichStoredTripRouteInput): 
   const repository = createTripRepository(input.database)
   const original = await repository.loadTripBundle(input.tripId)
   if (original === null) return null
+  let savedBundle = original
+  let saved = false
   const report = await enrichTripRoute({
-    bundle: original,
-    provider: input.provider,
-    cache: createRouteEnrichmentCacheRepository(input.database),
-    idFactory: input.idFactory,
-    now: input.now,
-    onProgress: input.onProgress,
-    ...(input.shouldContinue === undefined ? {} : { shouldContinue: input.shouldContinue }),
+    bundle: original, provider: input.provider, cache: createRouteEnrichmentCacheRepository(input.database),
+    idFactory: input.idFactory, now: input.now, onProgress: input.onProgress,
+    onlyDayId: input.onlyDayId, shouldContinue: input.shouldContinue,
+    onStageComplete: async (result, record) => {
+      const fingerprint = routeFingerprint(original, result.route)
+      let applied = false
+      const next = await repository.updateTripBundle(input.tripId, latest => {
+        const route = latest.routes.find(candidate => candidate.id === result.route.id)
+        if (route === undefined || routeFingerprint(latest, route) !== fingerprint) return null
+        const migrated = migrateEnrichmentJobs(latest)
+        const plan = ensureStageJobs(migrated, result.stage.id, 'structural')
+        if (plan === null) return null
+        let updated = withStageJobs(applyResults(migrated, [result], input.idFactory, input.now()),
+          { ...plan, jobs: [...plan.jobs.filter(job => job.kind !== 'structural'), ...record.jobs.filter(job => job.kind === 'structural')] })
+        const ids = enrichableStageIds(updated)
+        const completed = ids.filter(id => isStagePhaseComplete(updated, id, 'structural')).length
+        updated = { ...updated, enrichmentMetadata: { ...updated.enrichmentMetadata,
+          providers: updated.enrichmentMetadata.providers.map(state => state.provider !== ROUTE_ENRICHMENT_PROVIDER_STATE ? state
+            : { ...state, status: completed === ids.length ? 'success' : completed > 0 ? 'partial' : 'error' }) } }
+        applied = true
+        return updated
+      })
+      if (next !== null && applied) {
+        savedBundle = next
+        saved = true
+        await input.onUpdated?.(next, result.stage.dayId)
+      }
+    },
   })
-  const latest = await repository.loadTripBundle(input.tripId)
-  if (latest === null || latest.metadata.updatedAt !== original.metadata.updatedAt) return { ...report, bundle: latest ?? report.bundle, saved: false }
-  await repository.saveTripBundle(report.bundle)
-  return { ...report, saved: true }
+  return { ...report, bundle: savedBundle, saved }
 }

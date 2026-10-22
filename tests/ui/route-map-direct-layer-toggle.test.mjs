@@ -43,8 +43,8 @@ test('a second click flips the state back off (toggle, not a one-way reveal)', (
 
 test('renderGenericRouteMap wires installDirectLayerToggle only when options.directLayerToggle is true — the Étape map\'s own Calques panel path is untouched', () => {
   const genericMapSource = source.slice(source.indexOf('export function renderGenericRouteMap'))
-  assert.match(genericMapSource, /if \(options\.directLayerToggle === true\) installDirectLayerToggle\(dialog, map, layers\)/)
-  assert.match(genericMapSource, /else installMapLayerPanel\(dialog, map, layers\)/)
+  assert.match(genericMapSource, /if \(options\.directLayerToggle === true\) installDirectLayerToggle\(dialog, map, layerState\.layers\)/)
+  assert.match(genericMapSource, /else installMapLayerPanel\(dialog, map, layerState\.layers\)/)
 })
 
 test('disposeDirectLayerToggle is called on every fresh render and on close — no leaked layer group across renders', () => {

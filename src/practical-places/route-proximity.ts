@@ -1,5 +1,5 @@
 import type { RouteGeometryPoint } from '../trip-core/index.ts'
-import { distanceBetweenCoordinatesMeters, locatePointOnRoute } from '../route/route-proximity.ts'
+import { createRouteLocator, distanceBetweenCoordinatesMeters, locatePointOnRoute } from '../route/route-proximity.ts'
 import type { LocatedRoutePosition } from '../route/route-proximity.ts'
 import { isPracticalPlaceCorridorCategory } from './taxonomy.ts'
 import type { PracticalPlaceAnchor, PracticalPlaceCandidate } from './types.ts'
@@ -98,10 +98,14 @@ export function locateAndDeduplicatePostpassPracticalPlaces(
   anchors: readonly PracticalPlaceAnchor[],
   options: LocatePostpassPracticalPlacesOptions,
 ): readonly LocatedPracticalPlaceCandidate[] {
+  const locator = createRouteLocator(geometry)
   const exact = new Map<string, LocatedPracticalPlaceCandidate>()
   for (const candidate of candidates) {
-    const located = locateCandidateOnRoute(candidate, geometry)
-    if (located === null) continue
+    const key = `${candidate.osmType}:${candidate.osmId}`
+    if (exact.has(key)) continue
+    const position = locator.locate(candidate)
+    if (position === null) continue
+    const located = { ...candidate, ...position }
     const isCorridor = isPracticalPlaceCorridorCategory(candidate.category)
     const anchorDistance = isCorridor ? null : nearestAnchorDistanceMeters(candidate, anchors)
     const accepted = isCorridor
@@ -110,7 +114,6 @@ export function locateAndDeduplicatePostpassPracticalPlaces(
     if (!accepted) continue
     if (located.name === null && !anonymousNameAllowed(located)) continue
     const withAnchor: LocatedPracticalPlaceCandidate = { ...located, anchorDistanceMeters: anchorDistance }
-    const key = `${located.osmType}:${located.osmId}`
     const previous = exact.get(key)
     const rank = (item: LocatedPracticalPlaceCandidate) => item.anchorDistanceMeters ?? item.lateralDistanceMeters
     if (previous === undefined || rank(withAnchor) < rank(previous)) exact.set(key, withAnchor)

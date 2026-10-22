@@ -9,6 +9,7 @@ import { openTestDatabase } from '../storage/indexeddb/support/open-test-databas
 import { createGenericTripBundle } from '../trip-core/support/generic-trip-fixture.mjs'
 import { initializeTripsManager } from '../../src/ui/trips/trips-manager.ts'
 import { offlineWeatherProvider } from './support/offline-weather-provider.mjs'
+import { migrateEnrichmentJobs } from '../../src/route-enrichment/settled-stages.ts'
 
 // CDC C2 sections 15-16 — end-to-end wiring: opening the Étape screen builds
 // the fullscreen map's practical-POI layers straight from whatever is
@@ -47,10 +48,53 @@ async function flush() {
   await new Promise((resolve) => setTimeout(resolve, 20))
 }
 
-test('opening the Étape screen builds the fullscreen map\'s practical-POI layers from persisted data alone, only for the day\'s own map', async () => {
+test('POI arriving while a fullscreen stage map is open update its layers without remounting the map', { timeout: 5000 }, async () => {
   const db = await openTestDatabase()
+  let release
   try {
     const bundle = createGenericTripBundle()
+    await createTripRepository(db).saveTripBundle(bundle)
+    const container = createFakeContainer()
+    const renders = []
+    const updates = []
+    let requested
+    const firstRequested = new Promise(resolve => { requested = resolve })
+    const response = new Promise(resolve => { release = resolve })
+    let calls = 0
+    const handle = initializeTripsManager(container, {
+      database: db, now: () => '2028-05-09T08:00:00.000Z', idFactory: () => crypto.randomUUID(),
+      weatherProvider: offlineWeatherProvider(), closeMap() {},
+      renderMap: (...args) => renders.push(args), updateMapLayers: (...args) => updates.push(args),
+      practicalPlacesProvider: { id: 'live-poi', sourceType: 'osm', attribution: 'Test', async findCandidates() {
+        calls++
+        if (calls === 1) { requested(); return response }
+        return { candidates: [], durationMs: 1, rawCandidateCount: 0, httpStatus: 200, payloadBytes: 0, startedAt: '', finishedAt: '' }
+      } },
+    })
+    container.dispatch('click', { target: fakeActionElement({ action: 'open-trip', tripId: bundle.metadata.id }) })
+    await firstRequested
+    const dialog = fakeDialog()
+    dialog.open = true
+    container.register('[data-day-detail-map]', [{}])
+    container.register('[data-day-detail-map-dialog]', [dialog])
+    container.register('[data-day-detail-profile]', [null])
+    container.dispatch('click', { target: fakeActionElement({ action: 'open-day-detail', dayId: bundle.days[0].id }) })
+    await flush()
+    const renderCount = renders.length
+    release({ candidates: [{ osmType: 'node', osmId: 'new-water', category: 'water', name: 'Eau reçue', latitude: 45.15, longitude: 6.275, usefulTags: {} }], durationMs: 1, rawCandidateCount: 1, httpStatus: 200, payloadBytes: 0, startedAt: '', finishedAt: '' })
+    while (handle.isAutomaticEnrichmentInFlight(bundle.metadata.id)) await flush()
+    assert.ok(updates.some(([, , layers]) => layers.some(layer => layer.id === 'practical-water' && layer.markers.some(marker => marker.name === 'Eau reçue'))))
+    assert.equal(renders.length, renderCount, 'the fullscreen map and its zoom are retained')
+    assert.equal(dialog.open, true)
+  } finally { release?.({ candidates: [], durationMs: 0, rawCandidateCount: 0 }); db.close() }
+})
+
+test('opening the Étape screen builds the fullscreen map\'s practical-POI layers from persisted data alone, only for the day\'s own map', { timeout: 5000 }, async () => {
+  const db = await openTestDatabase()
+  try {
+    const bundle = migrateEnrichmentJobs(createGenericTripBundle())
+    bundle.enrichmentMetadata.enrichmentJobs = bundle.enrichmentMetadata.enrichmentJobs.map(record => ({ ...record,
+      jobs: record.jobs.map(job => ({ ...job, status: 'success' })) }))
     bundle.practicalPlaces.push({
       id: 'postpass-practical:stage-alpha:node:99',
       stageId: bundle.stages[0].id,
@@ -96,6 +140,7 @@ test('opening the Étape screen builds the fullscreen map\'s practical-POI layer
     container.dispatch('click', { target: fakeActionElement({ action: 'open-day-detail', dayId: bundle.days[0].id }) })
     await flush()
 
+    while (handle.isAutomaticEnrichmentInFlight(bundle.metadata.id)) await flush()
     assert.equal(practicalProviderCalls, 0, 'opening the day never triggers a Postpass search of its own')
     const dayMapCall = renderMapCalls.at(-1)
     assert.ok(dayMapCall)

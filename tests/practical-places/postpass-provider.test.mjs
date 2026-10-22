@@ -124,7 +124,7 @@ test('M: a toilet with access=private or access=no is dropped outright, not mere
 
 test('useful tags carry only the allow-listed subset, mapped back to real OSM keys', () => {
   const candidate = parseOne({ amenity: 'toilets', access: 'yes', fee: 'yes', opening_hours: '24/7', wheelchair: 'yes', contact_website: 'https://example.test' })
-  assert.deepEqual(candidate.usefulTags, { access: 'yes', fee: 'yes', opening_hours: '24/7', wheelchair: 'yes', 'contact:website': 'https://example.test' })
+  assert.deepEqual(candidate.usefulTags, { amenity: 'toilets', access: 'yes', fee: 'yes', opening_hours: '24/7', wheelchair: 'yes', 'contact:website': 'https://example.test' })
 })
 
 test('name resolution prefers the plain name tag; missing name is null, never fabricated', () => {

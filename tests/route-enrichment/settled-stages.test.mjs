@@ -59,21 +59,21 @@ const stageId = () => createGenericTripBundle().stages[0].id
 
 // --- the healthy trip: migrate to complete, never re-fetch -----------------
 
-test('a legacy trip whose providers both succeeded migrates straight to complete — and needs no network at all', () => {
+test('legacy success is revalidated because the former geometry coverage was not guaranteed', () => {
   const migrated = migrateEnrichmentJobs(legacyBundle('success', 'success'))
-  assert.equal(isStagePhaseComplete(migrated, stageId(), 'structural'), true)
-  assert.equal(isStagePhaseComplete(migrated, stageId(), 'practical'), true)
-  assert.equal(isStructuralGloballyComplete(migrated), true)
+  assert.equal(isStagePhaseComplete(migrated, stageId(), 'structural'), false)
+  assert.equal(isStagePhaseComplete(migrated, stageId(), 'practical'), false)
+  assert.equal(isStructuralGloballyComplete(migrated), false)
 })
 
-test('the migrated healthy trip records what the old pass actually did — one whole-route job per phase, not an invented segmented history', () => {
+test('the new search plan covers the full legacy route with bounded pending jobs', () => {
   const migrated = migrateEnrichmentJobs(legacyBundle('success', 'success'))
   const record = migrated.enrichmentMetadata.enrichmentJobs.find((entry) => entry.stageId === stageId())
   const structural = record.jobs.filter((job) => job.kind === 'structural')
-  assert.equal(structural.length, 1)
+  assert.ok(structural.length > 1)
   assert.equal(structural[0].startKm, 0)
-  assert.ok(Math.abs(structural[0].endKm - stageRouteLengthKm(migrated, stageId())) < 0.01)
-  assert.equal(structural[0].status, 'success')
+  assert.ok(Math.abs(structural.at(-1).endKm - stageRouteLengthKm(migrated, stageId())) < 0.01)
+  assert.ok(structural.every(job => job.status === 'pending'))
 })
 
 // --- the doubtful trip: this is the Genappe → Middelkerke case -------------
@@ -98,9 +98,9 @@ test('a legacy trip whose provider says "error" is treated the same way — atte
   assert.equal(isStagePhaseComplete(migrated, stageId(), 'practical'), false)
 })
 
-test('the two phases are judged independently — a healthy structural pass survives a doubtful POI one', () => {
+test('both legacy phases need verified coverage even if one was previously marked successful', () => {
   const migrated = migrateEnrichmentJobs(legacyBundle('success', 'partial'))
-  assert.equal(isStagePhaseComplete(migrated, stageId(), 'structural'), true, 'no needless re-query of good structural data')
+  assert.equal(isStagePhaseComplete(migrated, stageId(), 'structural'), false, 'old success does not prove spatial coverage')
   assert.equal(isStagePhaseComplete(migrated, stageId(), 'practical'), false, 'but the doubtful POI work is picked up again')
 })
 
@@ -121,6 +121,7 @@ test('migration is idempotent — running it twice changes nothing and returns t
 
 test('a stage whose route changed since the record was written is replanned rather than trusted', () => {
   const migrated = migrateEnrichmentJobs(legacyBundle('success', 'success'))
+  migrated.enrichmentMetadata.enrichmentJobs = migrated.enrichmentMetadata.enrichmentJobs.map(record => ({ ...record, jobs: record.jobs.map(job => ({ ...job, status: 'success' })) }))
   assert.equal(isStagePhaseComplete(migrated, stageId(), 'structural'), true)
   const replaced = structuredClone(migrated)
   replaced.sourceFiles[0].sha256 = 'c'.repeat(64) // a different GPX for that route
@@ -137,6 +138,7 @@ test('a trip with no enrichable geometry at all is left untouched', () => {
 
 test('the recalculation reset discards every job AND the legacy marks, so nothing can re-derive "already complete"', () => {
   const migrated = migrateEnrichmentJobs(legacyBundle('success', 'success'))
+  migrated.enrichmentMetadata.enrichmentJobs = migrated.enrichmentMetadata.enrichmentJobs.map(record => ({ ...record, jobs: record.jobs.map(job => ({ ...job, status: 'success' })) }))
   assert.equal(isStagePhaseComplete(migrated, stageId(), 'structural'), true)
 
   const reset = resetEnrichmentForRecalculation(migrated)

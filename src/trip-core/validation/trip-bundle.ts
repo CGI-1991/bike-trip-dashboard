@@ -945,6 +945,9 @@ export function validateTripBundle(value: unknown): ValidationResult<TripBundle>
         }
       }
     })
+    if (enrichmentMetadata.practicalPlacesGeneration !== undefined && (!Number.isInteger(enrichmentMetadata.practicalPlacesGeneration) || (enrichmentMetadata.practicalPlacesGeneration as number) < 0)) {
+      issues.push(issue('enrichmentMetadata.practicalPlacesGeneration', 'invalid-value', 'Génération de recherche POI invalide.'))
+    }
     // The per-micro-segment completion record. Optional and additive: a
     // bundle written before it existed simply has none and is migrated on
     // read, so this never rejects a historical bundle.
@@ -960,6 +963,7 @@ export function validateTripBundle(value: unknown): ValidationResult<TripBundle>
           }
           if (!isNonEmptyString(entry.stageId)) issues.push(issue(`${path}.stageId`, 'invalid-value', 'stageId invalide.'))
           if (!isNonEmptyString(entry.routeFingerprint)) issues.push(issue(`${path}.routeFingerprint`, 'invalid-value', 'routeFingerprint invalide.'))
+          if (entry.planVersion !== undefined && (!Number.isInteger(entry.planVersion) || (entry.planVersion as number) < 1)) issues.push(issue(`${path}.planVersion`, 'invalid-value', 'Version du plan de recherche invalide.'))
           if (!Array.isArray(entry.jobs)) {
             issues.push(issue(`${path}.jobs`, 'invalid-type', 'jobs doit être un tableau.'))
             return

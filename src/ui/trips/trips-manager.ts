@@ -76,6 +76,7 @@ import { defaultConfirmDiscardChanges } from './confirm-discard-changes.ts'
  * avoid.
  */
 const ONLINE_RESUME_DEBOUNCE_MS = 2_000
+const LIVE_PROGRESS_MARKUP = '<p class="trip-detail__prep-summary" data-enrichment-progress role="status" aria-live="polite" hidden></p>'
 
 const EXTERNAL_ACTIONS: ReadonlySet<string> = new Set([
   'previous-day',
@@ -193,6 +194,7 @@ export interface TripsManagerDeps {
    * CSS just to import this file.
    */
   readonly renderMap: (container: HTMLElement, dialog: HTMLDialogElement, model: RouteMapModel | null, layers?: readonly MapLayerDefinition[], options?: { readonly directLayerToggle?: boolean }) => void
+  readonly updateMapLayers?: (container: HTMLElement, dialog: HTMLDialogElement, layers: readonly MapLayerDefinition[]) => void
   readonly closeMap: (dialog: HTMLDialogElement) => void
   /**
    * Same injection seam as `renderMap`/`closeMap` above, for the profile→map
@@ -418,6 +420,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   const automaticEnrichmentGuard = createSingleFlightGuard<TripId>()
   const automaticEnrichmentProgress = new Map<TripId, string>()
   const automaticEnrichmentErrors = new Map<TripId, string>()
+  const requestedEnrichmentRestarts = new Set<TripId>()
   /**
    * DER-DES-DER sections 38-39: the ONE trip currently allowed to run an
    * enrichment orchestration. Claiming it is what stops the previous trip's
@@ -441,6 +444,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   const detailAutoScrollSession = createTripDetailAutoScrollSession()
   /** One `AbortController` per profile container (CDC D1.1 section 18) — aborted and replaced on every `mountMapAndProfile` call so the profile→map sync listener never accumulates across a full render + `patchDayDetail` patches. */
   const profileSyncControllers = new WeakMap<HTMLElement, AbortController>()
+  let mountedDayDetail: DayDetail | null = null
   const getMapInteractionHandle = deps.getMapInteractionHandle ?? (() => null)
 
   /**
@@ -591,7 +595,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     }
     const now = deps.now()
     deps.onHeaderChange?.(buildGenericAppHeader(bundle, { view: 'trip', now }))
-    container.innerHTML = renderTripDetail(bundle, {
+    container.innerHTML = LIVE_PROGRESS_MARKUP + renderTripDetail(bundle, {
       now,
       automaticEnrichmentPending: automaticEnrichmentGuard.isInFlight(tripId),
       automaticEnrichmentProgress: automaticEnrichmentProgress.get(tripId) ?? null,
@@ -654,7 +658,8 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     const day = bundle.days.find((candidate) => candidate.id === dayId) ?? null
     deps.onHeaderChange?.(day === null ? buildGenericAppHeader(bundle, { view: 'trip', now: deps.now() }) : buildGenericAppHeader(bundle, { view: 'day', day }))
     teardownStickyHeaderObserver()
-    container.innerHTML = detail.html
+    container.innerHTML = LIVE_PROGRESS_MARKUP + detail.html
+    mountedDayDetail = detail
     activeDayTab = 'route'
     // Integrity-hardening section 4-9: every day type (ride and OFF/
     // transfer alike) shows Infos read-only at first — the guard is never
@@ -697,6 +702,21 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     const departureTime = daySettings?.departureTime ?? '08:00'
     const viewModels = buildPracticalPlaceViewModels(places, day, detail.timingCurve, departureTime)
     return buildPracticalPlaceMapLayers(viewModels)
+  }
+
+  function patchLivePracticalPlaces(bundle: TripBundle, dayId: TripDayId): void {
+    if (mode.kind !== 'day' || mode.tripId !== bundle.metadata.id || mode.dayId !== dayId || mountedDayDetail === null) return
+    const mapContainer = container.querySelector<HTMLElement>('[data-day-detail-map]')
+    const dialog = container.querySelector<HTMLDialogElement>('[data-day-detail-map-dialog]')
+    if (mapContainer !== null && dialog !== null) deps.updateMapLayers?.(mapContainer, dialog,
+      [...villagesLayer(mountedDayDetail.villageWaypoints), ...practicalPlaceLayers(bundle, mountedDayDetail, dayId)])
+  }
+
+  function patchLiveProgress(message: string | null): void {
+    const element = container.querySelector<HTMLElement>('[data-enrichment-progress]')
+    if (element === null) return
+    element.hidden = message === null
+    element.textContent = message ?? ''
   }
 
   /**
@@ -804,6 +824,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     if (mode.kind !== 'day' || mode.dayId !== dayId) return
     const detail = buildDayDetail(bundle, dayId, dayPreparationOptions(bundle, dayId))
     if (detail === null) return
+    mountedDayDetail = detail
     const statsEl = container.querySelector('[data-day-detail-stats]')
     // The Départ cell is a plain display button now (the edit happens in a
     // modal window), so a fresh `statsHtml` simply shows the saved value.
@@ -1003,7 +1024,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     const overview = buildTripOverview(bundle, deps.now())
     if (options.diffGated === true && overview.html === container.innerHTML) return
     deps.onHeaderChange?.(buildGenericAppHeader(bundle, { view: 'overview' }))
-    container.innerHTML = overview.html
+    container.innerHTML = LIVE_PROGRESS_MARKUP + overview.html
     mountOverviewMap(overview)
     // The highlighted day's own compact map (CDC Jalon B4.3 section 8) — a
     // second, independent, non-interactive preview; no fullscreen dialog of
@@ -1073,6 +1094,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       // storage round-trip just to decide whether a backoff retry is worth
       // scheduling.
       let bundle: TripBundle | null = null
+      let didUpdate = false
       try {
         const repository = createTripRepository(deps.database)
         bundle = await repository.loadTripBundle(tripId)
@@ -1107,6 +1129,12 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
           idFactory: deps.idFactory,
           now: deps.now,
           shouldContinue: () => enrichmentOwner === tripId,
+          onUpdated: (updated, dayId) => {
+            didUpdate = true
+            bundle = updated
+            patchStagePreparationIndicators(tripId, updated, [dayId])
+            patchLivePracticalPlaces(updated, dayId)
+          },
           onProgress: (progress) => {
             let runningDayId: TripDayId | null = null
             if (progress.phase === 'endpoints') {
@@ -1127,8 +1155,10 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
             } else {
               const detail = progress.detail
               const source = detail.fromCache ? 'cache' : 'réseau'
-              automaticEnrichmentProgress.set(tripId, `POI pratiques — étape ${detail.stageIndex + 1}/${detail.stageCount} · ${source}`)
-              runningDayId = startingBundle.stages[detail.stageIndex]?.dayId ?? null
+              const zones = detail.totalJobs === undefined ? '' : ` · ${detail.completedJobs}/${detail.totalJobs} zones`
+              const places = detail.placeCount === undefined ? '' : ` · ${detail.placeCount} lieux`
+              automaticEnrichmentProgress.set(tripId, `Recherche des services${zones}${places} · ${source}`)
+              runningDayId = detail.dayId ?? startingBundle.stages.find(stage => stage.id === detail.stageId)?.dayId ?? null
             }
             // C2.5 sections 3-4/22-23: a targeted indicator patch — never the
             // full-rebuild `refreshIfShowing` this used to call on EVERY
@@ -1141,9 +1171,11 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
             // ever gets these two tiny per-card patches while it runs.
             const previousRunningDayId = runningStageByTrip.get(tripId) ?? null
             runningStageByTrip.set(tripId, runningDayId)
-            patchStagePreparationIndicators(tripId, startingBundle, [previousRunningDayId, runningDayId])
+            patchStagePreparationIndicators(tripId, bundle ?? startingBundle, [previousRunningDayId, runningDayId])
+            patchLiveProgress(automaticEnrichmentProgress.get(tripId) ?? null)
           },
         })
+        bundle = report.bundle
         if (report.partial) automaticEnrichmentErrors.set(tripId, 'Certaines données seront complétées automatiquement.')
         // Integrity-hardening section 29-38: a genuine, online pass that
         // still leaves work outstanding schedules its own follow-up — no
@@ -1166,11 +1198,13 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       } finally {
         if (import.meta.env?.DEV) console.debug('[automatic-enrichment] finish', { tripId, requestId })
         automaticEnrichmentProgress.delete(tripId)
+        patchLiveProgress(automaticEnrichmentErrors.get(tripId) ?? null)
         runningStageByTrip.delete(tripId)
         // Only release the claim if this run still holds it — a newer trip
         // may already have taken over while this one was winding down.
         if (enrichmentOwner === tripId) enrichmentOwner = null
-        await refreshIfShowing(tripId)
+        if (didUpdate) await refreshIfShowing(tripId)
+        if (requestedEnrichmentRestarts.delete(tripId)) setTimeout(() => { void startAutomaticEnrichment(tripId) }, 0)
       }
     })
   }
@@ -1656,12 +1690,14 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   async function refreshIfShowing(tripId: TripId): Promise<void> {
     if (mode.kind === 'overview' && mode.tripId === tripId) await renderOverview(tripId, { diffGated: true })
     else if (mode.kind === 'detail' && mode.tripId === tripId) await renderDetail(tripId)
-    // `mode.kind === 'day'` is deliberately left untouched here — this
-    // callback also fires from the ordinary, unawaited `startAutomaticEnrichment`
-    // every trip-open kicks off (section 30), so reaching into storage again
-    // here would run in the background of screens that never asked for it.
-    // `retryStagePreparation` below reconciles the open day explicitly,
-    // scoped to only the user's own "Réessayer" click.
+    else if (mode.kind === 'day' && mode.tripId === tripId) {
+      const latest = await createTripRepository(deps.database).loadTripBundle(tripId)
+      if (latest === null || mode.kind !== 'day' || mode.tripId !== tripId) return
+      const dialog = container.querySelector<HTMLDialogElement>('[data-day-detail-map-dialog]')
+      if (editGuard.activeId === null && dialog?.open !== true) patchDayDetail(latest, mode.dayId)
+      else patchLivePracticalPlaces(latest, mode.dayId)
+    }
+
   }
 
   /**
@@ -1871,18 +1907,17 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
         activeSubComponent = null
         goToList()
       },
+      () => {
+        if (automaticEnrichmentGuard.isInFlight(tripId)) requestedEnrichmentRestarts.add(tripId)
+        else void startAutomaticEnrichment(tripId)
+      },
     )
     activeSubComponent = editor
   }
 
   /** Persists a full-bundle mutation the same way every other action in this file does — load, mutate, save, return the fresh bundle (or `null` if the trip vanished meanwhile). */
   async function mutateTripBundle(tripId: TripId, mutate: (bundle: TripBundle) => TripBundle): Promise<TripBundle | null> {
-    const tripRepository = createTripRepository(deps.database)
-    const bundle = await tripRepository.loadTripBundle(tripId)
-    if (bundle === null) return null
-    const updated = mutate(bundle)
-    await tripRepository.saveTripBundle(updated)
-    return updated
+    return createTripRepository(deps.database).updateTripBundle(tripId, mutate)
   }
 
   /**
@@ -2343,6 +2378,10 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   // every other kind of failure the engine resolves by itself.
   if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
     window.addEventListener('online', scheduleOnlineResume)
+    window.addEventListener('pageshow', scheduleOnlineResume)
+    if (typeof document.addEventListener === 'function') document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') scheduleOnlineResume()
+    })
   }
 
   /** Roving Enter/Space activation for `role="button"` elements that aren't real `<button>`s (trip cards, the Aperçu highlighted-day card) — only when focus is directly on the role=button element itself, never re-triggered for a nested real button (which already handles its own keys natively). */
