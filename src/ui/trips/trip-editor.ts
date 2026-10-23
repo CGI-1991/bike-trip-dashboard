@@ -710,6 +710,7 @@ export function createTripEditor(
   function renderRecalculationAction(): string {
     return `<div class='wizard-advanced__action'>
       <button class='button button--quiet' type='button' data-editor-action='recalculate' ${stage === 'saving' || recalculating ? 'disabled' : ''}>Actualiser les services</button>
+      ${renderFeatureUpdateBadge('poi-refresh')}
       <p class='field__hint'>Actualise les points d’intérêt. Les lieux déjà trouvés restent disponibles pendant la recherche ; vos autres données sont conservées.</p>
       ${recalculationMessage === null ? '' : `<p class='field__hint' role='status'>${escapeHtml(recalculationMessage)}</p>`}
     </div>`
@@ -926,3 +927,4 @@ export function createTripEditor(
 
   return { destroy: () => controller.abort() }
 }
+import { renderFeatureUpdateBadge } from '../release-notes.ts'

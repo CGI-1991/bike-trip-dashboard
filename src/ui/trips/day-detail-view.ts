@@ -1146,6 +1146,7 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
       ${renderPreparationBanner(preparationStatus)}
     </section>
     <section class="card day-detail__map-profile-card" data-day-detail-map-profile-card>
+      <div class="feature-update-line"><span>Carte et services du trajet</span>${renderFeatureUpdateBadge('poi-search')}</div>
       <div class="route-map route-map--action" data-day-detail-map data-explore-map role="button" tabindex="0" aria-label="Ouvrir la carte de l’étape en plein écran"></div>
       <div data-day-detail-profile></div>
       <!--
@@ -1184,3 +1185,4 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
     statsHtml, pausesHtml, timelineHtml, infosHtml, summaryHtml: '', timingCurve, markersOnlyMapModel: null, identityHtml, mapCardHtml: '',
   }
 }
+import { renderFeatureUpdateBadge } from '../release-notes.ts'
