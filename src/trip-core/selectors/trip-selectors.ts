@@ -7,7 +7,8 @@ import type { RideStage } from '../model/ride-stage.ts'
 import type { Route } from '../model/route.ts'
 import type { RoutePoint } from '../model/route-point.ts'
 import type { TripDay } from '../model/trip-day.ts'
-import type { TravelMode } from '../model/settings.ts'
+import type { OrganizationMode, TravelMode } from '../model/settings.ts'
+import { ORGANIZATION_CAPABILITIES } from '../model/settings.ts'
 import { calendarDayNumbers } from '../calendar/day-offsets.ts'
 
 /**
@@ -24,6 +25,22 @@ function byIndex(left: TripDay, right: TripDay): number {
 /** Missing on historical records: keep their cycling behaviour unchanged. */
 export function selectTravelMode(bundle: TripBundle): TravelMode {
   return bundle.settings.global.travelMode ?? 'cycling'
+}
+
+export function selectOrganizationMode(bundle: TripBundle): OrganizationMode {
+  return bundle.settings.global.organizationMode ?? (bundle.settings.global.raceMode === true ? 'tour' : 'voyage')
+}
+
+export function selectOrganizationCapabilities(bundle: TripBundle): (typeof ORGANIZATION_CAPABILITIES)[OrganizationMode] {
+  return ORGANIZATION_CAPABILITIES[selectOrganizationMode(bundle)]
+}
+
+export function selectAutomaticPoiSearch(bundle: TripBundle): boolean {
+  return selectOrganizationCapabilities(bundle).automaticPoiSearch || bundle.settings.global.leaguePoiSearchEnabled === true
+}
+
+export function selectTripDayLabel(bundle: TripBundle, dayId: TripDayId): string {
+  return `${selectOrganizationMode(bundle) === 'league' ? 'C' : 'J'}${selectTripDayNumber(bundle, dayId)}`
 }
 
 export function selectOrderedDays(bundle: TripBundle): readonly TripDay[] {
@@ -54,7 +71,7 @@ export function selectDayById(bundle: TripBundle, dayId: TripDayId): TripDay | n
  */
 export function selectTripDayNumbers(bundle: TripBundle): ReadonlyMap<TripDayId, number> {
   const ordered = selectOrderedDays(bundle)
-  const numbers = calendarDayNumbers(ordered, bundle.calendar.startDate)
+  const numbers = selectOrganizationMode(bundle) === 'league' ? ordered.map((_day, index) => index + 1) : calendarDayNumbers(ordered, bundle.calendar.startDate)
   return new Map(ordered.map((day, index) => [day.id, numbers[index] ?? day.displayNumber]))
 }
 
@@ -91,7 +108,7 @@ export function selectStageCustomName(stage: Pick<RideStage, 'customName'> | nul
  * by default (CDC: "Les voyages existants restent dans leur mode actuel").
  */
 export function selectRaceMode(bundle: TripBundle): boolean {
-  return bundle.settings.global.raceMode === true
+  return !selectOrganizationCapabilities(bundle).plannedStops
 }
 
 export function selectRouteById(bundle: TripBundle, routeId: RouteId): Route | null {

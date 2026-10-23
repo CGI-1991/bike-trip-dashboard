@@ -125,10 +125,12 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
         ? {
             kind: 'ride',
             customName: item.customName ?? null,
+            eventDate: item.eventDate,
+            departureTime: item.departureTime ?? '08:00',
             // A link only means anything in Course/Tour mode — the same
             // guard the editor applies, so the saved structure never depends
             // on the order the two controls happened to be touched in.
-            sameCalendarDayAsPrevious: state.raceMode && item.linkedToPrevious === true,
+            sameCalendarDayAsPrevious: state.organizationMode !== 'league' && state.raceMode && item.linkedToPrevious === true,
           }
         : item.kind === 'transfer'
           ? { kind: 'transfer', notes: item.notes ?? null, transferTiming: item.transferTiming }
@@ -143,7 +145,8 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
         tripId,
         slug: String(tripId),
         name: state.name.trim(),
-        startDate: state.startDate,
+        startDate: state.organizationMode === 'league' ? state.structure.flatMap(item => item.eventDate ? [item.eventDate] : []).sort()[0]! : state.startDate,
+        organizationMode: state.organizationMode === 'league' ? 'league' : state.raceMode ? 'tour' : 'voyage',
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         referenceSpeedKph: state.referenceSpeedKph,
         travelMode: state.travelMode,
@@ -252,7 +255,7 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
    * between two ride rows: a group never spans an OFF day or a transfer.
    */
   function renderLinkControl(position: number): string {
-    if (!state.raceMode) return ''
+    if (!state.raceMode || state.organizationMode === 'league') return ''
     const item = state.structure[position]
     const previous = state.structure[position - 1]
     if (item?.kind !== 'ride' || previous?.kind !== 'ride') return ''
@@ -266,7 +269,7 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
     const isFirst = position === 0
     const isLast = position === state.structure.length - 1
     const moveControls = `<div class="wizard-structure__move"><button class="button button--quiet" type="button" data-action="move-up" data-position="${position}" ${isFirst ? 'disabled' : ''} aria-label="Monter">↑</button><button class="button button--quiet" type="button" data-action="move-down" data-position="${position}" ${isLast ? 'disabled' : ''} aria-label="Descendre">↓</button></div>`
-    const insertControls = `<div class="wizard-structure__insert"><button class="button button--quiet" type="button" data-action="insert-off" data-position="${position}">+ OFF</button><button class="button button--quiet" type="button" data-action="insert-transfer" data-position="${position}">+ Transfert</button></div>`
+    const insertControls = state.organizationMode === 'league' ? '' : `<div class="wizard-structure__insert"><button class="button button--quiet" type="button" data-action="insert-off" data-position="${position}">+ OFF</button><button class="button button--quiet" type="button" data-action="insert-transfer" data-position="${position}">+ Transfert</button></div>`
     const removeControl = `<button class="button button--quiet" type="button" data-action="remove-structure-item" data-position="${position}">Retirer</button>`
 
     if (item.kind === 'ride') {
@@ -276,7 +279,7 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
       // drops the structure item in the same step) — never rendered as a
       // broken row if it somehow did.
       if (entry === undefined) return ''
-      const nameField = `<label class="wizard-structure__stage-name"><span>Nom de l’étape</span><input type="text" data-field="stage-name" data-position="${position}" value="${escapeHtml(item.customName ?? '')}" maxlength="120" placeholder="Facultatif"></label>`
+      const nameField = `<label class="wizard-structure__stage-name"><span>${state.organizationMode === 'league' ? 'Nom de la course' : 'Nom de l’étape'}</span><input type="text" data-field="stage-name" data-position="${position}" value="${escapeHtml(item.customName ?? '')}" maxlength="120" placeholder="Facultatif"></label>`
       const preAnalysis = entry.preAnalysis
       const isInvalid = preAnalysis?.status === 'invalid'
       const isDuplicate = strictDuplicateFileNames(state).has(entry.file.name)
@@ -285,7 +288,7 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
         : isInvalid
           ? `<span class="tag tag--error">À corriger</span><p class="wizard-file__error">${escapeHtml(preAnalysis.errorMessage ?? 'Fichier invalide.')}</p>`
           : `${isDuplicate ? '<span class="tag tag--error">Doublon strict</span>' : ''}<dl class="wizard-file__metrics"><div><dt>Distance</dt><dd>${(preAnalysis.distanceKm ?? 0).toFixed(1)} km</dd></div><div><dt>D+</dt><dd>${preAnalysis.elevationGainM === null ? '—' : `+${Math.round(preAnalysis.elevationGainM)} m`}</dd></div><div><dt>D−</dt><dd>${preAnalysis.elevationLossM === null ? '—' : `−${Math.round(preAnalysis.elevationLossM)} m`}</dd></div></dl>`
-      return `${linkControl}<li class="wizard-structure__row wizard-file${isInvalid ? ' wizard-file--invalid' : ''}" data-structure-row data-position="${position}"><span class="tag tag--ride">Étape ${rideNumber ?? 1}</span><strong class="wizard-structure__name">${escapeHtml(entry.file.name)}</strong>${nameField}${body}${moveControls}${removeControl}</li>${insertControls}`
+      return `${linkControl}<li class="wizard-structure__row wizard-file${isInvalid ? ' wizard-file--invalid' : ''}" data-structure-row data-position="${position}"><span class="tag tag--ride">${state.organizationMode === 'league' ? 'Course' : 'Étape'} ${rideNumber ?? 1}</span><strong class="wizard-structure__name">${escapeHtml(entry.file.name)}</strong>${nameField}${state.organizationMode === 'league' ? `<div class="league-schedule-fields"><label>Date de course<input type="date" data-field="event-date" data-position="${position}" value="${escapeHtml(item.eventDate ?? '')}" required></label><label>Départ<input type="time" data-field="event-time" data-position="${position}" value="${escapeHtml(item.departureTime ?? '08:00')}" required></label></div>` : ''}${body}${state.organizationMode === 'league' ? '' : moveControls}${removeControl}</li>${insertControls}`
     }
 
     const label = item.kind === 'off' ? 'OFF' : 'Transfert'
@@ -335,6 +338,7 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
   }
 
   function renderAlerts(): string {
+    if (state.organizationMode === 'league') return state.duplicateSelectionNotice === null ? '' : `<p>${escapeHtml(state.duplicateSelectionNotice)}</p>`
     const duplicates = strictDuplicateFileNames(state)
     const similar = similarPairs(state)
     const continuity = continuityWarnings(state)
@@ -369,7 +373,7 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
     const active = activeFiles(state)
     const invalidCount = active.filter((entry) => entry.preAnalysis?.status === 'invalid').length
     const validCount = active.length - invalidCount
-    const loopPending = computeLoopPending(state)
+    const loopPending = state.organizationMode !== 'league' && computeLoopPending(state)
 
     const summaryLine =
       state.files.length === 0
@@ -403,7 +407,8 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
         <section class="card trip-editor__info" data-wizard-info>
           <p class="eyebrow">Informations</p>
           <div class="field"><label for="wizard-name">Nom du voyage</label><div class="field__control"><input id="wizard-name" type="text" data-field="name" value="${escapeHtml(state.name)}" required></div></div>
-          <div class="field"><label for="wizard-start-date">Date de départ</label><div class="field__control"><input id="wizard-start-date" type="date" data-field="start-date" value="${escapeHtml(state.startDate)}" required></div></div>
+          ${renderRaceModeToggle(state.raceMode, state.organizationMode)}
+          ${state.organizationMode === 'league' ? '<p>Ajoutez un GPX par course, puis indiquez sa date et son heure. Le calendrier sera classé automatiquement.</p>' : `<div class="field"><label for="wizard-start-date">Date de départ</label><div class="field__control"><input id="wizard-start-date" type="date" data-field="start-date" value="${escapeHtml(state.startDate)}" required></div></div>`}
           ${renderTravelModeToggle(state.travelMode)}
           <div class="field"><label for="wizard-reference-speed">Vitesse de référence sur le plat</label><div class="field__control"><input id="wizard-reference-speed" type="number" min="${TRAVEL_MODE_SETTINGS[state.travelMode].minimumSpeedKph}" max="${TRAVEL_MODE_SETTINGS[state.travelMode].maximumSpeedKph}" step="0.5" data-field="reference-speed" value="${Number.isFinite(state.referenceSpeedKph) ? state.referenceSpeedKph : ''}"><span>km/h</span></div></div>
         </section>
@@ -415,7 +420,6 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
         <ul class="wizard-structure__list" data-wizard-structure>${timelineRows}</ul>
         ${renderAlerts()}
         <details class="wizard-advanced"><summary>Réglages avancés</summary>
-          ${renderRaceModeToggle(state.raceMode)}
           ${state.raceMode ? '' : '<p>Budget de pauses calculé automatiquement selon la distance, la durée et le D+ de chaque étape.</p>'}
           ${renderClimbSensitivitySlider(state.climbSensitivity)}
         </details>
@@ -458,6 +462,11 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
     const target = event.target
     if (!(target instanceof HTMLInputElement)) return
     if (target.dataset.field === 'name') state.name = target.value
+    else if ((target.dataset.field === 'event-date' || target.dataset.field === 'event-time') && target.dataset.position !== undefined) {
+      const index=Number(target.dataset.position), item=state.structure[index]
+      if (item?.kind === 'ride') state.structure[index]={...item,...(target.dataset.field === 'event-date' ? {eventDate:target.value} : {departureTime:target.value})}
+      updateValidationUI(); return
+    }
     else if (target.dataset.field === 'start-date') state.startDate = target.value
     else if (target.dataset.field === 'reference-speed') { state.referenceSpeedKph = target.valueAsNumber; updateValidationUI(); return }
     // Focus-preserving, exactly like the trip name and the reference speed:
@@ -514,6 +523,11 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
     // CDC Jalon B4.4 section 17: the visible "+ Ajouter des GPX" button
     // proxies the real (visually-hidden) `<input type="file">` — never the
     // browser's own native file control rendered directly in the layout.
+    if (action === 'set-organization-mode' && button.dataset.organizationMode === 'league') {
+      state.organizationMode='league'; state.raceMode=true
+      state.structure=state.structure.map(item=>item.kind === 'ride' ? {...item,linkedToPrevious:false} : item)
+      render(); return
+    }
     if (action === 'trigger-add-files') { container.querySelector<HTMLInputElement>('#wizard-files')?.click(); return }
     if (action === 'move-up' && position !== null) { moveStructureItem(state, position, -1); render() }
     else if (action === 'move-down' && position !== null) { moveStructureItem(state, position, 1); render() }
@@ -529,6 +543,7 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
       // holds, which the UI then stops showing.
       if (!enabled) state.structure = state.structure.map((item) => (item.kind === 'ride' ? { ...item, linkedToPrevious: false } : item))
       state.raceMode = enabled
+      state.organizationMode = enabled ? 'tour' : 'voyage'
       render()
     }
     else if (action === 'submit') void submit()

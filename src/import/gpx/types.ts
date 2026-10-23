@@ -10,7 +10,7 @@
  * nothing in this module calls `Date.now()`, `new Date()` or `Math.random()`.
  */
 
-import type { ClimbDetectionSensitivity, TravelMode, TripId } from '../../trip-core/index.ts'
+import type { ClimbDetectionSensitivity, OrganizationMode, TravelMode, TripId } from '../../trip-core/index.ts'
 
 /** One user-supplied file, already read into memory — never a `File`/`Blob` handle. */
 export interface GpxImportFile {
@@ -22,6 +22,7 @@ export interface GpxImportFile {
 }
 
 export interface GpxTripImportOptions {
+  readonly organizationMode?: OrganizationMode
   readonly travelMode?: TravelMode
   readonly tripId: TripId
   readonly slug: string
@@ -42,6 +43,7 @@ export interface GpxTripImportOptions {
 
 /** `GpxTripImportOptions` with every optional field defaulted and validated (CDC section 16). */
 export interface ResolvedGpxTripImportOptions {
+  readonly organizationMode: OrganizationMode
   readonly travelMode: TravelMode
   readonly tripId: TripId
   readonly slug: string

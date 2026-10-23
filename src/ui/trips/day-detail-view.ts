@@ -33,7 +33,7 @@ import { routeGeometry } from '../../route-enrichment/route-fingerprint.ts'
 import { resolvePersistedAutomaticPausePlan } from '../../route-enrichment/automatic-pause-plan.ts'
 import { resolveOffCoordinates, resolveOffLocation, resolveSharedInfoDayId, resolveTransferCoordinates, resolveTransferLocations } from '../../analysis/day-location-fill.ts'
 import type { RouteMapMarkerModel, RouteMapModel } from '../route-map-model.ts'
-import { selectRaceMode, selectStageCustomName, selectTripDayNumber } from '../../trip-core/index.ts'
+import { selectOrganizationMode, selectRaceMode, selectStageCustomName, selectTripDayLabel, selectTripDayNumber } from '../../trip-core/index.ts'
 import { formatShortDate } from '../date-format.ts'
 import { compactPlaceName } from '../compact-place-name.ts'
 import {
@@ -102,7 +102,7 @@ function formatPercent(value: number | null): string {
  * always been: one `day-detail__identity-route` line carrying the route,
  * and no subtitle element at all.
  */
-function renderDayIdentityHeader(day: TripDay, dayNumber: number, mainLabel: string, fullMainLabel: string, customName: string | null = null): string {
+function renderDayIdentityHeader(day: TripDay, dayNumber: number, mainLabel: string, fullMainLabel: string, customName: string | null = null, prefix = 'J'): string {
   const dateLabel = day.date === null ? null : formatShortDate(day.date)
   const accessibleLabel = customName === null ? fullMainLabel : `${customName} — ${fullMainLabel}`
   // The two-line composition (nom manuel / départ → arrivée) is expressed
@@ -112,7 +112,7 @@ function renderDayIdentityHeader(day: TripDay, dayNumber: number, mainLabel: str
   // header height, same `Jx` position, whichever stage is open.
   const modifier = customName === null ? ' day-detail__sticky-identity--single' : ''
   return `<header class="day-detail__sticky-identity${modifier}" data-day-detail-identity title="${escapeHtml(accessibleLabel)}" aria-label="${escapeHtml(accessibleLabel)}">
-    <span class="day-detail__identity-number"><strong>J${dayNumber}</strong>${dateLabel === null ? '' : `<time datetime="${day.date}">${escapeHtml(dateLabel)}</time>`}</span>
+    <span class="day-detail__identity-number"><strong>${prefix}${dayNumber}</strong>${dateLabel === null ? '' : `<time datetime="${day.date}">${escapeHtml(dateLabel)}</time>`}</span>
     <span class="day-detail__identity-route">${customName === null ? mainLabel : escapeHtml(customName)}</span>
     ${customName === null ? '' : `<span class="day-detail__identity-subtitle" data-day-detail-identity-subtitle>${mainLabel}</span>`}
   </header>`
@@ -1069,7 +1069,7 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
   // whitespace-only) keeps every label exactly as it was.
   const customName = selectStageCustomName(stage)
   const dayNumber = selectTripDayNumber(bundle, day.id)
-  const stageLabel = `J${dayNumber} — ${customName ?? fullLocations}`
+  const stageLabel = `${selectTripDayLabel(bundle, day.id)} — ${customName ?? fullLocations}`
 
   const arrival = waypoints.length === 0 ? null : waypoints[waypoints.length - 1]
   const totalDurationSeconds = arrival?.elapsedMinutes === null || arrival?.elapsedMinutes === undefined
@@ -1137,7 +1137,7 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
   // — the tabbar moved into the Détails card itself and sticks contextually
   // there (`--day-sticky-header-h`, `sticky-header-offset.ts`), not from the
   // very top of the screen (section 10).
-  const identityHtml = renderDayIdentityHeader(day, dayNumber, locations, fullLocations, customName)
+  const identityHtml = renderDayIdentityHeader(day, dayNumber, locations, fullLocations, customName, selectOrganizationMode(bundle) === 'league' ? 'C' : 'J')
   const html = `<div class="day-detail" data-day-detail>
     <div class="day-detail__sticky-header" data-day-detail-sticky-header>
       ${identityHtml}

@@ -9,7 +9,8 @@
 
 import { selectTravelMode } from '../../trip-core/index.ts'
 import { computeStageWaypoints, resolveStagePauseSettings } from '../../analysis/waypoint-timeline.ts'
-import { selectRaceMode, selectStageCustomName, selectTripDayNumber } from '../../trip-core/index.ts'
+import { selectOrganizationMode, selectRaceMode, selectStageCustomName, selectTripDayLabel } from '../../trip-core/index.ts'
+import { renderLeagueCalendar } from './league-calendar-view.ts'
 import { stageAutomaticPausesAllowed } from '../../route-enrichment/enrichment-jobs.ts'
 import type { LatLngTuple } from '../route-map-model.ts'
 import { routeGeometry } from '../../route-enrichment/route-fingerprint.ts'
@@ -136,18 +137,18 @@ function computeTripProgress(bundle: TripBundle, now: Date | string | null): Tri
 }
 
 /** The six field-facing D1 metrics, in the requested order. */
-function renderProgressStats(progress: TripProgress): string {
+function renderProgressStats(progress: TripProgress, league = false): string {
   const rows: ReadonlyArray<readonly [string, string]> = [
     ['Distance totale', formatKilometers(progress.distanceTotalKm)],
     ['Distance restante', formatKilometers(progress.distanceRemainingKm)],
     ['D+ total', `${Math.round(progress.elevationGainTotalM)} m`],
     ['D+ restant', `${Math.round(progress.elevationGainRemainingM)} m`],
-    ['Étapes terminées', String(progress.ridesCompleted)],
-    ['Étapes restantes', String(progress.stagesRemaining)],
+    [league ? 'Courses terminées' : 'Étapes terminées', String(progress.ridesCompleted)],
+    [league ? 'Courses restantes' : 'Étapes restantes', String(progress.stagesRemaining)],
   ]
   const cells = rows.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join('')
   return `<section class="card trip-overview__progress" data-trip-overview-progress>
-    <p class="eyebrow">Progression du voyage</p>
+    <p class="eyebrow">${league ? 'Progression League' : 'Progression du voyage'}</p>
     <dl class="trip-overview__progress-grid">${cells}</dl>
   </section>`
 }
@@ -175,7 +176,7 @@ function renderHighlightedDay(bundle: TripBundle, highlightedDayId: TripDayId | 
           const { origin, destination } = resolveTransferLocations(bundle, day)
           return origin !== null && origin === destination ? escapeHtml(origin) : `${escapeHtml(origin ?? '—')} → ${escapeHtml(destination ?? '—')}`
         })()
-    const headerParts = [`J${selectTripDayNumber(bundle, day.id)}`, typeLabel, dateLabel].filter((part): part is string => part !== null)
+    const headerParts = [selectTripDayLabel(bundle, day.id), typeLabel, dateLabel].filter((part): part is string => part !== null)
     // R2 section 12: same compact mode/heures line as the Voyage card —
     // only when actually filled in, never fabricated.
     const modeAndTimes = day.type === 'transfer' ? formatTransferModeAndTimes(day) : null
@@ -191,7 +192,7 @@ function renderHighlightedDay(bundle: TripBundle, highlightedDayId: TripDayId | 
   // the départ → arrivée stays available underneath.
   const customName = selectStageCustomName(stage)
   const locations = `${escapeHtml(stage?.startLocationName ?? '—')} → ${escapeHtml(stage?.endLocationName ?? '—')}`
-  const headerParts = [`J${selectTripDayNumber(bundle, day.id)}`, customName === null ? locations : escapeHtml(customName)].filter((part): part is string => part !== null)
+  const headerParts = [selectTripDayLabel(bundle, day.id), customName === null ? locations : escapeHtml(customName)].filter((part): part is string => part !== null)
   const daySettings = bundle.settings.days.find((candidate) => candidate.dayId === day.id)
   const departureTime = daySettings?.departureTime ?? null
   const eta = getTripDayTemporalState(deriveTripTemporalState(bundle, now), day.id)?.arrivalEta?.label ?? null
@@ -270,7 +271,7 @@ export function buildTripOverview(bundle: TripBundle, now: Date | string | null)
   // there is something to highlight — an empty "Prochaine étape" eyebrow
   // over nothing would be worse than omitting the zone entirely.
   const highlightedState = highlightedDayId === null ? null : getTripDayTemporalState(temporal, highlightedDayId)
-  const nextZoneLabel = highlightedState?.current === true ? 'Aujourd’hui' : highlightedDay?.type === 'ride' ? 'Prochaine étape' : 'À suivre'
+  const nextZoneLabel = highlightedState?.current === true ? 'Aujourd’hui' : highlightedDay?.type === 'ride' ? selectOrganizationMode(bundle) === 'league' ? 'Prochaine course' : 'Prochaine étape' : 'À suivre'
   const highlightedDayHtml = renderHighlightedDay(bundle, highlightedDayId, now, nextZoneLabel)
 
   // CDC D1.2 section 2: the app-shell header (fond vert) is now the sole
@@ -281,7 +282,8 @@ export function buildTripOverview(bundle: TripBundle, now: Date | string | null)
   const html = `<div class="trip-overview" data-trip-overview>
     <header class="view-heading"><p class="eyebrow">Aperçu${selectTravelMode(bundle) === 'walking' ? ' · Randonnée' : ''}</p></header>
     <section class="trip-overview__zone trip-overview__zone--trip" data-trip-overview-zone="trip">
-      ${renderProgressStats(progress)}
+      ${selectOrganizationMode(bundle) === 'league' ? renderLeagueCalendar(bundle) : ''}
+      ${renderProgressStats(progress, selectOrganizationMode(bundle) === 'league')}
       <details class="card trip-wind-summary"><summary>Vent relatif sur l’ensemble du voyage</summary><div data-trip-wind-summary></div></details>
       <section class="card route-map-card" data-route-visuals>
         <div class="section-heading"><div><p class="eyebrow">Vue d’ensemble</p><h3>Carte du voyage</h3></div><div class="route-map-card__actions"><button class="button button--quiet" type="button" data-action="download-trip-gpx">GPX</button></div></div>

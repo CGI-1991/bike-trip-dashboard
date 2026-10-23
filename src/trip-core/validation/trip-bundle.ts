@@ -1,6 +1,6 @@
 import { CURRENT_TRIP_BUNDLE_SCHEMA_VERSION } from '../schema/version.ts'
 import type { TripBundle } from '../schema/version.ts'
-import { TRAVEL_MODES } from '../model/settings.ts'
+import { ORGANIZATION_MODES, TRAVEL_MODES } from '../model/settings.ts'
 import {
   addCivilDays,
   isBoolean,
@@ -178,6 +178,7 @@ export function validateTripBundle(value: unknown): ValidationResult<TripBundle>
   }
 
   // --- calendar -----------------------------------------------------------
+  const isLeague = isPlainObject(value.settings) && isPlainObject(value.settings.global) && value.settings.global.organizationMode === 'league'
   const calendar = value.calendar
   let calendarStartDate: string | null = null
   let calendarEndDate: string | null = null
@@ -471,6 +472,9 @@ export function validateTripBundle(value: unknown): ValidationResult<TripBundle>
   // one shared helper every date-assigning site also calls, so a bundle can
   // never be written with dates this validator would reject.
   const dayCalendarOffsets = calendarDayOffsets(days)
+  if (isLeague && (days.length === 0 || calendarStartDate === null || calendarEndDate === null)) {
+    issues.push(issue('calendar', 'missing-required', 'Une League exige au moins une course et un calendrier daté.'))
+  }
   days.forEach((day, index) => {
     const path = `days[${index}]`
     if (!isNonNegativeInteger(day.index)) issues.push(issue(`${path}.index`, 'invalid-value', 'index doit être un entier ≥ 0.'))
@@ -479,7 +483,15 @@ export function validateTripBundle(value: unknown): ValidationResult<TripBundle>
     }
     if (!isPositiveInteger(day.displayNumber)) issues.push(issue(`${path}.displayNumber`, 'invalid-value', 'displayNumber doit être un entier > 0.'))
     if (day.date !== null && !isIsoDate(day.date)) issues.push(issue(`${path}.date`, 'invalid-date', 'date invalide.'))
-    if (calendarStartDate === null) {
+    if (isLeague) {
+      if (day.type !== 'ride') issues.push(issue(`${path}.type`, 'invalid-value', 'Une League contient uniquement des courses.'))
+      if (!isIsoDate(day.date)) issues.push(issue(`${path}.date`, 'missing-required', 'Chaque course exige sa propre date.'))
+      if (day.sameCalendarDayAsPrevious === true) issues.push(issue(`${path}.sameCalendarDayAsPrevious`, 'invalid-value', 'Les courses League sont indépendantes.'))
+      const previous = days[index - 1]
+      if (previous !== undefined && isIsoDate(day.date) && isIsoDate(previous.date) && day.date < previous.date) {
+        issues.push(issue(`${path}.date`, 'inconsistent-day-date', 'Les courses doivent être classées par date.'))
+      }
+    } else if (calendarStartDate === null) {
       // Undated trip: no day may carry a date (no false temporal state).
       if (day.date !== null && day.date !== undefined) {
         issues.push(issue(`${path}.date`, 'inconsistent-calendar', 'Une journée datée exige un calendrier défini (calendar.startDate).'))
@@ -570,7 +582,8 @@ export function validateTripBundle(value: unknown): ValidationResult<TripBundle>
   // The calendar's own duration must match the number of days — not just each
   // day individually: calendar.endDate must equal calendar.startDate + (days.length - 1).
   if (calendarStartDate !== null && calendarEndDate !== null && days.length > 0) {
-    const expectedEndDate = addCivilDays(calendarStartDate, lastCalendarDayOffset(days))
+    const expectedEndDate = isLeague ? days.at(-1)?.date : addCivilDays(calendarStartDate, lastCalendarDayOffset(days))
+    if (isLeague && days[0]?.date !== calendarStartDate) issues.push(issue('calendar.startDate', 'inconsistent-day-date', 'La League commence à la date de sa première course.'))
     if (calendarEndDate !== expectedEndDate) {
       issues.push(
         issue(
@@ -668,6 +681,7 @@ export function validateTripBundle(value: unknown): ValidationResult<TripBundle>
         issues.push(issue(`${path}.${field}`, 'invalid-value', `${field} doit être ≥ 0 ou null.`))
       }
     }
+    if (isLeague && stage.pauseDurationSeconds !== 0) issues.push(issue(`${path}.pauseDurationSeconds`, 'invalid-value', 'Les courses League ne contiennent pas d’arrêt planifié.'))
     if (stage.estimatedAverageSpeedKph !== null && !isPositiveNumber(stage.estimatedAverageSpeedKph)) {
       issues.push(issue(`${path}.estimatedAverageSpeedKph`, 'invalid-value', 'estimatedAverageSpeedKph doit être > 0 ou null.'))
     }
@@ -784,6 +798,13 @@ export function validateTripBundle(value: unknown): ValidationResult<TripBundle>
       issues.push(issue('settings.global', 'missing-required', 'settings.global est requis.'))
     } else {
       if (!isPositiveNumber(settings.global.referenceSpeedKph)) issues.push(issue('settings.global.referenceSpeedKph', 'invalid-value', 'referenceSpeedKph doit être > 0.'))
+      if (settings.global.organizationMode !== undefined) {
+        if (!isOneOf(settings.global.organizationMode, ORGANIZATION_MODES)) issues.push(issue('settings.global.organizationMode', 'invalid-enum', 'organizationMode invalide.'))
+        else if ((settings.global.organizationMode !== 'voyage') !== (settings.global.raceMode === true)) {
+          issues.push(issue('settings.global.raceMode', 'invalid-value', 'Le réglage de compétition doit correspondre à l’organisation du calendrier.'))
+        }
+      }
+      if (settings.global.leaguePoiSearchEnabled !== undefined && !isBoolean(settings.global.leaguePoiSearchEnabled)) issues.push(issue('settings.global.leaguePoiSearchEnabled', 'invalid-type', 'leaguePoiSearchEnabled doit être un booléen.'))
       if (settings.global.travelMode !== undefined && !isOneOf(settings.global.travelMode, TRAVEL_MODES)) {
         issues.push(issue('settings.global.travelMode', 'invalid-enum', 'travelMode invalide.'))
       }

@@ -13,15 +13,21 @@
  * on disk would buy nothing and would need a migration.
  */
 
-export function renderRaceModeToggle(raceMode: boolean): string {
+import type { OrganizationMode } from '../../trip-core/index.ts'
+import { renderFeatureUpdateBadge } from '../release-notes.ts'
+
+export function renderRaceModeToggle(raceMode: boolean, organizationMode?: OrganizationMode, editing = false): string {
+  const league = organizationMode === 'league'
+  const showLeague = organizationMode !== undefined
   return `<div class="field">
-    <label id="race-mode-toggle-label">Mode</label>
-    <div class="segmented-toggle" role="group" aria-labelledby="race-mode-toggle-label" data-race-mode-toggle>
-      <button type="button" class="segmented-toggle__option" data-action="set-race-mode" data-race-mode="off" aria-pressed="${raceMode ? 'false' : 'true'}">Voyage</button>
-      <button type="button" class="segmented-toggle__option" data-action="set-race-mode" data-race-mode="on" aria-pressed="${raceMode ? 'true' : 'false'}">Tour</button>
+    <label id="race-mode-toggle-label">Mode</label>${showLeague ? renderFeatureUpdateBadge('league-calendar') : ''}
+    <div class="segmented-toggle${showLeague ? ' segmented-toggle--three' : ''}" role="group" aria-labelledby="race-mode-toggle-label" data-race-mode-toggle>
+      <button type="button" class="segmented-toggle__option" data-action="set-race-mode" data-race-mode="off" aria-pressed="${raceMode || league ? 'false' : 'true'}" ${editing && league ? 'disabled' : ''}>Voyage</button>
+      ${showLeague ? `<button type="button" class="segmented-toggle__option" data-action="set-organization-mode" data-organization-mode="league" aria-pressed="${league}" ${editing && !league ? 'disabled' : ''}>League</button>` : ''}
+      <button type="button" class="segmented-toggle__option" data-action="set-race-mode" data-race-mode="on" aria-pressed="${raceMode && !league ? 'true' : 'false'}" ${editing && league ? 'disabled' : ''}>Tour</button>
     </div>
-    <p class="field__hint">${raceMode
+    <p class="field__hint">${league ? 'Calendrier de courses indépendantes, chacune avec sa date et son heure. Aucun arrêt planifié pendant une course.' : raceMode
       ? 'Aucun arrêt planifié pendant les étapes. Les journées OFF, les transferts et les points d’intérêt restent inchangés, et plusieurs étapes peuvent être liées sur une même journée.'
-      : 'Des arrêts sont planifiés pendant les étapes et comptés dans les heures d’arrivée.'}</p>
+      : 'Des arrêts sont planifiés pendant les étapes et comptés dans les heures d’arrivée.'}</p>${showLeague && editing ? '<p class="field__hint">League se choisit à la création : ses dates indépendantes sont conservées lors de l’édition.</p>' : ''}
   </div>`
 }

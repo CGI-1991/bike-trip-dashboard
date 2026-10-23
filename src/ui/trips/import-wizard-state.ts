@@ -28,7 +28,8 @@ import {
   validateWizardForm,
 } from '../../trips-manager/index.ts'
 import type { GpxPreAnalysis } from '../../trips-manager/index.ts'
-import type { TravelMode } from '../../trip-core/index.ts'
+import type { OrganizationMode, TravelMode } from '../../trip-core/index.ts'
+import { isIsoDate, isTimeOfDay } from '../../trip-core/validation/primitives.ts'
 import { validateTripPreferencesUpdate } from '../../trips-manager/trip-preferences.ts'
 
 /** Opaque, stable identity for one imported file — never a `state.files` array index. */
@@ -44,6 +45,8 @@ export interface FileEntry {
 }
 
 export interface StructureItem {
+  readonly eventDate?: string
+  readonly departureTime?: string
   readonly key: string
   readonly kind: DayStructureSlot['kind']
   readonly fileId?: FileEntryId
@@ -59,6 +62,7 @@ export interface StructureItem {
 export type WizardStage = 'editing' | 'submitting' | 'cancelled'
 
 export interface WizardState {
+  organizationMode: OrganizationMode
   name: string
   startDate: string
   files: FileEntry[]
@@ -85,6 +89,7 @@ export function nextStructureKey(): string {
 export function createEmptyWizardState(): WizardState {
   return {
     name: '',
+    organizationMode: 'voyage',
     startDate: '',
     files: [],
     structure: [],
@@ -179,7 +184,7 @@ export function formValidation(state: WizardState) {
   const strictDuplicates = strictDuplicateFileNames(state)
   const base = validateWizardForm({
     name: state.name,
-    startDate: state.startDate || null,
+    startDate: state.organizationMode === 'league' ? 'league-events' : state.startDate || null,
     files: activeFiles(state).map((entry) => ({
       fileName: entry.file.name,
       status: entry.preAnalysis?.status === 'valid' ? 'valid' : 'invalid',
@@ -188,7 +193,10 @@ export function formValidation(state: WizardState) {
     })),
   })
   const speedErrors = validateTripPreferencesUpdate({ referenceSpeedKph: state.referenceSpeedKph, travelMode: state.travelMode })
-  return { canCreate: base.canCreate && speedErrors.length === 0, reasons: [...base.reasons, ...speedErrors.map(error => error.message)] }
+  const leagueErrors = state.organizationMode !== 'league' ? [] : state.structure.flatMap((item, index) => item.kind !== 'ride'
+    ? ['Une League contient des courses uniquement : retirez les journées OFF et transferts pour continuer.']
+    : !isIsoDate(item.eventDate) || !isTimeOfDay(item.departureTime ?? '08:00') ? [`Renseignez la date et l’heure de la course ${index + 1}.`] : [])
+  return { canCreate: base.canCreate && speedErrors.length === 0 && leagueErrors.length === 0, reasons: [...base.reasons, ...speedErrors.map(error => error.message), ...leagueErrors] }
 }
 
 /** Proposes an order among only the newly-added, now-valid files and appends them — existing structure items (manual order, OFF/transfer slots) are never touched. Mutates `state.structure` in place. */
@@ -208,7 +216,7 @@ export function appendNewRideSlots(state: WizardState, newFileIds: readonly File
       endLongitude: preAnalysis.endLongitude as number,
     }
   })
-  const proposal = proposeGpxOrder(candidates)
+  const proposal = state.organizationMode === 'league' ? { order: candidates.map((_candidate, index) => index) } : proposeGpxOrder(candidates)
   const newItems: StructureItem[] = proposal.order.map((position) => ({
     key: nextStructureKey(),
     kind: 'ride',

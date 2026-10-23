@@ -13,7 +13,7 @@ import { saveTripImportAtomically } from '../../storage/indexeddb/atomic-import.
 import type { ImportJob } from '../../storage/indexeddb/import-job-repository.ts'
 import type { SourceFilePayloadInput } from '../../storage/indexeddb/source-file-repository.ts'
 import type { Climb, RideStage, Route, RoutePoint, SourceFile, TripBundle, TripDay } from '../../trip-core/index.ts'
-import { DEFAULT_CLIMB_DETECTION_SENSITIVITY, sourceFileId as toSourceFileId, validateTripBundle } from '../../trip-core/index.ts'
+import { DEFAULT_CLIMB_DETECTION_SENSITIVITY, ORGANIZATION_MODES, sourceFileId as toSourceFileId, validateTripBundle } from '../../trip-core/index.ts'
 import { isIsoDate, isNonEmptyString, isNonNegativeInteger, isPositiveNumber, isSlug, isTimeOfDay } from '../../trip-core/validation/primitives.ts'
 import { analyzeGpxDocument } from './analyze-gpx.ts'
 import { GpxXmlParseError, parseGpxXml } from './gpx-xml.ts'
@@ -78,6 +78,8 @@ const DEFAULT_LANGUAGE = 'fr'
 
 function resolveOptions(raw: GpxTripImportOptions): { readonly options: ResolvedGpxTripImportOptions } | { readonly issues: readonly ImportIssue[] } {
   const issues: ImportIssue[] = []
+  if (raw.organizationMode !== undefined && !ORGANIZATION_MODES.includes(raw.organizationMode)) issues.push(importIssue('validation-error', 'error', 'Organisation du calendrier invalide.'))
+  const organizationMode = raw.organizationMode ?? 'voyage'
 
   if (!isNonEmptyString(raw.tripId)) issues.push(importIssue('validation-error', 'error', 'tripId est requis.'))
   if (!isSlug(raw.slug)) issues.push(importIssue('validation-error', 'error', `slug invalide : ${String(raw.slug)}.`))
@@ -95,7 +97,7 @@ function resolveOptions(raw: GpxTripImportOptions): { readonly options: Resolved
   const departureTime = raw.departureTime ?? DEFAULT_DEPARTURE_TIME
   if (!isTimeOfDay(departureTime)) issues.push(importIssue('validation-error', 'error', 'departureTime doit être au format HH:MM.'))
 
-  const totalBreakMinutes = raw.totalBreakMinutes ?? DEFAULT_TOTAL_BREAK_MINUTES
+  const totalBreakMinutes = organizationMode === 'voyage' ? raw.totalBreakMinutes ?? DEFAULT_TOTAL_BREAK_MINUTES : 0
   if (totalBreakMinutes !== 'adaptive' && !isNonNegativeInteger(totalBreakMinutes)) {
     issues.push(importIssue('validation-error', 'error', "totalBreakMinutes doit être un entier ≥ 0, ou 'adaptive'."))
   }
@@ -121,6 +123,7 @@ function resolveOptions(raw: GpxTripImportOptions): { readonly options: Resolved
       units: raw.units ?? 'metric',
       startDate,
       referenceSpeedKph,
+      organizationMode,
       travelMode,
       departureTime,
       totalBreakMinutes,
@@ -282,6 +285,7 @@ async function processGpxTrip(input: BuildGpxTripInput & { readonly database: ID
 
   let bundle: TripBundle
   try {
+    if (options.organizationMode === 'league' && input.dayStructure === undefined) throw new Error('Les dates des courses League doivent être renseignées explicitement.')
     bundle = input.dayStructure === undefined ? assembledBundle : applyDayStructure(assembledBundle, input.dayStructure, idFactory)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Structure de journées invalide.'

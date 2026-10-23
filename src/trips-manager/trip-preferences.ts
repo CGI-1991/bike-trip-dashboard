@@ -17,7 +17,8 @@ import { applyRaceMode } from './race-mode.ts'
 import { applyClimbDetectionSensitivity, resolveClimbDetectionSensitivity } from './climb-sensitivity.ts'
 import type { ClimbDetectionSensitivity, TravelMode } from '../trip-core/index.ts'
 import { addCivilDays, isIsoDate } from '../trip-core/validation/primitives.ts'
-import { calendarDayOffsets, lastCalendarDayOffset, selectRaceMode, selectTravelMode, validateTripBundle } from '../trip-core/index.ts'
+import { applyLeagueSchedule, calendarDayOffsets, lastCalendarDayOffset, selectOrganizationMode, selectRaceMode, selectTravelMode, validateTripBundle } from '../trip-core/index.ts'
+import type { LeagueEventSchedule } from '../trip-core/index.ts'
 import type { IsoDate, TripBundle, TripId } from '../trip-core/index.ts'
 import { createTripRepository, TripValidationError } from '../storage/indexeddb/trip-repository.ts'
 
@@ -38,6 +39,7 @@ export interface TripPreferencesUpdate {
   readonly startDate?: string
   readonly referenceSpeedKph?: number
   readonly travelMode?: TravelMode
+  readonly leagueEvents?: readonly LeagueEventSchedule[]
   /**
    * Mode "Course / Tour". Switching it ON strips every in-stage pause and
    * re-times each stage at a zero budget; switching it OFF re-estimates the
@@ -54,13 +56,17 @@ export interface TripPreferencesUpdate {
 }
 
 export interface TripPreferencesFieldError {
-  readonly field: 'name' | 'startDate' | 'referenceSpeedKph' | 'travelMode'
+  readonly field: 'name' | 'startDate' | 'referenceSpeedKph' | 'travelMode' | 'leagueEvents'
   readonly message: string
 }
 
 /** Pure — never throws, never touches storage. Accumulates every issue rather than stopping at the first (CDC section 36: "afficher validation inline"). */
 export function validateTripPreferencesUpdate(update: TripPreferencesUpdate, currentMode: TravelMode = 'cycling'): readonly TripPreferencesFieldError[] {
   const errors: TripPreferencesFieldError[] = []
+  if (update.leagueEvents !== undefined && (!Array.isArray(update.leagueEvents) || update.leagueEvents.some(event => event === null || typeof event !== 'object'
+    || typeof event.dayId !== 'string' || !isIsoDate(event.date) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(event.departureTime)))) {
+    errors.push({ field: 'leagueEvents', message: 'Chaque course exige une date et une heure de départ valides.' })
+  }
   if (update.travelMode !== undefined && !isTravelMode(update.travelMode)) {
     errors.push({ field: 'travelMode', message: 'Mode de déplacement invalide.' })
   }
@@ -85,6 +91,7 @@ export function validateTripPreferencesUpdate(update: TripPreferencesUpdate, cur
 
 /** CDC section 29: a real no-op — every provided field already matches the bundle's current value. The caller must skip validation/save/invalidation entirely when this is `true`, never just skip the UI spinner. */
 export function tripPreferencesUpdateIsNoop(bundle: TripBundle, update: TripPreferencesUpdate): boolean {
+  if (update.leagueEvents !== undefined && applyLeagueSchedule(bundle, update.leagueEvents) !== bundle) return false
   if (update.name !== undefined && update.name.trim() !== bundle.metadata.name) return false
   if (update.startDate !== undefined && update.startDate !== bundle.calendar.startDate) return false
   if (update.referenceSpeedKph !== undefined && update.referenceSpeedKph !== bundle.settings.global.referenceSpeedKph) return false
@@ -118,6 +125,7 @@ export function tripPreferencesUpdateIsNoop(bundle: TripBundle, update: TripPref
  * date).
  */
 export function shiftTripStartDate(bundle: TripBundle, newStartDate: IsoDate): TripBundle {
+  if (selectOrganizationMode(bundle) === 'league') throw new Error('Modifiez la date de chaque course dans le calendrier League.')
   if (bundle.calendar.startDate === null || bundle.calendar.startDate === newStartDate) return bundle
   const offsets = calendarDayOffsets(bundle.days)
   const endDate = bundle.days.length === 0 ? newStartDate : asIsoDate(addCivilDays(newStartDate, lastCalendarDayOffset(bundle.days)))
@@ -206,6 +214,7 @@ export function applyTripPreferences(bundle: TripBundle, update: TripPreferences
     const name = update.name.trim()
     next = { ...next, metadata: { ...next.metadata, name } }
   }
+  if (update.leagueEvents !== undefined) next = applyLeagueSchedule(next, update.leagueEvents)
 
   if (update.startDate !== undefined && isIsoDate(update.startDate)) {
     next = shiftTripStartDate(next, update.startDate)
@@ -253,7 +262,9 @@ export function deriveTripPreferenceInvalidation(previous: TripBundle, next: Tri
     || previous.metadata.startDate !== next.metadata.startDate
     || previous.metadata.endDate !== next.metadata.endDate
   const calendarChanged = previous.calendar.startDate !== next.calendar.startDate || previous.calendar.endDate !== next.calendar.endDate
+    || previous.days.some(day => day.date !== next.days.find(candidate => candidate.id === day.id)?.date)
   const timingChanged = previous.settings.global.referenceSpeedKph !== next.settings.global.referenceSpeedKph
+    || previous.settings.days.some(day => day.departureTime !== next.settings.days.find(candidate => candidate.dayId === day.dayId)?.departureTime)
     || selectTravelMode(previous) !== selectTravelMode(next)
     || previous.stages.some((stage, index) => {
       const nextStage = next.stages[index]
@@ -311,6 +322,12 @@ export async function updateTripPreferences(input: UpdateTripPreferencesInput): 
   const fieldErrors = validateTripPreferencesUpdate(input.update, selectTravelMode(existing))
   if (fieldErrors.length > 0) {
     return { ok: false, code: 'invalid-input', message: fieldErrors[0]?.message ?? 'Préférences invalides.', errors: fieldErrors }
+  }
+  if (selectOrganizationMode(existing) === 'league' && (input.update.startDate !== undefined || input.update.raceMode === false)) {
+    return { ok: false, code: 'invalid-input', message: 'Une League conserve ses dates indépendantes. Modifiez les dates des courses séparément.' }
+  }
+  try { if (input.update.leagueEvents !== undefined) applyLeagueSchedule(existing, input.update.leagueEvents) } catch (error) {
+    return { ok: false, code: 'invalid-input', message: error instanceof Error ? error.message : 'Calendrier League invalide.' }
   }
 
   // `shiftTripStartDate` silently no-ops on a still-undated trip (dating one

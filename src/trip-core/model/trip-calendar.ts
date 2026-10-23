@@ -13,9 +13,9 @@ import type { IanaTimezone, IsoDate } from './common.ts'
  *   every `TripDay.date` is `null` too (CDC section 16.1 — express mode, no
  *   date yet);
  * - **dated**: all three fields are set, `endDate` is not before `startDate`,
- *   every `TripDay.date` equals `startDate` plus that day's `index` in civil
- *   days (timezone-independent arithmetic — see `addCivilDays` in
- *   `validation/primitives.ts`), and the last day's date equals `endDate`.
+ *   Voyage/Tour dates follow their civil-day offsets (linked stages can
+ *   share a date). League dates are explicit and independent, sorted by
+ *   date/departure; start/end are their envelope, without invented OFF days.
  *
  * A trip with only some of these fields set (e.g. `startDate` without
  * `endDate`/`timezone`, or a day date while the calendar itself is still

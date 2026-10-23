@@ -26,6 +26,7 @@ export * from './model/generated-metadata.ts'
 export * from './model/trip-bundle.ts'
 
 export * from './calendar/day-offsets.ts'
+export * from './calendar/league.ts'
 
 export * from './schema/version.ts'
 

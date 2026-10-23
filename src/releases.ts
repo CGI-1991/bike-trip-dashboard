@@ -13,6 +13,10 @@ export interface AppRelease {
 }
 
 export const APP_RELEASES: readonly AppRelease[] = [
+  { version: '2026.10.23.6', date: '2026-10-23', changes: [
+    { feature: 'gpx-editor-add', title: 'L’ajout de GPX dans l’éditeur est fiabilisé', description: 'Le bouton Ajouter des GPX conserve la sélection avant de réinitialiser le sélecteur de fichiers. Les fichiers choisis sont bien ajoutés, pour une course League comme pour une étape de voyage.' },
+    { feature: 'league-calendar', title: 'League : votre calendrier de courses', description: 'Choisissez League à la création, ajoutez un GPX par course et indiquez chaque date et heure de départ. Le calendrier se classe automatiquement ; modifier une course ne décale pas les autres. Les parcours, météo et vent restent accessibles. Aucun arrêt n’est planifié pendant une course ; les POI peuvent être recherchés explicitement depuis les réglages avancés. Les segments de compétition et les exports Garmin arriveront dans les prochains lots.' },
+  ] },
   { version: '2026.10.23.5', date: '2026-10-23', changes: [
     { feature: 'travel-mode', title: 'Vos voyages à vélo ou à pied', description: 'Choisissez Vélo ou Randonnée à la création ou dans Modifier le voyage. La randonnée utilise un calcul des temps selon la pente, une vitesse de référence sur le plat et des liens de guidage à pied. Les pauses automatiques sont réévaluées au changement de mode ; vos pauses manuelles, lieux et fichiers GPX sont conservés. Les voyages existants restent à vélo.' },
   ] },

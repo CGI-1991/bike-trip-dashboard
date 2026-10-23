@@ -27,7 +27,7 @@ import type {
   TripDayId,
   TripId,
 } from '../trip-core/index.ts'
-import { validateTripBundle } from '../trip-core/index.ts'
+import { normalizeLeagueCalendar, selectOrganizationMode, validateTripBundle } from '../trip-core/index.ts'
 import { consolidateLinkedLodging, initializeLinkedGroupDepartures, resolveLinkedScheduleConflicts } from './linked-stages.ts'
 import type { LinkedScheduleAdjustment, LinkedScheduleOverflow } from './linked-stages.ts'
 
@@ -37,6 +37,8 @@ interface RetainedSlotIdentity {
 }
 
 export interface TripEditRideSlot extends RetainedSlotIdentity {
+  readonly eventDate?: string
+  readonly departureTime?: string
   readonly kind: 'ride'
   readonly file: GpxImportFile
   /** Existing source identity only when this is the unchanged GPX. A replacement must set `null`. */
@@ -139,6 +141,7 @@ export async function loadTripEditDraft(database: IDBDatabase, tripId: TripId): 
       existingDayId: day.id,
       existingSourceFileId: sourceFile.id,
       customName: stage.customName ?? null,
+      ...(selectOrganizationMode(bundle) === 'league' ? { eventDate: day.date!, departureTime: bundle.settings.days.find(entry => entry.dayId === day.id)?.departureTime ?? '08:00' } : {}),
       sameCalendarDayAsPrevious: day.sameCalendarDayAsPrevious === true,
       file: {
         name: sourceFile.originalName,
@@ -192,7 +195,15 @@ function buildIdentityRemaps(existing: TripBundle, rebuilt: TripBundle, slots: r
   const unchangedStageIds = new Set<RideStageId>()
 
   slots.forEach((slot, index) => {
-    const rebuiltDay = rebuilt.days[index]
+    // League is chronologically sorted before reaching this merge. Match
+    // the input file's own route, never the now-reordered day position.
+    let rebuiltDay: TripDay | undefined = rebuilt.days[index]
+    if (selectOrganizationMode(existing) === 'league') {
+      const source = rebuilt.sourceFiles[index]
+      const route = source === undefined ? undefined : rebuilt.routes.find(route => route.sourceFileId === source.id)
+      const stage = route === undefined ? undefined : rebuilt.stages.find(stage => stage.sourceRouteId === route.id)
+      rebuiltDay = rebuilt.days.find(day => day.stageId === stage?.id)
+    }
     if (rebuiltDay === undefined || slot.existingDayId === null) return
     const existingDay = existing.days.find((day) => day.id === slot.existingDayId)
     if (existingDay === undefined) return
@@ -365,7 +376,7 @@ export function mergeEditedTripBundle(existing: TripBundle, rebuilt: TripBundle,
     return {
       ...settings,
       dayId,
-      departureTime: retained?.departureTime ?? settings.departureTime,
+      departureTime: selectOrganizationMode(existing) === 'league' ? settings.departureTime : retained?.departureTime ?? settings.departureTime,
       totalBreakSeconds: retained?.totalBreakSeconds ?? settings.totalBreakSeconds,
     }
   })
@@ -474,6 +485,7 @@ export async function editGpxTrip(input: EditGpxTripInput): Promise<EditGpxTripR
       units: 'metric',
       referenceSpeedKph: existing.settings.global.referenceSpeedKph,
       travelMode: existing.settings.global.travelMode,
+      organizationMode: selectOrganizationMode(existing),
       // Without this, a structural edit would silently re-detect every
       // climb at the DEFAULT sensitivity, quietly undoing the trip's own
       // setting (which `mergeEditedTripBundle` then dutifully preserves,
@@ -488,7 +500,9 @@ export async function editGpxTrip(input: EditGpxTripInput): Promise<EditGpxTripR
     now: input.now,
     dayStructure: input.slots.map((slot) =>
       slot.kind === 'ride'
-        ? { kind: 'ride', customName: slot.customName ?? null, sameCalendarDayAsPrevious: slot.sameCalendarDayAsPrevious === true }
+        ? { kind: 'ride', customName: slot.customName ?? null, sameCalendarDayAsPrevious: slot.sameCalendarDayAsPrevious === true,
+            eventDate: slot.eventDate ?? existing.days.find(day => day.id === slot.existingDayId)?.date ?? undefined,
+            departureTime: slot.departureTime ?? existing.settings.days.find(day => day.dayId === slot.existingDayId)?.departureTime ?? '08:00' }
         : slot.kind === 'transfer'
           ? { kind: 'transfer', notes: slot.notes ?? null, transferTiming: slot.transferTiming }
           : { kind: slot.kind, notes: slot.notes ?? null },
@@ -500,7 +514,7 @@ export async function editGpxTrip(input: EditGpxTripInput): Promise<EditGpxTripR
     return { ok: false, code: 'analysis-error', message: buildResult.error.message, issues: buildResult.issues }
   }
 
-  const merged = mergeEditedTripBundle(existing, buildResult.bundle, input.slots, updatedAt)
+  const merged = normalizeLeagueCalendar(mergeEditedTripBundle(existing, buildResult.bundle, input.slots, updatedAt))
   // Étapes liées, in the one order that makes each step see the previous
   // one's result: settle the group's single lodging, propose a coherent
   // departure time for every stage that has JUST been linked, then check the

@@ -84,6 +84,7 @@ export function assembleTripBundle(input: TripBuilderInput): TripBundle {
     weather: [],
     settings: {
       global: {
+        ...(options.organizationMode === undefined || options.organizationMode === 'voyage' ? {} : { organizationMode: options.organizationMode, raceMode: true }),
         travelMode: options.travelMode,
         referenceSpeedKph: options.referenceSpeedKph,
         pausePlanMode: 'automatic',
