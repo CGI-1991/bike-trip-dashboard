@@ -126,7 +126,7 @@ export async function writeTripBundleRecords(
   await writeSourcePayloads(tx, tripId, bundle, sourcePayloads)
 }
 
-async function readTripRecordSet(tx: IDBTransaction, tripId: TripId): Promise<TripRecordSet | null> {
+export async function readTripRecordSet(tx: IDBTransaction, tripId: TripId): Promise<TripRecordSet | null> {
   const tripRoot = (await promisifyRequest(tx.objectStore(OBJECT_STORE_NAMES.trips).get(tripId))) as TripRootRecord | undefined
   if (tripRoot === undefined) return null
 

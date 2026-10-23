@@ -13,6 +13,9 @@ export interface AppRelease {
 }
 
 export const APP_RELEASES: readonly AppRelease[] = [
+  { version: '2026.10.23.3', date: '2026-10-23', changes: [
+    { feature: 'trip-backup', title: 'Vos voyages peuvent être sauvegardés et restaurés', description: 'Dans Mes voyages, préparez une sauvegarde complète à enregistrer dans Fichiers, ou sauvegardez un seul voyage depuis sa carte. Elle conserve les réglages, pauses, logements, lieux et GPX d’origine disponibles. La restauration ajoute des copies sans écraser vos voyages actuels.' },
+  ] },
   { version: '2026.10.23.2', date: '2026-10-23', changes: [
     { feature: 'app-updates', title: 'Les changements deviennent visibles', description: 'Les petites balises MAJ expliquent ce qui a changé à cet endroit. Touchez-les pour lire le détail ; le bouton Nouveautés garde tout l’historique.' },
   ] },
