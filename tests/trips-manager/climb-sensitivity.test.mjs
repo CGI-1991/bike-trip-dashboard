@@ -123,3 +123,16 @@ test('a route with no usable geometry keeps its existing climbs rather than losi
   const after = recomputeTripClimbs(withoutGeometry, 'flat', idFactory)
   assert.deepEqual(after.climbs.map((climb) => climb.id), ['climb-kept'])
 })
+
+test('sensitivity recomputation retains steep walking grades while cycling keeps its historical cap', () => {
+  const base = hillyBundle()
+  const steep = {
+    ...base,
+    routes: base.routes.map(route => ({ ...route, geometry: { full: route.geometry.full.map(point => ({ ...point, altitudeM: 1000 + (point.altitudeM - 200) * 7 })), simplified: null } })),
+  }
+  const walking = recomputeTripClimbs({ ...steep, settings: { ...steep.settings, global: { ...steep.settings.global, travelMode: 'walking' } } }, 'flat', idFactory)
+  const cycling = recomputeTripClimbs(steep, 'flat', idFactory)
+  assert.ok(walking.climbs.some(climb => climb.maxGradientPercent > 35))
+  assert.ok(cycling.climbs.every(climb => climb.maxGradientPercent <= 20))
+  assert.deepEqual(walking.climbs.map(climb => [climb.startDistanceKm, climb.endDistanceKm]), cycling.climbs.map(climb => [climb.startDistanceKm, climb.endDistanceKm]), 'existing detection criteria remain identical across modes')
+})

@@ -12,8 +12,9 @@ import { detectClimbs } from '../../analysis/climb-detection.ts'
 import { estimateAutomaticBreakBudget } from '../../analysis/pause-budget.ts'
 import { buildTerrainSlopeProfile } from '../../analysis/terrain-profile.ts'
 import { computeStageTiming } from '../../analysis/timing.ts'
+import { MAX_WALKING_GRADE_PERCENT } from '../../analysis/travel-timing.ts'
 import type { StageTimingResult } from '../../analysis/timing.ts'
-import type { Climb, ClimbDetectionSensitivity, RouteId } from '../../trip-core/index.ts'
+import type { Climb, ClimbDetectionSensitivity, RouteId, TravelMode } from '../../trip-core/index.ts'
 import { DEFAULT_CLIMB_DETECTION_SENSITIVITY } from '../../trip-core/index.ts'
 import type { TerrainProfilePoint } from '../../route/types.ts'
 import type { GpxAnalysis } from './analyze-gpx.ts'
@@ -22,6 +23,7 @@ import { importIssue } from './types.ts'
 
 export interface RouteTimingOptions {
   readonly referenceSpeedKph: number
+  readonly travelMode?: TravelMode
   readonly departureTime: string
   /**
    * A fixed budget in minutes, or `'adaptive'` to use
@@ -58,7 +60,8 @@ export function analyzeRouteTerrainClimbsAndTiming(
 
   let terrainProfile: readonly TerrainProfilePoint[] | null = null
   if (altitudeQuality.isSufficient) {
-    terrainProfile = buildTerrainSlopeProfile(smoothElevation(distanceIndexed))
+    terrainProfile = buildTerrainSlopeProfile(smoothElevation(distanceIndexed), undefined, undefined,
+      timingOptions.travelMode === 'walking' ? MAX_WALKING_GRADE_PERCENT : undefined)
   } else if (altitudeQuality.pointsWithAltitude > 0) {
     // Some altitude exists (analyze-gpx.ts's own broader `missing-altitude`
     // issue does not fire here) but not enough to trust a slope model —

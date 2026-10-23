@@ -7,6 +7,7 @@ import type { RideStage } from '../model/ride-stage.ts'
 import type { Route } from '../model/route.ts'
 import type { RoutePoint } from '../model/route-point.ts'
 import type { TripDay } from '../model/trip-day.ts'
+import type { TravelMode } from '../model/settings.ts'
 import { calendarDayNumbers } from '../calendar/day-offsets.ts'
 
 /**
@@ -18,6 +19,11 @@ import { calendarDayNumbers } from '../calendar/day-offsets.ts'
 
 function byIndex(left: TripDay, right: TripDay): number {
   return left.index - right.index
+}
+
+/** Missing on historical records: keep their cycling behaviour unchanged. */
+export function selectTravelMode(bundle: TripBundle): TravelMode {
+  return bundle.settings.global.travelMode ?? 'cycling'
 }
 
 export function selectOrderedDays(bundle: TripBundle): readonly TripDay[] {

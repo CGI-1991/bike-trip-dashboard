@@ -6,6 +6,8 @@
  * same officially documented URL scheme.
  */
 
+import type { TravelMode } from '../trip-core/model/settings.ts'
+
 export interface BicycleDirectionsDestination {
   readonly latitude: number
   readonly longitude: number
@@ -21,9 +23,23 @@ export interface BicycleDirectionsDestination {
  * avoids float noise in the URL.
  */
 export function buildBicycleDirectionsUrl(destination: BicycleDirectionsDestination, origin: BicycleDirectionsDestination | null = null): string {
-  const params = new URLSearchParams({ api: '1', travelmode: 'bicycling', destination: formatCoordinate(destination) })
+  return buildDirectionsUrl(destination, origin, 'cycling')
+}
+
+/** The trip's movement mode applies to POI directions, including GPS updates. */
+export function buildDirectionsUrl(destination: BicycleDirectionsDestination, origin: BicycleDirectionsDestination | null = null, travelMode: TravelMode = 'cycling'): string {
+  const params = new URLSearchParams({ api: '1', travelmode: travelMode === 'walking' ? 'walking' : 'bicycling', destination: formatCoordinate(destination) })
   if (origin !== null) params.set('origin', formatCoordinate(origin))
   return `https://www.google.com/maps/dir/?${params.toString()}`
+}
+
+/** Preserve the popup's mode when its current GPS origin changes or disappears. */
+export function updatePoiDirectionsOrigin(link: Pick<HTMLAnchorElement, 'dataset' | 'href'>, origin: BicycleDirectionsDestination | null): void {
+  const latitude = Number(link.dataset.poiLat)
+  const longitude = Number(link.dataset.poiLon)
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return
+  const travelMode = link.dataset.poiTravelMode === 'walking' ? 'walking' : 'cycling'
+  link.href = buildDirectionsUrl({ latitude, longitude }, origin, travelMode)
 }
 
 function formatCoordinate(point: BicycleDirectionsDestination): string {

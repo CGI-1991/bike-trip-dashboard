@@ -20,10 +20,11 @@
 
 import { buildDistanceIndexedSeries, smoothElevation } from '../analysis/elevation-profile.ts'
 import { buildTerrainSlopeProfile } from '../analysis/terrain-profile.ts'
+import { MAX_WALKING_GRADE_PERCENT } from '../analysis/travel-timing.ts'
 import { detectClimbs } from '../analysis/climb-detection.ts'
 import { routeGeometry } from '../route-enrichment/route-fingerprint.ts'
 import { isSegmentMarkerClimbName } from '../analysis/gpx-marker-names.ts'
-import { DEFAULT_CLIMB_DETECTION_SENSITIVITY } from '../trip-core/index.ts'
+import { DEFAULT_CLIMB_DETECTION_SENSITIVITY, selectTravelMode } from '../trip-core/index.ts'
 import type { Climb, ClimbDetectionSensitivity, RouteId, TripBundle } from '../trip-core/index.ts'
 
 const ENGINE_VERSION = 'climb-sensitivity@1'
@@ -68,7 +69,8 @@ export function recomputeTripClimbs(bundle: TripBundle, sensitivity: ClimbDetect
       continue
     }
     const series = buildDistanceIndexedSeries(geometry.map((point) => ({ latitude: point.latitude, longitude: point.longitude, elevationM: point.altitudeM })))
-    const profile = buildTerrainSlopeProfile(smoothElevation(series))
+    const profile = buildTerrainSlopeProfile(smoothElevation(series), undefined, undefined,
+      selectTravelMode(bundle) === 'walking' ? MAX_WALKING_GRADE_PERCENT : undefined)
     if (profile === null) {
       climbsByRouteId.set(route.id, [...previousForRoute])
       continue

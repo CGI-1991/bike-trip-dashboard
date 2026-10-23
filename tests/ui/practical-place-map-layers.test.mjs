@@ -94,6 +94,19 @@ test('never a raw tag dump — only website/phone/access/fee are ever surfaced, 
   assert.doesNotMatch(popup, /operator/)
 })
 
+test('walking POI popups offer directions on foot and retain that mode for a later GPS origin update', () => {
+  const model = viewModel()
+  const layer = buildPracticalPlaceMapLayers([model], 'walking').find(candidate => candidate.markers.length > 0)
+  const popup = layer.markers[0].popupHtml
+  assert.match(popup, /Itinéraire à pied/)
+  assert.doesNotMatch(popup, /Itinéraire vélo/)
+  const url = new URL(popup.match(/href="([^"]+)"/)[1].replaceAll('&amp;', '&'))
+  assert.equal(url.searchParams.get('travelmode'), 'walking')
+  assert.equal(url.searchParams.get('destination'), '45.100000,6.200000')
+  assert.match(popup, /data-poi-travel-mode="walking"/)
+  assert.equal(model.place.hidden, false, 'mode changes presentation, not the saved POI')
+})
+
 // --- AH/AI/AJ: never leaks outside the Étape fullscreen map -----------------
 
 test('AH/AI/AJ: the practical-place layer builder is wired ONLY into the Étape fullscreen map, never Aperçu (compact or fullscreen) or the compact Étape preview', () => {

@@ -84,6 +84,7 @@ export function assembleTripBundle(input: TripBuilderInput): TripBundle {
     weather: [],
     settings: {
       global: {
+        travelMode: options.travelMode,
         referenceSpeedKph: options.referenceSpeedKph,
         pausePlanMode: 'automatic',
         climbDetectionSensitivity: options.climbDetectionSensitivity,

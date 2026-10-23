@@ -1,5 +1,6 @@
 import { CURRENT_TRIP_BUNDLE_SCHEMA_VERSION } from '../schema/version.ts'
 import type { TripBundle } from '../schema/version.ts'
+import { TRAVEL_MODES } from '../model/settings.ts'
 import {
   addCivilDays,
   isBoolean,
@@ -783,6 +784,9 @@ export function validateTripBundle(value: unknown): ValidationResult<TripBundle>
       issues.push(issue('settings.global', 'missing-required', 'settings.global est requis.'))
     } else {
       if (!isPositiveNumber(settings.global.referenceSpeedKph)) issues.push(issue('settings.global.referenceSpeedKph', 'invalid-value', 'referenceSpeedKph doit être > 0.'))
+      if (settings.global.travelMode !== undefined && !isOneOf(settings.global.travelMode, TRAVEL_MODES)) {
+        issues.push(issue('settings.global.travelMode', 'invalid-enum', 'travelMode invalide.'))
+      }
       if (!isOneOf(settings.global.pausePlanMode, PAUSE_PLAN_MODES)) issues.push(issue('settings.global.pausePlanMode', 'invalid-enum', 'pausePlanMode invalide.'))
       // Mode Course/Tour and climb-detection sensitivity: optional/absent on
       // every historical record (`false` / `'standard'` respectively), so

@@ -11,7 +11,8 @@
 import type { PracticalPlaceViewModel } from '../practical-places/view-model.ts'
 import { PRACTICAL_PLACE_UX_CATEGORIES, PRACTICAL_PLACE_UX_LABELS } from '../practical-places/taxonomy.ts'
 import type { PracticalPlaceUxCategory } from '../practical-places/taxonomy.ts'
-import { buildBicycleDirectionsUrl } from './bicycle-directions.ts'
+import { buildDirectionsUrl } from './bicycle-directions.ts'
+import type { TravelMode } from '../trip-core/model/settings.ts'
 import type { MapLayerDefinition } from './route-map.ts'
 import type { RouteMapMarkerModel } from './route-map-model.ts'
 import type { RouteMarkerCategory } from './route-marker-style.ts'
@@ -52,7 +53,7 @@ function openingStatusLine(opening: PracticalPlaceViewModel['opening']): string 
  * website/téléphone/accès/tarif the source actually carries. Never a raw
  * tag dump (section 20's own "éviter une fiche énorme").
  */
-function buildPopupHtml(viewModel: PracticalPlaceViewModel): string {
+function buildPopupHtml(viewModel: PracticalPlaceViewModel, travelMode: TravelMode): string {
   const { place, categoryLabel, displayName, passageClockTimeLabel, opening } = viewModel
   const detourMeters = Math.round(place.detourKm === null ? 0 : place.detourKm * 1_000)
   const positionLine = place.trackDistanceKm === null
@@ -82,8 +83,9 @@ function buildPopupHtml(viewModel: PracticalPlaceViewModel): string {
   // never frozen at build time. `data-poi-lat`/`data-poi-lon` are what that
   // handler reads to rebuild the URL; the plain `href` alone still works
   // even if that patch never runs.
-  const directionsUrl = buildBicycleDirectionsUrl({ latitude: place.latitude, longitude: place.longitude })
-  const directionsLine = `<p class="practical-popup__directions"><a class="button button--quiet" href="${escapeHtml(directionsUrl)}" target="_blank" rel="noopener noreferrer" data-poi-directions data-poi-lat="${place.latitude}" data-poi-lon="${place.longitude}" aria-label="Itinéraire vélo vers ${escapeHtml(displayName)}">Itinéraire vélo</a></p>`
+  const directionsUrl = buildDirectionsUrl({ latitude: place.latitude, longitude: place.longitude }, null, travelMode)
+  const directionsLabel = travelMode === 'walking' ? 'Itinéraire à pied' : 'Itinéraire vélo'
+  const directionsLine = `<p class="practical-popup__directions"><a class="button button--quiet" href="${escapeHtml(directionsUrl)}" target="_blank" rel="noopener noreferrer" data-poi-directions data-poi-lat="${place.latitude}" data-poi-lon="${place.longitude}" data-poi-travel-mode="${travelMode}" aria-label="${directionsLabel} vers ${escapeHtml(displayName)}">${directionsLabel}</a></p>`
 
   return `<div class="practical-popup">
     <strong class="practical-popup__name">${escapeHtml(displayName)}</strong>
@@ -97,7 +99,7 @@ function buildPopupHtml(viewModel: PracticalPlaceViewModel): string {
   </div>`
 }
 
-function buildMarker(viewModel: PracticalPlaceViewModel): RouteMapMarkerModel {
+function buildMarker(viewModel: PracticalPlaceViewModel, travelMode: TravelMode): RouteMapMarkerModel {
   const { place } = viewModel
   return {
     id: place.id,
@@ -106,7 +108,7 @@ function buildMarker(viewModel: PracticalPlaceViewModel): RouteMapMarkerModel {
     coordinate: [place.latitude, place.longitude],
     offRoute: false,
     pauseActive: false,
-    popupHtml: buildPopupHtml(viewModel),
+    popupHtml: buildPopupHtml(viewModel, travelMode),
   }
 }
 
@@ -118,13 +120,13 @@ function buildMarker(viewModel: PracticalPlaceViewModel): RouteMapMarkerModel {
  * `trackDistanceKm` within each layer, matching the fused Parcours
  * ordering elsewhere (CDC section 28) — never alphabetical.
  */
-export function buildPracticalPlaceMapLayers(viewModels: readonly PracticalPlaceViewModel[]): readonly MapLayerDefinition[] {
+export function buildPracticalPlaceMapLayers(viewModels: readonly PracticalPlaceViewModel[], travelMode: TravelMode = 'cycling'): readonly MapLayerDefinition[] {
   return PRACTICAL_PLACE_UX_CATEGORIES.map((category) => {
     const markers = viewModels
       .filter((viewModel) => viewModel.category === category)
       .slice()
       .sort((left, right) => (left.place.trackDistanceKm ?? 0) - (right.place.trackDistanceKm ?? 0) || (left.place.detourKm ?? 0) - (right.place.detourKm ?? 0))
-      .map(buildMarker)
+      .map(viewModel => buildMarker(viewModel, travelMode))
     return { id: `practical-${category}`, label: PRACTICAL_PLACE_UX_LABELS[category], markers, defaultVisible: false }
   })
 }

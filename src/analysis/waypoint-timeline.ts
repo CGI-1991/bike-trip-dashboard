@@ -2,10 +2,10 @@
  * Full per-waypoint result for one stage (CDC Jalon B, section 7): builds
  * the canonical waypoints (`canonical-waypoints.ts`), anchors the automatic
  * pause budget onto them (`pause-placement.ts`), then fills in elapsed
- * time / clock time for every waypoint by reusing the historical engine's
- * own grade-aware timing core (`createTerrainTiming`/`interpolateTerrainTiming`,
- * `route/terrain-profile.ts`) and the generic engine's elapsed/clock-time
- * composition (`timing.ts::buildTimeline`) — never a new timing model.
+ * time / clock time with the same mode-aware terrain core as import and
+ * aggregate timing (`travel-timing.ts`) and the shared elapsed/clock-time
+ * composition (`timing.ts::buildTimeline`). Cycling still delegates to the
+ * untouched historical engine; walking retains import's altitude rules.
  *
  * The terrain profile is rebuilt from `Route.geometry` here because
  * `timing.ts` deliberately never persists the full per-point timeline (see
@@ -13,10 +13,11 @@
  * `route-analysis.ts` already does at import time, not a new cost.
  */
 
-import { createTerrainTiming, interpolateTerrainTiming, buildTerrainProfileSeries } from '../route/terrain-profile.ts'
+import { interpolateTerrainTiming, buildTerrainProfileSeries } from '../route/terrain-profile.ts'
+import { createTravelTerrainTiming, walkingTerrainForGeometry } from './travel-timing.ts'
 import { formatRouteClockTime } from '../route/time.ts'
 import type { RouteProfilePosition } from '../route/types.ts'
-import type { Climb, PausePlanMode, RideStage, RideStageSettings, Route, RouteGeometryPoint, RoutePoint, TripBundle, TripDay } from '../trip-core/index.ts'
+import type { Climb, PausePlanMode, RideStage, RideStageSettings, Route, RouteGeometryPoint, RoutePoint, TravelMode, TripBundle, TripDay } from '../trip-core/index.ts'
 import { isPracticalPlaceUxCategory } from '../practical-places/taxonomy.ts'
 import { pointAtDistance, routeGeometryWithDistances } from './canonical-waypoints.ts'
 import type { CanonicalWaypoint } from './canonical-waypoints.ts'
@@ -32,6 +33,7 @@ import type { TimelinePoint } from './timing.ts'
 
 export interface WaypointTimelineSettings {
   readonly referenceSpeedKph: number
+  readonly travelMode?: TravelMode
   /** "HH:MM", the day's actual departure time (`TripDaySettings.departureTime`). */
   readonly departureTime: string
 }
@@ -169,14 +171,23 @@ export function buildAutomaticPauseEnrichment(bundle: TripBundle, stage: RideSta
   return { practicalPlaces: places, weather, weekdayAtDeparture }
 }
 
-function movingElapsedMinutesAt(source: RouteProfilePosition[], totalDistanceKm: number, referenceSpeedKph: number): (distanceKm: number) => number {
+function movingElapsedMinutesAt(source: RouteProfilePosition[], totalDistanceKm: number, referenceSpeedKph: number, travelMode: TravelMode | undefined, geometry: readonly RouteGeometryPoint[]): (distanceKm: number) => number {
+  if (travelMode === 'walking') {
+    const terrain = walkingTerrainForGeometry(geometry)
+    // Canonical waypoint distances use the existing planar index. Import's
+    // terrain uses haversine; align the endpoint without changing POI chainage.
+    const terrainDistanceAt = (distanceKm: number) => Math.max(0, Math.min(1, distanceKm / totalDistanceKm)) * terrain.lengthKm
+    if (terrain.profile === null || terrain.profile.length < 2) return distanceKm => terrainDistanceAt(distanceKm) / referenceSpeedKph * 60
+    const timing = createTravelTerrainTiming(terrain.profile, terrain.lengthKm, referenceSpeedKph, travelMode)
+    return distanceKm => interpolateTerrainTiming(timing, terrainDistanceAt(distanceKm)).movingElapsedMinutes
+  }
   const terrainSeries = buildTerrainProfileSeries(source)
   if (terrainSeries.length < 2) {
     // No usable altitude data — same flat-terrain fallback philosophy as
     // `timing.ts::computeFlatTiming`: distance / reference speed, no invented precision.
     return (distanceKm: number) => (Math.max(0, distanceKm) / referenceSpeedKph) * 60
   }
-  const timing = createTerrainTiming(terrainSeries, totalDistanceKm, referenceSpeedKph)
+  const timing = createTravelTerrainTiming(terrainSeries, totalDistanceKm, referenceSpeedKph, travelMode)
   return (distanceKm: number) => interpolateTerrainTiming(timing, distanceKm).movingElapsedMinutes
 }
 
@@ -254,7 +265,7 @@ export function computeStageWaypoints(input: ComputeStageWaypointsInput): readon
     speedMultiplier: 1,
     weightedDistanceKm: distances[index] ?? 0,
   }))
-  const movingElapsedAt = hasValidTiming ? movingElapsedMinutesAt(source, totalDistanceKm, settings.referenceSpeedKph) : undefined
+  const movingElapsedAt = hasValidTiming ? movingElapsedMinutesAt(source, totalDistanceKm, settings.referenceSpeedKph, settings.travelMode, geometry) : undefined
   const departureMinutes = hasValidTiming ? parseClockToMinutes(settings.departureTime) : undefined
 
   const placedPauses: readonly PlacedPause[] = input.manualPauses !== undefined
@@ -323,7 +334,7 @@ export function computeStagePauseRecommendations(input: ComputeStageWaypointsInp
     speedMultiplier: 1,
     weightedDistanceKm: distances[index] ?? 0,
   }))
-  const movingElapsedAt = hasValidTiming ? movingElapsedMinutesAt(source, totalDistanceKm, settings.referenceSpeedKph) : undefined
+  const movingElapsedAt = hasValidTiming ? movingElapsedMinutesAt(source, totalDistanceKm, settings.referenceSpeedKph, settings.travelMode, geometry) : undefined
   const departureMinutes = hasValidTiming ? parseClockToMinutes(settings.departureTime) : undefined
   const enrichment = input.automaticPauseEnrichment
 
@@ -347,7 +358,7 @@ export interface StageTimingCurve {
  * The stage's own continuous distance→time mapping (CDC D1.1 section 17) —
  * for the elevation profile's interactive cursor, never a naive `distance /
  * average speed`. Reuses the exact same grade-aware pacing
- * (`movingElapsedMinutesAt`/`createTerrainTiming`) and pause composition
+ * (`movingElapsedMinutesAt`/`createTravelTerrainTiming`) and pause composition
  * (`timing.ts::buildTimeline`) `computeStageWaypoints` itself uses, evaluated
  * at one arbitrary point at a time instead of only at waypoint breakpoints —
  * so the curve agrees with every waypoint's own `clockTime` and the stage's
@@ -392,7 +403,7 @@ export function computeStageTimingCurve(input: ComputeStageWaypointsInput): Stag
     speedMultiplier: 1,
     weightedDistanceKm: distances[index] ?? 0,
   }))
-  const movingElapsedAt = movingElapsedMinutesAt(source, totalDistanceKm, settings.referenceSpeedKph)
+  const movingElapsedAt = movingElapsedMinutesAt(source, totalDistanceKm, settings.referenceSpeedKph, settings.travelMode, geometry)
   const departureMinutes = parseClockToMinutes(settings.departureTime)
 
   const placedPauses: readonly PlacedPause[] = input.manualPauses !== undefined

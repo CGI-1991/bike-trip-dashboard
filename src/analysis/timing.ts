@@ -1,12 +1,11 @@
 /**
  * Duration/ETA engine (CDC section 17.1): "vitesse locale = vitesse de
  * référence × facteur de terrain, temps local = distance locale / vitesse
- * locale" — never distance divided by an imposed average speed. Reuses the
- * historical engine's own speed-from-grade/time-integration core
- * (`createTerrainTiming`/`interpolateTerrainTiming`,
- * `src/route/terrain-profile.ts`) unchanged, fed by this phase's own
- * generic terrain profile (`terrain-profile.ts`) instead of the RGA-shaped
- * `RouteProfilePosition`. Automatic pauses come from `pauses.ts` (POI-free,
+ * locale" — never distance divided by an imposed average speed.
+ * `travel-timing.ts` selects walking's slope model or delegates unchanged
+ * to the historical cycling core. The generic terrain profile supplies
+ * grade data; clock/pause composition remains shared across modes.
+ * Automatic pauses come from `pauses.ts` (POI-free,
  * per CDC section 9/18). Every stage is computed independently — no shared
  * state carries over between two `RideStage`s (CDC section 10: "une étape
  * suivante repart toujours de sa propre heure de départ").
@@ -17,7 +16,9 @@
  * `totalDurationSeconds`/`estimatedAverageSpeedKph`) are.
  */
 
-import { createTerrainTiming, interpolateTerrainTiming } from '../route/terrain-profile.ts'
+import { interpolateTerrainTiming } from '../route/terrain-profile.ts'
+import { createTravelTerrainTiming } from './travel-timing.ts'
+import type { TravelMode } from '../trip-core/index.ts'
 import type { TerrainProfilePoint } from '../route/types.ts'
 import { createRouteClockTime } from '../route/time.ts'
 import type { RouteClockTime } from '../route/types.ts'
@@ -26,6 +27,7 @@ import type { PauseAnchor } from './pauses.ts'
 
 export interface TimingSettings {
   readonly referenceSpeedKph: number
+  readonly travelMode?: TravelMode
   readonly departureTime: string
   readonly totalBreakMinutes: number
 }
@@ -131,7 +133,7 @@ export function computeStageTiming(
     return computeFlatTiming(totalDistanceKm, settings, departureMinutes)
   }
 
-  const timing = createTerrainTiming(terrainProfile, totalDistanceKm, settings.referenceSpeedKph)
+  const timing = createTravelTerrainTiming(terrainProfile, totalDistanceKm, settings.referenceSpeedKph, settings.travelMode)
   const pauses = distributeAutomaticPauses(totalDistanceKm, settings.totalBreakMinutes)
   const timeline = buildTimeline(
     timing.points.map((point) => ({ distanceKm: point.distanceKm, elevationM: point.elevationM, movingElapsedMinutes: point.movingElapsedMinutes })),

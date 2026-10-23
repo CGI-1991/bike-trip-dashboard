@@ -9,8 +9,8 @@ Chaque mise à jour doit être expliquée dans Nouveautés et signalée par une 
 
 1. **POI** : les deux premiers lots sont livrés ; le premier essai iPhone communiqué par l’utilisateur est rapide, fluide et résiste à l’extinction de l’écran. Garder les contrôles de non-régression et le suivi terrain.
 2. **Vent relatif au déplacement** : premier lot réalisé, documenté dans [RELATIVE_WIND.md](RELATIVE_WIND.md). Mini cycliste vers le haut, flèche suivant le déplacement de l’air, lecture sur le profil et aux points du Parcours, moyennes étape/voyage, parts face/dos/latéral, couverture et rafales latérales estimées. Trois modes : neutre, pente, composante de vent de face en bleu. Lissage initial 100 m sur le profil et moyenne 1 km aux points ; à calibrer sur iPhone et dans les lacets. La résolution réelle des prévisions reste explicite.
-3. **Modes randonnée et vélo**, avec paramètres d’allure et de montée adaptés.
-4. **Mode BCF** : calendrier de courses, distinct du voyage itinérant / Tour. La signification de BCF et les types de courses sont à préciser avec l’utilisateur.
+3. **Modes randonnée et vélo** : premier lot réalisé, [TRAVEL_MODES.md](TRAVEL_MODES.md). Choix par voyage, temps de marche selon la pente, ETA cohérentes, liens à pied et repère du vent adapté. Calibration terrain, allure à cinq niveaux et filtres de montées dédiés restent à poursuivre.
+4. **League (usage BCF)** : calendrier de courses à dates indépendantes, distinct du voyage itinérant et du Tour. [Cadrage adapté au dépôt](LEAGUE.md), à partir du document fourni. Recommandation : Voyage / League / Tour visibles, avec outils de compétition communs à League et Tour. Prévoir limites de course, segments manuels Grimpeur/Sprint/Flandrien, GPX enrichi réimportable puis FIT Garmin avec alertes explicites 500 m avant. Le calendrier reste dans le premier lot League.
 5. **Vitesse / effort** : cinq niveaux de Chill à Sportif, avec un niveau central de référence stable pour le mode choisi.
 6. **Montées**, sauvegarde/restauration complète, repères MAJ et future refonte mobile restent dans le périmètre. Les montées à cinq niveaux avaient déjà été demandées et ne doivent pas disparaître de la feuille de route.
 
@@ -30,7 +30,7 @@ Chaque mise à jour doit être expliquée dans Nouveautés et signalée par une 
 6. Actualisation ciblée des services, fraîcheur du cache et contrôle des accès/détours réels.
 7. Sauvegarde/restauration complète des voyages et validation de mise à jour sur iPhone.
 
-Les modes marche, l’allure à cinq niveaux, le filtrage des montées et le nouveau nom sont mémorisés ici ; leur interface ne fait pas partie du correctif POI.
+L’allure à cinq niveaux, le filtrage des montées et le nouveau nom restent mémorisés ici ; leur interface ne fait pas partie du correctif POI. Le premier lot marche est documenté séparément.
 
 ## Suggestions pour la qualité de l’information
 
@@ -39,4 +39,4 @@ Les modes marche, l’allure à cinq niveaux, le filtrage des montées et le nou
 - Vent apparent et estimation d’effort, à relier au futur modèle d’allure avant de modifier les ETA.
 - Autonomie eau et ravitaillement : prochain service accessible, temps pour l’atteindre et fiabilité de l’information.
 
-La sauvegarde/restauration complète est réalisée dans le lot `2026.10.23.3` ([TRIP_BACKUP.md](TRIP_BACKUP.md)). Les repères de mise à jour restent une exigence de chaque livraison. La validation terrain du vent, les modes randonnée/vélo, le calendrier BCF, l’allure à cinq niveaux, le filtrage des montées et la refonte mobile suivent les priorités ci-dessus.
+La sauvegarde/restauration complète est réalisée dans le lot `2026.10.23.3` ([TRIP_BACKUP.md](TRIP_BACKUP.md)). Les repères de mise à jour restent une exigence de chaque livraison. La validation terrain du vent et de la marche, le calendrier League, l’allure à cinq niveaux, le filtrage des montées et la refonte mobile suivent les priorités ci-dessus.

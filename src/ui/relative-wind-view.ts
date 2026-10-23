@@ -3,6 +3,7 @@ import { headwindColor, relativeWindLabel } from '../weather/relative-wind.ts'
 import { classifyClimbGrade } from '../analysis/climb-profile.ts'
 import type { ProfileSample } from './elevation-profile.ts'
 import { renderFeatureUpdateBadge } from './release-notes.ts'
+import type { TravelMode } from '../trip-core/model/settings.ts'
 
 type ProfileMode = 'neutral' | 'grade' | 'wind'
 const MODE_KEY = 'bike-trip-dashboard:profile-color-mode'
@@ -11,19 +12,22 @@ function preferredMode(): ProfileMode {
   try { const mode = localStorage.getItem(MODE_KEY); return mode === 'grade' || mode === 'wind' ? mode : 'neutral' } catch { return 'neutral' }
 }
 
-function compass(reading: RelativeWindReading | null): string {
+function compass(reading: RelativeWindReading | null, travelMode: TravelMode): string {
   const arrow = reading?.relativeFromDeg === null || reading?.relativeFromDeg === undefined ? ''
     : `<g transform="rotate(${reading.relativeFromDeg.toFixed(1)} 32 32)" class="relative-wind__arrow"><path d="M32 3V14m-4-4 4 4 4-4"/></g>`
-  return `<svg class="relative-wind__compass" viewBox="0 0 64 64" aria-hidden="true"><circle class="relative-wind__ring" cx="32" cy="32" r="27"/>${arrow}<g class="relative-wind__rider"><path d="M32 18v6m0 16v7M24 27h16M25 34l4-5h6l4 5M29 37l-4 7m10-7 4 7"/><circle cx="32" cy="27" r="3"/><path d="M32 31v8"/></g></svg>`
+  const traveller = travelMode === 'walking'
+    ? '<g class="relative-wind__rider relative-wind__walker"><circle cx="32" cy="21" r="4"/><path d="M32 27v11m0-10-7 7m7-7 7 7m-7 3-6 10m6-10 6 10M27 28v9h10v-9"/></g>'
+    : '<g class="relative-wind__rider"><path d="M32 18v6m0 16v7M24 27h16M25 34l4-5h6l4 5M29 37l-4 7m10-7 4 7"/><circle cx="32" cy="27" r="3"/><path d="M32 31v8"/></g>'
+  return `<svg class="relative-wind__compass" viewBox="0 0 64 64" aria-hidden="true"><circle class="relative-wind__ring" cx="32" cy="32" r="27"/>${arrow}${traveller}</svg>`
 }
 
 /** Arrow sits on the incoming side and follows airflow towards the rider.
  * Rider always travels up; the text removes meteorological FROM ambiguity. */
-export function renderRelativeWind(reading: RelativeWindReading | null, compact = false): string {
-  if (reading === null) return `<span class="relative-wind relative-wind--unknown">${compact ? '' : compass(null)}<span>Vent relatif indisponible</span></span>`
+export function renderRelativeWind(reading: RelativeWindReading | null, compact = false, travelMode: TravelMode = 'cycling'): string {
+  if (reading === null) return `<span class="relative-wind relative-wind--unknown">${compact ? '' : compass(null, travelMode)}<span>Vent relatif indisponible</span></span>`
   const component = reading.headwindKph >= 0 ? `Face ${Math.round(reading.headwindKph)}` : `Dos ${Math.round(-reading.headwindKph)}`
   const details = `${component} · latéral ${Math.round(Math.abs(reading.crosswindKph))} km/h${reading.coverage < 0.001 ? ' · prévision au point' : reading.coverage < 0.9 ? ' · moyenne partielle' : ''}`
-  return `<span class="relative-wind${compact ? ' relative-wind--compact' : ''}">${compass(reading)}<span><strong>${relativeWindLabel(reading)}</strong><span class="relative-wind__detail">${reading.kind === 'directional' ? details : `${Math.round(reading.speedKph)} km/h en moyenne`}${compact || reading.gustsKph === null ? '' : ` · rafales jusqu’à ${Math.round(reading.gustsKph)} km/h`}</span></span></span>`
+  return `<span class="relative-wind${compact ? ' relative-wind--compact' : ''}">${compass(reading, travelMode)}<span><strong>${relativeWindLabel(reading)}</strong><span class="relative-wind__detail">${reading.kind === 'directional' ? details : `${Math.round(reading.speedKph)} km/h en moyenne`}${compact || reading.gustsKph === null ? '' : ` · rafales jusqu’à ${Math.round(reading.gustsKph)} km/h`}</span></span></span>`
 }
 
 export function renderProfileWindControls(): string {
@@ -42,13 +46,13 @@ const GRADE_COLORS = {
 } as const
 
 interface WindProfileHandle {
-  update(model: RouteWindModel | null): void
+  update(model: RouteWindModel | null, travelMode: TravelMode): void
   select(distanceKm: number | null): void
   destroy(): void
 }
 const handles = new WeakMap<HTMLElement, WindProfileHandle>()
 
-export function updateProfileWind(container: HTMLElement, model: RouteWindModel | null): void { handles.get(container)?.update(model) }
+export function updateProfileWind(container: HTMLElement, model: RouteWindModel | null, travelMode: TravelMode = 'cycling'): void { handles.get(container)?.update(model, travelMode) }
 export function selectProfileWind(container: HTMLElement, distanceKm: number | null): void { handles.get(container)?.select(distanceKm) }
 
 export function installProfileWindControls(container: HTMLElement, samples: readonly ProfileSample[], bounds: {
@@ -68,11 +72,12 @@ export function installProfileWindControls(container: HTMLElement, samples: read
   const controller = new AbortController()
   let mode = preferredMode()
   let wind: RouteWindModel | null = null
+  let travelMode: TravelMode = 'cycling'
   let selected: number | null = null
   const renderReadout = () => {
     const reading = selected === null ? wind?.summary.mean ?? null : wind?.at(selected) ?? null
     const title = selected === null ? 'Vent moyen du parcours' : `Vent vers le km ${selected.toFixed(1).replace('.', ',')}`
-    readout.innerHTML = `<p class="profile-wind__title">${title}</p>${renderRelativeWind(reading)}<p class="profile-wind__orientation">↑ sens de roulage · flèche = déplacement de l’air</p>`
+    readout.innerHTML = `<p class="profile-wind__title">${title}</p>${renderRelativeWind(reading, false, travelMode)}<p class="profile-wind__orientation">↑ ${travelMode === 'walking' ? 'sens de marche' : 'sens de roulage'} · flèche = déplacement de l’air</p>`
   }
   function paint(): void {
     area!.style.opacity = mode === 'neutral' ? '1' : '0'
@@ -88,8 +93,9 @@ export function installProfileWindControls(container: HTMLElement, samples: read
       : 'Bleu clair → foncé : composante de face <1 / 1–5 / 5–10 / 10–20 / 20–30 / ≥30 km/h. Gris : estimation indisponible ou variable. Le vent latéral est indiqué séparément.'
     for (const button of container.querySelectorAll<HTMLElement>('[data-profile-mode]')) button.setAttribute('aria-pressed', String(button.dataset.profileMode === mode))
   }
-  function update(model: RouteWindModel | null): void {
+  function update(model: RouteWindModel | null, nextTravelMode: TravelMode = 'cycling'): void {
     wind = model
+    travelMode = nextTravelMode
     renderReadout()
     const stats = wind?.summary
     summary!.textContent = formatRouteWindSummary(stats ?? null)

@@ -7,6 +7,8 @@
 
 import type { IsoDate, TripBundle, TripId, TripStatus } from '../trip-core/index.ts'
 import { countCalendarDays } from '../analysis/day-location-fill.ts'
+import { selectTravelMode } from '../trip-core/index.ts'
+import type { TravelMode } from '../trip-core/index.ts'
 import type { StagePreparationContext, TripPreparationSummary } from './stage-preparation.ts'
 import { computeTripPreparationSummary, NO_STAGE_PREPARATION_CONTEXT } from './stage-preparation.ts'
 
@@ -20,6 +22,7 @@ export interface TripListEntry {
   readonly stageCount: number
   readonly totalDistanceKm: number
   readonly status: TripStatus
+  readonly travelMode?: TravelMode
   /**
    * RC2 final-closeout sections 19-20 — the "Mes voyages" card's own
    * discreet enrichment indicator: `null` once every ride day is ready (or
@@ -42,6 +45,7 @@ export function summarizeTripBundle(bundle: TripBundle, preparationContext: Stag
     stageCount: bundle.stages.length,
     totalDistanceKm: bundle.stages.reduce((total, stage) => total + (stage.distanceKm ?? 0), 0),
     status: bundle.metadata.status,
+    ...(selectTravelMode(bundle) === 'walking' ? { travelMode: 'walking' as const } : {}),
     preparationSummary: computeTripPreparationSummary(bundle, preparationContext),
   }
 }

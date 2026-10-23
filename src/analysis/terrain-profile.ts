@@ -79,6 +79,7 @@ function computeGradePercent(
   resampled: readonly { readonly distanceKm: number; readonly elevationM: number }[],
   index: number,
   gradeWindowKm: number,
+  maximumGradePercent: number,
 ): number {
   const point = resampled[index]
   if (point === undefined) return 0
@@ -95,7 +96,7 @@ function computeGradePercent(
   if (distanceDeltaKm < Math.min(0.02, gradeWindowKm / 4)) return 0
 
   const gradePercent = ((right.elevationM - left.elevationM) / (distanceDeltaKm * 1000)) * 100
-  return Number.isFinite(gradePercent) ? clamp(gradePercent, -routeEngineConfig.slopeClampPercent, routeEngineConfig.slopeClampPercent) : 0
+  return Number.isFinite(gradePercent) ? clamp(gradePercent, -maximumGradePercent, maximumGradePercent) : 0
 }
 
 /**
@@ -108,6 +109,8 @@ export function buildTerrainSlopeProfile(
   smoothedSeries: readonly DistanceIndexedPoint[],
   intervalMeters = DEFAULT_TERRAIN_RESAMPLE_INTERVAL_METERS,
   gradeWindowMeters = DEFAULT_GRADE_WINDOW_METERS,
+  /** Cycling's historical cap stays the default; walking can retain steeper grades. */
+  maximumGradePercent = routeEngineConfig.slopeClampPercent,
 ): readonly TerrainProfilePoint[] | null {
   if (smoothedSeries.length < 2) return null
 
@@ -130,7 +133,7 @@ export function buildTerrainSlopeProfile(
   return resampled.map((point, index) => ({
     distanceKm: point.distanceKm,
     elevationM: point.elevationM,
-    smoothedGradePercent: computeGradePercent(resampled, index, gradeWindowKm),
+    smoothedGradePercent: computeGradePercent(resampled, index, gradeWindowKm, maximumGradePercent),
     latitude: point.latitude,
     longitude: point.longitude,
   }))

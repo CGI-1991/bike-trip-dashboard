@@ -1,6 +1,6 @@
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { buildBicycleDirectionsUrl } from './bicycle-directions.ts'
+import { updatePoiDirectionsOrigin } from './bicycle-directions.ts'
 import { sharedCurrentLocationService } from './current-location.ts'
 import type { GpxAnalysisSuccess } from '../gpx/types.ts'
 import type { PracticalData } from '../practical/model.ts'
@@ -432,16 +432,13 @@ function installMapLayerPanel(dialog: HTMLDialogElement, map: L.Map, layers: rea
         // CDC C3 section 55: the directions link's `origin` is refreshed from
         // whatever position is known AT THE MOMENT the popup actually opens —
         // never the static one baked into `popupHtml` when it was first built
-        // (the cyclist may well have moved since the Étape screen opened).
+        // (the traveller may well have moved since the Étape screen opened).
         built.on('popupopen', () => {
           const element = built.getPopup()?.getElement()
           const link = element?.querySelector<HTMLAnchorElement>('[data-poi-directions]')
           if (link === null || link === undefined) return
-          const lat = Number(link.dataset.poiLat)
-          const lon = Number(link.dataset.poiLon)
-          if (!Number.isFinite(lat) || !Number.isFinite(lon)) return
           const position = sharedCurrentLocationService.getState().position
-          link.href = buildBicycleDirectionsUrl({ latitude: lat, longitude: lon }, position === null ? null : { latitude: position.latitude, longitude: position.longitude })
+          updatePoiDirectionsOrigin(link, position === null ? null : { latitude: position.latitude, longitude: position.longitude })
         })
       }
       return built
