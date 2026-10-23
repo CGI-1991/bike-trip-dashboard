@@ -1,4 +1,5 @@
 import './style.css'
+import { initializeReleaseNotes } from './ui/release-notes.ts'
 import { bindNetworkStatus, registerServiceWorker } from './pwa.ts'
 import { loadPracticalData } from './practical/model.ts'
 import type { PracticalData } from './practical/model.ts'
@@ -139,6 +140,7 @@ const weatherCoordinator = new WeatherCoordinator({
 
 const app = getRequiredElement<HTMLDivElement>('#app')
 app.innerHTML = renderDashboard(currentRideDaySettings, rga2026TripPlan)
+initializeReleaseNotes()
 
 const networkStatus = getRequiredElement<HTMLElement>('[data-network-status]')
 const unbindNetworkStatus = bindNetworkStatus(networkStatus)

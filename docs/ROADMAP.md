@@ -3,6 +3,7 @@
 Demandes confirmées le 22 octobre 2026.
 
 Livraison : une PR par lot cohérent, suffisamment abouti et validé. La fusion et la publication restent des étapes distinctes.
+Chaque mise à jour doit être expliquée dans Nouveautés et signalée par une petite balise MAJ à l’endroit de la fonctionnalité concernée, accessible au toucher sur iPhone.
 
 - Nom de travail : **Trip(+)**. Variante suggérée : **Trip+**, plus simple à lire et à rechercher. Le changement de nom visible ne doit pas changer l’origine du site, l’identité de l’app installée ni la base des voyages.
 - Ajouter l’**itinérance à pied**, en complément du vélo : mode de déplacement par voyage, estimation des durées et services pertinents adaptés. Prévoir des voyages d’un jour, multi-étapes et sportifs.
