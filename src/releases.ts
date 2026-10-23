@@ -13,6 +13,9 @@ export interface AppRelease {
 }
 
 export const APP_RELEASES: readonly AppRelease[] = [
+  { version: '2026.10.23.4', date: '2026-10-23', changes: [
+    { feature: 'relative-wind', title: 'Le vent se lit dans votre sens de roulage', description: 'Touchez le profil pour voir le vent relatif autour du cycliste, orienté vers le haut. Les points du Parcours présentent une moyenne locale et le parcours indique ses parts face, dos et latéral. Choisissez un profil neutre, coloré par pente ou par composante de vent de face en bleu. Les estimations utilisent les prévisions déjà chargées ; les zones sans estimation fiable restent grises.' },
+  ] },
   { version: '2026.10.23.3', date: '2026-10-23', changes: [
     { feature: 'trip-backup', title: 'Vos voyages peuvent être sauvegardés et restaurés', description: 'Dans Mes voyages, préparez une sauvegarde complète à enregistrer dans Fichiers, ou sauvegardez un seul voyage depuis sa carte. Elle conserve les réglages, pauses, logements, lieux et GPX d’origine disponibles. La restauration ajoute des copies sans écraser vos voyages actuels.' },
   ] },

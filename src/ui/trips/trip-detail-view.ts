@@ -278,6 +278,7 @@ export function renderTripDetail(bundle: TripBundle, options: TripDetailRenderOp
     <div class="trip-detail" data-trip-detail>
       <header class="view-heading"><p class="eyebrow">Voyage</p><h2>${escapeHtml(bundle.metadata.name)}</h2></header>
       ${prepSummary}
+      <details class="card trip-wind-summary"><summary>Vent relatif sur l’ensemble du voyage</summary><div data-trip-wind-summary></div></details>
       <ol class="trip-day-list">${bundle.days.map((day) => renderDayCard(bundle, day, getTripDayTemporalState(temporal, day.id) as TripDayTemporalState, temporal.priorityDayId, prepStatuses?.get(day.id))).join('')}</ol>
       ${hasRideStages ? '<button class="button button--quiet button--full" type="button" data-action="download-trip-gpx">Télécharger les GPX</button>' : ''}
       ${automaticStatus}

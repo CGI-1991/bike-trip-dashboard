@@ -136,6 +136,18 @@ test('a touch tap that never leaves the element does not clear the band — only
   assert.notEqual(elements['[data-profile-band-distance]'].textContent, '—')
 })
 
+test('the synthetic leave after lifting a finger keeps the selected point readable, while cancellation still clears it', () => {
+  const { elements, events } = buildInteractiveFixture()
+  const svg = elements['[data-profile-interactive]']
+  svg.emit('pointerdown', { clientX: 400, pointerId: 1 })
+  svg.emit('pointerup', { pointerId: 1 })
+  svg.emit('pointerleave', { pointerType: 'touch', buttons: 0 })
+  assert.notEqual(elements['[data-profile-band-distance]'].textContent, '—')
+  assert.equal(events.some(event => event.type === 'profile-sample-cleared'), false)
+  svg.emit('pointercancel')
+  assert.equal(elements['[data-profile-band-distance]'].textContent, '—')
+})
+
 test('AA: keyboard navigation (ArrowRight/ArrowLeft) updates the band and dispatches the same sync event as pointer interaction', () => {
   const { elements, events } = buildInteractiveFixture()
   const svg = elements['[data-profile-interactive]']

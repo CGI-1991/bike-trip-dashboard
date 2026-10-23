@@ -281,6 +281,7 @@ export function buildTripOverview(bundle: TripBundle, now: Date | string | null)
     <header class="view-heading"><p class="eyebrow">Aperçu</p></header>
     <section class="trip-overview__zone trip-overview__zone--trip" data-trip-overview-zone="trip">
       ${renderProgressStats(progress)}
+      <details class="card trip-wind-summary"><summary>Vent relatif sur l’ensemble du voyage</summary><div data-trip-wind-summary></div></details>
       <section class="card route-map-card" data-route-visuals>
         <div class="section-heading"><div><p class="eyebrow">Vue d’ensemble</p><h3>Carte du voyage</h3></div><div class="route-map-card__actions"><button class="button button--quiet" type="button" data-action="download-trip-gpx">GPX</button></div></div>
         <div class="route-map route-map--action" data-trip-overview-map data-explore-map role="button" tabindex="0" aria-label="Ouvrir la carte du voyage en plein écran"></div>
