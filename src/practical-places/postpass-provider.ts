@@ -15,7 +15,7 @@
  *   `anchorRadiusMeters` around the nearest one.
  */
 
-import { EnrichmentHttpError, EnrichmentTimeoutError } from '../route-enrichment/enrichment-failure.ts'
+import { EnrichmentHttpError, EnrichmentResponseError, EnrichmentTimeoutError, readEnrichmentJson } from '../route-enrichment/enrichment-failure.ts'
 import { DEFAULT_POSTPASS_TIMEOUT_MS, DEFAULT_POSTPASS_URL, buildPostpassLineString } from '../route-enrichment/postpass-provider.ts'
 import type { PracticalPlaceCategory } from '../trip-core/index.ts'
 import type { PracticalPlaceAnchor, PracticalPlaceCandidate, PracticalPlacesProvider, PracticalPlacesResult, PracticalPlacesSearch } from './types.ts'
@@ -242,9 +242,9 @@ function parseFeature(value: unknown): PracticalPlaceCandidate | null {
 }
 
 export function parsePostpassPracticalPlacesFeatureCollection(value: unknown): { readonly candidates: readonly PracticalPlaceCandidate[]; readonly rawCandidateCount: number } {
-  if (value === null || typeof value !== 'object') throw new Error('Réponse GeoJSON Postpass invalide.')
+  if (value === null || typeof value !== 'object') throw new EnrichmentResponseError()
   const collection = value as GeoJsonFeatureCollection
-  if (collection.type !== 'FeatureCollection' || !Array.isArray(collection.features)) throw new Error('Réponse GeoJSON Postpass invalide.')
+  if (collection.type !== 'FeatureCollection' || !Array.isArray(collection.features)) throw new EnrichmentResponseError()
   return {
     candidates: collection.features.map(parseFeature).filter((candidate): candidate is PracticalPlaceCandidate => candidate !== null),
     rawCandidateCount: collection.features.length,
@@ -268,6 +268,7 @@ export function createPostpassPracticalPlacesProvider(options: PostpassPractical
     sourceType: 'osm',
     attribution: '© OpenStreetMap contributors · Postpass/Geofabrik',
     async findCandidates(search, externalSignal): Promise<PracticalPlacesResult> {
+      externalSignal?.throwIfAborted()
       const sql = buildPostpassPracticalPlacesQuery(search)
       const payloadBytes = new TextEncoder().encode(sql).byteLength
       const startedAt = now()
@@ -279,6 +280,7 @@ export function createPostpassPracticalPlacesProvider(options: PostpassPractical
       const timeout = setTimeout(() => controller.abort(), requestTimeoutMs)
       const abort = () => controller.abort()
       externalSignal?.addEventListener('abort', abort, { once: true })
+      if (externalSignal?.aborted) abort()
       try {
         const response = await fetchFn(endpoint, {
           method: 'POST',
@@ -290,7 +292,7 @@ export function createPostpassPracticalPlacesProvider(options: PostpassPractical
         const responseAt = now()
         emit({ stage: 'response', ...baseDiagnostic, finishedAt: responseAt, durationMs: Math.max(0, nowMs() - startedMs), httpStatus: status, rawCandidateCount: null, message: null })
         if (!response.ok) throw new EnrichmentHttpError(response.status)
-        const parsed = parsePostpassPracticalPlacesFeatureCollection(await response.json())
+        const parsed = parsePostpassPracticalPlacesFeatureCollection(await readEnrichmentJson(response))
         const finishedAt = now()
         const durationMs = Math.max(0, nowMs() - startedMs)
         emit({ stage: 'parsed', ...baseDiagnostic, finishedAt, durationMs, httpStatus: status, rawCandidateCount: parsed.rawCandidateCount, message: null })

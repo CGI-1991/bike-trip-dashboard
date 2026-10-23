@@ -1,3 +1,4 @@
+import { EnrichmentTimeoutError } from '../../src/route-enrichment/enrichment-failure.ts'
 import '../storage/indexeddb/support/setup-fake-indexeddb.mjs'
 
 import assert from 'node:assert/strict'
@@ -91,7 +92,7 @@ test('THE Genappe case: a stage whose later stretch fails keeps its early result
   // Everything past 60 km fails, exactly like the reported symptom.
   const report = await run(bundle, memoryCache(), (search) => {
     const startsPast60 = search.geometry[0].latitude > 45 + (60 / KM_PER_DEGREE_LATITUDE)
-    if (startsPast60) throw new Error('temps de recherche Postpass dépassé')
+    if (startsPast60) throw new EnrichmentTimeoutError(30_000)
     return ok([candidate({ osmId: `seg-${search.geometry[0].latitude.toFixed(4)}` })])
   })
 
@@ -111,7 +112,7 @@ test('a resumed pass asks only for the stretches that are still missing', async 
   const bundle = withLongStage(120)
   const boundaryLat = 45 + (60 / KM_PER_DEGREE_LATITUDE)
   const first = await run(bundle, cache, (search) => {
-    if (search.geometry[0].latitude > boundaryLat) throw new Error('timeout')
+    if (search.geometry[0].latitude > boundaryLat) throw new EnrichmentTimeoutError(30_000)
     return ok([candidate({ osmId: 'early' })])
   })
 
@@ -149,7 +150,7 @@ test('a too-heavy request is split rather than abandoned — the retry happens i
     // Fail the very first (20 km) request once; its halves must then be tried.
     if (failFirst) {
       failFirst = false
-      throw new Error('timeout')
+      throw new EnrichmentTimeoutError(30_000)
     }
     return ok()
   })
@@ -163,7 +164,7 @@ test('subdivision replaces the parent — a completed stage never keeps both the
   const report = await run(bundle, memoryCache(), () => {
     if (failFirst) {
       failFirst = false
-      throw new Error('timeout')
+      throw new EnrichmentTimeoutError(30_000)
     }
     return ok()
   })
@@ -185,7 +186,7 @@ test('subdivision is bounded — a provider that always fails does not produce a
   let calls = 0
   await run(withLongStage(40), memoryCache(), () => {
     calls += 1
-    throw new Error('timeout')
+    throw new EnrichmentTimeoutError(30_000)
   })
   // Without a budget this would keep halving to the floor for every job.
   assert.ok(calls <= 12, `expected a bounded number of attempts, got ${calls}`)
@@ -194,7 +195,7 @@ test('subdivision is bounded — a provider that always fails does not produce a
 
 test('nothing is ever split below the floor', async () => {
   const bundle = withLongStage(40)
-  const report = await run(bundle, memoryCache(), () => { throw new Error('timeout') })
+  const report = await run(bundle, memoryCache(), () => { throw new EnrichmentTimeoutError(30_000) })
   for (const job of structuralJobs(report.bundle, bundle.stages[0].id)) {
     assert.ok(job.endKm - job.startKm >= MINIMUM_SEGMENT_KM - 0.001, `a job shrank to ${job.endKm - job.startKm} km`)
   }

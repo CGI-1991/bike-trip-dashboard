@@ -6,7 +6,7 @@ import type { Climb, EnrichmentProviderState, RideStage, Route, RouteGeometryPoi
 import { routePointId } from '../trip-core/index.ts'
 import { cumulativeGeometryDistances } from './chunking.ts'
 import { routeFingerprint, routeGeometry } from './route-fingerprint.ts'
-import { classifyEnrichmentFailure, currentOnlineState, EnrichmentStorageError } from './enrichment-failure.ts'
+import { classifyEnrichmentFailure, currentOnlineState, enrichmentFailureMessage, EnrichmentStorageError } from './enrichment-failure.ts'
 import {
   ensureStageJobs,
   enrichableStageIds,
@@ -43,6 +43,7 @@ interface LocatedFeature extends OsmRouteFeatureCandidate {
 }
 
 interface StageResult {
+  readonly failureMessage?: string | undefined
   readonly stage: RideStage
   readonly route: Route
   readonly geometry: readonly RouteGeometryPoint[]
@@ -339,6 +340,7 @@ async function fetchStage(
   let rawCandidateCount = 0
   let sentPointCount = 0
   let tooHeavyFailures = 0
+  let failureMessage: string | undefined
 
   let jobs = [...plannedJobs]
   const outcomes: JobOutcome[] = []
@@ -387,6 +389,7 @@ async function fetchStage(
       if (error instanceof EnrichmentStorageError) throw error
       networkRequests += 1
       const failure = classifyEnrichmentFailure(error, { online: currentOnlineState() })
+      failureMessage = enrichmentFailureMessage(error)
       if (failure === 'unavailable') {
         // No connection: splitting would only multiply failures. Park the
         // job and stop this stage — the rest of the queue would fail too.
@@ -394,6 +397,10 @@ async function fetchStage(
         jobs = jobs.map((candidate, candidateIndex) => (candidateIndex > index && candidate !== undefined && candidate.kind === 'structural' && !isJobComplete(candidate)
           ? { ...candidate, status: 'waiting-for-network' as const }
           : candidate))
+        break
+      }
+      if (failure !== 'too-heavy') {
+        outcomes.push({ job, status: 'pending' })
         break
       }
       tooHeavyFailures += 1
@@ -434,7 +441,7 @@ async function fetchStage(
     durationMs: result.durationMs, rawCandidateCount: result.rawCandidateCount, retainedCandidateCount: result.retainedCandidateCount,
     rejectedCandidateCount: result.rejectedCandidateCount, sentPointCount: result.sentPointCount,
   })
-  return { result, cacheHits, jobs: remaining }
+  return { result: { ...result, failureMessage: incomplete.length > 0 ? failureMessage : undefined }, cacheHits, jobs: remaining }
 }
 
 interface JobOutcome {
@@ -551,7 +558,7 @@ function applyResults(bundle: TripBundle, results: readonly StageResult[], idFac
     status: errors === 0 ? 'success' : successes > 0 ? 'partial' : 'error',
     message: errors === 0
       ? `Postpass · ${networks === 0 ? 'cache' : 'network'} · ${durationMs} ms · ${rawCandidates} candidat(s) / ${retainedCandidates} retenu(s).`
-      : `${errors} étape(s) Postpass restent à reprendre ; les résultats acquis sont conservés.`,
+      : results.find(result => result.failureMessage !== undefined)?.failureMessage ?? `${errors} étape(s) Postpass restent à reprendre ; les résultats acquis sont conservés.`,
   }
   // Completion is recorded per micro-job (`enrichmentJobs`), never here.
   // The provider state stays a human-readable summary of the last pass; it
@@ -643,7 +650,7 @@ export async function enrichStoredTripRoute(input: EnrichStoredTripRouteInput): 
   let savedBundle = original
   let saved = false
   const report = await enrichTripRoute({
-    bundle: original, provider: input.provider, cache: createRouteEnrichmentCacheRepository(input.database),
+    bundle: original, provider: input.provider, cache: createRouteEnrichmentCacheRepository(input.database, { now: input.now }),
     idFactory: input.idFactory, now: input.now, onProgress: input.onProgress,
     onlyDayId: input.onlyDayId, shouldContinue: input.shouldContinue,
     onStageComplete: async (result, record) => {
@@ -659,9 +666,13 @@ export async function enrichStoredTripRoute(input: EnrichStoredTripRouteInput): 
           { ...plan, jobs: [...plan.jobs.filter(job => job.kind !== 'structural'), ...record.jobs.filter(job => job.kind === 'structural')] })
         const ids = enrichableStageIds(updated)
         const completed = ids.filter(id => isStagePhaseComplete(updated, id, 'structural')).length
+        const previous = migrated.enrichmentMetadata.providers.find(state => state.provider === ROUTE_ENRICHMENT_PROVIDER_STATE)
         updated = { ...updated, enrichmentMetadata: { ...updated.enrichmentMetadata,
           providers: updated.enrichmentMetadata.providers.map(state => state.provider !== ROUTE_ENRICHMENT_PROVIDER_STATE ? state
-            : { ...state, status: completed === ids.length ? 'success' : completed > 0 ? 'partial' : 'error' }) } }
+            : { ...state, status: completed === ids.length ? 'success' : completed > 0 ? 'partial' : 'error',
+              message: completed === ids.length ? state.message : result.failureMessage
+                ?? (previous?.status === 'error' || previous?.status === 'partial' ? previous.message : null)
+                ?? 'Certaines zones restent à rechercher ; les lieux acquis sont conservés.' }) } }
         applied = true
         return updated
       })

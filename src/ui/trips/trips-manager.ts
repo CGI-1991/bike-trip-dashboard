@@ -1176,7 +1176,9 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
           },
         })
         bundle = report.bundle
-        if (report.partial) automaticEnrichmentErrors.set(tripId, 'Certaines données seront complétées automatiquement.')
+        if (report.partial) automaticEnrichmentErrors.set(tripId,
+          report.bundle?.enrichmentMetadata.providers.find(state => (state.status === 'error' || state.status === 'partial') && state.message !== null)?.message
+          ?? 'Certaines données seront complétées automatiquement.')
         // Integrity-hardening section 29-38: a genuine, online pass that
         // still leaves work outstanding schedules its own follow-up — no
         // manual retry control exists any more to fall back on. Progress is

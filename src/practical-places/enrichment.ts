@@ -2,7 +2,7 @@ import { computeStagePracticalPlaceAnchors } from './anchors.ts'
 import { indexRouteGeometry, simplifySearchCorridor, sliceRouteGeometry } from '../route-enrichment/segment-geometry.ts'
 import { createRouteLocator } from '../route/route-proximity.ts'
 import { routeFingerprint, routeGeometry } from '../route-enrichment/route-fingerprint.ts'
-import { classifyEnrichmentFailure, currentOnlineState, EnrichmentStorageError } from '../route-enrichment/enrichment-failure.ts'
+import { classifyEnrichmentFailure, currentOnlineState, enrichmentFailureMessage, EnrichmentStorageError } from '../route-enrichment/enrichment-failure.ts'
 import {
   ensureStageJobs,
   enrichableStageIds,
@@ -42,6 +42,7 @@ export const PRACTICAL_PLACES_PROVIDER_STATE = 'postpass-practical-places'
 type LookupStatus = 'success' | 'no-result' | 'error'
 
 interface StageLookup {
+  readonly failureMessage?: string | undefined
   readonly stage: RideStage
   readonly day: TripDay
   readonly route: Route
@@ -160,12 +161,13 @@ async function resolveLookup(
   let requestCount = 0, cacheHits = 0, networkErrors = 0, storageErrors = 0, tooHeavyFailures = 0
   let jobs = [...plannedJobs]
   let replayComplete = true
+  let failureMessage: string | undefined
   function snapshot(): StageLookup & { readonly jobs: readonly EnrichmentJob[] } {
     const incomplete = jobs.some(job => job.kind === 'practical' && !isJobComplete(job))
     return { ...lookup, candidates: [...collected], jobs: [...jobs],
       status: incomplete ? 'error' : collected.length === 0 ? 'no-result' : 'success',
       fromCache: requestCount === 0, requestCount, cacheHits, networkErrors, storageErrors,
-      replaceExisting: !incomplete && replayComplete }
+      replaceExisting: !incomplete && replayComplete, failureMessage: incomplete ? failureMessage : undefined }
   }
   async function checkpoint(): Promise<void> {
     const current = snapshot()
@@ -194,6 +196,10 @@ async function resolveLookup(
     // A completed job also has a durable POI snapshot in the stored path.
     // Without its raw cache, preserve that snapshot instead of losing it.
     if (isJobComplete(job) && onCheckpoint !== undefined) { replayComplete = false; continue }
+    // In the pure API there is no durable checkpoint to replay. A missing
+    // raw answer makes this job outstanding BEFORE calling the provider:
+    // a failed refresh must never look like an empty, completed success.
+    if (isJobComplete(job)) jobs[index] = { ...job, status: 'pending' }
     const segmentGeometry = simplifySearchCorridor(sliceRouteGeometry(indexedGeometry, job.startKm, job.endKm), 25)
     let response
     requestCount++
@@ -206,9 +212,15 @@ async function resolveLookup(
     } catch (error) {
       networkErrors++
       const failure = classifyEnrichmentFailure(error, { online: currentOnlineState() })
+      failureMessage = enrichmentFailureMessage(error)
       if (failure === 'unavailable') {
         jobs = jobs.map((candidate, i) => i >= index && candidate.kind === 'practical' && !isJobComplete(candidate)
           ? { ...candidate, status: 'waiting-for-network' as const, attempts: candidate.attempts + (i === index ? 1 : 0) } : candidate)
+        await checkpoint()
+        break
+      }
+      if (failure !== 'too-heavy') {
+        jobs[index] = { ...job, status: 'pending', attempts: job.attempts + 1 }
         await checkpoint()
         break
       }
@@ -293,7 +305,7 @@ function providerState(lookups: readonly StageLookup[], attemptedAt: string, exi
     lastAttemptedAt: attemptedAt,
     lastSuccessAt: successes > 0 ? attemptedAt : existing?.lastSuccessAt ?? null,
     status: errors === 0 ? 'success' : successes > 0 ? 'partial' : 'error',
-    message: errors === 0 ? null : `${errors} étape(s) restent à rechercher ; les lieux acquis sont conservés.`,
+    message: errors === 0 ? null : lookups.find(lookup => lookup.failureMessage !== undefined)?.failureMessage ?? `${errors} étape(s) restent à rechercher ; les lieux acquis sont conservés.`,
   }
 }
 
@@ -387,7 +399,7 @@ function withStageErrors(metadata: TripBundle['enrichmentMetadata'], stageErrors
 /** Derive the aggregate from every stage's saved jobs, including stages
  * not reached by this pass. A single successful stage cannot finish a trip.
  */
-function finalizeAggregateFromStageErrors(bundle: TripBundle, allStageDayIds: readonly TripDayId[], attemptedAt: string): TripBundle {
+function finalizeAggregateFromStageErrors(bundle: TripBundle, allStageDayIds: readonly TripDayId[], attemptedAt: string, failureMessage?: string): TripBundle {
   const pendingSet = new Set(allStageDayIds)
   const outstanding = bundle.stages.filter(stage => pendingSet.has(stage.dayId) && !isStagePhaseComplete(bundle, stage.id, 'practical')).map(stage => stage.dayId)
   const errors = outstanding.length
@@ -398,7 +410,9 @@ function finalizeAggregateFromStageErrors(bundle: TripBundle, allStageDayIds: re
     lastAttemptedAt: attemptedAt,
     lastSuccessAt: successes > 0 ? attemptedAt : existing?.lastSuccessAt ?? null,
     status: errors === 0 ? 'success' : successes > 0 ? 'partial' : 'error',
-    message: errors === 0 ? null : `${errors} étape(s) restent à rechercher ; les lieux acquis sont conservés.`,
+    message: errors === 0 ? null : failureMessage
+      ?? (existing?.status === 'error' || existing?.status === 'partial' ? existing.message : null)
+      ?? `${errors} étape(s) restent à rechercher ; les lieux acquis sont conservés.`,
   }
   return {
     ...bundle,
@@ -464,7 +478,7 @@ export async function enrichTripPracticalPlaces(input: EnrichTripPracticalPlaces
  */
 export async function enrichStoredTripPracticalPlaces(input: EnrichStoredTripPracticalPlacesInput): Promise<PracticalPlacesEnrichmentReport | null> {
   const repository = createTripRepository(input.database)
-  const cache = createPracticalPlacesCacheRepository(input.database)
+  const cache = createPracticalPlacesCacheRepository(input.database, { now: input.now })
   const loaded = await repository.loadTripBundle(input.tripId)
   if (loaded === null) return null
   let bundle = migrateEnrichmentJobs(loaded)
@@ -501,7 +515,7 @@ export async function enrichStoredTripPracticalPlaces(input: EnrichStoredTripPra
           const applied = withStageJobs(applyStageLookup(migrated, current, target.geometry, target.anchors, input.provider, attemptedAt),
             { ...currentPlan, jobs: [...currentPlan.jobs.filter(job => job.kind !== 'practical'), ...current.jobs.filter(job => job.kind === 'practical')] })
           const dayIds = pendingLookups(applied).map(item => item.day.id)
-          return finalizeAggregateFromStageErrors(applied, dayIds, attemptedAt)
+          return finalizeAggregateFromStageErrors(applied, dayIds, attemptedAt, current.failureMessage)
         }).catch(error => { throw new EnrichmentStorageError(error) })
         if (saved !== null) {
           bundle = saved

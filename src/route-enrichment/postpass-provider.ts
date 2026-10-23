@@ -1,4 +1,4 @@
-import { EnrichmentHttpError, EnrichmentTimeoutError } from './enrichment-failure.ts'
+import { EnrichmentHttpError, EnrichmentResponseError, EnrichmentTimeoutError, readEnrichmentJson } from './enrichment-failure.ts'
 import type {
   OsmElementType,
   OsmRouteFeatureCandidate,
@@ -161,9 +161,9 @@ function parseFeature(value: unknown): OsmRouteFeatureCandidate | null {
 }
 
 export function parsePostpassFeatureCollection(value: unknown): { readonly candidates: readonly OsmRouteFeatureCandidate[]; readonly rawCandidateCount: number } {
-  if (value === null || typeof value !== 'object') throw new Error('Réponse GeoJSON Postpass invalide.')
+  if (value === null || typeof value !== 'object') throw new EnrichmentResponseError()
   const collection = value as GeoJsonFeatureCollection
-  if (collection.type !== 'FeatureCollection' || !Array.isArray(collection.features)) throw new Error('Réponse GeoJSON Postpass invalide.')
+  if (collection.type !== 'FeatureCollection' || !Array.isArray(collection.features)) throw new EnrichmentResponseError()
   return {
     candidates: collection.features.map(parseFeature).filter((candidate): candidate is OsmRouteFeatureCandidate => candidate !== null),
     rawCandidateCount: collection.features.length,
@@ -191,6 +191,7 @@ export function createPostpassRouteEnrichmentProvider(options: PostpassRouteProv
     sourceType: 'osm',
     attribution: '© OpenStreetMap contributors · Postpass/Geofabrik',
     async findStructuralCandidates(search, externalSignal) {
+      externalSignal?.throwIfAborted()
       const sql = buildPostpassStructuralQuery(search)
       const payloadBytes = new TextEncoder().encode(sql).byteLength
       const startedAt = now()
@@ -209,6 +210,7 @@ export function createPostpassRouteEnrichmentProvider(options: PostpassRouteProv
       const timeout = setTimeout(() => controller.abort(), requestTimeoutMs)
       const abort = () => controller.abort()
       externalSignal?.addEventListener('abort', abort, { once: true })
+      if (externalSignal?.aborted) abort()
       try {
         const response = await fetchFn(endpoint, {
           method: 'POST',
@@ -221,7 +223,7 @@ export function createPostpassRouteEnrichmentProvider(options: PostpassRouteProv
         const responseDuration = Math.max(0, nowMs() - startedMs)
         emit({ stage: 'response', ...baseDiagnostic, finishedAt: responseAt, durationMs: responseDuration, httpStatus: status, rawCandidateCount: null, counts: null, message: null })
         if (!response.ok) throw new EnrichmentHttpError(response.status)
-        const parsed = parsePostpassFeatureCollection(await response.json())
+        const parsed = parsePostpassFeatureCollection(await readEnrichmentJson(response))
         const finishedAt = now()
         const durationMs = Math.max(0, nowMs() - startedMs)
         emit({ stage: 'parsed', ...baseDiagnostic, finishedAt, durationMs, httpStatus: status, rawCandidateCount: parsed.rawCandidateCount, counts: counts(parsed.candidates), message: null })

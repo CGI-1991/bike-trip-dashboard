@@ -1,3 +1,4 @@
+import { EnrichmentTimeoutError } from '../../src/route-enrichment/enrichment-failure.ts'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
@@ -230,7 +231,7 @@ test('a network failure never writes anything to the cache — a retry can alway
   const cache = memoryCache()
   let putCalls = 0
   const instrumentedCache = { get: (...args) => cache.get(...args), put: (...args) => { putCalls++; return cache.put(...args) } }
-  const failingProvider = provider([], { async findStructuralCandidates() { throw new Error('Postpass timeout') } })
+  const failingProvider = provider([], { async findStructuralCandidates() { throw new EnrichmentTimeoutError(30_000) } })
 
   const report = await enrichTripRoute({
     bundle, provider: failingProvider, cache: instrumentedCache, idFactory: idFactory(), now: () => '2028-08-03T10:00:00.000Z',
@@ -242,7 +243,7 @@ test('a network failure never writes anything to the cache — a retry can alway
   // A subsequent attempt, still failing, must still hit the network —
   // nothing cached means nothing to short-circuit it with.
   let networkCalls = 0
-  const stillFailing = provider([], { async findStructuralCandidates() { networkCalls++; throw new Error('Postpass timeout') } })
+  const stillFailing = provider([], { async findStructuralCandidates() { networkCalls++; throw new EnrichmentTimeoutError(30_000) } })
   await enrichTripRoute({ bundle: report.bundle, provider: stillFailing, cache: instrumentedCache, idFactory: idFactory('retry'), now: () => '2028-08-04T10:00:00.000Z' })
   assert.ok(networkCalls > 0, 'the outstanding work is genuinely retried')
   assert.equal(putCalls, 0, 'and still nothing is cached')
