@@ -17,6 +17,7 @@ import { deriveTripTemporalState } from './trip-day-temporal-state.ts'
 import { stageJobsFor } from '../route-enrichment/enrichment-jobs.ts'
 import type { EnrichmentJobPhase } from '../route-enrichment/enrichment-jobs.ts'
 import type { TripBundle, TripDayId } from '../trip-core/index.ts'
+import { selectAutomaticPoiSearch } from '../trip-core/index.ts'
 
 /**
  * `error` is retained only so existing callers keep type-checking; the
@@ -56,6 +57,7 @@ export const NO_STAGE_PREPARATION_CONTEXT: StagePreparationContext = {
  * benefits from seeing.
  */
 export function deriveStagePreparationStatus(bundle: TripBundle, dayId: TripDayId, context: StagePreparationContext = NO_STAGE_PREPARATION_CONTEXT): StagePreparationStatus | null {
+  if (!selectAutomaticPoiSearch(bundle)) context = { ...context, practicalPlacesConfigured: false }
   const day = bundle.days.find((candidate) => candidate.id === dayId)
   if (day === undefined || day.type !== 'ride' || day.stageId === null) return null
   if (context.runningDayId === dayId) return 'running'

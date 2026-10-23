@@ -3374,6 +3374,15 @@ button:disabled { cursor: not-allowed; opacity: .55; }
  * — a plain two-button group, sober enough not to
  * compete with a primary action, but a real affordance (not a link/text). */
 .segmented-toggle { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.segmented-toggle--three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.league-schedule-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; width: 100%; }
+.league-schedule-fields label { display: grid; gap: 5px; min-width: 0; font-size: .8rem; }
+.league-schedule-fields input { width: 100%; min-width: 0; min-height: 44px; box-sizing: border-box; }
+.league-calendar { margin-block: 14px; }
+.league-month > h4 { margin: 18px 0 8px; text-transform: capitalize; color: var(--forest-800); }
+.league-event { display: grid; gap: 7px; width: 100%; min-height: 88px; padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--ink); text-align: left; font: inherit; cursor: pointer; overflow-wrap: anywhere; }
+.league-event time, .league-event > span { font-size: .8rem; color: var(--ink-soft); }
+.league-event .league-event__open { color: var(--forest-800); font-weight: 700; }
 .segmented-toggle__option {
   min-height: 44px; padding: 9px 11px; color: var(--ink); background: var(--surface);
   border: 1px solid var(--line-strong); border-radius: 9px; font-size: .92rem; font-weight: 700; cursor: pointer;

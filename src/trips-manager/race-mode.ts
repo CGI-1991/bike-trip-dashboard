@@ -23,6 +23,7 @@
 
 import { recomputeStageTiming } from './stage-timing.ts'
 import { selectRaceMode } from '../trip-core/index.ts'
+import { selectOrganizationMode } from '../trip-core/index.ts'
 import type { TripBundle } from '../trip-core/index.ts'
 
 export { selectRaceMode as isRaceModeEnabled }
@@ -58,13 +59,15 @@ export function hasConfiguredStagePauses(bundle: TripBundle): boolean {
  * value, so callers can skip a pointless save.
  */
 export function applyRaceMode(bundle: TripBundle, enabled: boolean): TripBundle {
+  if (selectOrganizationMode(bundle) === 'league' && !enabled) throw new Error('Le calendrier League ne se convertit pas en itinérance.')
   if (selectRaceMode(bundle) === enabled) return bundle
 
   const withMode: TripBundle = {
     ...bundle,
     settings: {
       ...bundle.settings,
-      global: { ...bundle.settings.global, raceMode: enabled },
+      global: { ...bundle.settings.global, raceMode: enabled,
+        ...(bundle.settings.global.organizationMode === undefined ? {} : { organizationMode: enabled ? 'tour' as const : 'voyage' as const }) },
       // Course/Tour removes the per-stage pause plans outright: with pauses
       // disabled, a stored plan would be invisible, un-editable data waiting
       // to silently reappear. Leaving the mode re-derives an automatic

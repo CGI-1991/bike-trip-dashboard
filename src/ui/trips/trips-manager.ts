@@ -317,12 +317,11 @@ function renderTripCard(trip: TripListEntry): string {
   const statusBadge = statusLabel === null ? '' : `<span class="tag tag--data">${escapeHtml(statusLabel)}</span>`
   return `
     <li class="trip-card" data-action="open-trip" data-trip-id="${escapeHtml(trip.id)}" role="button" tabindex="0">
-      <div class="trip-card__header"><h3>${escapeHtml(trip.name)}</h3>${trip.travelMode === 'walking' ? '<span class="tag tag--data">Randonnée</span>' : ''}${statusBadge}</div>
+      <div class="trip-card__header"><h3>${escapeHtml(trip.name)}</h3>${trip.organizationMode === 'league' ? '<span class="tag tag--data">League</span>' : ''}${trip.travelMode === 'walking' ? '<span class="tag tag--data">Randonnée</span>' : ''}${statusBadge}</div>
       ${renderTripPreparationLine(trip.preparationSummary)}
       <dl class="trip-card__stats">
         <div><dt>Dates</dt><dd>${escapeHtml(dateLabel)}</dd></div>
-        <div><dt>Journées</dt><dd>${trip.dayCount}</dd></div>
-        <div><dt>Étapes</dt><dd>${trip.stageCount}</dd></div>
+        ${trip.organizationMode === 'league' ? `<div><dt>Courses</dt><dd>${trip.stageCount}</dd></div>` : `<div><dt>Journées</dt><dd>${trip.dayCount}</dd></div><div><dt>Étapes</dt><dd>${trip.stageCount}</dd></div>`}
         <div><dt>Distance</dt><dd>${trip.totalDistanceKm.toFixed(1)} km</dd></div>
       </dl>
       <div class="trip-card__actions">

@@ -5,6 +5,7 @@ import type { PracticalPlacesProgress } from '../practical-places/enrichment.ts'
 import type { PracticalPlacesProvider } from '../practical-places/types.ts'
 import { createTripRepository } from '../storage/indexeddb/trip-repository.ts'
 import type { TripBundle, TripId } from '../trip-core/index.ts'
+import { selectAutomaticPoiSearch } from '../trip-core/index.ts'
 import { ensureAutomaticPausePlans, tripNeedsAutomaticPausePlans } from './automatic-pause-plan.ts'
 import { enrichStoredTripRoute, tripNeedsRouteEnrichment } from './enrichment.ts'
 import { enrichableStageIds, isStagePhaseComplete } from './enrichment-jobs.ts'
@@ -65,7 +66,7 @@ export function tripNeedsAutomaticEnrichment(
   const migrated = migrateEnrichmentJobs(bundle)
   return (providers.geocodingProvider !== undefined && tripNeedsEndpointGeocoding(migrated))
     || (providers.routeEnrichmentProvider !== undefined && tripNeedsRouteEnrichment(migrated))
-    || (providers.practicalPlacesProvider !== undefined && tripNeedsPracticalPlacesEnrichment(migrated))
+    || (selectAutomaticPoiSearch(bundle) && providers.practicalPlacesProvider !== undefined && tripNeedsPracticalPlacesEnrichment(migrated))
     // Integrity-hardening: a trip whose structural/practical work was
     // ALREADY complete before this feature existed would otherwise never
     // run this orchestration again at all, so its automatic pause plans
@@ -115,7 +116,7 @@ export async function runStoredTripAutomaticEnrichment(input: AutomaticEnrichmen
       current = migrateEnrichmentJobs(bundle)
     }
     const structureReady = input.routeEnrichmentProvider === undefined || isStagePhaseComplete(current, stage.id, 'structural')
-    if (active() && structureReady && input.practicalPlacesProvider !== undefined && !isStagePhaseComplete(current, stage.id, 'practical')) {
+    if (active() && structureReady && selectAutomaticPoiSearch(current) && input.practicalPlacesProvider !== undefined && !isStagePhaseComplete(current, stage.id, 'practical')) {
       practicalPlacesAttempted = true
       const practicalReport = await enrichStoredTripPracticalPlaces({ database: input.database, tripId: input.tripId,
         provider: input.practicalPlacesProvider, now: input.now, onlyDayId: stage.dayId,

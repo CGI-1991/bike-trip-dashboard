@@ -18,7 +18,7 @@
  */
 
 import { deriveTripTemporalState } from '../../trips-manager/trip-day-temporal-state.ts'
-import { calendarDaySpan, selectTripDayNumber } from '../../trip-core/index.ts'
+import { calendarDaySpan, selectOrganizationMode, selectTripDayNumber } from '../../trip-core/index.ts'
 import { formatShortDate } from '../date-format.ts'
 import type { TripBundle, TripDay, TripDayType } from '../../trip-core/index.ts'
 
@@ -63,6 +63,7 @@ function pluralize(count: number, noun: string): string {
 }
 
 function overviewSubtitle(bundle: TripBundle): string | null {
+  if (selectOrganizationMode(bundle) === 'league') return `League · ${pluralize(bundle.days.length, 'course')}`
   // Linked stages share one calendar date, so the number of days a trip
   // SPANS is no longer the number of `TripDay`s it holds. The span is what
   // belongs next to a start → end date range; with nothing linked it is the
@@ -78,6 +79,11 @@ function overviewSubtitle(bundle: TripBundle): string | null {
 
 /** `now` reuses D1's own completion rule (`deriveTripTemporalState`) — never a second "which day is current" heuristic. `null` once the whole trip is finished (nothing left to be "up next"). */
 function tripSubtitle(bundle: TripBundle, now: Date | string | null): string | null {
+  if (selectOrganizationMode(bundle) === 'league') {
+    const temporal = deriveTripTemporalState(bundle, now)
+    const next = bundle.days.find(day => day.id === temporal.priorityDayId)
+    return next === undefined ? `League · ${pluralize(bundle.days.length, 'course')}` : `Course ${selectTripDayNumber(bundle, next.id)} sur ${bundle.days.length} · ${formatShortDate(next.date!)}`
+  }
   const temporal = deriveTripTemporalState(bundle, now)
   const priorityDay = temporal.priorityDayId === null ? undefined : bundle.days.find((day) => day.id === temporal.priorityDayId)
   if (priorityDay === undefined) return null
@@ -92,6 +98,7 @@ function tripSubtitle(bundle: TripBundle, now: Date | string | null): string | n
 }
 
 function daySubtitle(bundle: TripBundle, day: TripDay): string {
+  if (selectOrganizationMode(bundle) === 'league') return `Course ${selectTripDayNumber(bundle, day.id)} sur ${bundle.days.length} · ${formatShortDate(day.date!)}`
   return `J${selectTripDayNumber(bundle, day.id)} sur ${calendarDaySpan(bundle.days)} · ${DAY_TYPE_LABELS[day.type]}`
 }
 

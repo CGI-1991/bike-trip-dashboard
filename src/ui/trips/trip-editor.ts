@@ -13,7 +13,8 @@ import { climbSensitivityAtIndex, patchClimbSensitivityLabels, renderClimbSensit
 import { renderRaceModeToggle } from './race-mode-toggle.ts'
 import { renderTravelModeToggle } from './travel-mode-toggle.ts'
 import { isTravelMode, TRAVEL_MODE_SETTINGS } from '../../trips-manager/travel-mode.ts'
-import { selectTravelMode } from '../../trip-core/index.ts'
+import { selectOrganizationMode, selectTravelMode } from '../../trip-core/index.ts'
+import { isIsoDate, isTimeOfDay } from '../../trip-core/validation/primitives.ts'
 import { resolveLinkedScheduleConflicts } from '../../trips-manager/linked-stages.ts'
 import { openChooseOptionDialog } from './choose-option-dialog.ts'
 import { hasConfiguredStagePauses } from '../../trips-manager/race-mode.ts'
@@ -29,6 +30,8 @@ type EditorItem =
       readonly existingSourceFileId: SourceFileId | null
       readonly file: GpxImportFile
       readonly preAnalysis: GpxPreAnalysis | null
+      readonly eventDate?: string
+      readonly departureTime?: string
       /** The traveller's own optional stage name (`RideStage.customName`) — `null` means "none". */
       readonly customName: string | null
       /** "Étape liée": ridden the same calendar day as the ride row right above it. */
@@ -125,6 +128,8 @@ export function createTripEditor(
   let originalStructureSnapshot = ''
   /** Kept only to preview the auto-filled OFF/transfer location (CDC Jalon B4.3 sections 13-14) for slots that already existed before this editing session — a brand-new slot has no neighbouring stage data to preview from yet (it is only produced once this edit is saved and re-analysed). */
   let originalBundle: TripBundle | null = null
+  const isLeague = () => originalBundle !== null && selectOrganizationMode(originalBundle) === 'league'
+  const leagueSchedule = () => rideItems().flatMap(item => item.existingDayId === null ? [] : [{ dayId: item.existingDayId, date: item.eventDate ?? '', departureTime: item.departureTime ?? '08:00' }])
 
   /**
    * "Informer brièvement l'utilisateur si des horaires ont été ajustés" —
@@ -208,6 +213,8 @@ export function createTripEditor(
       || (startDate !== null && startDate !== originalStartDate)
       || referenceSpeedKph !== originalReferenceSpeedKph
       || travelMode !== originalTravelMode
+      || (isLeague() && originalBundle !== null && leagueSchedule().some(event => event.date !== originalBundle!.days.find(day => day.id === event.dayId)?.date
+        || event.departureTime !== (originalBundle!.settings.days.find(day => day.dayId === event.dayId)?.departureTime ?? '08:00')))
       || raceMode !== originalRaceMode
       || climbSensitivity !== originalClimbSensitivity
   }
@@ -221,6 +228,7 @@ export function createTripEditor(
       ...(travelMode !== originalTravelMode ? { travelMode } : {}),
       ...(raceMode !== originalRaceMode ? { raceMode } : {}),
       ...(climbSensitivity !== originalClimbSensitivity ? { climbDetectionSensitivity: climbSensitivity } : {}),
+      ...(isLeague() ? { leagueEvents: leagueSchedule() } : {}),
     }
   }
 
@@ -228,6 +236,7 @@ export function createTripEditor(
     const rides = rideItems()
     const structurallyValid = rides.length > 0 && rides.every((item) => item.preAnalysis?.status === 'valid') && strictDuplicateNames().size === 0
     const preferencesValid = validateTripPreferencesUpdate(currentPreferencesUpdate(), travelMode).length === 0
+      && (!isLeague() || items.every(item => item.kind === 'ride' && isIsoDate(item.eventDate) && isTimeOfDay(item.departureTime ?? '08:00')))
     // D3.1 section 30: Save is only ever active when there is something
     // real to save (section 29 — a genuine no-op stays disabled) — never
     // just because the structural list happens to currently validate.
@@ -248,7 +257,7 @@ export function createTripEditor(
     })
   }
 
-  async function addFiles(files: FileList): Promise<void> {
+  async function addFiles(files: readonly File[]): Promise<void> {
     const importFiles = await Promise.all(Array.from(files).map(browserFileToImportFile))
     const analyses = await preAnalyzeGpxFiles(importFiles)
     importFiles.forEach((file, index) => {
@@ -400,6 +409,7 @@ export function createTripEditor(
    * longer show. Also confirmed first.
    */
   async function setRaceMode(enabled: boolean): Promise<void> {
+    if (isLeague()) return
     if (enabled === raceMode) return
     if (enabled && originalBundle !== null && hasConfiguredStagePauses(originalBundle)) {
       if (!window.confirm('Passer en mode Tour ?\n\nLes arrêts prévus pendant les étapes seront retirés et les heures d’arrivée recalculées sans eux. Les journées OFF, les transferts et les points d’intérêt sont conservés.')) return
@@ -468,6 +478,8 @@ export function createTripEditor(
             existingSourceFileId: item.existingSourceFileId,
             file: item.file,
             customName: item.customName,
+            eventDate: item.eventDate,
+            departureTime: item.departureTime,
             // A link only means anything in Course/Tour mode; leaving the
             // mode drops every link in the draft first (`setRaceMode`), and
             // this second guard makes the saved structure independent of the
@@ -484,9 +496,11 @@ export function createTripEditor(
       // Use the same timing/mode mutation as a preferences-only save.
       // Structural edits must not keep cycling aggregates under a walking label.
       const applied = applyTripPreferences(result.bundle, {
-        name, ...(startDate === null ? {} : { startDate }), referenceSpeedKph, travelMode,
+        name, ...(startDate === null || isLeague() ? {} : { startDate }), referenceSpeedKph, travelMode,
         raceMode, climbDetectionSensitivity: climbSensitivity,
       }, deps.now(), deps.idFactory)
+      // New courses acquire their permanent ids in the structural merge.
+      // Event times have already passed through that same import pipeline.
       const schedule = resolveLinkedScheduleConflicts(applied)
       const patched = schedule.bundle
       await tripRepository.saveTripBundle(patched)
@@ -510,7 +524,10 @@ export function createTripEditor(
     render()
     try {
       const repository = createTripRepository(deps.database)
-      const bundle = await repository.updateTripBundle(tripId, latest => resetPracticalPlacesForRefresh(latest))
+      const bundle = await repository.updateTripBundle(tripId, latest => {
+        const refreshed = resetPracticalPlacesForRefresh(latest)
+        return selectOrganizationMode(latest) === 'league' ? { ...refreshed, settings: { ...refreshed.settings, global: { ...refreshed.settings.global, leaguePoiSearchEnabled: true } } } : refreshed
+      })
       if (bundle === null) {
         recalculationMessage = 'Voyage introuvable.'
         return
@@ -584,7 +601,7 @@ export function createTripEditor(
    * OFF day or a transfer, so there is simply no control there to click.
    */
   function renderLinkControl(position: number): string {
-    if (!raceMode) return ''
+    if (!raceMode || isLeague()) return ''
     const item = items[position]
     const previous = items[position - 1]
     if (item === undefined || item.kind !== 'ride' || previous === undefined || previous.kind !== 'ride') return ''
@@ -597,7 +614,7 @@ export function createTripEditor(
   function renderItem(item: EditorItem, position: number, options: { readonly withLinkControl?: boolean } = {}): string {
     const linkControl = options.withLinkControl === false ? '' : renderLinkControl(position)
     const moveControls = renderMoveControls(position)
-    const insertControls = renderInsertControls(position)
+    const insertControls = isLeague() ? '' : renderInsertControls(position)
     if (item.kind !== 'ride') {
       const label = item.kind === 'off' ? 'OFF' : 'Transfert'
       const timingControl = item.kind === 'transfer' ? renderTransferTimingSelect(item, position) : ''
@@ -615,8 +632,8 @@ export function createTripEditor(
     // The stage's own optional name, edited right where the stage itself is
     // configured. It never touches the GPX, the ids or the départ/arrivée
     // places — leaving it empty keeps every label exactly as it is today.
-    const nameField = `<label class='wizard-structure__stage-name'><span>Nom de l’étape</span><input type='text' data-editor-field='stage-name' data-position='${position}' value='${escapeHtml(item.customName ?? '')}' maxlength='120' placeholder='Facultatif'></label>`
-    return `${linkControl}<li class='wizard-structure__row wizard-file'><span class='tag tag--ride'>Étape</span><strong>${escapeHtml(item.file.name)}</strong>${nameField}${metrics}${moveControls}<button class='button button--quiet' type='button' data-editor-action='trigger-replace' data-position='${position}'>Remplacer</button><input type='file' accept='.gpx' class='visually-hidden' data-editor-field='replace' data-position='${position}' tabindex='-1' aria-hidden='true'><button class='button button--quiet' type='button' data-editor-action='remove' data-position='${position}'>Retirer</button></li>${insertControls}`
+    const nameField = `<label class='wizard-structure__stage-name'><span>${isLeague() ? 'Nom de la course' : 'Nom de l’étape'}</span><input type='text' data-editor-field='stage-name' data-position='${position}' value='${escapeHtml(item.customName ?? '')}' maxlength='120' placeholder='Facultatif'></label>`
+    return `${linkControl}<li class='wizard-structure__row wizard-file'><span class='tag tag--ride'>${isLeague() ? 'Course' : 'Étape'}</span><strong>${escapeHtml(item.file.name)}</strong>${nameField}${isLeague() ? `<div class='league-schedule-fields'><label>Date de course<input type='date' data-editor-field='event-date' data-position='${position}' value='${escapeHtml(item.eventDate ?? '')}' required></label><label>Départ<input type='time' data-editor-field='event-time' data-position='${position}' value='${escapeHtml(item.departureTime ?? '08:00')}' required></label></div>` : ''}${metrics}${isLeague() ? '' : moveControls}<button class='button button--quiet' type='button' data-editor-action='trigger-replace' data-position='${position}'>Remplacer</button><input type='file' accept='.gpx' class='visually-hidden' data-editor-field='replace' data-position='${position}' tabindex='-1' aria-hidden='true'><button class='button button--quiet' type='button' data-editor-action='remove' data-position='${position}'>Retirer</button></li>${insertControls}`
   }
 
   /**
@@ -653,6 +670,7 @@ export function createTripEditor(
   }
 
   function renderWarnings(): string {
+    if (isLeague()) return '<p class="field__hint">Les courses sont indépendantes : aucune continuité entre leurs parcours n’est requise.</p>'
     const duplicateNames = strictDuplicateNames()
     const warnings = continuityWarnings()
     const rows: string[] = []
@@ -673,7 +691,7 @@ export function createTripEditor(
   }
 
   function renderInformationsSection(): string {
-    const dateField = startDate === null ? '' : `<div class='field'>
+    const dateField = startDate === null || isLeague() ? '' : `<div class='field'>
         <label for='editor-start-date'>Date de départ</label>
         <input id='editor-start-date' type='date' data-editor-field='start-date' value='${startDate}'>
         <p class='field__hint'>${escapeHtml(formatShortDate(startDate))} ${startDate.slice(0, 4)}</p>
@@ -744,11 +762,12 @@ export function createTripEditor(
       ${renderInformationsSection()}
       <p class='eyebrow'>Structure du voyage</p>
       <button class='button button--quiet' type='button' data-editor-action='trigger-add'>+ Ajouter des GPX</button>
+      ${renderFeatureUpdateBadge('gpx-editor-add')}
       <input id='editor-add-files' class='visually-hidden' type='file' accept='.gpx' multiple data-editor-field='add' tabindex='-1' aria-hidden='true'>
       <ul class='wizard-structure__list'>${renderStructureList()}</ul>
       ${renderWarnings()}
       <details class='wizard-advanced' ${advancedOpen ? 'open' : ''}><summary>Réglages avancés</summary>
-        ${renderRaceModeToggle(raceMode)}
+      ${renderRaceModeToggle(raceMode, originalBundle === null ? 'voyage' : selectOrganizationMode(originalBundle), true)}
         ${renderClimbSensitivitySlider(climbSensitivity)}
         ${renderRecalculationAction()}
       </details>
@@ -855,7 +874,9 @@ export function createTripEditor(
     if (!(target instanceof HTMLInputElement)) return
     if (target.files === null || target.files.length === 0) return
     if (target.dataset.editorField === 'add') {
-      const files = target.files
+      // FileList is live: clearing the picker first can empty it before
+      // addFiles reads it (notably when adding courses to a League).
+      const files = Array.from(target.files)
       target.value = ''
       void addFiles(files)
     } else if (target.dataset.editorField === 'replace') {
@@ -870,6 +891,12 @@ export function createTripEditor(
   container.addEventListener('input', (event) => {
     const target = event.target
     if (!(target instanceof HTMLInputElement)) return
+    if ((target.dataset.editorField === 'event-date' || target.dataset.editorField === 'event-time') && target.dataset.position !== undefined) {
+      const index = Number(target.dataset.position), item = items[index]
+      if (item?.kind === 'ride') items[index] = { ...item, ...(target.dataset.editorField === 'event-date' ? { eventDate: target.value } : { departureTime: target.value }) }
+      updateSaveButtonState()
+      return
+    }
     if (target.dataset.editorField === 'reference-speed') {
       referenceSpeedKph = target.valueAsNumber
       updateFieldError('referenceSpeedKph', validateTripPreferencesUpdate({ referenceSpeedKph }, travelMode)[0]?.message ?? null)

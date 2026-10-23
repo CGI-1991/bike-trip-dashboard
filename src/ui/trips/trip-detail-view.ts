@@ -17,7 +17,8 @@ import type { TripDayTemporalState } from '../../trips-manager/trip-day-temporal
 import type { StagePreparationStatus } from '../../trips-manager/stage-preparation.ts'
 import { formatShortDate } from '../date-format.ts'
 import { compactPlaceName } from '../compact-place-name.ts'
-import { selectStageCustomName, selectTripDayNumber } from '../../trip-core/index.ts'
+import { selectOrganizationMode, selectStageCustomName, selectTripDayLabel } from '../../trip-core/index.ts'
+import { renderLeagueCalendar } from './league-calendar-view.ts'
 import type { TripBundle, TripDayId } from '../../trip-core/index.ts'
 
 export interface TripDetailRenderOptions {
@@ -117,7 +118,7 @@ function renderDayNumberGroup(bundle: TripBundle, day: TripBundle['days'][number
   const dateLabel = day.date === null ? null : formatShortDate(day.date)
   // The J badge is the day OF THE TRIP, so two stages ridden on one date
   // both read J1 — never a stage counter (`selectTripDayNumber`).
-  return `<span class="trip-day-card__number-group"><strong>J${selectTripDayNumber(bundle, day.id)}</strong>${day.date === null ? '' : `<time datetime="${day.date}">${escapeHtml(dateLabel ?? '')}</time>`}</span>`
+  return `<span class="trip-day-card__number-group"><strong>${selectTripDayLabel(bundle, day.id)}</strong>${day.date === null ? '' : `<time datetime="${day.date}">${escapeHtml(dateLabel ?? '')}</time>`}</span>`
 }
 
 function renderRideDayCard(bundle: TripBundle, day: TripBundle['days'][number], stage: TripBundle['stages'][number], temporal: TripDayTemporalState, isPriority: boolean, prepStatus: StagePreparationStatus | null | undefined): string {
@@ -135,7 +136,7 @@ function renderRideDayCard(bundle: TripBundle, day: TripBundle['days'][number], 
   const daySettings = bundle.settings.days.find((candidate) => candidate.dayId === day.id)
   const departureTime = daySettings?.departureTime ?? null
   const eta = temporal.arrivalEta?.label ?? null
-  const status = temporal.completed ? '<span class="tag tag--completed">Terminé</span>' : '<span class="tag tag--ride">Étape</span>'
+  const status = temporal.completed ? '<span class="tag tag--completed">Terminé</span>' : `<span class="tag tag--ride">${selectOrganizationMode(bundle) === 'league' ? 'Course' : 'Étape'}</span>`
   // Section 5B/K: the status badge is its own grid item in the fixed-width
   // right column — never inline after the route name, so a long place name
   // can never push it around or make it wrap.
@@ -276,10 +277,10 @@ export function renderTripDetail(bundle: TripBundle, options: TripDetailRenderOp
 
   return `
     <div class="trip-detail" data-trip-detail>
-      <header class="view-heading"><p class="eyebrow">Voyage</p><h2>${escapeHtml(bundle.metadata.name)}</h2></header>
+      <header class="view-heading"><p class="eyebrow">${selectOrganizationMode(bundle) === 'league' ? 'League' : 'Voyage'}</p><h2>${escapeHtml(bundle.metadata.name)}</h2></header>
       ${prepSummary}
       <details class="card trip-wind-summary"><summary>Vent relatif sur l’ensemble du voyage</summary><div data-trip-wind-summary></div></details>
-      <ol class="trip-day-list">${bundle.days.map((day) => renderDayCard(bundle, day, getTripDayTemporalState(temporal, day.id) as TripDayTemporalState, temporal.priorityDayId, prepStatuses?.get(day.id))).join('')}</ol>
+      ${selectOrganizationMode(bundle) === 'league' ? renderLeagueCalendar(bundle, day => renderDayCard(bundle, day, getTripDayTemporalState(temporal, day.id) as TripDayTemporalState, temporal.priorityDayId, prepStatuses?.get(day.id))) : `<ol class="trip-day-list">${bundle.days.map((day) => renderDayCard(bundle, day, getTripDayTemporalState(temporal, day.id) as TripDayTemporalState, temporal.priorityDayId, prepStatuses?.get(day.id))).join('')}</ol>`}
       ${hasRideStages ? '<button class="button button--quiet button--full" type="button" data-action="download-trip-gpx">Télécharger les GPX</button>' : ''}
       ${automaticStatus}
       ${endpointStatus}

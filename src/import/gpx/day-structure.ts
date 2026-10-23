@@ -11,7 +11,8 @@
  */
 
 import { addCivilDays } from '../../trip-core/validation/primitives.ts'
-import { calendarDayOffsets, tripDayId } from '../../trip-core/index.ts'
+import { calendarDayOffsets, normalizeLeagueCalendar, selectOrganizationMode, tripDayId } from '../../trip-core/index.ts'
+import { isIsoDate, isTimeOfDay } from '../../trip-core/validation/primitives.ts'
 import type { IsoDate, RideStage, TransferTiming, TripBundle, TripDay } from '../../trip-core/index.ts'
 
 export type DayStructureSlot =
@@ -22,7 +23,7 @@ export type DayStructureSlot =
    * optional/absent for every historical caller, which reproduces the
    * previous behaviour exactly.
    */
-  | { readonly kind: 'ride'; readonly customName?: string | null; readonly sameCalendarDayAsPrevious?: boolean }
+  | { readonly kind: 'ride'; readonly customName?: string | null; readonly sameCalendarDayAsPrevious?: boolean; readonly eventDate?: string; readonly departureTime?: string }
   | { readonly kind: 'off'; readonly notes?: string | null }
   /** `transferTiming` (CDC Jalon B4.4 section 22) — `undefined`/omitted means `'dedicated'`, exactly like `TripDay.transferTiming` itself. */
   | { readonly kind: 'transfer'; readonly notes?: string | null; readonly transferTiming?: TransferTiming }
@@ -55,6 +56,10 @@ function withOptional<T extends object, K extends string, V>(target: T, key: K, 
  * fed to `importGpxTrip` in), never reshuffled here.
  */
 export function applyDayStructure(bundle: TripBundle, slots: readonly DayStructureSlot[], idFactory: () => string): TripBundle {
+  const league = selectOrganizationMode(bundle) === 'league'
+  if (league && slots.some(slot => slot.kind !== 'ride' || !isIsoDate(slot.eventDate) || !isTimeOfDay(slot.departureTime) || slot.sameCalendarDayAsPrevious === true)) {
+    throw new DayStructureError('Chaque course League exige une date et une heure de départ, sans OFF, transfert ou étape liée.')
+  }
   const rideSlotCount = slots.filter((slot) => slot.kind === 'ride').length
   if (rideSlotCount !== bundle.days.length) {
     throw new DayStructureError(
@@ -78,7 +83,7 @@ export function applyDayStructure(bundle: TripBundle, slots: readonly DayStructu
 
   slots.forEach((slot, index) => {
     const displayNumber = index + 1
-    const date = dated && startDate !== null ? asIsoDate(addCivilDays(startDate, offsets[index] ?? index)) : null
+    const date = league && slot.kind === 'ride' ? asIsoDate(slot.eventDate!) : dated && startDate !== null ? asIsoDate(addCivilDays(startDate, offsets[index] ?? index)) : null
 
     if (slot.kind === 'ride') {
       const original = bundle.days[rideCursor]
@@ -153,14 +158,20 @@ export function applyDayStructure(bundle: TripBundle, slots: readonly DayStructu
     ? bundle.stages
     : bundle.stages.map((stage) => (stagePatches.has(stage.id) ? withOptional(stage, 'customName', stagePatches.get(stage.id)) : stage))
 
-  return {
+  const result: TripBundle = {
     ...bundle,
     days: newDays,
     stages,
     calendar: { ...bundle.calendar, endDate },
     metadata: { ...bundle.metadata, endDate },
-    settings: { ...bundle.settings, days: bundle.settings.days.filter((entry) => newDayIds.has(entry.dayId)) },
+    settings: { ...bundle.settings, days: bundle.settings.days.filter((entry) => newDayIds.has(entry.dayId)).map(entry => {
+      if (!league) return entry
+      const index = newDays.findIndex(day => day.id === entry.dayId)
+      const slot = slots[index]
+      return { ...entry, departureTime: slot?.kind === 'ride' ? slot.departureTime! : entry.departureTime, totalBreakSeconds: 0 }
+    }) },
   }
+  return league ? normalizeLeagueCalendar(result) : result
 }
 
 /** A default, structure-free slot list: every GPX file is its own ride day, in order — the annexe's "1 fichier = 1 étape" default. */

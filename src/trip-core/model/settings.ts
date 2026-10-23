@@ -7,6 +7,15 @@ export const TRAVEL_MODES = ['cycling', 'walking'] as const
 export type TravelMode = (typeof TRAVEL_MODES)[number]
 export const DEFAULT_TRAVEL_MODE: TravelMode = 'cycling'
 
+export const ORGANIZATION_MODES = ['voyage', 'league', 'tour'] as const
+export type OrganizationMode = (typeof ORGANIZATION_MODES)[number]
+
+export const ORGANIZATION_CAPABILITIES = {
+  voyage: { independentDates: false, plannedStops: true, linkedStages: false, automaticPoiSearch: true },
+  league: { independentDates: true, plannedStops: false, linkedStages: false, automaticPoiSearch: false },
+  tour: { independentDates: false, plannedStops: false, linkedStages: true, automaticPoiSearch: true },
+} as const
+
 /**
  * Climb-detection sensitivity (one trip-wide setting, 5 steps). Ordered
  * from the most selective to the most sensitive, which is exactly the
@@ -28,6 +37,10 @@ export const DEFAULT_CLIMB_DETECTION_SENSITIVITY: ClimbDetectionSensitivity = 's
  * without hardcoding any trip-specific value.
  */
 export interface GlobalTripSettings {
+  /** Absent: derive Voyage/Tour from the historical raceMode flag. */
+  readonly organizationMode?: OrganizationMode
+  /** Explicit POI opt-in for a League calendar; existing places stay readable. */
+  readonly leaguePoiSearchEnabled?: boolean
   /** Absent on existing trips: preserve the historical cycling model. */
   readonly travelMode?: TravelMode
   readonly referenceSpeedKph: KilometersPerHour
