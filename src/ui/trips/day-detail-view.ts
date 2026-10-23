@@ -23,6 +23,8 @@
  */
 
 import { selectTravelMode } from '../../trip-core/index.ts'
+import { buildRaceCourse, selectStageCourseMetrics } from '../../analysis/race-bounds.ts'
+import type { RaceBounds } from '../../trip-core/model/ride-stage.ts'
 import { buildAutomaticPauseEnrichment, computeStagePauseRecommendations, computeStageTimingCurve, computeStageWaypoints, resolveStagePauseSettings } from '../../analysis/waypoint-timeline.ts'
 import type { StageTimingCurve } from '../../analysis/waypoint-timeline.ts'
 import { isSignificantWaypoint } from '../../analysis/canonical-waypoints.ts'
@@ -332,7 +334,7 @@ function renderClimbProfileBar(segments: readonly ClimbProfileSegment[]): string
  * whole point of the merge is that this is still the named col, just with
  * its profile attached.
  */
-function renderClimbCard(waypoint: CanonicalWaypoint, climb: Climb, routeGeometryFull: readonly RouteGeometryPoint[] | null): string {
+function renderClimbCard(waypoint: CanonicalWaypoint, climb: Climb, routeGeometryFull: readonly RouteGeometryPoint[] | null, partial = false): string {
   const profile = routeGeometryFull === null ? null : buildClimbProfile(routeGeometryFull, climb, climbSegmentLengthMeters(climb))
   const profileId = `climb-profile-${escapeHtml(climb.id)}`
   // CDC D1.2 sections 17/22: the SAME skeleton as a plain timeline row —
@@ -347,7 +349,7 @@ function renderClimbCard(waypoint: CanonicalWaypoint, climb: Climb, routeGeometr
       ${renderTimelineTimeColumn(waypoint)}
       <span class="day-detail__timeline-body">
         <strong><span class="day-detail__timeline-marker" aria-hidden="true">${KIND_MARKERS[waypoint.kind]}</span>${escapeHtml(waypoint.name)}</strong>
-        <span class="day-detail__timeline-meta">${meta}</span>
+        <span class="day-detail__timeline-meta">${partial ? 'Montée partielle dans la course · stats GPX complètes<br>' : ''}${meta}</span>
         <span class="day-detail__timeline-weather" data-waypoint-weather data-waypoint-id="${escapeHtml(waypoint.id)}"></span>
       </span>
     </button>
@@ -368,7 +370,7 @@ function renderClimbCard(waypoint: CanonicalWaypoint, climb: Climb, routeGeometr
 // the Aperçu screen and the generic weather sampler. No display-level climb
 // filter exists any more: which climbs are shown is decided by which climbs
 // the trip's detection sensitivity produced (`climb-detection.ts`).
-function renderTimelineList(waypoints: readonly CanonicalWaypoint[], climbs: readonly Climb[], routeGeometryFull: readonly RouteGeometryPoint[] | null): string {
+function renderTimelineList(waypoints: readonly CanonicalWaypoint[], climbs: readonly Climb[], routeGeometryFull: readonly RouteGeometryPoint[] | null, bounds: RaceBounds | null = null): string {
   const visible = waypoints.filter((waypoint) => isSignificantWaypoint(waypoint))
   if (visible.length === 0) return '<p>Aucun point de passage disponible.</p>'
   const rows = visible.map((waypoint) => {
@@ -382,7 +384,8 @@ function renderTimelineList(waypoints: readonly CanonicalWaypoint[], climbs: rea
     // instead of a plain row with no profile at all.
     if (waypoint.climbId === null) return renderTimelineRow(waypoint)
     const climb = climbs.find((candidate) => candidate.id === waypoint.climbId)
-    return climb === undefined ? renderTimelineRow(waypoint) : renderClimbCard(waypoint, climb, routeGeometryFull)
+    const partial = bounds !== null && climb !== undefined && (climb.startDistanceKm < bounds.startOffsetM / 1000 || climb.endDistanceKm > bounds.finishOffsetM / 1000)
+    return climb === undefined ? renderTimelineRow(waypoint) : renderClimbCard(waypoint, climb, routeGeometryFull, partial)
   }).join('')
   return `<ol class="day-detail__timeline">${rows}</ol>`
 }
@@ -1026,6 +1029,7 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
   // never touches a saved manual pause either way.
   const automaticPauseEnrichment = buildAutomaticPauseEnrichment(bundle, stage, day)
   const waypointsInput = {
+    raceCourse: buildRaceCourse(bundle, stage),
     stage, route, routePoints: bundle.routePoints, climbs: bundle.climbs, settings,
     manualPauses: pauseResolution.mode === 'custom' ? pauseResolution.manualPauses : persistedAutomaticPauses,
     automaticPauseEnrichment,
@@ -1073,11 +1077,12 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
 
   const arrival = waypoints.length === 0 ? null : waypoints[waypoints.length - 1]
   const totalDurationSeconds = arrival?.elapsedMinutes === null || arrival?.elapsedMinutes === undefined
-    ? stage.totalDurationSeconds
+    ? waypointsInput.raceCourse?.status === 'stale' ? null : stage.totalDurationSeconds
     : Math.round(arrival.elapsedMinutes * 60)
-  const primaryClimbCount = new Set(
+  const bounds = waypointsInput.raceCourse?.status === 'bounded' ? waypointsInput.raceCourse.bounds : null
+  const primaryClimbCount = bounds === null ? new Set(
     waypoints.filter((waypoint) => waypoint.climbId !== null && isSignificantWaypoint(waypoint)).map((waypoint) => waypoint.climbId),
-  ).size
+  ).size : bundle.climbs.filter(climb => stage.climbIds.includes(climb.id) && climb.startDistanceKm < bounds.finishOffsetM / 1000 && climb.endDistanceKm > bounds.startOffsetM / 1000).length
   // In manual mode, the displayed total reflects the actually-placed pauses
   // (which the user controls directly) rather than the imported automatic
   // budget estimate — the two only ever match by coincidence once edited.
@@ -1097,18 +1102,19 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
   // value here stays the single displayed truth; nothing is ever edited in
   // the page itself, so a fresh `statsHtml` after a save needs no state to
   // reset.
-  const statsHtml = `<dl class="day-detail__stats" data-day-detail-stats>
+  const metrics = selectStageCourseMetrics(bundle, stage)
+  const statsHtml = `<div data-day-detail-stats>${waypointsInput.raceCourse?.status === 'bounded' ? '<p class="race-course__hint">Course calculée · horaires et météo entre départ et arrivée.</p>' : ''}<dl class="day-detail__stats">
     <div><dt>Départ</dt><dd>
       <button type="button" class="day-detail__departure-value" data-action="edit-day-departure-time" data-day-departure-value aria-label="Heure de départ ${escapeHtml(settings.departureTime)}, modifier">${escapeHtml(settings.departureTime)}</button>
     </dd></div>
     <div><dt>Arrivée estimée</dt><dd>${arrival?.clockTime ?? '—'}</dd></div>
-    <div><dt>Distance</dt><dd>${stage.distanceKm === null ? '—' : formatKilometers(stage.distanceKm)}</dd></div>
+    <div><dt>Distance</dt><dd>${metrics.distanceKm === null ? '—' : formatKilometers(metrics.distanceKm)}</dd></div>
     <div><dt>Durée</dt><dd>${formatDuration(totalDurationSeconds)}</dd></div>
-    <div><dt>D+</dt><dd>${stage.elevationGainM === null ? '—' : `+${Math.round(stage.elevationGainM)} m`}</dd></div>
-    <div><dt>D−</dt><dd>${stage.elevationLossM === null ? '—' : `−${Math.round(stage.elevationLossM)} m`}</dd></div>
-    <div><dt>Montées</dt><dd>${primaryClimbCount}</dd></div>
+    <div><dt>D+</dt><dd>${metrics.elevationGainM === null ? '—' : `+${Math.round(metrics.elevationGainM)} m`}</dd></div>
+    <div><dt>D−</dt><dd>${metrics.elevationLossM === null ? '—' : `−${Math.round(metrics.elevationLossM)} m`}</dd></div>
+    <div><dt>Montées</dt><dd>${waypointsInput.raceCourse?.status === 'stale' ? '—' : primaryClimbCount}</dd></div>
     ${pauseResolution.pausesDisabled === true ? '' : `<div><dt>Pauses</dt><dd>${totalPauseMinutes === null ? '—' : `${totalPauseMinutes} min`}</dd></div>`}
-  </dl>`
+  </dl></div>`
 
   // Course/Tour mode disables in-stage pauses: their configuration is not
   // offered at all (`renderPauseWeatherBottomBlock` then drops the whole
@@ -1117,7 +1123,7 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
   const pausesHtml = pauseResolution.pausesDisabled === true
     ? ''
     : renderPauseEditor(stage.id, pauseResolution, stageSettings, anchorCandidates, pauseRecommendations, openingStatusByCandidateId)
-  const timelineHtml = renderTimelineList(waypoints, bundle.climbs, geometry)
+  const timelineHtml = renderTimelineList(waypoints, bundle.climbs, geometry, bounds)
   // Étapes liées: a stage ridden the same day as the previous one shares
   // that day's lodging/notes — resolved through the same single function
   // the OFF/transfer shell already uses (`resolveSharedInfoDayId`), so both

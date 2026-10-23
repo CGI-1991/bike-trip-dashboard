@@ -11,6 +11,7 @@
  */
 
 import { resolveOffLocation, resolveTransferLocations } from '../../analysis/day-location-fill.ts'
+import { selectStageCourseMetrics } from '../../analysis/race-bounds.ts'
 import { formatTransferModeAndTimes } from './transfer-summary-format.ts'
 import { deriveTripTemporalState, getTripDayTemporalState } from '../../trips-manager/trip-day-temporal-state.ts'
 import type { TripDayTemporalState } from '../../trips-manager/trip-day-temporal-state.ts'
@@ -136,6 +137,7 @@ function renderRideDayCard(bundle: TripBundle, day: TripBundle['days'][number], 
   const daySettings = bundle.settings.days.find((candidate) => candidate.dayId === day.id)
   const departureTime = daySettings?.departureTime ?? null
   const eta = temporal.arrivalEta?.label ?? null
+  const metrics = selectStageCourseMetrics(bundle, stage)
   const status = temporal.completed ? '<span class="tag tag--completed">Terminé</span>' : `<span class="tag tag--ride">${selectOrganizationMode(bundle) === 'league' ? 'Course' : 'Étape'}</span>`
   // Section 5B/K: the status badge is its own grid item in the fixed-width
   // right column — never inline after the route name, so a long place name
@@ -155,7 +157,7 @@ function renderRideDayCard(bundle: TripBundle, day: TripBundle['days'][number], 
       ${renderDayNumberGroup(bundle, day)}
       <span class="trip-day-card__content">
         <span class="trip-day-card__route" title="${escapeHtml(fullRoute)}" aria-label="${escapeHtml(fullRoute)}">${locations}</span>
-        <span class="trip-day-card__metrics"><span>${stage.distanceKm === null ? '—' : formatKilometers(stage.distanceKm)}</span><span>${stage.elevationGainM === null ? '—' : `+${Math.round(stage.elevationGainM)} m`}</span></span>
+        <span class="trip-day-card__metrics"><span>${metrics.distanceKm === null ? '—' : formatKilometers(metrics.distanceKm)}</span><span>${metrics.elevationGainM === null ? '—' : `+${Math.round(metrics.elevationGainM)} m`}</span></span>
         <span class="trip-day-card__weather-mount" data-trip-day-weather-mount data-day-id="${escapeHtml(day.id)}"></span>
       </span>
       <span class="trip-day-card__schedule">
@@ -279,7 +281,7 @@ export function renderTripDetail(bundle: TripBundle, options: TripDetailRenderOp
     <div class="trip-detail" data-trip-detail>
       <header class="view-heading"><p class="eyebrow">${selectOrganizationMode(bundle) === 'league' ? 'League' : 'Voyage'}</p><h2>${escapeHtml(bundle.metadata.name)}</h2></header>
       ${prepSummary}
-      <details class="card trip-wind-summary"><summary>Vent relatif sur l’ensemble du voyage</summary><div data-trip-wind-summary></div></details>
+      <details class="card trip-wind-summary"><summary>${selectOrganizationMode(bundle) === 'voyage' ? 'Vent relatif sur l’ensemble du voyage' : 'Vent relatif sur l’ensemble des courses'}</summary><div data-trip-wind-summary></div></details>
       ${selectOrganizationMode(bundle) === 'league' ? renderLeagueCalendar(bundle, day => renderDayCard(bundle, day, getTripDayTemporalState(temporal, day.id) as TripDayTemporalState, temporal.priorityDayId, prepStatuses?.get(day.id))) : `<ol class="trip-day-list">${bundle.days.map((day) => renderDayCard(bundle, day, getTripDayTemporalState(temporal, day.id) as TripDayTemporalState, temporal.priorityDayId, prepStatuses?.get(day.id))).join('')}</ol>`}
       ${hasRideStages ? '<button class="button button--quiet button--full" type="button" data-action="download-trip-gpx">Télécharger les GPX</button>' : ''}
       ${automaticStatus}

@@ -1,4 +1,6 @@
 import { selectTravelMode } from '../trip-core/index.ts'
+import { buildRaceCourse } from '../analysis/race-bounds.ts'
+import { addCivilDays } from '../trip-core/validation/primitives.ts'
 import { computeStageWaypoints, resolveStagePauseSettings } from '../analysis/waypoint-timeline.ts'
 import { parseClockToMinutes } from '../analysis/timing.ts'
 import { selectRaceMode } from '../trip-core/selectors/trip-selectors.ts'
@@ -41,6 +43,13 @@ export interface DeriveDayCompletionInput {
 export function isTripDayCompleted(input: DeriveDayCompletionInput): boolean {
   const { day, localDate, localMinutes, arrivalEtaMinutes } = input
   if (day.date === null || localDate === null) return false
+  // A timed ride can still be in progress after its departure date ends.
+  // Keep the calendar date fixed and compare with its actual arrival day.
+  if (day.type === 'ride' && arrivalEtaMinutes !== null && Number.isFinite(arrivalEtaMinutes) && arrivalEtaMinutes >= 1440) {
+    const arrivalDate = addCivilDays(day.date, Math.floor(arrivalEtaMinutes / 1440))
+    if (localDate !== arrivalDate) return localDate > arrivalDate
+    return localMinutes !== null && localMinutes >= arrivalEtaMinutes % 1440
+  }
   if (day.date < localDate) return true
   if (day.date > localDate || day.type !== 'ride') return false
   return arrivalEtaMinutes !== null && localMinutes !== null && localMinutes >= arrivalEtaMinutes
@@ -82,6 +91,7 @@ export function computeRideArrivalEta(bundle: TripBundle, day: TripDay): RideArr
   const stageSettings = bundle.settings.stages.find((candidate) => candidate.stageId === stage.id)
   const pauseResolution = resolveStagePauseSettings(bundle.settings.global.pausePlanMode, stageSettings, selectRaceMode(bundle))
   const waypoints = computeStageWaypoints({
+    raceCourse: buildRaceCourse(bundle, stage),
     stage,
     route,
     routePoints: bundle.routePoints,
@@ -123,7 +133,7 @@ export function deriveTripTemporalState(bundle: TripBundle, now: Date | string |
   })?.dayId ?? null
   const days = preliminary.map((state) => {
     const day = orderedDays.find((candidate) => candidate.id === state.dayId)
-    const current = !state.completed && state.dayId === priorityDayId && day?.date !== null && day?.date === clock.date
+    const current = !state.completed && state.dayId === priorityDayId && day?.date != null && clock.date !== null && day.date <= clock.date
     return { ...state, current, upcoming: !state.completed && !current }
   })
   return { localDate: clock.date, localMinutes: clock.minutes, days, priorityDayId }

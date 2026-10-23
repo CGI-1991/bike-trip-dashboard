@@ -17,7 +17,7 @@ export function renderRaceCourseCard(course: RaceCourse, stage: RideStage): stri
     <tr><th scope="row">Trace GPX</th><td>${distance(stage.distanceKm)}</td><td>${meters(stage.elevationGainM)}</td><td>${meters(stage.elevationLossM)}</td></tr>
     <tr><th scope="row">Course calculée</th><td data-race-distance>${distance(length)}</td><td>${meters(metrics?.elevationGainM ?? null)}</td><td>${meters(metrics?.elevationLossM ?? null)}</td></tr></tbody></table>
     ${course.geometry?.some(point => point.altitudeM === null) ? '<p class="race-course__hint">Dénivelés partiels : altitudes manquantes.</p>' : ''}
-    <p class="race-course__hint">${course.status === 'full' ? 'Trace entière utilisée.' : course.status === 'bounded' ? `Départ km ${km(course.bounds!.startOffsetM / 1000)} · arrivée km ${km(course.bounds!.finishOffsetM / 1000)}.` : 'Calcul suspendu pour ces anciennes limites.'} Horaires et météo : trace GPX complète.</p>
+    <p class="race-course__hint">${course.status === 'full' ? 'Trace entière utilisée.' : course.status === 'bounded' ? `Départ km ${km(course.bounds!.startOffsetM / 1000)} · arrivée km ${km(course.bounds!.finishOffsetM / 1000)}. Profil et points en km GPX ; horaires, météo et vent entre ces limites.` : 'Horaires et météo suspendus pour ces anciennes limites.'}</p>
     <details data-race-editor><summary>Départ et arrivée de course</summary><div class="race-course__fields">
       <label>Départ · km<input type="number" inputmode="decimal" step="any" min="0" data-race-offset="start" aria-label="Départ de course en kilomètres"></label>
       <label>Arrivée · km<input type="number" inputmode="decimal" step="any" min="0" data-race-offset="finish" aria-label="Arrivée de course en kilomètres"></label>

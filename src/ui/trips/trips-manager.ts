@@ -6,7 +6,8 @@
  */
 
 import { createTripRepository } from '../../storage/indexeddb/trip-repository.ts'
-import { applyRaceBounds, buildRaceCourse } from '../../analysis/race-bounds.ts'
+import { buildRaceCourse } from '../../analysis/race-bounds.ts'
+import { updateRaceCourse } from '../../trips-manager/race-course.ts'
 import { mountRaceBoundsEditor } from './race-bounds-view.ts'
 import { selectTravelMode } from '../../trip-core/index.ts'
 import { createSourceFileRepository } from '../../storage/indexeddb/source-file-repository.ts'
@@ -324,7 +325,7 @@ function renderTripCard(trip: TripListEntry): string {
       <dl class="trip-card__stats">
         <div><dt>Dates</dt><dd>${escapeHtml(dateLabel)}</dd></div>
         ${trip.organizationMode === 'league' ? `<div><dt>Courses</dt><dd>${trip.stageCount}</dd></div>` : `<div><dt>Journées</dt><dd>${trip.dayCount}</dd></div><div><dt>Étapes</dt><dd>${trip.stageCount}</dd></div>`}
-        <div><dt>Distance</dt><dd>${trip.totalDistanceKm.toFixed(1)} km</dd></div>
+        <div><dt>Distance</dt><dd>${trip.courseLimitsNeedReview === true ? 'À vérifier' : `${trip.totalDistanceKm.toFixed(1)} km`}</dd></div>
       </dl>
       <div class="trip-card__actions">
         <button class="button button--quiet" type="button" data-action="backup-trip" data-trip-id="${escapeHtml(trip.id)}">Sauvegarder</button>
@@ -460,7 +461,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   /** One `AbortController` per profile container (CDC D1.1 section 18) — aborted and replaced on every `mountMapAndProfile` call so the profile→map sync listener never accumulates across a full render + `patchDayDetail` patches. */
   const profileSyncControllers = new WeakMap<HTMLElement, AbortController>()
   let mountedDayDetail: DayDetail | null = null
-  const windModels = new WeakMap<readonly WaypointWeather[], WeakMap<readonly import('../../trip-core/index.ts').RouteGeometryPoint[], RouteWindModel>>()
+  const windModels = new WeakMap<readonly WaypointWeather[], WeakMap<readonly import('../../trip-core/index.ts').RouteGeometryPoint[], { readonly scope: string; readonly model: RouteWindModel }>>()
   let currentRouteWind: RouteWindModel | null = null
   const getMapInteractionHandle = deps.getMapInteractionHandle ?? (() => null)
 
@@ -495,7 +496,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       if (panel !== null && day !== undefined) {
         const model = weatherCoordinator.getDayWeatherViewModel(day)
         currentRouteWind = null
-        if (mountedDayDetail?.geometry !== null && mountedDayDetail?.geometry !== undefined) currentRouteWind = routeWindForDay(day, mountedDayDetail.geometry)
+        if (mountedDayDetail?.geometry !== null && mountedDayDetail?.geometry !== undefined) currentRouteWind = routeWindForDay(bundle, day, mountedDayDetail.geometry)
         const windProfile = container.querySelector<HTMLElement>('[data-day-detail-profile]')
         if (windProfile !== null) updateProfileWind(windProfile, currentRouteWind, selectTravelMode(bundle))
         // CDC D1.2 section 24: a ride day's own "Points significatifs" list
@@ -524,6 +525,10 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     }
     const tripWind = container.querySelector<HTMLElement>('[data-trip-wind-summary]')
     if (tripWind !== null) {
+      if (bundle.stages.some(stage => buildRaceCourse(bundle, stage)?.status === 'stale')) {
+        tripWind.innerHTML = '<p class="profile-wind__summary">Redéfinissez les limites de course pour estimer le vent global.</p>'
+        return
+      }
       const parts = bundle.stages.map(stage => {
         const route = bundle.routes.find(route => route.id === stage.sourceRouteId)
         const geometry = route === undefined ? null : routeGeometry(route)
@@ -531,15 +536,18 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
         // A stage without usable geometry still contributes its known
         // distance to the uncovered part of the whole-trip estimate.
         if (geometry === null || day === undefined) return { lengthKm: stage.distanceKm ?? 0, summary: null }
-        const model = routeWindForDay(day, geometry)
-        return { lengthKm: model?.lengthKm ?? windRouteLengthKm(geometry), summary: model?.summary ?? null }
+        const course = buildRaceCourse(bundle, stage)
+        if (course?.status === 'stale') return { lengthKm: 0, summary: null }
+        const model = routeWindForDay(bundle, day, geometry)
+        const length = course?.bounds === null || course?.bounds === undefined ? windRouteLengthKm(geometry) : (course.bounds.finishOffsetM - course.bounds.startOffsetM) / 1000
+        return { lengthKm: model?.lengthKm ?? length, summary: model?.summary ?? null }
       })
       const stats = combineRouteWindSummaries(parts)
       tripWind.innerHTML = renderRelativeWind(stats.mean, false, selectTravelMode(bundle)) + `<details class="profile-wind__details"><summary>Détails du vent</summary><p class="profile-wind__summary">${formatRouteWindSummary(stats)}</p></details>`
     }
   }
 
-  function routeWindForDay(day: import('../../trip-core/index.ts').TripDay, geometry: readonly import('../../trip-core/index.ts').RouteGeometryPoint[]): RouteWindModel | null {
+  function routeWindForDay(bundle: TripBundle, day: import('../../trip-core/index.ts').TripDay, geometry: readonly import('../../trip-core/index.ts').RouteGeometryPoint[]): RouteWindModel | null {
     if (day.type !== 'ride') return null
     const state = weatherCoordinator.getDayWeatherState(day.id)
     if (state?.data?.type !== 'ride') return null
@@ -547,10 +555,16 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       tripDate: state.tripDate, coverage: getCoverageFromDates(state.receivedDates) })
     if (displayMode === 'today-reference' || displayMode === 'past') return null
     const points = state.data.waypoints
+    const stage = bundle.stages.find(stage => stage.id === day.stageId)
+    const course = stage === undefined ? null : buildRaceCourse(bundle, stage)
+    if (course?.status === 'stale') return null
+    const range = course?.bounds == null ? undefined : { startKm: course.bounds.startOffsetM / 1000, finishKm: course.bounds.finishOffsetM / 1000 }
+    const scope = range === undefined ? 'full' : `${range.startKm}:${range.finishKm}`
     let byGeometry = windModels.get(points)
     if (byGeometry === undefined) { byGeometry = new WeakMap(); windModels.set(points, byGeometry) }
-    const wind = byGeometry.get(geometry) ?? buildRouteWindModel(geometry, points)
-    if (wind !== null) byGeometry.set(geometry, wind)
+    const cached = byGeometry.get(geometry)
+    const wind = cached?.scope === scope ? cached.model : buildRouteWindModel(geometry, points, range)
+    if (wind !== null) byGeometry.set(geometry, { scope, model: wind })
     return wind
   }
 
@@ -842,16 +856,9 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       // at all — its own markers-only model (resolved location, or the
       // transfer's origin/destination pair) stands in instead, never a
       // fabricated line.
-      let model = detail.geometry === null
+      const model = detail.geometry === null
         ? detail.markersOnlyMapModel
         : buildGenericRouteMapModel(visibleWaypoints, detail.geometry.map((point) => [point.latitude, point.longitude] as const))
-      const stage = bundle.stages.find(stage => stage.dayId === dayId)
-      const course = stage === undefined ? null : buildRaceCourse(bundle, stage)
-      const raceMarkers = course?.status === 'bounded' && course.geometry !== null ? [
-        { id: 'race-start', category: 'start' as const, name: 'Départ de course', coordinate: [course.geometry[0]!.latitude, course.geometry[0]!.longitude] as const, offRoute: false, pauseActive: false },
-        { id: 'race-finish', category: 'finish' as const, name: 'Arrivée de course', coordinate: [course.geometry.at(-1)!.latitude, course.geometry.at(-1)!.longitude] as const, offRoute: false, pauseActive: false },
-      ] : []
-      if (model !== null && raceMarkers.length > 0) model = { ...model, markers: [...model.markers, ...raceMarkers] }
       deps.renderMap(mapContainer, mapDialog, model, [...villagesLayer(detail.villageWaypoints), ...practicalPlaceLayers(bundle, detail, dayId)])
       mapDialog.querySelector<HTMLButtonElement>('[data-close-map]')?.addEventListener('click', () => deps.closeMap(mapDialog))
     }
@@ -861,9 +868,16 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       const stage = bundle.stages.find(stage => stage.dayId === dayId)
       if (stage !== undefined && typeof profileContainer.insertAdjacentHTML === 'function') {
         mountRaceBoundsEditor(profileContainer, bundle, stage, async (bounds, expectedFingerprint) => {
-          const updated = await mutateTripBundle(bundle.metadata.id, latest => applyRaceBounds(latest, stage.id, bounds, expectedFingerprint, deps.now()))
+          let resolution: ReturnType<typeof updateRaceCourse> | undefined
+          const updated = await mutateTripBundle(bundle.metadata.id, latest => {
+            resolution = updateRaceCourse(latest, stage.id, bounds, expectedFingerprint, deps.now())
+            return resolution.bundle
+          })
           if (updated === null) throw new Error('Cette course n’est plus disponible.')
-          if (mode.kind === 'day' && mode.tripId === bundle.metadata.id && mode.dayId === dayId) patchDayDetail(updated, dayId)
+          if (mode.kind === 'day' && mode.tripId === bundle.metadata.id && mode.dayId === dayId) {
+            patchDayDetail(updated, dayId)
+            if (resolution !== undefined) reportScheduleResolution(resolution)
+          }
         })
       }
     }

@@ -1,12 +1,12 @@
 # Limites de course et vent mobile — lot 2
 
-Version 2026.10.23.7. Le calendrier League est décrit dans [LEAGUE_CALENDAR.md](LEAGUE_CALENDAR.md).
+Lot initial 2026.10.23.7. Depuis 2026.10.23.8, les [horaires, météo et vent suivent aussi les limites de course](RACE_COURSE_TIMING.md). Le calendrier League est décrit dans [LEAGUE_CALENDAR.md](LEAGUE_CALENDAR.md).
 
 Dans une course League ou une étape Tour, le bloc **Course**, au-dessus du profil, compare **Trace GPX** et **Course calculée**. Déplier **Départ et arrivée de course**, saisir les kilomètres ou choisir une limite puis toucher le profil. Les flèches du clavier fonctionnent aussi. **Enregistrer** confirme ; **Annuler** abandonne l’aperçu ; **Trace entière** supprime les limites enregistrées. La carte porte les repères Départ/Arrivée de course après enregistrement. La sélection sur carte est reportée : le profil désigne sans ambiguïté le passage dans une boucle, et la saisie reste disponible si le GPX n’a pas d’altitude.
 
 Les offsets sont en mètres sur le GPX original, selon le chaînage partagé avec profil et points du parcours. Les points des limites sont interpolés sur les segments, y compris pour une portion qui ne contient aucun sommet GPX. Les dénivelés réutilisent le lissage de 150 m de l’import ; les trous d’altitude sont interrompus, signalés et ne produisent pas de dénivelé fictif entre deux portions. Ces résultats sont des estimations calculées, pas des chiffres officiels.
 
-Les métriques, horaires, ETA, prévisions et statistiques de vent existants restent ceux de la **trace complète**, ce qui est signalé dans le bloc. Ce lot n’utilise pas encore le départ de course pour recaler ces horaires ; ce recalage devra être commun au profil, aux points de passage et aux requêtes météo avant activation. Les chiffres officiels manuels et les segments Sprint/Grimpeur/Flandrien restent à réaliser.
+Le premier lot conservait les horaires, ETA, prévisions et statistiques de vent de la trace complète. Le [lot suivant](RACE_COURSE_TIMING.md) les recale en commun sur la course. Les chiffres officiels manuels et les segments Sprint/Grimpeur/Flandrien restent à réaliser.
 
 Les limites sont un champ optionnel de `RideStage`, sans migration IndexedDB. Les voyages historiques n’en ont pas et restent lisibles. La sauvegarde ZIP complète conserve les limites et les GPX originaux. Une modification de date, de nom ou l’ajout d’une autre course conserve les limites ; le remplacement du GPX garde une référence périmée explicitement signalée, inutilisable tant que l’utilisateur ne redéfinit pas ses limites ou ne choisit pas Trace entière. L’enregistrement relit la dernière version dans une transaction et refuse une trace remplacée entre-temps.
 

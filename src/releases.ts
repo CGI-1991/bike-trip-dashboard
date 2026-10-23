@@ -13,6 +13,10 @@ export interface AppRelease {
 }
 
 export const APP_RELEASES: readonly AppRelease[] = [
+  { version: '2026.10.23.8', date: '2026-10-23', changes: [
+    { feature: 'race-bounds', title: 'Les horaires et la météo suivent la course', description: 'Dans League et Tour, l’heure de départ s’applique au départ de course choisi. Profil, points de passage, arrivée estimée et prévisions utilisent les mêmes temps, y compris après minuit. La bibliothèque, le calendrier et l’aperçu affichent les distances de course. Les limites périmées suspendent ces estimations ; le GPX complet reste conservé.' },
+    { feature: 'relative-wind', title: 'Le vent moyen porte sur la portion de course', description: 'Avec des limites de course, le vent moyen est calculé uniquement entre départ et arrivée. Les zones grisées avant et après restent explorables, sans ETA ni estimation de vent de course. Déplacer une heure de départ réutilise les prévisions horaires en cache quand leurs lieux et dates restent identiques.' },
+  ] },
   { version: '2026.10.23.7', date: '2026-10-23', changes: [
     { feature: 'relative-wind', title: 'Un vent plus lisible sur téléphone', description: 'Un repère vélo minimaliste remplace le cycliste détaillé. La lecture affiche la direction relative et la vitesse du vent en km/h ; rafales et précisions restent dans Détails du vent. Le profil et les points du parcours gardent leurs moyennes lissées.' },
     { feature: 'race-bounds', title: 'Départ et arrivée de course', description: 'Dans League et Tour, définissez les limites au toucher sur le profil ou en kilomètres. La course calculée a ses propres distance et dénivelés ; la trace GPX complète est conservée, avec les portions hors course grisées. Après remplacement du GPX, les anciennes limites doivent être redéfinies. Les horaires et prévisions restent ceux de la trace complète dans ce lot.' },

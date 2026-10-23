@@ -168,7 +168,7 @@ function installTooltipProfileInteraction(container: HTMLElement, samples: reado
 
 export interface BandProfileInteractionOptions {
   /** Reuses `waypoint-timeline.ts::computeStageTimingCurve` — `null`/omitted when the stage has no valid timing (no geometry, no reference speed). */
-  readonly timingCurve?: { readonly clockTimeAt: (distanceKm: number) => string } | null
+  readonly timingCurve?: { readonly clockTimeAt: (distanceKm: number) => string | null } | null
 }
 
 /**

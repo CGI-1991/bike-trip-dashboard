@@ -15,7 +15,9 @@
 
 import { interpolateTerrainTiming, buildTerrainProfileSeries } from '../route/terrain-profile.ts'
 import { createTravelTerrainTiming, walkingTerrainForGeometry } from './travel-timing.ts'
-import { formatRouteClockTime } from '../route/time.ts'
+import { createRouteClockTime, formatRouteClockTime } from '../route/time.ts'
+import { courseWaypoints } from './race-bounds.ts'
+import type { RaceCourse } from './race-bounds.ts'
 import type { RouteProfilePosition } from '../route/types.ts'
 import type { Climb, PausePlanMode, RideStage, RideStageSettings, Route, RouteGeometryPoint, RoutePoint, TravelMode, TripBundle, TripDay } from '../trip-core/index.ts'
 import { isPracticalPlaceUxCategory } from '../practical-places/taxonomy.ts'
@@ -91,6 +93,8 @@ export function resolveStagePauseSettings(globalMode: PausePlanMode, stageSettin
 }
 
 export interface ComputeStageWaypointsInput {
+  /** Verified against the latest source fingerprint by buildRaceCourse. */
+  readonly raceCourse?: RaceCourse | null
   readonly stage: RideStage
   readonly route: Route
   readonly routePoints: readonly RoutePoint[]
@@ -240,6 +244,12 @@ function resolveAutomaticPlacedPauses(
 export function computeStageWaypoints(input: ComputeStageWaypointsInput): readonly CanonicalWaypoint[] {
   const { stage, route, routePoints, climbs, settings } = input
   const baseWaypoints = buildCanonicalWaypoints({ stage, route, routePoints, climbs })
+  if (input.raceCourse !== undefined && input.raceCourse !== null && input.raceCourse.status !== 'full') {
+    const points = courseWaypoints(baseWaypoints, stage, input.raceCourse)
+    const curve = computeStageTimingCurve(input)
+    return points.map(point => ({ ...point, elapsedMinutes: curve?.elapsedMinutesAt(point.trackDistanceKm) ?? null,
+      clockTime: curve?.clockTimeAt(point.trackDistanceKm) ?? null }))
+  }
   if (baseWaypoints.length === 0) return []
 
   const geometryWithDistances = routeGeometryWithDistances(route)
@@ -349,9 +359,11 @@ export function computeStagePauseRecommendations(input: ComputeStageWaypointsInp
 }
 
 export interface StageTimingCurve {
-  /** Elapsed minutes since departure at an arbitrary distance along the stage — moving time plus any pause already completed before it, the exact composition every waypoint's own `elapsedMinutes` uses. */
-  elapsedMinutesAt(distanceKm: number): number
-  clockTimeAt(distanceKm: number): string
+  /** Minutes since the operational departure, using absolute GPX chainage.
+   * null outside an active course; otherwise includes pauses already completed,
+   * with the exact same composition as each waypoint's elapsedMinutes. */
+  elapsedMinutesAt(distanceKm: number): number | null
+  clockTimeAt(distanceKm: number): string | null
 }
 
 /**
@@ -375,6 +387,25 @@ export interface StageTimingCurve {
  * conditions `computeStageWaypoints` itself treats as "untimed".
  */
 export function computeStageTimingCurve(input: ComputeStageWaypointsInput): StageTimingCurve | null {
+  const course = input.raceCourse
+  if (course?.status === 'stale') return null
+  if (course?.status === 'bounded' && course.bounds !== null) {
+    // Subtract moving time on the full terrain curve. Smoothing and GPX
+    // chainage remain identical on both sides of every chosen boundary.
+    const full = computeStageTimingCurve({ ...input, raceCourse: undefined, manualPauses: [], automaticPausesAllowed: false })
+    const start = course.bounds.startOffsetM / 1000, finish = course.bounds.finishOffsetM / 1000
+    const initial = full?.elapsedMinutesAt(start)
+    if (full === null || initial === null || initial === undefined) return null
+    const elapsed = (km: number): number | null => {
+      if (!Number.isFinite(km) || km < start || km > finish) return null
+      const value = full.elapsedMinutesAt(km)
+      return value === null ? null : Math.max(0, value - initial)
+    }
+    return { elapsedMinutesAt: elapsed, clockTimeAt(km) {
+      const value = elapsed(km)
+      return value === null ? null : formatRouteClockTime(createRouteClockTime(parseClockToMinutes(input.settings.departureTime), value))
+    } }
+  }
   const { stage, route, routePoints, climbs, settings } = input
   const baseWaypoints = buildCanonicalWaypoints({ stage, route, routePoints, climbs })
   if (baseWaypoints.length === 0) return null
