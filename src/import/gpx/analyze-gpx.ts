@@ -145,7 +145,7 @@ function interpolateElevationAtKm(
  * the accumulation of metre-scale GPX altitude jitter while preserving the
  * source elevations themselves for raw geometry, min/max and diagnostics.
  */
-function calculateSmoothedElevationMetrics(
+export function calculateSmoothedElevationMetrics(
   points: readonly AnalyzedPoint[],
 ): { readonly elevationGainM: number | null; readonly elevationLossM: number | null } {
   const rawAltitudeCount = points.filter((point) => point.elevationM !== null).length

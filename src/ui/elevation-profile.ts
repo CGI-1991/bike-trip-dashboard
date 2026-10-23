@@ -229,6 +229,7 @@ function installBandProfileInteraction(container: HTMLElement, samples: readonly
       ? `${sample.distanceKm.toFixed(1)} km · ${Math.round(sample.altitudeM)} m · Pente moyenne : ${sample.smoothedGradePercent.toFixed(1)} %`
       : `${sample.distanceKm.toFixed(1)} km · ${Math.round(sample.altitudeM)} m · Pente moyenne : ${sample.smoothedGradePercent.toFixed(1)} % · ETA ${etaLabel}`
     dispatch('profile-sample-active', { latitude: sample.latitude, longitude: sample.longitude })
+    container.dispatchEvent?.(new CustomEvent('profile-distance-active', { detail: { distanceKm: sample.distanceKm } }))
     selectProfileWind(container, sample.distanceKm)
   }
   const clear = (): void => {
@@ -240,7 +241,10 @@ function installBandProfileInteraction(container: HTMLElement, samples: readonly
   }
   const fromPointer = (event: PointerEvent) => {
     const rect = svg.getBoundingClientRect()
-    show(((event.clientX - rect.left) / Math.max(rect.width, 1)) * total)
+    // Plot spans x=20..780 inside the 800-unit viewBox. Touch and keyboard
+    // selection must share the exact chainage, especially for race bounds.
+    const viewBoxX = (event.clientX - rect.left) / Math.max(rect.width, 1) * 800
+    show((viewBoxX - 20) / 760 * total)
   }
   svg.addEventListener('pointerdown', (event) => { svg.setPointerCapture?.(event.pointerId); fromPointer(event) }, { signal: controller.signal })
   svg.addEventListener('pointermove', fromPointer, { signal: controller.signal })
@@ -539,7 +543,7 @@ export function renderGenericElevationProfile(container: HTMLElement, geometry: 
     .join('')
   container.innerHTML = renderProfileWindControls()
     + renderProfileSvgMarkup(samples, markers, { min, max, total, x, y }, 'generic', `Profil altimétrique interactif de ${stageLabel}`, 'band')
-    + '<div class="profile-wind" data-profile-wind></div><p class="profile-wind__summary" data-route-wind-summary></p>'
+    + '<div class="profile-wind" data-profile-wind></div><details class="profile-wind__details"><summary>Détails du vent</summary><p class="profile-wind__orientation">↑ sens de déplacement · flèche = déplacement de l’air</p><p data-selected-wind-details></p><p class="profile-wind__summary" data-route-wind-summary></p></details>'
   installProfileWindControls(container, samples, { total, x, y })
   installBandProfileInteraction(container, samples, min, max, total, { timingCurve })
 }

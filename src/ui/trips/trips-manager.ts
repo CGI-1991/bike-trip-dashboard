@@ -6,6 +6,8 @@
  */
 
 import { createTripRepository } from '../../storage/indexeddb/trip-repository.ts'
+import { applyRaceBounds, buildRaceCourse } from '../../analysis/race-bounds.ts'
+import { mountRaceBoundsEditor } from './race-bounds-view.ts'
 import { selectTravelMode } from '../../trip-core/index.ts'
 import { createSourceFileRepository } from '../../storage/indexeddb/source-file-repository.ts'
 import type { SourceFilePayloadContent } from '../../storage/indexeddb/source-file-repository.ts'
@@ -533,7 +535,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
         return { lengthKm: model?.lengthKm ?? windRouteLengthKm(geometry), summary: model?.summary ?? null }
       })
       const stats = combineRouteWindSummaries(parts)
-      tripWind.innerHTML = renderRelativeWind(stats.mean, false, selectTravelMode(bundle)) + `<p class="profile-wind__summary">${formatRouteWindSummary(stats)}</p>`
+      tripWind.innerHTML = renderRelativeWind(stats.mean, false, selectTravelMode(bundle)) + `<details class="profile-wind__details"><summary>Détails du vent</summary><p class="profile-wind__summary">${formatRouteWindSummary(stats)}</p></details>`
     }
   }
 
@@ -840,15 +842,30 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       // at all — its own markers-only model (resolved location, or the
       // transfer's origin/destination pair) stands in instead, never a
       // fabricated line.
-      const model = detail.geometry === null
+      let model = detail.geometry === null
         ? detail.markersOnlyMapModel
         : buildGenericRouteMapModel(visibleWaypoints, detail.geometry.map((point) => [point.latitude, point.longitude] as const))
+      const stage = bundle.stages.find(stage => stage.dayId === dayId)
+      const course = stage === undefined ? null : buildRaceCourse(bundle, stage)
+      const raceMarkers = course?.status === 'bounded' && course.geometry !== null ? [
+        { id: 'race-start', category: 'start' as const, name: 'Départ de course', coordinate: [course.geometry[0]!.latitude, course.geometry[0]!.longitude] as const, offRoute: false, pauseActive: false },
+        { id: 'race-finish', category: 'finish' as const, name: 'Arrivée de course', coordinate: [course.geometry.at(-1)!.latitude, course.geometry.at(-1)!.longitude] as const, offRoute: false, pauseActive: false },
+      ] : []
+      if (model !== null && raceMarkers.length > 0) model = { ...model, markers: [...model.markers, ...raceMarkers] }
       deps.renderMap(mapContainer, mapDialog, model, [...villagesLayer(detail.villageWaypoints), ...practicalPlaceLayers(bundle, detail, dayId)])
       mapDialog.querySelector<HTMLButtonElement>('[data-close-map]')?.addEventListener('click', () => deps.closeMap(mapDialog))
     }
     const profileContainer = container.querySelector<HTMLElement>('[data-day-detail-profile]')
     if (profileContainer !== null) {
       renderGenericElevationProfile(profileContainer, detail.geometry, visibleWaypoints, detail.stageLabel, detail.timingCurve)
+      const stage = bundle.stages.find(stage => stage.dayId === dayId)
+      if (stage !== undefined && typeof profileContainer.insertAdjacentHTML === 'function') {
+        mountRaceBoundsEditor(profileContainer, bundle, stage, async (bounds, expectedFingerprint) => {
+          const updated = await mutateTripBundle(bundle.metadata.id, latest => applyRaceBounds(latest, stage.id, bounds, expectedFingerprint, deps.now()))
+          if (updated === null) throw new Error('Cette course n’est plus disponible.')
+          if (mode.kind === 'day' && mode.tripId === bundle.metadata.id && mode.dayId === dayId) patchDayDetail(updated, dayId)
+        })
+      }
     }
     // Profile→map sync (CDC D1.1 sections 18-19): re-wired on every call —
     // `mountMapAndProfile` runs on every full mount AND every
@@ -1765,7 +1782,8 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       const latest = await createTripRepository(deps.database).loadTripBundle(tripId)
       if (latest === null || mode.kind !== 'day' || mode.tripId !== tripId) return
       const dialog = container.querySelector<HTMLDialogElement>('[data-day-detail-map-dialog]')
-      if (editGuard.activeId === null && dialog?.open !== true) patchDayDetail(latest, mode.dayId)
+      const raceEditor = container.querySelector<HTMLDetailsElement>('[data-race-editor]')
+      if (editGuard.activeId === null && dialog?.open !== true && raceEditor?.open !== true) patchDayDetail(latest, mode.dayId)
       else patchLivePracticalPlaces(latest, mode.dayId)
     }
 

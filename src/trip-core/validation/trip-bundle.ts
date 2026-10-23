@@ -673,6 +673,16 @@ export function validateTripBundle(value: unknown): ValidationResult<TripBundle>
     if (stage.customName !== undefined && !isNonEmptyString(stage.customName)) {
       issues.push(issue(`${path}.customName`, 'invalid-value', 'customName doit être une chaîne non vide ou absente.'))
     }
+    if (stage.raceBounds !== undefined) {
+      const bounds = stage.raceBounds
+      if (!isPlainObject(bounds) || !isNonEmptyString(bounds.routeFingerprint)
+        || !isNonNegativeNumber(bounds.startOffsetM) || !isPositiveNumber(bounds.finishOffsetM)
+        || (bounds.finishOffsetM as number) <= (bounds.startOffsetM as number)) {
+        issues.push(issue(`${path}.raceBounds`, 'invalid-value', 'Limites de course invalides.'))
+      }
+      // A stale fingerprint/out-of-route range remains readable and backed up;
+      // buildRaceCourse prevents using it until explicitly reselected.
+    }
     if (stage.startLocationName !== null && !isNonEmptyString(stage.startLocationName)) issues.push(issue(`${path}.startLocationName`, 'invalid-value', 'startLocationName invalide.'))
     if (stage.endLocationName !== null && !isNonEmptyString(stage.endLocationName)) issues.push(issue(`${path}.endLocationName`, 'invalid-value', 'endLocationName invalide.'))
     for (const field of ['distanceKm', 'elevationGainM', 'elevationLossM', 'movingDurationSeconds', 'pauseDurationSeconds', 'totalDurationSeconds'] as const) {

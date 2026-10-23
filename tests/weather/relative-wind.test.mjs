@@ -153,12 +153,22 @@ test('walking wind uses a walker while retaining the same airflow direction in f
     assert.match(walking,/rotate\(180\.0 32 32\)/)
     assert.match(cycling,/rotate\(180\.0 32 32\)/)
   }
-  assert.match(renderRelativeWind(null,false,'walking'),/relative-wind__walker/)
+  assert.match(renderRelativeWind(null,false,'walking'),/Vent indisponible/)
   assert.doesNotMatch(renderRelativeWind(null,false,'walking'),/relative-wind__arrow/)
+})
+
+test('mobile wind shows total wind speed rather than its headwind component and omits the verbose breakdown',()=>{
+  const reading=modelFor(line(),90,20).at(5)
+  assert.ok(Math.abs(reading.headwindKph)<0.1)
+  const markup=renderRelativeWind(reading,true)
+  assert.match(markup,/20 km\/h/)
+  assert.doesNotMatch(markup,/Face 0|latéral 20|rafales jusqu/)
+  assert.match(markup,/relative-wind__bike/)
 })
 
 test('the profile retains walking orientation during exploration and restores cycling wording when the mode changes',()=>{
   const readout={innerHTML:''}
+  const details={textContent:''}
   const elements={
     '[data-profile-interactive]':{},
     '[data-profile-color-bands]':{innerHTML:''},
@@ -166,12 +176,15 @@ test('the profile retains walking orientation during exploration and restores cy
     '[data-profile-color-legend]':{textContent:''},
     '[data-profile-wind]':readout,
     '[data-route-wind-summary]':{textContent:''},
+    '[data-selected-wind-details]':details,
   }
   const container={querySelector:selector=>elements[selector]??null,querySelectorAll:()=>[],addEventListener(){}}
   installProfileWindControls(container,[],{total:10,x:km=>km,y:altitude=>altitude})
   const model=modelFor()
   updateProfileWind(container,model,'walking')
   selectProfileWind(container,5)
+  assert.match(details.textContent,/rafales jusqu’à 30 km\/h/)
+  assert.doesNotMatch(readout.innerHTML,/rafales jusqu’à/)
   assert.match(readout.innerHTML,/sens de marche/)
   assert.match(readout.innerHTML,/relative-wind__walker/)
   assert.doesNotMatch(readout.innerHTML,/sens de roulage/)

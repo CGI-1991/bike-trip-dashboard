@@ -13,6 +13,10 @@ export interface AppRelease {
 }
 
 export const APP_RELEASES: readonly AppRelease[] = [
+  { version: '2026.10.23.7', date: '2026-10-23', changes: [
+    { feature: 'relative-wind', title: 'Un vent plus lisible sur téléphone', description: 'Un repère vélo minimaliste remplace le cycliste détaillé. La lecture affiche la direction relative et la vitesse du vent en km/h ; rafales et précisions restent dans Détails du vent. Le profil et les points du parcours gardent leurs moyennes lissées.' },
+    { feature: 'race-bounds', title: 'Départ et arrivée de course', description: 'Dans League et Tour, définissez les limites au toucher sur le profil ou en kilomètres. La course calculée a ses propres distance et dénivelés ; la trace GPX complète est conservée, avec les portions hors course grisées. Après remplacement du GPX, les anciennes limites doivent être redéfinies. Les horaires et prévisions restent ceux de la trace complète dans ce lot.' },
+  ] },
   { version: '2026.10.23.6', date: '2026-10-23', changes: [
     { feature: 'gpx-editor-add', title: 'L’ajout de GPX dans l’éditeur est fiabilisé', description: 'Le bouton Ajouter des GPX conserve la sélection avant de réinitialiser le sélecteur de fichiers. Les fichiers choisis sont bien ajoutés, pour une course League comme pour une étape de voyage.' },
     { feature: 'league-calendar', title: 'League : votre calendrier de courses', description: 'Choisissez League à la création, ajoutez un GPX par course et indiquez chaque date et heure de départ. Le calendrier se classe automatiquement ; modifier une course ne décale pas les autres. Les parcours, météo et vent restent accessibles. Aucun arrêt n’est planifié pendant une course ; les POI peuvent être recherchés explicitement depuis les réglages avancés. Les segments de compétition et les exports Garmin arriveront dans les prochains lots.' },
