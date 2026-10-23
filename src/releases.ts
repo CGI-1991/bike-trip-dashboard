@@ -13,6 +13,10 @@ export interface AppRelease {
 }
 
 export const APP_RELEASES: readonly AppRelease[] = [
+  { version: '2026.10.23.9', date: '2026-10-23', changes: [
+    { feature: 'elevation-profile', title: 'Un GPX sans altitude garde des valeurs inconnues', description: 'Un fichier dépourvu d’altitudes n’affiche plus un faux profil plat à zéro mètre. Les segments restent éditables sur la carte ou par leurs kilomètres, avec pente et dénivelé inconnus.' },
+    { feature: 'race-segments', title: 'Vos segments Sprint, Grimpeur et Flandrien', description: 'Dans League et Tour, ajoutez des segments nommés, placez leurs limites sur le profil ou sur une carte interactive et ajustez leurs kilomètres. Les bandes et repères S/G/F acceptent les chevauchements. Les segments manuels, leurs statistiques et réglages pour les futurs exports sont sauvegardés localement, indépendamment des montées automatiques. Après remplacement du GPX, leurs positions doivent être vérifiées.' },
+  ] },
   { version: '2026.10.23.8', date: '2026-10-23', changes: [
     { feature: 'race-bounds', title: 'Les horaires et la météo suivent la course', description: 'Dans League et Tour, l’heure de départ s’applique au départ de course choisi. Profil, points de passage, arrivée estimée et prévisions utilisent les mêmes temps, y compris après minuit. La bibliothèque, le calendrier et l’aperçu affichent les distances de course. Les limites périmées suspendent ces estimations ; le GPX complet reste conservé.' },
     { feature: 'relative-wind', title: 'Le vent moyen porte sur la portion de course', description: 'Avec des limites de course, le vent moyen est calculé uniquement entre départ et arrivée. Les zones grisées avant et après restent explorables, sans ETA ni estimation de vent de course. Déplacer une heure de départ réutilise les prévisions horaires en cache quand leurs lieux et dates restent identiques.' },

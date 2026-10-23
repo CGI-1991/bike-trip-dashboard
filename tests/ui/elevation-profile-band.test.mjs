@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { renderGenericElevationProfile } from '../../src/ui/elevation-profile.ts'
+import { renderGenericElevationProfile, sampleElevationProfileFromGeometry } from '../../src/ui/elevation-profile.ts'
+
+test('a GPX without any altitude has no fictitious zero-metre profile', () => {
+  const points = [{ latitude: 45, longitude: 6, altitudeM: null }, { latitude: 45.1, longitude: 6, altitudeM: null }]
+  assert.deepEqual(sampleElevationProfileFromGeometry(points), [])
+  const container = { innerHTML: '' }
+  renderGenericElevationProfile(container, points, [])
+  assert.match(container.innerHTML, /Profil altimétrique indisponible/)
+  assert.doesNotMatch(container.innerHTML, /data-profile-interactive|0 m/)
+})
 
 // CDC D1.1 sections 16/18/21 — the generic profile's fixed info band and the
 // profile→map sync events. The RGA profile (`renderElevationProfile`) keeps

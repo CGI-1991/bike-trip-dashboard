@@ -8,6 +8,7 @@
 import type { CanonicalWaypointKind } from '../analysis/canonical-waypoints.ts'
 
 export type RouteMarkerCategory =
+  | 'race-sprint' | 'race-climb' | 'race-flandrien'
   | 'start' | 'finish' | 'col-summit' | 'passage' | 'locality-major' | 'locality-minor' | 'overview-primary' | 'overview-secondary'
   // C2 practical-POI categories (CDC section 18) — Étape fullscreen map only,
   // never mixed into the structural categories above (never part of
@@ -19,6 +20,7 @@ export type RouteMarkerCategory =
 export type RouteMarkerShape = 'circle' | 'rounded-square' | 'diamond'
 
 export interface RouteMarkerStyle {
+  readonly textColorHex?: string
   readonly category: RouteMarkerCategory
   readonly shape: RouteMarkerShape
   /** Fill color — reused from the app's existing tokens, not a new palette. */
@@ -35,6 +37,9 @@ export interface RouteMarkerStyle {
 export const PAUSE_ACCENT_COLOR_HEX = '#7c3aed'
 
 const CATEGORY_STYLES: Record<RouteMarkerCategory, RouteMarkerStyle> = {
+  'race-sprint': { category: 'race-sprint', shape: 'rounded-square', colorHex: '#16804a', symbol: 'S', sizePx: 20, label: 'Sprint' },
+  'race-climb': { category: 'race-climb', shape: 'rounded-square', colorHex: '#b73132', symbol: 'G', sizePx: 20, label: 'Grimpeur' },
+  'race-flandrien': { category: 'race-flandrien', shape: 'rounded-square', colorHex: '#e5bd32', textColorHex: '#302500', symbol: 'F', sizePx: 20, label: 'Flandrien' },
   start: {
     category: 'start',
     shape: 'circle',
@@ -145,6 +150,7 @@ export const routeMarkerCategoryOrder: readonly RouteMarkerCategory[] = [
 
 /** Every `RouteMarkerCategory` value, in a stable display order — used by the generic map/profile's own dynamic legend. */
 export const allRouteMarkerCategories: readonly RouteMarkerCategory[] = [
+  'race-sprint', 'race-climb', 'race-flandrien',
   'start',
   'finish',
   'col-summit',
@@ -199,6 +205,7 @@ export function getGenericRouteMarkerCategory(kind: CanonicalWaypointKind): Rout
 }
 
 const CATEGORY_LEGEND_SYMBOL: Record<RouteMarkerCategory, string> = {
+  'race-sprint': 'S', 'race-climb': 'G', 'race-flandrien': 'F',
   start: 'D',
   finish: 'A',
   'col-summit': '◆',

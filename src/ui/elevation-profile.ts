@@ -12,6 +12,7 @@ import type { RouteGeometryPoint } from '../trip-core/index.ts'
 import { PAUSE_ACCENT_COLOR_HEX, getGenericRouteMarkerCategory, getRouteMarkerCategory, getRouteMarkerStyle } from './route-marker-style.ts'
 import type { RouteMarkerCategory } from './route-marker-style.ts'
 import { installProfileWindControls, renderProfileWindControls, selectProfileWind } from './relative-wind-view.ts'
+import { renderFeatureUpdateBadge } from './release-notes.ts'
 
 export interface ProfileSample extends TerrainProfilePoint { readonly altitudeM: number }
 
@@ -45,6 +46,7 @@ export function sampleElevationProfile(gpx: GpxAnalysisSuccess, maximumPoints = 
 
 /** Generic counterpart of `sampleElevationProfile`, built from `Route.geometry` instead of a GPX analysis result. */
 export function sampleElevationProfileFromGeometry(geometry: readonly RouteGeometryPoint[], maximumPoints = 280): readonly ProfileSample[] {
+  if (!geometry.some(point => point.altitudeM !== null && Number.isFinite(point.altitudeM))) return []
   const distances = cumulativeGeometryDistances(geometry)
   const source: RouteProfilePosition[] = geometry.map((point, index) => ({
     latitude: point.latitude,
@@ -523,7 +525,7 @@ export function mountClimbProfileInteraction(svg: SVGSVGElement): void {
 export function renderGenericElevationProfile(container: HTMLElement, geometry: readonly RouteGeometryPoint[] | null, waypoints: readonly CanonicalWaypoint[], stageLabel = 'étape', timingCurve: BandProfileInteractionOptions['timingCurve'] = null): void {
   if (geometry === null || geometry.length < 2) { container.innerHTML = '<p>Profil indisponible.</p>'; return }
   const samples = sampleElevationProfileFromGeometry(geometry)
-  if (samples.length < 2) { container.innerHTML = '<p>Profil altimétrique indisponible.</p>'; return }
+  if (samples.length < 2) { container.innerHTML = `<p>Profil altimétrique indisponible. ${renderFeatureUpdateBadge('elevation-profile')}</p>`; return }
   const min = Math.min(...samples.map(({ altitudeM }) => altitudeM))
   const max = Math.max(...samples.map(({ altitudeM }) => altitudeM))
   const total = samples.at(-1)?.distanceKm ?? 1

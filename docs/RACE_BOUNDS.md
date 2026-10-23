@@ -6,7 +6,7 @@ Dans une course League ou une étape Tour, le bloc **Course**, au-dessus du prof
 
 Les offsets sont en mètres sur le GPX original, selon le chaînage partagé avec profil et points du parcours. Les points des limites sont interpolés sur les segments, y compris pour une portion qui ne contient aucun sommet GPX. Les dénivelés réutilisent le lissage de 150 m de l’import ; les trous d’altitude sont interrompus, signalés et ne produisent pas de dénivelé fictif entre deux portions. Ces résultats sont des estimations calculées, pas des chiffres officiels.
 
-Le premier lot conservait les horaires, ETA, prévisions et statistiques de vent de la trace complète. Le [lot suivant](RACE_COURSE_TIMING.md) les recale en commun sur la course. Les chiffres officiels manuels et les segments Sprint/Grimpeur/Flandrien restent à réaliser.
+Le premier lot conservait les horaires, ETA, prévisions et statistiques de vent de la trace complète. Le [lot suivant](RACE_COURSE_TIMING.md) les recale en commun sur la course. Les [segments Sprint/Grimpeur/Flandrien](RACE_SEGMENTS.md) sont disponibles depuis 2026.10.23.9 ; les chiffres officiels manuels restent à réaliser.
 
 Les limites sont un champ optionnel de `RideStage`, sans migration IndexedDB. Les voyages historiques n’en ont pas et restent lisibles. La sauvegarde ZIP complète conserve les limites et les GPX originaux. Une modification de date, de nom ou l’ajout d’une autre course conserve les limites ; le remplacement du GPX garde une référence périmée explicitement signalée, inutilisable tant que l’utilisateur ne redéfinit pas ses limites ou ne choisit pas Trace entière. L’enregistrement relit la dernière version dans une transaction et refuse une trace remplacée entre-temps.
 

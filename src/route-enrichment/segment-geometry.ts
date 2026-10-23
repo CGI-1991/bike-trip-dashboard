@@ -24,7 +24,7 @@ function upperBound(distances: readonly number[], target: number): number {
   return low
 }
 
-function pointAt(indexed: DistanceIndexedGeometry, distanceKm: number): RouteGeometryPoint {
+export function pointAtIndexedDistance(indexed: DistanceIndexedGeometry, distanceKm: number): RouteGeometryPoint {
   const afterIndex = upperBound(indexed.distancesKm, distanceKm)
   const before = indexed.points[Math.max(0, afterIndex - 1)]!
   const after = indexed.points[afterIndex]
@@ -47,11 +47,11 @@ export function sliceRouteGeometry(indexed: DistanceIndexedGeometry, startKm: nu
   const start = Math.max(0, Math.min(indexed.lengthKm, startKm))
   const end = Math.max(start, Math.min(indexed.lengthKm, endKm))
   if (end <= start) return []
-  const points: RouteGeometryPoint[] = [pointAt(indexed, start)]
+  const points: RouteGeometryPoint[] = [pointAtIndexedDistance(indexed, start)]
   for (let i = upperBound(indexed.distancesKm, start); i < indexed.points.length && (indexed.distancesKm[i] ?? 0) < end; i++) {
     points.push(indexed.points[i]!)
   }
-  points.push(pointAt(indexed, end))
+  points.push(pointAtIndexedDistance(indexed, end))
   return points
 }
 

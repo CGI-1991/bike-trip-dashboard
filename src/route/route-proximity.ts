@@ -3,13 +3,13 @@ import type { RouteGeometryPoint } from '../trip-core/index.ts'
 const EARTH_RADIUS_METERS = 6_371_000
 const RADIANS = Math.PI / 180
 
-interface SegmentProjection {
+export interface SegmentProjection {
   readonly segmentMeters: number
   readonly ratio: number
   readonly distanceMeters: number
 }
 
-function projectOnSegment(
+export function projectOnSegment(
   candidate: { readonly latitude: number; readonly longitude: number },
   start: Pick<RouteGeometryPoint, 'latitude' | 'longitude'>,
   end: Pick<RouteGeometryPoint, 'latitude' | 'longitude'>,
