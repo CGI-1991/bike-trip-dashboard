@@ -8,6 +8,7 @@ import type {
   WeatherRecordId,
 } from './ids.ts'
 import type { DataProvenance } from './provenance.ts'
+import type { RaceSegment } from './race-segment.ts'
 
 /** Generic validation lifecycle for a stage's computed content. */
 export type RideStageValidationStatus = 'pending' | 'valid' | 'needs-review'
@@ -44,6 +45,8 @@ export interface RideStage {
   readonly customName?: string
   /** Additive: absent on existing trips. Source metrics remain full-GPX metrics. */
   readonly raceBounds?: RaceBounds
+  /** Additive local annotations; never replaced by automatic climb detection. */
+  readonly raceSegments?: readonly RaceSegment[]
   readonly startLocationName: string | null
   readonly endLocationName: string | null
   readonly distanceKm: Kilometers | null

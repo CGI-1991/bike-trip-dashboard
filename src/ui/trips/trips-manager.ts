@@ -9,6 +9,9 @@ import { createTripRepository } from '../../storage/indexeddb/trip-repository.ts
 import { buildRaceCourse } from '../../analysis/race-bounds.ts'
 import { updateRaceCourse } from '../../trips-manager/race-course.ts'
 import { mountRaceBoundsEditor } from './race-bounds-view.ts'
+import { mountRaceSegmentsEditor } from './race-segments-view.ts'
+import { withRaceSegmentMap } from './race-segment-map.ts'
+import { applyRaceSegmentChange } from '../../analysis/race-segments.ts'
 import { selectTravelMode } from '../../trip-core/index.ts'
 import { createSourceFileRepository } from '../../storage/indexeddb/source-file-repository.ts'
 import type { SourceFilePayloadContent } from '../../storage/indexeddb/source-file-repository.ts'
@@ -33,7 +36,7 @@ import { deriveTripTemporalState, resolveAdjacentTripDayId } from '../../trips-m
 import { deleteTripCompletely, listTripSummaries, setActiveTrip } from '../../trips-manager/trip-manager-actions.ts'
 import type { TripListEntry } from '../../trips-manager/trip-summary.ts'
 import { formatShortDate } from '../date-format.ts'
-import type { MapLayerDefinition, RouteMapInteractionHandle } from '../route-map.ts'
+import type { MapLayerDefinition, RouteMapInteractionHandle, RoutePickerHandle } from '../route-map.ts'
 import { buildGenericOverviewDetailMarkers, buildGenericOverviewRouteMapModel, buildGenericRouteMapModel } from '../route-map-model.ts'
 import type { RouteMapModel } from '../route-map-model.ts'
 import { buildPracticalPlaceMapLayers } from '../practical-place-map-layers.ts'
@@ -217,6 +220,7 @@ export interface TripsManagerDeps {
    * that never register a real map keep working unchanged.
    */
   readonly getMapInteractionHandle?: (container: HTMLElement) => RouteMapInteractionHandle | null
+  readonly mountRoutePicker?: (container: HTMLElement, model: RouteMapModel, onTileError: () => void) => RoutePickerHandle | null
   /**
    * R3 sections 30-35 — "Choisir sur la carte": always the real
    * `route-map.ts::mountLocationPicker` in production, mounting a small,
@@ -403,6 +407,8 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   let backupNotice: string | null = null
 
   function teardownSubComponent(): void {
+    destroyRaceSegments?.()
+    destroyRaceSegments = null
     activeSubComponent?.destroy()
     activeSubComponent = null
     backupPanel = null
@@ -461,6 +467,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   /** One `AbortController` per profile container (CDC D1.1 section 18) — aborted and replaced on every `mountMapAndProfile` call so the profile→map sync listener never accumulates across a full render + `patchDayDetail` patches. */
   const profileSyncControllers = new WeakMap<HTMLElement, AbortController>()
   let mountedDayDetail: DayDetail | null = null
+  let destroyRaceSegments: (() => void) | null = null
   const windModels = new WeakMap<readonly WaypointWeather[], WeakMap<readonly import('../../trip-core/index.ts').RouteGeometryPoint[], { readonly scope: string; readonly model: RouteWindModel }>>()
   let currentRouteWind: RouteWindModel | null = null
   const getMapInteractionHandle = deps.getMapInteractionHandle ?? (() => null)
@@ -845,6 +852,9 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   }
 
   function mountMapAndProfile(bundle: TripBundle, detail: DayDetail, dayId: TripDayId): void {
+    destroyRaceSegments?.()
+    destroyRaceSegments = null
+    const stage = bundle.stages.find(stage => stage.dayId === dayId)
     const mapContainer = container.querySelector<HTMLElement>('[data-day-detail-map]')
     const mapDialog = container.querySelector<HTMLDialogElement>('[data-day-detail-map-dialog]')
     const visibleWaypoints = getDisplayedStageWaypoints(detail)
@@ -856,16 +866,16 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       // at all — its own markers-only model (resolved location, or the
       // transfer's origin/destination pair) stands in instead, never a
       // fabricated line.
-      const model = detail.geometry === null
+      const baseModel = detail.geometry === null
         ? detail.markersOnlyMapModel
         : buildGenericRouteMapModel(visibleWaypoints, detail.geometry.map((point) => [point.latitude, point.longitude] as const))
+      const model = withRaceSegmentMap(baseModel, bundle, stage)
       deps.renderMap(mapContainer, mapDialog, model, [...villagesLayer(detail.villageWaypoints), ...practicalPlaceLayers(bundle, detail, dayId)])
       mapDialog.querySelector<HTMLButtonElement>('[data-close-map]')?.addEventListener('click', () => deps.closeMap(mapDialog))
     }
     const profileContainer = container.querySelector<HTMLElement>('[data-day-detail-profile]')
     if (profileContainer !== null) {
       renderGenericElevationProfile(profileContainer, detail.geometry, visibleWaypoints, detail.stageLabel, detail.timingCurve)
-      const stage = bundle.stages.find(stage => stage.dayId === dayId)
       if (stage !== undefined && typeof profileContainer.insertAdjacentHTML === 'function') {
         mountRaceBoundsEditor(profileContainer, bundle, stage, async (bounds, expectedFingerprint) => {
           let resolution: ReturnType<typeof updateRaceCourse> | undefined
@@ -878,6 +888,15 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
             patchDayDetail(updated, dayId)
             if (resolution !== undefined) reportScheduleResolution(resolution)
           }
+        })
+        const mapModel = detail.geometry === null ? null : withRaceSegmentMap(buildGenericRouteMapModel(visibleWaypoints, detail.geometry.map(point => [point.latitude, point.longitude] as const)), bundle, stage)
+        destroyRaceSegments = mountRaceSegmentsEditor(profileContainer, bundle, stage, {
+          idFactory: deps.idFactory, mapModel, mountPicker: deps.mountRoutePicker,
+          save: async (change, fingerprint) => {
+            const updated = await mutateTripBundle(bundle.metadata.id, latest => applyRaceSegmentChange(latest, stage.id, change, fingerprint, deps.now()))
+            if (updated === null) throw new Error('Cette course n’est plus disponible.')
+            if (mode.kind === 'day' && mode.tripId === bundle.metadata.id && mode.dayId === dayId) patchDayDetail(updated, dayId)
+          },
         })
       }
     }
@@ -1797,7 +1816,8 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       if (latest === null || mode.kind !== 'day' || mode.tripId !== tripId) return
       const dialog = container.querySelector<HTMLDialogElement>('[data-day-detail-map-dialog]')
       const raceEditor = container.querySelector<HTMLDetailsElement>('[data-race-editor]')
-      if (editGuard.activeId === null && dialog?.open !== true && raceEditor?.open !== true) patchDayDetail(latest, mode.dayId)
+      const segmentEditor = container.querySelector<HTMLElement>('[data-race-segment-editor]')
+      if (editGuard.activeId === null && dialog?.open !== true && raceEditor?.open !== true && segmentEditor?.hidden !== false) patchDayDetail(latest, mode.dayId)
       else patchLivePracticalPlaces(latest, mode.dayId)
     }
 

@@ -30,6 +30,10 @@ import type { PracticalLayerPanelController } from './practical-map.ts'
 export { buildGenericRouteMapModel, buildRouteMapModel } from './route-map-model.ts'
 export type { RouteMapMarkerModel, RouteMapModel } from './route-map-model.ts'
 
+function escapeHtml(value: string): string {
+  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;')
+}
+
 const mapInstances = new WeakMap<HTMLElement, L.Map>()
 const openHandlers = new WeakMap<HTMLElement, { readonly click: EventListener; readonly keydown: EventListener }>()
 const expandedOpeners = new WeakMap<HTMLDialogElement, HTMLElement>()
@@ -200,7 +204,7 @@ function createRouteDivIcon(category: RouteMarkerCategory, options: { readonly o
     ? `background: transparent; border: 2px dashed ${style.colorHex};`
     : `background: ${style.colorHex}; border: 2px solid #ffffff;`
   const counterRotate = style.shape === 'diamond' ? 'transform: rotate(-45deg);' : ''
-  const symbolMarkup = style.symbol === '' ? '' : `<span style="display:block; ${counterRotate} font: 700 ${Math.round(size * 0.55)}px/1 system-ui, sans-serif; color:#ffffff;">${style.symbol}</span>`
+  const symbolMarkup = style.symbol === '' ? '' : `<span style="display:block; ${counterRotate} font: 700 ${Math.round(size * 0.55)}px/1 system-ui, sans-serif; color:${style.textColorHex ?? '#ffffff'};">${style.symbol}</span>`
   const html = `<span role="img" aria-label="${style.label}" style="box-sizing:border-box; display:flex; align-items:center; justify-content:center; width:${size}px; height:${size}px; ${shapeStyle(style.shape)} ${surface} ${ring}">${symbolMarkup}</span>`
   return L.divIcon({ html, className: `route-marker route-marker--${category}`, iconSize: [size, size], iconAnchor: [size / 2 - offset.x, size / 2 - offset.y] })
 }
@@ -213,12 +217,13 @@ function markerTooltip(marker: RouteMapMarkerModel): string {
       : marker.name
   const pause = marker.pauseDurationMinutes === undefined ? '' : ` · Pause ${marker.pauseDurationMinutes} min`
   const offRoute = marker.offRoute ? ' · Hors parcours' : ''
-  return `${base}${pause}${offRoute}`
+  return escapeHtml(`${base}${pause}${offRoute}`)
 }
 
 function toLatLng(tuple: readonly [number, number]): L.LatLngTuple { return [tuple[0], tuple[1]] }
 
 export interface CreateRouteMapOptions {
+  readonly bubbleMarkerClicks?: boolean
   readonly interactive: boolean
   readonly fitPadding: L.PointExpression
   readonly maxInitialZoom?: number
@@ -245,6 +250,11 @@ export function createRouteMap(container: HTMLElement, model: RouteMapModel, opt
   for (const segment of lineSegments) {
     bounds.extend(L.polyline(segment.map(toLatLng), { color: '#0f766e', weight: 4 }).addTo(map).getBounds())
   }
+  for (const segment of model.segmentLines ?? []) {
+    if (segment.coordinates.length < 2) continue
+    L.polyline(segment.coordinates.map(toLatLng), { color: segment.color, weight: 6, opacity: .85, ...(segment.dashed ? { dashArray: '5 5' } : {}) })
+      .bindTooltip(escapeHtml(segment.name)).addTo(map)
+  }
   // Offsets are resolved across the whole set drawn together, so a climb
   // summiting exactly on the arrival line keeps both markers visible and
   // reachable (`marker-collision-offsets.ts`). Coordinates are untouched —
@@ -252,7 +262,7 @@ export function createRouteMap(container: HTMLElement, model: RouteMapModel, opt
   const markerOffsets = resolveMarkerIconOffsets(model.markers)
   model.markers.forEach((marker, index) => {
     bounds.extend(toLatLng(marker.coordinate))
-    L.marker(toLatLng(marker.coordinate), { icon: createRouteDivIcon(marker.category, { offRoute: marker.offRoute, pauseActive: marker.pauseActive, iconOffset: markerOffsets[index] }) })
+    L.marker(toLatLng(marker.coordinate), { bubblingMouseEvents: options.bubbleMarkerClicks ?? false, icon: createRouteDivIcon(marker.category, { offRoute: marker.offRoute, pauseActive: marker.pauseActive, iconOffset: markerOffsets[index] }) })
       .bindTooltip(markerTooltip(marker))
       .addTo(map)
   })
@@ -293,6 +303,14 @@ export function mountLocationPicker(container: HTMLElement, initial: { readonly 
   const map = createRouteMap(container, model, { interactive: true, fitPadding: [24, 24], maxInitialZoom: 13 }, onTileError)
   if (initial === null) map.setView([48.6, 3.5], 5)
   return getRouteMapInteractionHandle(container)
+}
+
+export interface RoutePickerHandle { readonly handle: RouteMapInteractionHandle; destroy(): void }
+/** Synchronous route picker for a local editor, with explicit Leaflet cleanup. */
+export function mountRoutePicker(container: HTMLElement, model: RouteMapModel, onTileError: () => void): RoutePickerHandle | null {
+  createRouteMap(container, model, { interactive: true, bubbleMarkerClicks: true, fitPadding: [24, 24], maxInitialZoom: 14 }, onTileError)
+  const handle = getRouteMapInteractionHandle(container)
+  return handle === null ? null : { handle, destroy: () => destroy(container) }
 }
 
 /**

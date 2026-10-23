@@ -290,13 +290,15 @@ export function mergeEditedTripBundle(existing: TripBundle, rebuilt: TripBundle,
     const existingStage = existingStageByRouteId.get(mappedRouteId)
     // A retained course keeps its offsets; a replacement keeps the old
     // fingerprint as an explicit stale reference, never a silent remap.
-    const previousBounds = (existingStage ?? existing.stages.find(candidate => candidate.dayId === (remaps.dayIds.get(stage.dayId) ?? stage.dayId)))?.raceBounds
+    const previousStage = existingStage ?? existing.stages.find(candidate => candidate.dayId === (remaps.dayIds.get(stage.dayId) ?? stage.dayId))
+    const previousBounds = previousStage?.raceBounds
     return {
       ...stage,
       id: mappedId,
       dayId: remaps.dayIds.get(stage.dayId) ?? stage.dayId,
       sourceRouteId: mappedRouteId,
       ...(previousBounds === undefined ? {} : { raceBounds: previousBounds }),
+      ...(previousStage?.raceSegments === undefined ? {} : { raceSegments: previousStage.raceSegments }),
       startLocationName: hasGeocodedEndpoints ? existingStage?.startLocationName ?? stage.startLocationName : stage.startLocationName,
       endLocationName: hasGeocodedEndpoints ? existingStage?.endLocationName ?? stage.endLocationName : stage.endLocationName,
       climbIds: [...stage.climbIds, ...retainedManualClimbIds],

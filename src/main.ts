@@ -74,7 +74,7 @@ import {
   renderTripDayRouteTimeline,
 } from './ui/route-engine.ts'
 import { renderElevationProfile } from './ui/elevation-profile.ts'
-import { closeExpandedRouteMap, getRouteMapInteractionHandle, mountLocationPicker, renderCompactRouteMapModel, renderGenericRouteMap, renderRouteMap, updateGenericRouteMapLayers } from './ui/route-map.ts'
+import { closeExpandedRouteMap, getRouteMapInteractionHandle, mountLocationPicker, mountRoutePicker, renderCompactRouteMapModel, renderGenericRouteMap, renderRouteMap, updateGenericRouteMapLayers } from './ui/route-map.ts'
 import { closeExpandedOverviewMap, renderOverviewMap } from './ui/overview-map.ts'
 import { buildOverviewViewModel } from './ui/overview-view-model.ts'
 import { renderOverviewView } from './ui/overview-view.ts'
@@ -1102,6 +1102,7 @@ void openBikeTripDatabase()
       updateMapLayers: updateGenericRouteMapLayers,
       closeMap: closeExpandedRouteMap,
       getMapInteractionHandle: getRouteMapInteractionHandle,
+      mountRoutePicker,
       mountLocationPicker: (pickerContainer, initial) => mountLocationPicker(pickerContainer, initial, () => {
         const fallback = pickerContainer.parentElement?.querySelector<HTMLElement>('[data-location-picker-fallback]')
         if (fallback !== null && fallback !== undefined) fallback.hidden = false

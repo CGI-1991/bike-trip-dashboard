@@ -24,6 +24,7 @@ import {
   isTimeOfDay,
 } from './primitives.ts'
 import { issue } from './primitives.ts'
+import { isValidRaceSegmentFields } from './race-segment.ts'
 import { calendarDayOffsets, lastCalendarDayOffset } from '../calendar/day-offsets.ts'
 import type { ValidationIssue, ValidationResult } from './types.ts'
 
@@ -648,6 +649,7 @@ export function validateTripBundle(value: unknown): ValidationResult<TripBundle>
   })
   const rideDaysById = new Map(days.filter((day) => day.type === 'ride').map((day) => [day.id as string, day]))
   const stageCountByDayId = new Map<string, number>()
+  const raceSegmentIds = new Set<string>()
   stages.forEach((stage, index) => {
     const path = `stages[${index}]`
     if (!isNonEmptyString(stage.dayId)) {
@@ -682,6 +684,21 @@ export function validateTripBundle(value: unknown): ValidationResult<TripBundle>
       }
       // A stale fingerprint/out-of-route range remains readable and backed up;
       // buildRaceCourse prevents using it until explicitly reselected.
+    }
+    if (stage.raceSegments !== undefined) {
+      if (!Array.isArray(stage.raceSegments)) issues.push(issue(`${path}.raceSegments`, 'invalid-type', 'Liste de segments invalide.'))
+      else stage.raceSegments.forEach((segment: unknown, segmentIndex: number) => {
+        const segmentPath = `${path}.raceSegments[${segmentIndex}]`
+        if (!isPlainObject(segment) || !isValidRaceSegmentFields(segment) || !isNonEmptyString(segment.id) || !isNonEmptyString(segment.routeFingerprint)) {
+          issues.push(issue(segmentPath, 'invalid-value', 'Segment de course invalide.'))
+          return
+        }
+        if (raceSegmentIds.has(segment.id)) issues.push(issue(`${segmentPath}.id`, 'duplicate-id', 'Identifiant de segment en double.'))
+        raceSegmentIds.add(segment.id)
+        validateProvenance(segment.provenance, `${segmentPath}.provenance`, issues)
+        // Old fingerprints/ranges survive a GPX replacement or bounds edit;
+        // the derived segment state suspends their use until reviewed.
+      })
     }
     if (stage.startLocationName !== null && !isNonEmptyString(stage.startLocationName)) issues.push(issue(`${path}.startLocationName`, 'invalid-value', 'startLocationName invalide.'))
     if (stage.endLocationName !== null && !isNonEmptyString(stage.endLocationName)) issues.push(issue(`${path}.endLocationName`, 'invalid-value', 'endLocationName invalide.'))

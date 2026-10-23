@@ -34,6 +34,7 @@ export interface RouteMapMarkerModel {
 }
 
 export interface RouteMapModel {
+  readonly segmentLines?: readonly { readonly coordinates: readonly LatLngTuple[]; readonly color: string; readonly name: string; readonly dashed: boolean }[]
   readonly coordinates: readonly LatLngTuple[]
   readonly markers: readonly RouteMapMarkerModel[]
   /**

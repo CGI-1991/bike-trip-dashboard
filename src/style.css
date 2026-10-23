@@ -3187,6 +3187,33 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .race-profile-bounds__outside { fill: #c4c9ce; opacity: .8; }
 .race-profile-bounds line { stroke: var(--forest-800); stroke-width: 2; stroke-dasharray: 4 3; }
 .race-profile-bounds text { fill: var(--forest-800); font-size: 16px; font-weight: 800; }
+.race-segments { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 12px; }
+.race-segments > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.race-segments h3 { font-size: .95rem; }
+.race-segments h3 span { font-weight: 400; color: var(--ink-soft); }
+.race-segments h4 { font-size: .9rem; margin-block: 12px; }
+.race-segments__list { display: grid; gap: 6px; max-height: 330px; overflow-y: auto; margin-block: 8px; }
+.race-segments__list button { width: 100%; text-align: left; display: grid; gap: 4px; padding: 9px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); color: var(--ink); font: inherit; overflow-wrap: anywhere; cursor: pointer; }
+.race-segments__list button > span { font-size: .75rem; color: var(--ink-soft); }
+.race-segment-tag { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 5px; font-size: .8rem; }
+.race-segment--sprint { background: #16804a; color: white; }
+.race-segment--climb { background: #b73132; color: white; }
+.race-segment--flandrien { background: #e5bd32; color: #302500; }
+.race-segments__fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.race-segments__fields label, .race-segments__alerts label { display: grid; gap: 4px; font-size: .8rem; }
+.race-segments__fields input, .race-segments__fields select, .race-segments__alerts input[type='number'] { box-sizing: border-box; width: 100%; min-width: 0; min-height: 44px; border: 1px solid var(--line); border-radius: 8px; padding: 6px; font: inherit; font-size: 16px; background: var(--surface); color: var(--ink); }
+.race-segments__actions { display: flex; flex-wrap: wrap; gap: 6px; margin-block: 8px; }
+.race-segments .button { min-height: 44px; padding: 6px 10px; font-size: .76rem; }
+.race-segments [aria-pressed='true'] { background: var(--forest-800); color: white; }
+.race-segments__map { height: 280px; border: 1px solid var(--line); border-radius: 10px; margin-block: 8px; }
+.race-segments__alerts { font-size: .8rem; margin-block: 8px; }
+.race-segments__alerts summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; }
+.race-segments__alerts label { min-height: 44px; align-items: center; grid-template-columns: auto 1fr; }
+.race-segments__alerts label:has(input[type='number']) { grid-template-columns: 1fr minmax(0, 100px); }
+.race-segments__warning { font-weight: 700; }
+.race-segment-bands { position: relative; margin-bottom: 5px; }
+.race-segment-band { position: absolute; min-width: 3px; height: 22px; border: 0; border-radius: 4px; padding: 2px 4px; overflow: hidden; white-space: nowrap; text-align: left; font: 600 .7rem/18px system-ui, sans-serif; cursor: pointer; }
+.race-segment-band--draft { outline: 1px dashed currentColor; outline-offset: -2px; opacity: .65; }
 .trip-detail__day-list { display: grid; gap: 8px; }
 .trip-detail__day { padding: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; display: grid; gap: 6px; }
 .trip-detail__stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
