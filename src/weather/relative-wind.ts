@@ -55,6 +55,7 @@ export interface RouteWindSummary {
 }
 
 export interface RouteWindModel {
+  /** Active length. at() still receives the original GPX chainage. */
   readonly lengthKm: number
   readonly resolutionMeters: number
   readonly summary: RouteWindSummary
@@ -172,14 +173,17 @@ export function combineRouteWindSummaries(parts: readonly { readonly lengthKm: n
 /** Rotate existing ETA-associated forecasts into the local route frame.
  * Uniform cells and prefix integrals bound work on pointer events. Missing
  * anchors are retained as holes; no extrapolation or averaging raw degrees. */
-export function buildRouteWindModel(geometry: readonly RouteGeometryPoint[], waypoints: readonly WaypointWeather[]): RouteWindModel | null {
+export function buildRouteWindModel(geometry: readonly RouteGeometryPoint[], waypoints: readonly WaypointWeather[], range?: { readonly startKm: number; readonly finishKm: number }): RouteWindModel | null {
   if (geometry.length < 2) return null
   const route = indexedRoute(geometry)
   if (!(route.lengthKm > 0)) return null
+  const fromKm = range?.startKm ?? 0, toKm = Math.min(range?.finishKm ?? route.lengthKm, route.lengthKm)
+  if (!Number.isFinite(fromKm) || !Number.isFinite(toKm) || fromKm < 0 || !(toKm > fromKm)) return null
+  const total = toKm - fromKm
   const anchors = anchorsFor(waypoints)
   const positions = anchors.map(anchor => anchor.km)
-  const count = Math.min(5000, Math.max(1, Math.ceil(route.lengthKm / 0.05)))
-  const step = route.lengthKm / count
+  const count = Math.min(5000, Math.max(1, Math.ceil(total / 0.05)))
+  const step = total / count
   const cells: (Cell | null)[] = []
   const covered = [0], head = [0], cross = [0], speeds = [0]
   let headDistance = 0, tailDistance = 0, crossDistance = 0, calmDistance = 0
@@ -205,7 +209,7 @@ export function buildRouteWindModel(geometry: readonly RouteGeometryPoint[], way
       gusts, gustCross: gusts === null || speed < 1 ? null : Math.abs(Math.sin(relative.relativeFromDeg * RADIANS)) * gusts, gap: after.km - before.km }
   }
   for (let i = 0; i < count; i++) {
-    const cell = cellAt((i + 0.5) * step)
+    const cell = cellAt(fromKm + (i + 0.5) * step)
     cells.push(cell)
     covered.push(covered[i]! + (cell === null ? 0 : step))
     head.push(head[i]! + (cell?.head ?? 0) * step)
@@ -218,7 +222,7 @@ export function buildRouteWindModel(geometry: readonly RouteGeometryPoint[], way
     else crossDistance += step
   }
   const integralAt = (values: readonly number[], km: number): number => {
-    const distance = Math.max(0, Math.min(route!.lengthKm, km))
+    const distance = Math.max(0, Math.min(total, km - fromKm))
     const index = Math.min(count - 1, Math.floor(distance / step))
     const ratio = (distance - index * step) / step
     return values[index]! + (values[index + 1]! - values[index]!) * ratio
@@ -229,7 +233,7 @@ export function buildRouteWindModel(geometry: readonly RouteGeometryPoint[], way
     if (length <= 1e-9) return null
     const avg = (values: readonly number[]) => (integralAt(values, end) - integralAt(values, start)) / length
     let gusts: number | null = null, gustCross: number | null = null, gap = 0
-    for (let i = Math.floor(start / step); i < Math.min(count, Math.ceil(end / step)); i++) {
+    for (let i = Math.max(0, Math.floor((start - fromKm) / step)); i < Math.min(count, Math.ceil((end - fromKm) / step)); i++) {
       const cell = cells[i]
       if (cell === undefined || cell === null) continue
       if (cell.gusts !== null) gusts = Math.max(gusts ?? 0, cell.gusts)
@@ -238,13 +242,12 @@ export function buildRouteWindModel(geometry: readonly RouteGeometryPoint[], way
     }
     return makeReading(avg(head), avg(cross), avg(speeds), gusts, gustCross, length / (end - start), gap)
   }
-  const mean = average(0, route.lengthKm)
-  const total = route.lengthKm
+  const mean = average(fromKm, toKm)
   return { lengthKm: total, resolutionMeters: step * 1000,
     at(km, windowMeters = PROFILE_WIND_SMOOTHING_METERS) {
-      if (!Number.isFinite(km) || km < 0 || km > total || !(windowMeters > 0)) return null
+      if (!Number.isFinite(km) || km < fromKm || km > toKm || !(windowMeters > 0)) return null
       const half = windowMeters / 2000
-      const averaged = average(Math.max(0, km - half), Math.min(total, km + half))
+      const averaged = average(Math.max(fromKm, km - half), Math.min(toKm, km + half))
       if (averaged !== null) return averaged
       // A valid forecast at a passage still has a relative direction even
       // if neighbouring forecasts are missing. Do not extend it along the

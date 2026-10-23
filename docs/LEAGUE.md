@@ -1,6 +1,6 @@
 # Cadrage League et Tour
 
-Document de développement, à partir du [cadrage fourni par l’utilisateur](specs/league-source.md), conservé sans modification. Ce fichier adapte la proposition à l’application existante. Le [calendrier](LEAGUE_CALENDAR.md) et les [limites de course avec statistiques distinctes](RACE_BOUNDS.md) sont réalisés ; les segments et exports restent planifiés.
+Document de développement, à partir du [cadrage fourni par l’utilisateur](specs/league-source.md), conservé sans modification. Ce fichier adapte la proposition à l’application existante. Le [calendrier](LEAGUE_CALENDAR.md), les [limites avec statistiques distinctes](RACE_BOUNDS.md) et le [recalage des horaires, météo et vent de course](RACE_COURSE_TIMING.md) sont réalisés ; les segments et exports restent planifiés.
 
 ## Intention et vocabulaire
 

@@ -7,6 +7,7 @@
 
 import type { IsoDate, TripBundle, TripId, TripStatus } from '../trip-core/index.ts'
 import { countCalendarDays } from '../analysis/day-location-fill.ts'
+import { buildRaceCourse, selectStageCourseMetrics } from '../analysis/race-bounds.ts'
 import { selectOrganizationMode, selectTravelMode } from '../trip-core/index.ts'
 import type { TravelMode } from '../trip-core/index.ts'
 import type { StagePreparationContext, TripPreparationSummary } from './stage-preparation.ts'
@@ -21,6 +22,7 @@ export interface TripListEntry {
   readonly dayCount: number
   readonly stageCount: number
   readonly totalDistanceKm: number
+  readonly courseLimitsNeedReview?: true
   readonly status: TripStatus
   readonly travelMode?: TravelMode
   readonly organizationMode?: 'league'
@@ -44,7 +46,8 @@ export function summarizeTripBundle(bundle: TripBundle, preparationContext: Stag
     endDate: bundle.metadata.endDate,
     dayCount: countCalendarDays(bundle.days),
     stageCount: bundle.stages.length,
-    totalDistanceKm: bundle.stages.reduce((total, stage) => total + (stage.distanceKm ?? 0), 0),
+    totalDistanceKm: bundle.stages.reduce((total, stage) => total + (selectStageCourseMetrics(bundle, stage).distanceKm ?? 0), 0),
+    ...(bundle.stages.some(stage => buildRaceCourse(bundle, stage)?.status === 'stale') ? { courseLimitsNeedReview: true as const } : {}),
     status: bundle.metadata.status,
     ...(selectOrganizationMode(bundle) === 'league' ? { organizationMode: 'league' as const } : {}),
     ...(selectTravelMode(bundle) === 'walking' ? { travelMode: 'walking' as const } : {}),

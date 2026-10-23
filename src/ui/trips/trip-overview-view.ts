@@ -8,6 +8,7 @@
  */
 
 import { selectTravelMode } from '../../trip-core/index.ts'
+import { buildRaceCourse, selectStageCourseMetrics } from '../../analysis/race-bounds.ts'
 import { computeStageWaypoints, resolveStagePauseSettings } from '../../analysis/waypoint-timeline.ts'
 import { selectOrganizationMode, selectRaceMode, selectStageCustomName, selectTripDayLabel } from '../../trip-core/index.ts'
 import { renderLeagueCalendar } from './league-calendar-view.ts'
@@ -117,13 +118,14 @@ function computeTripProgress(bundle: TripBundle, now: Date | string | null): Tri
   for (const day of rideDays) {
     const stage = stagesByDayId.get(day.id)
     if (stage === undefined) continue
-    distanceTotalKm += stage.distanceKm ?? 0
-    elevationGainTotalM += stage.elevationGainM ?? 0
+    const metrics = selectStageCourseMetrics(bundle, stage)
+    distanceTotalKm += metrics.distanceKm ?? 0
+    elevationGainTotalM += metrics.elevationGainM ?? 0
     const done = getTripDayTemporalState(temporal, day.id)?.completed ?? false
     if (done) {
       ridesCompleted++
-      distanceDoneKm += stage.distanceKm ?? 0
-      elevationGainDoneM += stage.elevationGainM ?? 0
+      distanceDoneKm += metrics.distanceKm ?? 0
+      elevationGainDoneM += metrics.elevationGainM ?? 0
     }
   }
 
@@ -188,6 +190,7 @@ function renderHighlightedDay(bundle: TripBundle, highlightedDayId: TripDayId | 
   }
 
   const stage = bundle.stages.find((candidate) => candidate.id === day.stageId)
+  const metrics = stage === undefined ? null : selectStageCourseMetrics(bundle, stage)
   // Same rule as the Voyage card: the custom name takes the label's place,
   // the départ → arrivée stays available underneath.
   const customName = selectStageCustomName(stage)
@@ -207,8 +210,8 @@ function renderHighlightedDay(bundle: TripBundle, highlightedDayId: TripDayId | 
     ${customName === null ? '' : `<p class="trip-overview__highlighted-day-route">${locations}</p>`}
     <div class="route-map route-map--compact" data-trip-overview-day-map></div>
     <dl class="trip-overview__highlighted-day-stats">
-      <div><dt>Distance</dt><dd>${stage?.distanceKm === null || stage?.distanceKm === undefined ? '—' : formatKilometers(stage.distanceKm)}</dd></div>
-      <div><dt>D+</dt><dd>${stage?.elevationGainM === null || stage?.elevationGainM === undefined ? '—' : `+${Math.round(stage.elevationGainM)} m`}</dd></div>
+      <div><dt>Distance</dt><dd>${metrics?.distanceKm === null || metrics?.distanceKm === undefined ? '—' : formatKilometers(metrics.distanceKm)}</dd></div>
+      <div><dt>D+</dt><dd>${metrics?.elevationGainM === null || metrics?.elevationGainM === undefined ? '—' : `+${Math.round(metrics.elevationGainM)} m`}</dd></div>
       <div><dt>Départ</dt><dd>${departureTime ?? '—'}</dd></div>
       <div><dt>ETA</dt><dd>${eta ?? '—'}</dd></div>
     </dl>
@@ -235,6 +238,7 @@ export function buildTripOverview(bundle: TripBundle, now: Date | string | null)
     const stageSettings = bundle.settings.stages.find((candidate) => candidate.stageId === stage.id)
     const pauseResolution = resolveStagePauseSettings(bundle.settings.global.pausePlanMode, stageSettings, selectRaceMode(bundle))
     const waypoints = computeStageWaypoints({
+      raceCourse: buildRaceCourse(bundle, stage),
       stage, route: route as NonNullable<typeof route>, routePoints: bundle.routePoints, climbs: bundle.climbs, settings,
       manualPauses: pauseResolution.mode === 'custom' ? pauseResolution.manualPauses : undefined,
       // Aperçu must never show a pause plan derived from a stage that is
@@ -283,8 +287,9 @@ export function buildTripOverview(bundle: TripBundle, now: Date | string | null)
     <header class="view-heading"><p class="eyebrow">Aperçu${selectTravelMode(bundle) === 'walking' ? ' · Randonnée' : ''}</p></header>
     <section class="trip-overview__zone trip-overview__zone--trip" data-trip-overview-zone="trip">
       ${selectOrganizationMode(bundle) === 'league' ? renderLeagueCalendar(bundle) : ''}
+      ${bundle.stages.some(stage => buildRaceCourse(bundle, stage)?.status === 'stale') ? '<p class="race-course__hint" role="status">Des limites de course sont à redéfinir : les statistiques sont partielles.</p>' : ''}
       ${renderProgressStats(progress, selectOrganizationMode(bundle) === 'league')}
-      <details class="card trip-wind-summary"><summary>Vent relatif sur l’ensemble du voyage</summary><div data-trip-wind-summary></div></details>
+      <details class="card trip-wind-summary"><summary>${selectRaceMode(bundle) ? 'Vent relatif sur l’ensemble des courses' : 'Vent relatif sur l’ensemble du voyage'}</summary><div data-trip-wind-summary></div></details>
       <section class="card route-map-card" data-route-visuals>
         <div class="section-heading"><div><p class="eyebrow">Vue d’ensemble</p><h3>Carte du voyage</h3></div><div class="route-map-card__actions"><button class="button button--quiet" type="button" data-action="download-trip-gpx">GPX</button></div></div>
         <div class="route-map route-map--action" data-trip-overview-map data-explore-map role="button" tabindex="0" aria-label="Ouvrir la carte du voyage en plein écran"></div>

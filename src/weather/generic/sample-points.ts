@@ -45,6 +45,8 @@
  */
 
 import { selectTravelMode } from '../../trip-core/index.ts'
+import { buildRaceCourse } from '../../analysis/race-bounds.ts'
+import { addCivilDays } from '../../trip-core/validation/primitives.ts'
 import { isSignificantWaypoint } from '../../analysis/canonical-waypoints.ts'
 import type { CanonicalWaypoint, CanonicalWaypointKind } from '../../analysis/canonical-waypoints.ts'
 import { resolveOffCoordinates, resolveOffLocation, resolveTransferCoordinates, resolveTransferLocations } from '../../analysis/day-location-fill.ts'
@@ -151,7 +153,10 @@ export function buildRideDayWeatherDefinition(bundle: TripBundle, day: TripDay):
   // consumers structurally unable to diverge (the same rationale that
   // already governs `buildAutomaticPauseEnrichment` above).
   const persistedAutomaticPauses = pauseResolution.mode === 'custom' ? undefined : resolvePersistedAutomaticPausePlan(bundle, stage.id)
+  const raceCourse = buildRaceCourse(bundle, stage)
+  if (raceCourse?.status === 'stale') return unavailableDefinition(day.id, 'ride', day.date, 'Redéfinissez les limites de course pour calculer la météo.')
   const waypoints = computeStageWaypoints({
+    raceCourse,
     stage, route, routePoints: bundle.routePoints, climbs: bundle.climbs, settings,
     manualPauses: pauseResolution.mode === 'custom' ? pauseResolution.manualPauses : persistedAutomaticPauses,
     automaticPauseEnrichment: buildAutomaticPauseEnrichment(bundle, stage, day),
@@ -173,7 +178,7 @@ export function buildRideDayWeatherDefinition(bundle: TripBundle, day: TripDay):
     tripDate: day.date,
     samplePoints,
     locations: samplePoints.map(toLocation),
-    requiredDates: [day.date],
+    requiredDates: [...new Set([day.date, ...samplePoints.map(point => addCivilDays(day.date!, point.eta?.dayOffset ?? 0) as WeatherDayDefinition['tripDate'])])].sort(),
   }
 }
 

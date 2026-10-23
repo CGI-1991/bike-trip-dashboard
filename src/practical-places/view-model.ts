@@ -52,6 +52,7 @@ function buildOne(place: PracticalPlace, category: PracticalPlaceUxCategory, day
     return { place, category, categoryLabel, displayName, passageClockTimeLabel: null, opening: null }
   }
   const elapsedMinutes = timingCurve.elapsedMinutesAt(place.trackDistanceKm)
+  if (elapsedMinutes === null) return { place, category, categoryLabel, displayName, passageClockTimeLabel: null, opening: null }
   const clock = createRouteClockTime(departureMinutes, elapsedMinutes)
   const passageDate = clock.dayOffset === 0 ? day.date : addCivilDays(day.date, clock.dayOffset)
   const opening = evaluateOpeningAtPassage(place.openingHours, weekdayOf(passageDate), clock.clockMinutes)
