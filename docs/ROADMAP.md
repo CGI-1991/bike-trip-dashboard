@@ -8,7 +8,7 @@ Chaque mise à jour doit être expliquée dans Nouveautés et signalée par une 
 ## Priorités confirmées le 23 octobre 2026
 
 1. **POI** : les deux premiers lots sont livrés ; le premier essai iPhone communiqué par l’utilisateur est rapide, fluide et résiste à l’extinction de l’écran. Garder les contrôles de non-régression et le suivi terrain.
-2. **Vent relatif au déplacement** : mini cycliste orienté vers le haut, flèche relative sur le profil au toucher/survol, orientation de roulage lissée sur une distance courte, moyenne plus large aux points du Parcours, synthèse du parcours. Trois affichages du profil à activer : neutre, pente/difficulté de montée, exposition au vent en nuances de bleu. Proposer en complément les parts de trajet face/dos/latéral et les rafales latérales ; éviter qu’une moyenne masque des portions défavorables. Distances de lissage à calibrer, sans faire passer une interpolation météo pour une mesure locale.
+2. **Vent relatif au déplacement** : premier lot réalisé, documenté dans [RELATIVE_WIND.md](RELATIVE_WIND.md). Mini cycliste vers le haut, flèche suivant le déplacement de l’air, lecture sur le profil et aux points du Parcours, moyennes étape/voyage, parts face/dos/latéral, couverture et rafales latérales estimées. Trois modes : neutre, pente, composante de vent de face en bleu. Lissage initial 100 m sur le profil et moyenne 1 km aux points ; à calibrer sur iPhone et dans les lacets. La résolution réelle des prévisions reste explicite.
 3. **Modes randonnée et vélo**, avec paramètres d’allure et de montée adaptés.
 4. **Mode BCF** : calendrier de courses, distinct du voyage itinérant / Tour. La signification de BCF et les types de courses sont à préciser avec l’utilisateur.
 5. **Vitesse / effort** : cinq niveaux de Chill à Sportif, avec un niveau central de référence stable pour le mode choisi.
@@ -31,3 +31,12 @@ Chaque mise à jour doit être expliquée dans Nouveautés et signalée par une 
 7. Sauvegarde/restauration complète des voyages et validation de mise à jour sur iPhone.
 
 Les modes marche, l’allure à cinq niveaux, le filtrage des montées et le nouveau nom sont mémorisés ici ; leur interface ne fait pas partie du correctif POI.
+
+## Suggestions pour la qualité de l’information
+
+- Météo intermédiaire avec budget réseau/cache pour réduire les grandes distances entre prévisions.
+- Comparaison d’horaires de départ : vent, rafales, pluie, chaleur et arrivée avant la nuit.
+- Vent apparent et estimation d’effort, à relier au futur modèle d’allure avant de modifier les ETA.
+- Autonomie eau et ravitaillement : prochain service accessible, temps pour l’atteindre et fiabilité de l’information.
+
+La sauvegarde/restauration complète est réalisée dans le lot `2026.10.23.3` ([TRIP_BACKUP.md](TRIP_BACKUP.md)). Les repères de mise à jour restent une exigence de chaque livraison. La validation terrain du vent, les modes randonnée/vélo, le calendrier BCF, l’allure à cinq niveaux, le filtrage des montées et la refonte mobile suivent les priorités ci-dessus.

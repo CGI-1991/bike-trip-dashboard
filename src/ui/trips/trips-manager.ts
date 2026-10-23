@@ -49,6 +49,13 @@ import type { ImportWizardResult } from './import-wizard.ts'
 import { createTripEditor } from './trip-editor.ts'
 import { createTripBackupPanel } from './trip-backup-panel.ts'
 import type { TripBackupPanelHandle } from './trip-backup-panel.ts'
+import { buildRouteWindModel, combineRouteWindSummaries, windRouteLengthKm, WAYPOINT_WIND_SMOOTHING_METERS } from '../../weather/relative-wind.ts'
+import type { RouteWindModel } from '../../weather/relative-wind.ts'
+import type { WaypointWeather } from '../../weather/types.ts'
+import { formatRouteWindSummary, renderRelativeWind, updateProfileWind } from '../relative-wind-view.ts'
+import { routeGeometry } from '../../route-enrichment/route-fingerprint.ts'
+import { getCoverageFromDates, getNowLocalDateTime, selectWeatherDisplayMode } from '../../weather/display-policy.ts'
+import { weatherConfig } from '../../weather/config.ts'
 import { renderStagePreparationIndicator, renderStagePreparationNote, renderTripDetail } from './trip-detail-view.ts'
 import { createEditGuard } from './edit-guard.ts'
 import { openTimeEditDialog } from './time-edit-dialog.ts'
@@ -451,6 +458,8 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   /** One `AbortController` per profile container (CDC D1.1 section 18) — aborted and replaced on every `mountMapAndProfile` call so the profile→map sync listener never accumulates across a full render + `patchDayDetail` patches. */
   const profileSyncControllers = new WeakMap<HTMLElement, AbortController>()
   let mountedDayDetail: DayDetail | null = null
+  const windModels = new WeakMap<readonly WaypointWeather[], WeakMap<readonly import('../../trip-core/index.ts').RouteGeometryPoint[], RouteWindModel>>()
+  let currentRouteWind: RouteWindModel | null = null
   const getMapInteractionHandle = deps.getMapInteractionHandle ?? (() => null)
 
   /**
@@ -483,6 +492,10 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       const day = bundle.days.find((candidate) => candidate.id === dayId)
       if (panel !== null && day !== undefined) {
         const model = weatherCoordinator.getDayWeatherViewModel(day)
+        currentRouteWind = null
+        if (mountedDayDetail?.geometry !== null && mountedDayDetail?.geometry !== undefined) currentRouteWind = routeWindForDay(day, mountedDayDetail.geometry)
+        const windProfile = container.querySelector<HTMLElement>('[data-day-detail-profile]')
+        if (windProfile !== null) updateProfileWind(windProfile, currentRouteWind)
         // CDC D1.2 section 24: a ride day's own "Points significatifs" list
         // is dropped from this mount — every significant point already
         // carries its own inline weather line in the Parcours timeline
@@ -507,6 +520,36 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       const day = bundle.days.find((candidate) => candidate.id === mount.dataset.dayId)
       if (day !== undefined) mount.innerHTML = renderGenericDayCardWeatherLine(weatherCoordinator.getDayWeatherViewModel(day))
     }
+    const tripWind = container.querySelector<HTMLElement>('[data-trip-wind-summary]')
+    if (tripWind !== null) {
+      const parts = bundle.stages.map(stage => {
+        const route = bundle.routes.find(route => route.id === stage.sourceRouteId)
+        const geometry = route === undefined ? null : routeGeometry(route)
+        const day = bundle.days.find(day => day.id === stage.dayId)
+        // A stage without usable geometry still contributes its known
+        // distance to the uncovered part of the whole-trip estimate.
+        if (geometry === null || day === undefined) return { lengthKm: stage.distanceKm ?? 0, summary: null }
+        const model = routeWindForDay(day, geometry)
+        return { lengthKm: model?.lengthKm ?? windRouteLengthKm(geometry), summary: model?.summary ?? null }
+      })
+      const stats = combineRouteWindSummaries(parts)
+      tripWind.innerHTML = renderRelativeWind(stats.mean) + `<p class="profile-wind__summary">${formatRouteWindSummary(stats)}</p>`
+    }
+  }
+
+  function routeWindForDay(day: import('../../trip-core/index.ts').TripDay, geometry: readonly import('../../trip-core/index.ts').RouteGeometryPoint[]): RouteWindModel | null {
+    if (day.type !== 'ride') return null
+    const state = weatherCoordinator.getDayWeatherState(day.id)
+    if (state?.data?.type !== 'ride') return null
+    const displayMode = selectWeatherDisplayMode({ today: getNowLocalDateTime(new Date(deps.now()), weatherConfig.timezone).slice(0, 10) as import('../../trip/calendar.ts').IsoDate,
+      tripDate: state.tripDate, coverage: getCoverageFromDates(state.receivedDates) })
+    if (displayMode === 'today-reference' || displayMode === 'past') return null
+    const points = state.data.waypoints
+    let byGeometry = windModels.get(points)
+    if (byGeometry === undefined) { byGeometry = new WeakMap(); windModels.set(points, byGeometry) }
+    const wind = byGeometry.get(geometry) ?? buildRouteWindModel(geometry, points)
+    if (wind !== null) byGeometry.set(geometry, wind)
+    return wind
   }
 
   /**
@@ -524,6 +567,10 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     for (const mount of container.querySelectorAll<HTMLElement>('[data-waypoint-weather]')) {
       const waypointId = mount.dataset.waypointId
       mount.innerHTML = waypointId === undefined ? '' : renderInlineWaypointWeather(byId.get(waypointId))
+      const waypoint = mountedDayDetail?.waypoints.find(point => point.id === waypointId)
+      if (waypoint !== undefined && currentRouteWind !== null) {
+        mount.innerHTML += renderRelativeWind(currentRouteWind.at(waypoint.trackDistanceKm, WAYPOINT_WIND_SMOOTHING_METERS), true)
+      }
     }
   }
 

@@ -22,6 +22,7 @@ import type { WeatherCoordinatorOptions, WeatherListener } from '../coordinator.
 import { buildTripWeatherDayDefinitions, transferDestinationDayKey, transferOriginDayKey } from './sample-points.ts'
 import { buildGenericDayWeatherViewModel } from './view-model.ts'
 import type { GenericDayWeatherViewModel } from './view-model.ts'
+import type { WeatherDayState } from '../types.ts'
 
 export interface GenericTransferWeatherViewModel {
   readonly origin: GenericDayWeatherViewModel | null
@@ -71,6 +72,11 @@ export class GenericWeatherCoordinator {
 
   async waitForIdle(): Promise<void> {
     await this.coordinator.waitForIdle()
+  }
+
+  /** Read existing ETA-associated forecasts; profile exploration never fetches. */
+  getDayWeatherState(dayId: string): WeatherDayState | null {
+    return this.coordinator.getState(dayId)
   }
 
   dispose(): void {

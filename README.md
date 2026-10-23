@@ -5,6 +5,7 @@ Le [premier lot de fiabilisation des POI](docs/POI_RELIABILITY.md) décrit la re
 Le [deuxième lot](docs/POI_PROVIDER_RESILIENCE.md) précise la gestion des erreurs fournisseur et les limites du cache, en préservant les lieux sauvegardés dans les voyages.
 Les [repères de mise à jour](docs/RELEASE_NOTES.md) décrivent les balises MAJ locales et l’historique Nouveautés à maintenir à chaque livraison.
 La [sauvegarde/restauration complète](docs/TRIP_BACKUP.md) permet de conserver les voyages et leurs fichiers d’origine disponibles dans une archive, puis de les restaurer comme copies.
+Le [vent relatif au parcours](docs/RELATIVE_WIND.md) ajoute les lectures face/dos/latéral, les moyennes par étape et voyage, et les trois modes de coloration du profil.
 
 Moteur générique de voyages à vélo, hérité techniquement du dépôt
 `CGI-1991/rga-2026-dashboard`. Le voyage actuellement chargé reste la **Route des

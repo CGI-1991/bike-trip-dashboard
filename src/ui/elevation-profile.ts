@@ -11,6 +11,7 @@ import type { RouteProfilePosition, TerrainProfilePoint } from '../route/types.t
 import type { RouteGeometryPoint } from '../trip-core/index.ts'
 import { PAUSE_ACCENT_COLOR_HEX, getGenericRouteMarkerCategory, getRouteMarkerCategory, getRouteMarkerStyle } from './route-marker-style.ts'
 import type { RouteMarkerCategory } from './route-marker-style.ts'
+import { installProfileWindControls, renderProfileWindControls, selectProfileWind } from './relative-wind-view.ts'
 
 export interface ProfileSample extends TerrainProfilePoint { readonly altitudeM: number }
 
@@ -228,12 +229,14 @@ function installBandProfileInteraction(container: HTMLElement, samples: readonly
       ? `${sample.distanceKm.toFixed(1)} km · ${Math.round(sample.altitudeM)} m · Pente moyenne : ${sample.smoothedGradePercent.toFixed(1)} %`
       : `${sample.distanceKm.toFixed(1)} km · ${Math.round(sample.altitudeM)} m · Pente moyenne : ${sample.smoothedGradePercent.toFixed(1)} % · ETA ${etaLabel}`
     dispatch('profile-sample-active', { latitude: sample.latitude, longitude: sample.longitude })
+    selectProfileWind(container, sample.distanceKm)
   }
   const clear = (): void => {
     cursor.setAttribute('hidden', '')
     clearBand()
     live.textContent = ''
     dispatch('profile-sample-cleared')
+    selectProfileWind(container, null)
   }
   const fromPointer = (event: PointerEvent) => {
     const rect = svg.getBoundingClientRect()
@@ -241,12 +244,14 @@ function installBandProfileInteraction(container: HTMLElement, samples: readonly
   }
   svg.addEventListener('pointerdown', (event) => { svg.setPointerCapture?.(event.pointerId); fromPointer(event) }, { signal: controller.signal })
   svg.addEventListener('pointermove', fromPointer, { signal: controller.signal })
-  // Touch has no hover — `pointerleave` still fires once the finger drags
-  // off the element/is cancelled, the same natural trigger the tooltip used
-  // before (CDC section 18: never disappear "too fast" on a plain tap —
-  // a tap alone never fires `pointerleave`, so the band/marker persist
-  // exactly as the old tooltip did until a real leave/cancel).
-  svg.addEventListener('pointerleave', clear, { signal: controller.signal })
+  // Preserve the selected touch reading after release (CDC section 18).
+  // Mouse leave, cancellation and keyboard blur still clear the selection.
+  svg.addEventListener('pointerleave', event => {
+    // Touch generates a leave after lifting the finger. Keep that selected
+    // point readable; cancellation, keyboard blur or a real drag out clear it.
+    if (event.pointerType === 'touch' && event.buttons === 0) return
+    clear()
+  }, { signal: controller.signal })
   svg.addEventListener('pointercancel', clear, { signal: controller.signal })
   svg.addEventListener('pointerup', (event) => { svg.releasePointerCapture?.(event.pointerId) }, { signal: controller.signal })
   // Keyboard focus leaving the profile (section 21) clears it too — an
@@ -339,7 +344,7 @@ function renderProfileSvgMarkup(
   // The band's own hint now carries the sighted-user instruction; the
   // figcaption stays for assistive tech only (never shown twice).
   const caption = `<figcaption${presentation === 'band' ? ' class="visually-hidden"' : ''}>Survolez, touchez ou utilisez les flèches pour lire distance, altitude, pente moyenne${presentation === 'band' ? ' et ETA' : ''}.</figcaption>`
-  return `<figure class="elevation-profile"><div class="elevation-profile__stage"><svg data-profile-interactive tabindex="0" viewBox="0 0 800 240" role="group" aria-labelledby="profile-title-${titleId}" aria-describedby="profile-live-${titleId}" preserveAspectRatio="none"><title id="profile-title-${titleId}">${escapeHtml(titleLabel)}</title><path class="profile-area" d="${line} L780,214 L20,214 Z"/><path class="profile-line" d="${line}"/>${markersHtml}<g class="profile-cursor" data-profile-cursor hidden><line data-profile-cursor-line y1="25" y2="214"/><circle data-profile-cursor-dot r="6"/></g><text x="20" y="20">${Math.round(max)} m</text><text x="20" y="230">${Math.round(min)} m</text><text x="700" y="230">${total.toFixed(1)} km</text></svg>${infoSurface}</div>${band}<p class="visually-hidden" id="profile-live-${titleId}" data-profile-live aria-live="polite"></p>${caption}</figure>`
+  return `<figure class="elevation-profile"><div class="elevation-profile__stage"><svg data-profile-interactive tabindex="0" viewBox="0 0 800 240" role="group" aria-labelledby="profile-title-${titleId}" aria-describedby="profile-live-${titleId}" preserveAspectRatio="none"><title id="profile-title-${titleId}">${escapeHtml(titleLabel)}</title><path class="profile-area" d="${line} L780,214 L20,214 Z"/>${presentation === 'band' ? '<g data-profile-color-bands></g>' : ''}<path class="profile-line" d="${line}"/>${markersHtml}<g class="profile-cursor" data-profile-cursor hidden><line data-profile-cursor-line y1="25" y2="214"/><circle data-profile-cursor-dot r="6"/></g><text x="20" y="20">${Math.round(max)} m</text><text x="20" y="230">${Math.round(min)} m</text><text x="700" y="230">${total.toFixed(1)} km</text></svg>${infoSurface}</div>${band}<p class="visually-hidden" id="profile-live-${titleId}" data-profile-live aria-live="polite"></p>${caption}</figure>`
 }
 
 export function renderElevationProfile(
@@ -532,6 +537,9 @@ export function renderGenericElevationProfile(container: HTMLElement, geometry: 
       return renderProfileMarker(spec, waypoint.name, x, y)
     })
     .join('')
-  container.innerHTML = renderProfileSvgMarkup(samples, markers, { min, max, total, x, y }, 'generic', `Profil altimétrique interactif de ${stageLabel}`, 'band')
+  container.innerHTML = renderProfileWindControls()
+    + renderProfileSvgMarkup(samples, markers, { min, max, total, x, y }, 'generic', `Profil altimétrique interactif de ${stageLabel}`, 'band')
+    + '<div class="profile-wind" data-profile-wind></div><p class="profile-wind__summary" data-route-wind-summary></p>'
+  installProfileWindControls(container, samples, { total, x, y })
   installBandProfileInteraction(container, samples, min, max, total, { timingCurve })
 }
