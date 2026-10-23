@@ -47,6 +47,8 @@ import type { DayDetail } from './day-detail-view.ts'
 import { createImportWizard } from './import-wizard.ts'
 import type { ImportWizardResult } from './import-wizard.ts'
 import { createTripEditor } from './trip-editor.ts'
+import { createTripBackupPanel } from './trip-backup-panel.ts'
+import type { TripBackupPanelHandle } from './trip-backup-panel.ts'
 import { renderStagePreparationIndicator, renderStagePreparationNote, renderTripDetail } from './trip-detail-view.ts'
 import { createEditGuard } from './edit-guard.ts'
 import { openTimeEditDialog } from './time-edit-dialog.ts'
@@ -316,6 +318,7 @@ function renderTripCard(trip: TripListEntry): string {
         <div><dt>Distance</dt><dd>${trip.totalDistanceKm.toFixed(1)} km</dd></div>
       </dl>
       <div class="trip-card__actions">
+        <button class="button button--quiet" type="button" data-action="backup-trip" data-trip-id="${escapeHtml(trip.id)}">Sauvegarder</button>
         <button class="button button--quiet" type="button" data-action="edit-trip" data-trip-id="${escapeHtml(trip.id)}">Modifier</button>
         <button class="button button--danger" type="button" data-action="delete-trip" data-trip-id="${escapeHtml(trip.id)}">Supprimer</button>
       </div>
@@ -386,10 +389,13 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   // rules that out, rather than only the ones this component itself thought
   // to call it from).
   let activeSubComponent: { readonly destroy: () => void } | null = null
+  let backupPanel: TripBackupPanelHandle | null = null
+  let backupNotice: string | null = null
 
   function teardownSubComponent(): void {
     activeSubComponent?.destroy()
     activeSubComponent = null
+    backupPanel = null
     // R3 section 35: any active "Choisir sur la carte" picker's own Leaflet
     // map is torn down along with its DOM subtree the moment ANY of the 4
     // render entry points below replaces `container.innerHTML` — the
@@ -542,6 +548,18 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     deps.onHeaderChange?.(GENERIC_APP_HEADER_NO_ACTIVE_TRIP)
     container.innerHTML = '<p role="status">Chargement de vos voyages…</p>'
     const trips = await listTripSummaries(deps.database, stagePreparationContext)
+    const backupMarkup = `<details class="trip-backup"><summary>Sauvegarder / restaurer mes voyages</summary><div data-trip-backup-panel></div></details>`
+    const noticeMarkup = backupNotice === null ? '' : `<p role="status">${escapeHtml(backupNotice)}</p>`
+    const mountBackup = () => {
+      const host = container.querySelector<HTMLElement>('[data-trip-backup-panel]')
+      if (host === null) return
+      backupPanel = createTripBackupPanel(host, { database: deps.database, now: deps.now, idFactory: deps.idFactory,
+        onRestored: async count => {
+          backupNotice = `${count} voyage(s) restauré(s) comme nouvelles copies. Vos voyages précédents sont conservés.`
+          if (mode.kind === 'list') await renderList()
+        } })
+      activeSubComponent = backupPanel
+    }
 
     if (trips.length === 0) {
       container.innerHTML = `
@@ -549,7 +567,9 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
           <header class="view-heading"><p class="eyebrow">Mes voyages</p><h2>Aucun voyage pour le moment</h2></header>
           <p>Importez vos traces GPX pour créer votre premier voyage.</p>
           <button class="button button--primary button--full" type="button" data-action="create-trip">Créer un voyage</button>
+          ${noticeMarkup}${backupMarkup}
         </div>`
+      mountBackup()
       return
     }
 
@@ -558,7 +578,9 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
         <header class="view-heading"><p class="eyebrow">Mes voyages</p><h2>${trips.length} voyage${trips.length > 1 ? 's' : ''}</h2></header>
         <button class="button button--primary button--full" type="button" data-action="create-trip">Créer un voyage</button>
         <ul class="trip-card-list">${trips.map(renderTripCard).join('')}</ul>
+        ${noticeMarkup}${backupMarkup}
       </div>`
+    mountBackup()
   }
 
   /**
@@ -2118,6 +2140,8 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
 
     if (action === 'create-trip') {
       openWizard()
+    } else if (action === 'backup-trip' && tripId !== undefined && mode.kind === 'list') {
+      void backupPanel?.prepare(tripId as TripId)
     } else if (action === 'edit-trip' && tripId !== undefined) {
       openEditor(tripId as TripId)
     } else if (action === 'open-trip' && tripId !== undefined) {
