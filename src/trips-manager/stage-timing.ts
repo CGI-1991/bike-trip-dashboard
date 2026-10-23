@@ -16,8 +16,10 @@ import { computeStageTiming } from '../analysis/timing.ts'
 import { estimateAutomaticBreakBudget } from '../analysis/pause-budget.ts'
 import { routeGeometryWithDistances } from '../analysis/canonical-waypoints.ts'
 import { buildTerrainProfileSeries } from '../route/terrain-profile.ts'
+import { walkingTerrainForGeometry } from '../analysis/travel-timing.ts'
+import { selectTravelMode } from '../trip-core/index.ts'
 import type { RouteProfilePosition, TerrainProfilePoint } from '../route/types.ts'
-import type { RideStage, Route, TripBundle } from '../trip-core/index.ts'
+import type { RideStage, Route, TravelMode, TripBundle } from '../trip-core/index.ts'
 
 /**
  * How much pause time to fold into the recomputed durations:
@@ -30,10 +32,11 @@ import type { RideStage, Route, TripBundle } from '../trip-core/index.ts'
 export type StageBreakBudget = number | 'adaptive' | 'preserve'
 
 /** `null` when the route has no usable geometry OR too few points to build a real profile — `computeStageTiming` itself already falls back to the flat-terrain model in that case, exactly like at import time. */
-export function buildTerrainProfileForRoute(route: Route): readonly TerrainProfilePoint[] | null {
+export function buildTerrainProfileForRoute(route: Route, travelMode: TravelMode = 'cycling'): readonly TerrainProfilePoint[] | null {
   const geometryWithDistances = routeGeometryWithDistances(route)
   if (geometryWithDistances === null) return null
   const { geometry, distances } = geometryWithDistances
+  if (travelMode === 'walking') return walkingTerrainForGeometry(geometry).profile
   const source: RouteProfilePosition[] = geometry.map((point, index) => ({
     latitude: point.latitude,
     longitude: point.longitude,
@@ -62,9 +65,10 @@ export function recomputeStageTiming(bundle: TripBundle, stage: RideStage, refer
   const distanceKm = stage.distanceKm
   if (route === undefined || distanceKm === null || !(distanceKm > 0)) return stage
 
-  const terrainProfile = buildTerrainProfileForRoute(route)
+  const travelMode = selectTravelMode(bundle)
+  const terrainProfile = buildTerrainProfileForRoute(route, travelMode)
   const departureTime = bundle.settings.days.find((candidate) => candidate.dayId === stage.dayId)?.departureTime ?? '08:00'
-  const base = { referenceSpeedKph, departureTime }
+  const base = { referenceSpeedKph, departureTime, travelMode }
 
   if (budget === 'preserve') {
     const totalBreakMinutes = (stage.pauseDurationSeconds ?? 0) / 60

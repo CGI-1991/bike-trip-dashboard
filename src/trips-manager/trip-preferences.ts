@@ -9,11 +9,15 @@
 
 import { resolveStagePauseSettings } from '../analysis/waypoint-timeline.ts'
 import { recomputeStageTiming } from './stage-timing.ts'
+import { refreshAutomaticPausePlansForTravelMode } from '../route-enrichment/automatic-pause-plan.ts'
+import { isTravelMode, TRAVEL_MODE_SETTINGS } from './travel-mode.ts'
+import { resolveLinkedScheduleConflicts } from './linked-stages.ts'
+import type { LinkedScheduleAdjustment, LinkedScheduleOverflow } from './linked-stages.ts'
 import { applyRaceMode } from './race-mode.ts'
 import { applyClimbDetectionSensitivity, resolveClimbDetectionSensitivity } from './climb-sensitivity.ts'
-import type { ClimbDetectionSensitivity } from '../trip-core/index.ts'
+import type { ClimbDetectionSensitivity, TravelMode } from '../trip-core/index.ts'
 import { addCivilDays, isIsoDate } from '../trip-core/validation/primitives.ts'
-import { calendarDayOffsets, lastCalendarDayOffset, selectRaceMode, validateTripBundle } from '../trip-core/index.ts'
+import { calendarDayOffsets, lastCalendarDayOffset, selectRaceMode, selectTravelMode, validateTripBundle } from '../trip-core/index.ts'
 import type { IsoDate, TripBundle, TripId } from '../trip-core/index.ts'
 import { createTripRepository, TripValidationError } from '../storage/indexeddb/trip-repository.ts'
 
@@ -33,6 +37,7 @@ export interface TripPreferencesUpdate {
   /** "YYYY-MM-DD" from a native `<input type="date">`. Absent leaves the calendar untouched; only meaningful for an already-dated trip (CDC section 6 — dating a still-undated trip is out of this milestone's scope). */
   readonly startDate?: string
   readonly referenceSpeedKph?: number
+  readonly travelMode?: TravelMode
   /**
    * Mode "Course / Tour". Switching it ON strips every in-stage pause and
    * re-times each stage at a zero budget; switching it OFF re-estimates the
@@ -49,13 +54,18 @@ export interface TripPreferencesUpdate {
 }
 
 export interface TripPreferencesFieldError {
-  readonly field: 'name' | 'startDate' | 'referenceSpeedKph'
+  readonly field: 'name' | 'startDate' | 'referenceSpeedKph' | 'travelMode'
   readonly message: string
 }
 
 /** Pure — never throws, never touches storage. Accumulates every issue rather than stopping at the first (CDC section 36: "afficher validation inline"). */
-export function validateTripPreferencesUpdate(update: TripPreferencesUpdate): readonly TripPreferencesFieldError[] {
+export function validateTripPreferencesUpdate(update: TripPreferencesUpdate, currentMode: TravelMode = 'cycling'): readonly TripPreferencesFieldError[] {
   const errors: TripPreferencesFieldError[] = []
+  if (update.travelMode !== undefined && !isTravelMode(update.travelMode)) {
+    errors.push({ field: 'travelMode', message: 'Mode de déplacement invalide.' })
+  }
+  const mode = isTravelMode(update.travelMode) ? update.travelMode : currentMode
+  const { minimumSpeedKph, maximumSpeedKph } = TRAVEL_MODE_SETTINGS[mode]
   if (update.name !== undefined) {
     const trimmed = update.name.trim()
     if (trimmed === '') errors.push({ field: 'name', message: 'Le nom du voyage ne peut pas être vide.' })
@@ -66,8 +76,8 @@ export function validateTripPreferencesUpdate(update: TripPreferencesUpdate): re
   }
   if (update.referenceSpeedKph !== undefined) {
     const speed = update.referenceSpeedKph
-    if (!Number.isFinite(speed) || speed < TRIP_REFERENCE_SPEED_MIN_KPH || speed > TRIP_REFERENCE_SPEED_MAX_KPH) {
-      errors.push({ field: 'referenceSpeedKph', message: `La vitesse de référence doit être comprise entre ${TRIP_REFERENCE_SPEED_MIN_KPH} et ${TRIP_REFERENCE_SPEED_MAX_KPH} km/h.` })
+    if (!Number.isFinite(speed) || speed < minimumSpeedKph || speed > maximumSpeedKph) {
+      errors.push({ field: 'referenceSpeedKph', message: `La vitesse de référence doit être comprise entre ${minimumSpeedKph} et ${maximumSpeedKph} km/h.` })
     }
   }
   return errors
@@ -78,6 +88,7 @@ export function tripPreferencesUpdateIsNoop(bundle: TripBundle, update: TripPref
   if (update.name !== undefined && update.name.trim() !== bundle.metadata.name) return false
   if (update.startDate !== undefined && update.startDate !== bundle.calendar.startDate) return false
   if (update.referenceSpeedKph !== undefined && update.referenceSpeedKph !== bundle.settings.global.referenceSpeedKph) return false
+  if (update.travelMode !== undefined && update.travelMode !== selectTravelMode(bundle)) return false
   if (update.raceMode !== undefined && update.raceMode !== (bundle.settings.global.raceMode === true)) return false
   if (update.climbDetectionSensitivity !== undefined && update.climbDetectionSensitivity !== resolveClimbDetectionSensitivity(bundle)) return false
   return true
@@ -189,6 +200,7 @@ function fallbackIdFactory(): string {
 /** Pure — `bundle` in, updated `bundle` out, no IO. `updatedTimestamp` is only actually applied when something really changed (the caller checks `tripPreferencesUpdateIsNoop` first). */
 export function applyTripPreferences(bundle: TripBundle, update: TripPreferencesUpdate, updatedTimestamp: string, idFactory: () => string = fallbackIdFactory): TripBundle {
   let next = bundle
+  const modeChanged = update.travelMode !== undefined && update.travelMode !== selectTravelMode(bundle)
 
   if (update.name !== undefined) {
     const name = update.name.trim()
@@ -199,8 +211,13 @@ export function applyTripPreferences(bundle: TripBundle, update: TripPreferences
     next = shiftTripStartDate(next, update.startDate)
   }
 
-  if (update.referenceSpeedKph !== undefined) {
-    next = applyReferenceSpeed(next, update.referenceSpeedKph)
+  if (modeChanged) {
+    next = { ...next, settings: { ...next.settings, global: { ...next.settings.global, travelMode: update.travelMode } },
+      weather: [], stages: next.stages.map(stage => ({ ...stage, weatherRecordIds: [] })) }
+  }
+  if (update.referenceSpeedKph !== undefined || modeChanged) {
+    const speed = update.referenceSpeedKph ?? TRAVEL_MODE_SETTINGS[selectTravelMode(next)].referenceSpeedKph
+    next = applyReferenceSpeed(next, speed)
   }
 
   // Course/Tour before the sensitivity: the former re-times every stage, the
@@ -209,6 +226,7 @@ export function applyTripPreferences(bundle: TripBundle, update: TripPreferences
   // durations.
   if (update.raceMode !== undefined) next = applyRaceMode(next, update.raceMode)
   if (update.climbDetectionSensitivity !== undefined) next = applyClimbDetectionSensitivity(next, update.climbDetectionSensitivity, idFactory)
+  if (modeChanged) next = refreshAutomaticPausePlansForTravelMode(next, idFactory)
 
   if (next === bundle) return bundle
   return { ...next, metadata: { ...next.metadata, updatedAt: updatedTimestamp } }
@@ -236,6 +254,7 @@ export function deriveTripPreferenceInvalidation(previous: TripBundle, next: Tri
     || previous.metadata.endDate !== next.metadata.endDate
   const calendarChanged = previous.calendar.startDate !== next.calendar.startDate || previous.calendar.endDate !== next.calendar.endDate
   const timingChanged = previous.settings.global.referenceSpeedKph !== next.settings.global.referenceSpeedKph
+    || selectTravelMode(previous) !== selectTravelMode(next)
     || previous.stages.some((stage, index) => {
       const nextStage = next.stages[index]
       return nextStage === undefined
@@ -274,7 +293,8 @@ export interface UpdateTripPreferencesInput {
 }
 
 export type UpdateTripPreferencesResult =
-  | { readonly ok: true; readonly bundle: TripBundle; readonly noop: boolean; readonly invalidation: TripPreferenceInvalidation | null }
+  | { readonly ok: true; readonly bundle: TripBundle; readonly noop: boolean; readonly invalidation: TripPreferenceInvalidation | null;
+      readonly schedule?: { readonly adjustments: readonly LinkedScheduleAdjustment[]; readonly overflows: readonly LinkedScheduleOverflow[] } }
   | { readonly ok: false; readonly code: 'not-found' | 'invalid-input' | 'storage-error'; readonly message: string; readonly errors?: readonly TripPreferencesFieldError[] }
 
 /**
@@ -285,14 +305,13 @@ export type UpdateTripPreferencesResult =
  * storage entirely — `updatedAt` never moves, nothing is invalidated.
  */
 export async function updateTripPreferences(input: UpdateTripPreferencesInput): Promise<UpdateTripPreferencesResult> {
-  const fieldErrors = validateTripPreferencesUpdate(input.update)
-  if (fieldErrors.length > 0) {
-    return { ok: false, code: 'invalid-input', message: fieldErrors[0]?.message ?? 'Préférences invalides.', errors: fieldErrors }
-  }
-
   const tripRepository = createTripRepository(input.database)
   const existing = await tripRepository.loadTripBundle(input.tripId)
   if (existing === null) return { ok: false, code: 'not-found', message: 'Voyage introuvable.' }
+  const fieldErrors = validateTripPreferencesUpdate(input.update, selectTravelMode(existing))
+  if (fieldErrors.length > 0) {
+    return { ok: false, code: 'invalid-input', message: fieldErrors[0]?.message ?? 'Préférences invalides.', errors: fieldErrors }
+  }
 
   // `shiftTripStartDate` silently no-ops on a still-undated trip (dating one
   // for the first time needs a timezone choice too — out of this
@@ -306,7 +325,11 @@ export async function updateTripPreferences(input: UpdateTripPreferencesInput): 
     return { ok: true, bundle: existing, noop: true, invalidation: null }
   }
 
-  const next = applyTripPreferences(existing, input.update, input.now(), input.idFactory)
+  const applied = applyTripPreferences(existing, input.update, input.now(), input.idFactory)
+  const schedule = selectTravelMode(existing) !== selectTravelMode(applied)
+    || (selectTravelMode(applied) === 'walking' && existing.settings.global.referenceSpeedKph !== applied.settings.global.referenceSpeedKph)
+    ? resolveLinkedScheduleConflicts(applied) : null
+  const next = schedule?.bundle ?? applied
   const validation = validateTripBundle(next)
   if (!validation.ok) {
     const message = validation.issues[0]?.message ?? 'Voyage modifié invalide.'
@@ -320,5 +343,6 @@ export async function updateTripPreferences(input: UpdateTripPreferencesInput): 
     return { ok: false, code: 'storage-error', message }
   }
 
-  return { ok: true, bundle: validation.value, noop: false, invalidation: deriveTripPreferenceInvalidation(existing, validation.value) }
+  return { ok: true, bundle: validation.value, noop: false, invalidation: deriveTripPreferenceInvalidation(existing, validation.value),
+    ...(schedule === null ? {} : { schedule: { adjustments: schedule.adjustments, overflows: schedule.overflows } }) }
 }

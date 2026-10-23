@@ -6,6 +6,7 @@
  */
 
 import { createTripRepository } from '../../storage/indexeddb/trip-repository.ts'
+import { selectTravelMode } from '../../trip-core/index.ts'
 import { createSourceFileRepository } from '../../storage/indexeddb/source-file-repository.ts'
 import type { SourceFilePayloadContent } from '../../storage/indexeddb/source-file-repository.ts'
 import type { GeocodingProvider } from '../../geocoding/types.ts'
@@ -316,7 +317,7 @@ function renderTripCard(trip: TripListEntry): string {
   const statusBadge = statusLabel === null ? '' : `<span class="tag tag--data">${escapeHtml(statusLabel)}</span>`
   return `
     <li class="trip-card" data-action="open-trip" data-trip-id="${escapeHtml(trip.id)}" role="button" tabindex="0">
-      <div class="trip-card__header"><h3>${escapeHtml(trip.name)}</h3>${statusBadge}</div>
+      <div class="trip-card__header"><h3>${escapeHtml(trip.name)}</h3>${trip.travelMode === 'walking' ? '<span class="tag tag--data">Randonnée</span>' : ''}${statusBadge}</div>
       ${renderTripPreparationLine(trip.preparationSummary)}
       <dl class="trip-card__stats">
         <div><dt>Dates</dt><dd>${escapeHtml(dateLabel)}</dd></div>
@@ -495,14 +496,14 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
         currentRouteWind = null
         if (mountedDayDetail?.geometry !== null && mountedDayDetail?.geometry !== undefined) currentRouteWind = routeWindForDay(day, mountedDayDetail.geometry)
         const windProfile = container.querySelector<HTMLElement>('[data-day-detail-profile]')
-        if (windProfile !== null) updateProfileWind(windProfile, currentRouteWind)
+        if (windProfile !== null) updateProfileWind(windProfile, currentRouteWind, selectTravelMode(bundle))
         // CDC D1.2 section 24: a ride day's own "Points significatifs" list
         // is dropped from this mount — every significant point already
         // carries its own inline weather line in the Parcours timeline
         // below (`mountTimelineWaypointWeather`). OFF/transfer days have no
         // Parcours timeline to fold into (section 29) and keep the list.
         renderGenericStageWeatherPanel(panel, model, false, { includePointsList: day.type !== 'ride' })
-        if (day.type === 'ride') mountTimelineWaypointWeather(model)
+        if (day.type === 'ride') mountTimelineWaypointWeather(model, bundle)
         // R3 sections 24-28: the always-visible "Alertes météo" summary,
         // between map/profile and Parcours — reuses this exact same
         // `model` (never a second fetch), so it always stays in sync with
@@ -533,7 +534,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
         return { lengthKm: model?.lengthKm ?? windRouteLengthKm(geometry), summary: model?.summary ?? null }
       })
       const stats = combineRouteWindSummaries(parts)
-      tripWind.innerHTML = renderRelativeWind(stats.mean) + `<p class="profile-wind__summary">${formatRouteWindSummary(stats)}</p>`
+      tripWind.innerHTML = renderRelativeWind(stats.mean, false, selectTravelMode(bundle)) + `<p class="profile-wind__summary">${formatRouteWindSummary(stats)}</p>`
     }
   }
 
@@ -561,7 +562,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
    * new lookup table). Never a fresh weather fetch: `model` is whatever the
    * coordinator already has cached/computed for this day.
    */
-  function mountTimelineWaypointWeather(model: GenericDayWeatherViewModel | GenericTransferWeatherViewModel | null): void {
+  function mountTimelineWaypointWeather(model: GenericDayWeatherViewModel | GenericTransferWeatherViewModel | null, bundle: TripBundle): void {
     const points = model !== null && !('origin' in model) ? model.points : []
     const byId = new Map(points.map((point) => [point.id, point]))
     for (const mount of container.querySelectorAll<HTMLElement>('[data-waypoint-weather]')) {
@@ -569,7 +570,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       mount.innerHTML = waypointId === undefined ? '' : renderInlineWaypointWeather(byId.get(waypointId))
       const waypoint = mountedDayDetail?.waypoints.find(point => point.id === waypointId)
       if (waypoint !== undefined && currentRouteWind !== null) {
-        mount.innerHTML += renderRelativeWind(currentRouteWind.at(waypoint.trackDistanceKm, WAYPOINT_WIND_SMOOTHING_METERS), true)
+        mount.innerHTML += renderRelativeWind(currentRouteWind.at(waypoint.trackDistanceKm, WAYPOINT_WIND_SMOOTHING_METERS), true, selectTravelMode(bundle))
       }
     }
   }
@@ -770,7 +771,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     const daySettings = bundle.settings.days.find((candidate) => candidate.dayId === day.id)
     const departureTime = daySettings?.departureTime ?? '08:00'
     const viewModels = buildPracticalPlaceViewModels(places, day, detail.timingCurve, departureTime)
-    return buildPracticalPlaceMapLayers(viewModels)
+    return buildPracticalPlaceMapLayers(viewModels, selectTravelMode(bundle))
   }
 
   function patchLivePracticalPlaces(bundle: TripBundle, dayId: TripDayId): void {

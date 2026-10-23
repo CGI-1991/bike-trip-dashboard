@@ -44,6 +44,7 @@
  * along the transfer itself: there is no route geometry to place points on.
  */
 
+import { selectTravelMode } from '../../trip-core/index.ts'
 import { isSignificantWaypoint } from '../../analysis/canonical-waypoints.ts'
 import type { CanonicalWaypoint, CanonicalWaypointKind } from '../../analysis/canonical-waypoints.ts'
 import { resolveOffCoordinates, resolveOffLocation, resolveTransferCoordinates, resolveTransferLocations } from '../../analysis/day-location-fill.ts'
@@ -135,7 +136,7 @@ export function buildRideDayWeatherDefinition(bundle: TripBundle, day: TripDay):
 
   const daySettings = bundle.settings.days.find((candidate) => candidate.dayId === day.id)
   const departureTime = daySettings?.departureTime ?? '08:00'
-  const settings = { referenceSpeedKph: bundle.settings.global.referenceSpeedKph, departureTime }
+  const settings = { referenceSpeedKph: bundle.settings.global.referenceSpeedKph, travelMode: selectTravelMode(bundle), departureTime }
   const stageSettings = bundle.settings.stages.find((candidate) => candidate.stageId === stage.id)
   const pauseResolution = resolveStagePauseSettings(bundle.settings.global.pausePlanMode, stageSettings, selectRaceMode(bundle))
   // Polish-final section 12-16: the exact same automatic-pause enrichment

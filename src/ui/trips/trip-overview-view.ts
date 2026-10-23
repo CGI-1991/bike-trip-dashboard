@@ -7,6 +7,7 @@
  * like `day-detail-view.ts`.
  */
 
+import { selectTravelMode } from '../../trip-core/index.ts'
 import { computeStageWaypoints, resolveStagePauseSettings } from '../../analysis/waypoint-timeline.ts'
 import { selectRaceMode, selectStageCustomName, selectTripDayNumber } from '../../trip-core/index.ts'
 import { stageAutomaticPausesAllowed } from '../../route-enrichment/enrichment-jobs.ts'
@@ -229,7 +230,7 @@ export function buildTripOverview(bundle: TripBundle, now: Date | string | null)
       return { waypoints: [], geometry: [] }
     }
     const daySettings = bundle.settings.days.find((candidate) => candidate.dayId === stage.dayId)
-    const settings = { referenceSpeedKph: bundle.settings.global.referenceSpeedKph, departureTime: daySettings?.departureTime ?? '08:00' }
+    const settings = { referenceSpeedKph: bundle.settings.global.referenceSpeedKph, travelMode: selectTravelMode(bundle), departureTime: daySettings?.departureTime ?? '08:00' }
     const stageSettings = bundle.settings.stages.find((candidate) => candidate.stageId === stage.id)
     const pauseResolution = resolveStagePauseSettings(bundle.settings.global.pausePlanMode, stageSettings, selectRaceMode(bundle))
     const waypoints = computeStageWaypoints({
@@ -278,7 +279,7 @@ export function buildTripOverview(bundle: TripBundle, now: Date | string | null)
   // longer repeats the trip name or its dates. A minimal eyebrow keeps just
   // enough "you are here" context without duplicating anything.
   const html = `<div class="trip-overview" data-trip-overview>
-    <header class="view-heading"><p class="eyebrow">Aperçu</p></header>
+    <header class="view-heading"><p class="eyebrow">Aperçu${selectTravelMode(bundle) === 'walking' ? ' · Randonnée' : ''}</p></header>
     <section class="trip-overview__zone trip-overview__zone--trip" data-trip-overview-zone="trip">
       ${renderProgressStats(progress)}
       <details class="card trip-wind-summary"><summary>Vent relatif sur l’ensemble du voyage</summary><div data-trip-wind-summary></div></details>

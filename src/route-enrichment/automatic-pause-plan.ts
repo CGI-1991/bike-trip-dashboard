@@ -35,6 +35,7 @@ import { normalizePauseDurationMinutes } from '../analysis/pause-duration.ts'
 import { buildAutomaticPauseEnrichment, computeStagePauseRecommendations } from '../analysis/waypoint-timeline.ts'
 import type { ManualPauseSetting, WaypointTimelineSettings } from '../analysis/waypoint-timeline.ts'
 import type { RideStageId, RoutePointId, StageAutomaticPausePlan, StagePauseSetting, TripBundle } from '../trip-core/index.ts'
+import { selectTravelMode } from '../trip-core/index.ts'
 import { isStageFullyEnriched, stageFingerprintFor } from './enrichment-jobs.ts'
 
 function resolveStageContext(bundle: TripBundle, stageId: RideStageId) {
@@ -100,7 +101,7 @@ export function computeAutomaticPausePlanForStage(bundle: TripBundle, stageId: R
   if (context === null) return null
   const { stage, route, day } = context
   const daySettings = bundle.settings.days.find((candidate) => candidate.dayId === day.id)
-  const settings: WaypointTimelineSettings = { referenceSpeedKph: bundle.settings.global.referenceSpeedKph, departureTime: daySettings?.departureTime ?? '08:00' }
+  const settings: WaypointTimelineSettings = { referenceSpeedKph: bundle.settings.global.referenceSpeedKph, travelMode: selectTravelMode(bundle), departureTime: daySettings?.departureTime ?? '08:00' }
   const recommendations = computeStagePauseRecommendations({
     stage, route, routePoints: bundle.routePoints, climbs: bundle.climbs, settings,
     automaticPauseEnrichment: buildAutomaticPauseEnrichment(bundle, stage, day),
@@ -161,4 +162,27 @@ export function ensureAutomaticPausePlans(bundle: TripBundle, idFactory: () => s
     result = withAutomaticPausePlan(result, stage.id, pauses)
   }
   return result
+}
+
+/**
+ * A deliberate cycling/walking switch changes the pace and pause budget.
+ * Re-select automatic plans locally from that new timing context, once the
+ * stage aggregates have been recomputed. Custom stage settings and their
+ * dormant automatic plans remain untouched. Weather/departure updates do
+ * not call this function and keep the existing fixed-anchor guarantee.
+ * Incomplete stages lose their old plan but still wait for the usual
+ * enrichment gate before a new one can be persisted.
+ */
+export function refreshAutomaticPausePlansForTravelMode(bundle: TripBundle, idFactory: () => string): TripBundle {
+  const automaticStageIds = new Set(bundle.stages
+    .filter((stage) => effectivePausePlanMode(bundle, stage.id) === 'automatic')
+    .map((stage) => stage.id))
+  if (automaticStageIds.size === 0) return bundle
+
+  const plans = bundle.enrichmentMetadata.automaticPausePlans ?? []
+  const retained = plans.filter((plan) => !automaticStageIds.has(plan.stageId))
+  const invalidated = retained.length !== plans.length
+    ? { ...bundle, enrichmentMetadata: { ...bundle.enrichmentMetadata, automaticPausePlans: retained } }
+    : bundle
+  return ensureAutomaticPausePlans(invalidated, idFactory)
 }

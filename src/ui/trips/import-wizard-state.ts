@@ -28,6 +28,8 @@ import {
   validateWizardForm,
 } from '../../trips-manager/index.ts'
 import type { GpxPreAnalysis } from '../../trips-manager/index.ts'
+import type { TravelMode } from '../../trip-core/index.ts'
+import { validateTripPreferencesUpdate } from '../../trips-manager/trip-preferences.ts'
 
 /** Opaque, stable identity for one imported file — never a `state.files` array index. */
 export type FileEntryId = string
@@ -67,6 +69,7 @@ export interface WizardState {
   duplicateSelectionNotice: string | null
   /** Trip-level settings (CDC Jalon B4.3 sections 19-21): reference speed and Mode montagne belong to the trip, set here at creation and editable afterwards via "Modifier le voyage" — never per-stage/per-day, never a separate global settings screen. */
   referenceSpeedKph: number
+  travelMode: TravelMode
   /** Mode "Course / Tour" — `false` (Classique) for a new trip, like every existing one. */
   raceMode: boolean
   /** Climb-detection sensitivity — `'standard'` (the historical calibration) for a new trip. */
@@ -90,6 +93,7 @@ export function createEmptyWizardState(): WizardState {
     errorMessage: null,
     duplicateSelectionNotice: null,
     referenceSpeedKph: 18,
+    travelMode: 'cycling',
     raceMode: false,
     climbSensitivity: 'standard',
   }
@@ -173,7 +177,7 @@ export function computeLoopPending(state: WizardState): boolean {
 
 export function formValidation(state: WizardState) {
   const strictDuplicates = strictDuplicateFileNames(state)
-  return validateWizardForm({
+  const base = validateWizardForm({
     name: state.name,
     startDate: state.startDate || null,
     files: activeFiles(state).map((entry) => ({
@@ -183,6 +187,8 @@ export function formValidation(state: WizardState) {
       removed: false,
     })),
   })
+  const speedErrors = validateTripPreferencesUpdate({ referenceSpeedKph: state.referenceSpeedKph, travelMode: state.travelMode })
+  return { canCreate: base.canCreate && speedErrors.length === 0, reasons: [...base.reasons, ...speedErrors.map(error => error.message)] }
 }
 
 /** Proposes an order among only the newly-added, now-valid files and appends them — existing structure items (manual order, OFF/transfer slots) are never touched. Mutates `state.structure` in place. */

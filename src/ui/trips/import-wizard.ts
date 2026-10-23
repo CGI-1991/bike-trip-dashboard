@@ -42,6 +42,8 @@ import {
 import type { TransferTiming } from '../../trip-core/index.ts'
 import type { FileEntryId, StructureItem, WizardStage, WizardState } from './import-wizard-state.ts'
 import { renderRaceModeToggle } from './race-mode-toggle.ts'
+import { renderTravelModeToggle } from './travel-mode-toggle.ts'
+import { isTravelMode, TRAVEL_MODE_SETTINGS } from '../../trips-manager/travel-mode.ts'
 import { climbSensitivityAtIndex, patchClimbSensitivityLabels, renderClimbSensitivitySlider } from './climb-sensitivity-slider.ts'
 
 function asTripId(value: string): TripId {
@@ -94,6 +96,7 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
   const controller = new AbortController()
   const preAnalyzeFiles = deps.preAnalyzeFiles ?? preAnalyzeGpxFiles
   const state: WizardState = createEmptyWizardState()
+  const modeSpeeds = { cycling: 18, walking: 4.5 }
 
   async function addFiles(rawFiles: readonly File[]): Promise<void> {
     const rawEntries = await Promise.all(rawFiles.map(async (file) => ({
@@ -143,6 +146,7 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
         startDate: state.startDate,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         referenceSpeedKph: state.referenceSpeedKph,
+        travelMode: state.travelMode,
         climbDetectionSensitivity: state.climbSensitivity,
         totalBreakMinutes: 'adaptive',
         importedAt,
@@ -400,7 +404,8 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
           <p class="eyebrow">Informations</p>
           <div class="field"><label for="wizard-name">Nom du voyage</label><div class="field__control"><input id="wizard-name" type="text" data-field="name" value="${escapeHtml(state.name)}" required></div></div>
           <div class="field"><label for="wizard-start-date">Date de départ</label><div class="field__control"><input id="wizard-start-date" type="date" data-field="start-date" value="${escapeHtml(state.startDate)}" required></div></div>
-          <div class="field"><label for="wizard-reference-speed">Vitesse de référence</label><div class="field__control"><input id="wizard-reference-speed" type="number" min="8" max="40" step="0.5" data-field="reference-speed" value="${state.referenceSpeedKph}"><span>km/h</span></div></div>
+          ${renderTravelModeToggle(state.travelMode)}
+          <div class="field"><label for="wizard-reference-speed">Vitesse de référence sur le plat</label><div class="field__control"><input id="wizard-reference-speed" type="number" min="${TRAVEL_MODE_SETTINGS[state.travelMode].minimumSpeedKph}" max="${TRAVEL_MODE_SETTINGS[state.travelMode].maximumSpeedKph}" step="0.5" data-field="reference-speed" value="${Number.isFinite(state.referenceSpeedKph) ? state.referenceSpeedKph : ''}"><span>km/h</span></div></div>
         </section>
         <p class="eyebrow">Structure</p>
         <button class="button button--quiet" type="button" data-action="trigger-add-files">+ Ajouter des GPX</button>
@@ -454,7 +459,7 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
     if (!(target instanceof HTMLInputElement)) return
     if (target.dataset.field === 'name') state.name = target.value
     else if (target.dataset.field === 'start-date') state.startDate = target.value
-    else if (target.dataset.field === 'reference-speed') { if (Number.isFinite(target.valueAsNumber)) state.referenceSpeedKph = target.valueAsNumber; return }
+    else if (target.dataset.field === 'reference-speed') { state.referenceSpeedKph = target.valueAsNumber; updateValidationUI(); return }
     // Focus-preserving, exactly like the trip name and the reference speed:
     // a full `render()` per keystroke/drag would reset the caret or drop the
     // range input's pointer capture.
@@ -497,6 +502,13 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
     const button = target.closest<HTMLElement>('[data-action]')
     if (button === null) return
     const action = button.dataset.action
+    if (action === 'set-travel-mode' && isTravelMode(button.dataset.travelMode)) {
+      if (Number.isFinite(state.referenceSpeedKph)) modeSpeeds[state.travelMode] = state.referenceSpeedKph
+      state.travelMode = button.dataset.travelMode
+      state.referenceSpeedKph = modeSpeeds[state.travelMode]
+      render()
+      return
+    }
     const position = button.dataset.position === undefined ? null : Number(button.dataset.position)
 
     // CDC Jalon B4.4 section 17: the visible "+ Ajouter des GPX" button

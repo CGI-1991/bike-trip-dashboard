@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { indexRouteGeometry } from '../../src/route-enrichment/segment-geometry.ts'
 import { buildRouteWindModel, combineRouteWindSummaries, headwindColor, relativeWindComponents, relativeWindLabel, smoothedTravelBearing } from '../../src/weather/relative-wind.ts'
-import { formatRouteWindSummary, renderRelativeWind } from '../../src/ui/relative-wind-view.ts'
+import { formatRouteWindSummary, installProfileWindControls, renderRelativeWind, selectProfileWind, updateProfileWind } from '../../src/ui/relative-wind-view.ts'
 
 const point = km => ({latitude:45+km/111.195,longitude:6,altitudeM:100})
 const line = (length=10, count=101) => Array.from({length:count},(_,i)=>point(i*length/(count-1)))
@@ -140,4 +140,44 @@ test('unknown wind stays neutral gray; known headwind darkens a physical km/h sc
   assert.match(renderRelativeWind(tail),/Vent de dos/)
   assert.doesNotMatch(renderRelativeWind(null),/relative-wind__arrow/)
   assert.match(renderRelativeWind(strong),/rotate\(0\.0 32 32\)/)
+})
+
+test('walking wind uses a walker while retaining the same airflow direction in full and compact displays',()=>{
+  const reading=modelFor(line(),180).at(5)
+  for(const compact of [false,true]) {
+    const cycling=renderRelativeWind(reading,compact)
+    const walking=renderRelativeWind(reading,compact,'walking')
+    assert.match(walking,/relative-wind__walker/)
+    assert.doesNotMatch(cycling,/relative-wind__walker/)
+    assert.match(walking,/Vent de dos/)
+    assert.match(walking,/rotate\(180\.0 32 32\)/)
+    assert.match(cycling,/rotate\(180\.0 32 32\)/)
+  }
+  assert.match(renderRelativeWind(null,false,'walking'),/relative-wind__walker/)
+  assert.doesNotMatch(renderRelativeWind(null,false,'walking'),/relative-wind__arrow/)
+})
+
+test('the profile retains walking orientation during exploration and restores cycling wording when the mode changes',()=>{
+  const readout={innerHTML:''}
+  const elements={
+    '[data-profile-interactive]':{},
+    '[data-profile-color-bands]':{innerHTML:''},
+    '.profile-area':{style:{}},
+    '[data-profile-color-legend]':{textContent:''},
+    '[data-profile-wind]':readout,
+    '[data-route-wind-summary]':{textContent:''},
+  }
+  const container={querySelector:selector=>elements[selector]??null,querySelectorAll:()=>[],addEventListener(){}}
+  installProfileWindControls(container,[],{total:10,x:km=>km,y:altitude=>altitude})
+  const model=modelFor()
+  updateProfileWind(container,model,'walking')
+  selectProfileWind(container,5)
+  assert.match(readout.innerHTML,/sens de marche/)
+  assert.match(readout.innerHTML,/relative-wind__walker/)
+  assert.doesNotMatch(readout.innerHTML,/sens de roulage/)
+  selectProfileWind(container,null)
+  assert.match(readout.innerHTML,/sens de marche/)
+  updateProfileWind(container,model)
+  assert.match(readout.innerHTML,/sens de roulage/)
+  assert.doesNotMatch(readout.innerHTML,/relative-wind__walker/)
 })

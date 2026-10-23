@@ -22,6 +22,7 @@
  * resolved, or (ride only) its stage/route can't be resolved either.
  */
 
+import { selectTravelMode } from '../../trip-core/index.ts'
 import { buildAutomaticPauseEnrichment, computeStagePauseRecommendations, computeStageTimingCurve, computeStageWaypoints, resolveStagePauseSettings } from '../../analysis/waypoint-timeline.ts'
 import type { StageTimingCurve } from '../../analysis/waypoint-timeline.ts'
 import { isSignificantWaypoint } from '../../analysis/canonical-waypoints.ts'
@@ -1008,7 +1009,7 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
   const geometry = routeGeometry(route)
 
   const daySettings = bundle.settings.days.find((candidate) => candidate.dayId === day.id)
-  const settings = { referenceSpeedKph: bundle.settings.global.referenceSpeedKph, departureTime: daySettings?.departureTime ?? '08:00' }
+  const settings = { referenceSpeedKph: bundle.settings.global.referenceSpeedKph, travelMode: selectTravelMode(bundle), departureTime: daySettings?.departureTime ?? '08:00' }
   const stageSettings = bundle.settings.stages.find((candidate) => candidate.stageId === stage.id)
   const pauseResolution = resolveStagePauseSettings(bundle.settings.global.pausePlanMode, stageSettings, selectRaceMode(bundle))
   // Integrity-hardening: a valid PERSISTED automatic plan (computed once,

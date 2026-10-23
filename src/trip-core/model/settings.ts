@@ -3,6 +3,10 @@ import type { RideStageId, RoutePointId, TripDayId } from './ids.ts'
 
 export type PausePlanMode = 'automatic' | 'custom'
 
+export const TRAVEL_MODES = ['cycling', 'walking'] as const
+export type TravelMode = (typeof TRAVEL_MODES)[number]
+export const DEFAULT_TRAVEL_MODE: TravelMode = 'cycling'
+
 /**
  * Climb-detection sensitivity (one trip-wide setting, 5 steps). Ordered
  * from the most selective to the most sensitive, which is exactly the
@@ -24,6 +28,8 @@ export const DEFAULT_CLIMB_DETECTION_SENSITIVITY: ClimbDetectionSensitivity = 's
  * without hardcoding any trip-specific value.
  */
 export interface GlobalTripSettings {
+  /** Absent on existing trips: preserve the historical cycling model. */
+  readonly travelMode?: TravelMode
   readonly referenceSpeedKph: KilometersPerHour
   readonly pausePlanMode: PausePlanMode
   /*

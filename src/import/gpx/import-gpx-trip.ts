@@ -70,6 +70,7 @@ export interface ImportGpxTripInput {
 /** Same complete 6C1 analysis/build pipeline, without opening a storage transaction. Used by structural editing before its single atomic replacement write. */
 export type BuildGpxTripInput = Omit<ImportGpxTripInput, 'database'>
 
+// Flat reference pace; the terrain model is selected independently.
 const DEFAULT_REFERENCE_SPEED_KPH = 18
 const DEFAULT_DEPARTURE_TIME = '08:00'
 const DEFAULT_TOTAL_BREAK_MINUTES = 60
@@ -84,7 +85,11 @@ function resolveOptions(raw: GpxTripImportOptions): { readonly options: Resolved
   if (!isNonEmptyString(raw.importedAt)) issues.push(importIssue('validation-error', 'error', 'importedAt est requis.'))
   if (!isNonEmptyString(raw.engineVersion)) issues.push(importIssue('validation-error', 'error', 'engineVersion est requis.'))
 
-  const referenceSpeedKph = raw.referenceSpeedKph ?? DEFAULT_REFERENCE_SPEED_KPH
+  if (raw.travelMode !== undefined && raw.travelMode !== 'cycling' && raw.travelMode !== 'walking') {
+    issues.push(importIssue('validation-error', 'error', 'Mode de déplacement invalide.'))
+  }
+  const travelMode = raw.travelMode ?? 'cycling'
+  const referenceSpeedKph = raw.referenceSpeedKph ?? (travelMode === 'walking' ? 4.5 : DEFAULT_REFERENCE_SPEED_KPH)
   if (!isPositiveNumber(referenceSpeedKph)) issues.push(importIssue('validation-error', 'error', 'referenceSpeedKph doit être > 0.'))
 
   const departureTime = raw.departureTime ?? DEFAULT_DEPARTURE_TIME
@@ -116,6 +121,7 @@ function resolveOptions(raw: GpxTripImportOptions): { readonly options: Resolved
       units: raw.units ?? 'metric',
       startDate,
       referenceSpeedKph,
+      travelMode,
       departureTime,
       totalBreakMinutes,
       climbDetectionSensitivity: raw.climbDetectionSensitivity ?? DEFAULT_CLIMB_DETECTION_SENSITIVITY,
@@ -233,7 +239,7 @@ async function processGpxTrip(input: BuildGpxTripInput & { readonly database: ID
         route.id,
         idFactory,
         options.engineVersion,
-        { referenceSpeedKph: options.referenceSpeedKph, departureTime: options.departureTime, totalBreakMinutes: options.totalBreakMinutes },
+        { referenceSpeedKph: options.referenceSpeedKph, travelMode: options.travelMode, departureTime: options.departureTime, totalBreakMinutes: options.totalBreakMinutes },
         entry.file.name,
         options.climbDetectionSensitivity,
       )

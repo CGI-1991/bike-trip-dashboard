@@ -13,6 +13,9 @@ export interface AppRelease {
 }
 
 export const APP_RELEASES: readonly AppRelease[] = [
+  { version: '2026.10.23.5', date: '2026-10-23', changes: [
+    { feature: 'travel-mode', title: 'Vos voyages à vélo ou à pied', description: 'Choisissez Vélo ou Randonnée à la création ou dans Modifier le voyage. La randonnée utilise un calcul des temps selon la pente, une vitesse de référence sur le plat et des liens de guidage à pied. Les pauses automatiques sont réévaluées au changement de mode ; vos pauses manuelles, lieux et fichiers GPX sont conservés. Les voyages existants restent à vélo.' },
+  ] },
   { version: '2026.10.23.4', date: '2026-10-23', changes: [
     { feature: 'relative-wind', title: 'Le vent se lit dans votre sens de roulage', description: 'Touchez le profil pour voir le vent relatif autour du cycliste, orienté vers le haut. Les points du Parcours présentent une moyenne locale et le parcours indique ses parts face, dos et latéral. Choisissez un profil neutre, coloré par pente ou par composante de vent de face en bleu. Les estimations utilisent les prévisions déjà chargées ; les zones sans estimation fiable restent grises.' },
   ] },
