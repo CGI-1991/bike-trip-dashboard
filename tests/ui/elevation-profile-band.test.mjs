@@ -118,6 +118,20 @@ test('X: a sample with lat/lon dispatches "profile-sample-active" with that exac
   assert.ok(Number.isFinite(activeEvents[0].detail.longitude))
 })
 
+test('race-bound selection uses the profile plot margins and the same chainage as the cursor', () => {
+  const { elements, events } = buildInteractiveFixture()
+  const svg = elements['[data-profile-interactive]']
+  svg.emit('pointermove', { clientX: 20 })
+  assert.equal(events.filter(event => event.type === 'profile-distance-active').at(-1).detail.distanceKm, 0)
+  svg.emit('pointermove', { clientX: 780 })
+  const total = events.filter(event => event.type === 'profile-distance-active').at(-1).detail.distanceKm
+  svg.emit('pointermove', { clientX: 210 })
+  const selected = events.filter(event => event.type === 'profile-distance-active').at(-1).detail.distanceKm
+  assert.ok(Math.abs(selected - total / 4) < 1e-8)
+  const sync = events.filter(event => event.type === 'profile-sample-active').at(-1)
+  assert.ok(Number.isFinite(sync.detail.latitude))
+})
+
 test('Z: leaving the profile clears the band back to neutral and dispatches "profile-sample-cleared"', () => {
   const { elements, events } = buildInteractiveFixture()
   const svg = elements['[data-profile-interactive]']

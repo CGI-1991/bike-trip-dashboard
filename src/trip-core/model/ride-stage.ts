@@ -12,6 +12,13 @@ import type { DataProvenance } from './provenance.ts'
 /** Generic validation lifecycle for a stage's computed content. */
 export type RideStageValidationStatus = 'pending' | 'valid' | 'needs-review'
 
+/** Distances on the original route's chainage, never on a cropped/reversed GPX. */
+export interface RaceBounds {
+  readonly routeFingerprint: string
+  readonly startOffsetM: number
+  readonly finishOffsetM: number
+}
+
 /**
  * A single day's ride. All computed fields are nullable — phase 2 defines the
  * shape only; nothing here is calculated by this phase (no GPX parsing, no
@@ -35,6 +42,8 @@ export interface RideStage {
    * computed metric.
    */
   readonly customName?: string
+  /** Additive: absent on existing trips. Source metrics remain full-GPX metrics. */
+  readonly raceBounds?: RaceBounds
   readonly startLocationName: string | null
   readonly endLocationName: string | null
   readonly distanceKm: Kilometers | null

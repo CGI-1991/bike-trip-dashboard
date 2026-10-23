@@ -8,6 +8,7 @@ La [sauvegarde/restauration complète](docs/TRIP_BACKUP.md) permet de conserver 
 Le [vent relatif au parcours](docs/RELATIVE_WIND.md) ajoute les lectures face/dos/latéral, les moyennes par étape et voyage, et les trois modes de coloration du profil.
 Les [modes Vélo / Randonnée](docs/TRAVEL_MODES.md) adaptent les estimations de temps et le guidage au déplacement. Le [cadrage League / Tour](docs/LEAGUE.md) prépare le calendrier de compétitions et les segments de course.
 Le [premier lot League](docs/LEAGUE_CALENDAR.md) apporte un calendrier de courses avec dates et départs indépendants, parcours consultables et recherche de POI sur demande.
+Les [limites de course](docs/RACE_BOUNDS.md) distinguent les statistiques GPX de celles de la portion choisie en League et Tour. Le vent présente une lecture compacte sur téléphone.
 
 Moteur générique de voyages à vélo, hérité techniquement du dépôt
 `CGI-1991/rga-2026-dashboard`. Le voyage actuellement chargé reste la **Route des

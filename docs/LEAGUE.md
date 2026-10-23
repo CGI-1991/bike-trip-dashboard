@@ -1,6 +1,6 @@
 # Cadrage League et Tour
 
-Document de développement, à partir du [cadrage fourni par l’utilisateur](specs/league-source.md), conservé sans modification. Ce fichier adapte la proposition à l’application existante. Le [premier lot calendrier](LEAGUE_CALENDAR.md) est réalisé ; les limites de course, segments et exports décrits ci-dessous restent planifiés.
+Document de développement, à partir du [cadrage fourni par l’utilisateur](specs/league-source.md), conservé sans modification. Ce fichier adapte la proposition à l’application existante. Le [calendrier](LEAGUE_CALENDAR.md) et les [limites de course avec statistiques distinctes](RACE_BOUNDS.md) sont réalisés ; les segments et exports restent planifiés.
 
 ## Intention et vocabulaire
 
@@ -53,7 +53,7 @@ Le stockage local reste la source de vérité. Strava, Garmin Connect et Komoot 
 ## Livraison par PR
 
 1. Modèle/capacités + calendrier League, compatibilité et sauvegarde/restauration, avec une interface minimale utilisable.
-2. Limites de course, statistiques et éditeur graphique des segments.
+2. Limites de course et statistiques distinctes réalisées ; éditeur graphique des segments à suivre.
 3. Export/réimport GPX enrichi avec vérification de conservation complète.
 4. FIT Course et alertes, puis validation sur Garmin réel.
 
