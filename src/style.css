@@ -3889,3 +3889,5 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .race-segments__chooser { display: grid; gap: 5px; margin-bottom: 10px; font-size: .8rem; }
 .race-segments__chooser select { width: 100%; min-width: 0; min-height: 44px; font-size: 16px; }
 [data-course-profile-target] { min-width: 0; }
+.enriched-gpx-export { margin-top: 8px; }
+.enriched-gpx-export .feature-update-badge { margin-top: 6px; }

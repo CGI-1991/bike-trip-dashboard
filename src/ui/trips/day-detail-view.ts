@@ -1,5 +1,6 @@
 import { renderClimbProfileBar } from './mini-profile-view.ts'
 import { segmentMiniProfile } from './segment-mini-profile.ts'
+import { renderStageGpxActions } from './gpx-export-actions.ts'
 import { renderRaceSegmentTimelineRow } from './race-segment-timeline.ts'
 import { raceSegmentStatus } from '../../analysis/race-segments.ts'
 import type { RaceCourse } from '../../analysis/race-bounds.ts'
@@ -1109,7 +1110,7 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
         was selected. Same button, same behaviour (the stored original file,
         still available offline), full width at the foot of this block.
       -->
-      <button class="button button--quiet button--full" type="button" data-action="download-stage-gpx">GPX</button>
+      ${renderStageGpxActions(bundle, stage)}
     </section>
     <dialog class="route-map-dialog" data-day-detail-map-dialog aria-labelledby="day-detail-expanded-map-title">
       <header><h2 id="day-detail-expanded-map-title">Carte de l’étape</h2><div class="route-map-dialog__actions"><button class="button button--quiet" type="button" data-action="locate-me" aria-label="Me localiser">📍</button><button class="button button--quiet" type="button" data-map-layers-toggle aria-expanded="false" aria-controls="day-detail-map-layers-panel" hidden>Calques</button><button class="button button--quiet" type="button" data-close-map>Fermer</button></div></header>

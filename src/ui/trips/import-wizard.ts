@@ -418,6 +418,7 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
         <p class="eyebrow">Structure</p>
         <button class="button button--quiet" type="button" data-action="trigger-add-files">+ Ajouter des GPX</button>
         <input id="wizard-files" class="visually-hidden" type="file" accept=".gpx" multiple data-field="files" tabindex="-1" aria-hidden="true">
+        ${activeFiles(state).some(file => file.preAnalysis?.enrichedRace) ? '<p class="field__hint" data-enriched-import-hint>GPX enrichi détecté : ses limites et segments seront conservés. Choisissez League ou Tour pour les afficher ; les dates restent celles de votre nouveau calendrier.</p>' : ''}
         ${summaryLine}
         ${loopChoice}
         <ul class="wizard-structure__list" data-wizard-structure>${timelineRows}</ul>

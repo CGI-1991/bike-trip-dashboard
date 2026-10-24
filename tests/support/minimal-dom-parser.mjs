@@ -27,6 +27,10 @@ class MiniElement {
     this.ownText = ''
   }
 
+  cloneNode(deep = false) {
+    return { ...this, rawXml: deep ? this.rawXml : `<${this.tagName}${this.rawAttributes}/>` }
+  }
+
   get textContent() {
     return this.ownText + this.children.map((child) => child.textContent).join('')
   }
@@ -86,20 +90,30 @@ export class MinimalDOMParser {
       }
 
       if (closing === '/') {
-        stack.pop()
+        const element = stack.pop()
+        if (element) element.rawXml = cleaned.slice(element.sourceStart, TOKEN_PATTERN.lastIndex)
         continue
       }
 
       const element = new MiniElement(stripPrefix(rawTagName))
+      element.tagName = rawTagName
+      element.prefix = rawTagName.includes(':') ? rawTagName.split(':')[0] : null
+      element.rawAttributes = rawAttributes
+      element.sourceStart = match.index
+      element.namespaces = { ...(stack.at(-1)?.namespaces ?? {}) }
       if (rawAttributes) {
         let attributeMatch
         ATTRIBUTE_PATTERN.lastIndex = 0
         while ((attributeMatch = ATTRIBUTE_PATTERN.exec(rawAttributes)) !== null) {
           const value = attributeMatch[2] !== undefined ? attributeMatch[2] : attributeMatch[3]
           element.attributes.set(stripPrefix(attributeMatch[1]), decodeEntities(value ?? ''))
+          if (attributeMatch[1] === 'xmlns') element.namespaces[''] = value
+          else if (attributeMatch[1].startsWith('xmlns:')) element.namespaces[attributeMatch[1].slice(6)] = value
         }
       }
 
+      element.namespaceURI = element.namespaces[element.prefix ?? ''] ?? null
+      if (selfClosing === '/') element.rawXml = match[0]
       if (stack.length > 0) stack[stack.length - 1].children.push(element)
       else root = element
 

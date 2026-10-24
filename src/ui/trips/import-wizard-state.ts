@@ -222,6 +222,7 @@ export function appendNewRideSlots(state: WizardState, newFileIds: readonly File
     key: nextStructureKey(),
     kind: 'ride',
     fileId: newValidEntries[position]?.id,
+    ...(newValidEntries[position]?.preAnalysis?.enrichedRace ? { customName: newValidEntries[position]!.preAnalysis!.enrichedRaceCustomName ?? null } : {}),
   }))
   state.structure = [...state.structure, ...newItems]
 }

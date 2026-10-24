@@ -1,3 +1,4 @@
+import { isGeneratedRaceWaypoint, readEnrichedRace } from '../../gpx/enriched-race-format.ts'
 /**
  * Generic GPX XML traversal — the structural half of parsing, kept separate
  * from business validation (`analyze-gpx.ts`). Deliberately not a second GPX
@@ -50,6 +51,7 @@ export interface GpxXmlWaypoint {
 }
 
 export interface GpxXmlDocument {
+  readonly enrichedRace?: unknown
   readonly metadataName: string | null
   readonly tracks: readonly GpxXmlTrack[]
   readonly routes: readonly GpxXmlRoute[]
@@ -150,10 +152,12 @@ export function parseGpxXml(xmlText: string): GpxXmlDocument {
 
   const metadata = getDirectChildren(root, 'metadata')[0]
 
+  const enrichedRace = readEnrichedRace(root)
   return {
+    ...(enrichedRace === undefined ? {} : { enrichedRace }),
     metadataName: metadata === undefined ? null : getDirectChildText(metadata, 'name'),
     tracks: getDirectChildren(root, 'trk').map(parseTrack),
     routes: getDirectChildren(root, 'rte').map(parseRoute),
-    waypoints: getDirectChildren(root, 'wpt').map(parseWaypoint),
+    waypoints: getDirectChildren(root, 'wpt').filter(point => enrichedRace === undefined || !isGeneratedRaceWaypoint(point)).map(parseWaypoint),
   }
 }

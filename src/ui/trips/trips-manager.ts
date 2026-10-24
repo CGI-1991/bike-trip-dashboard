@@ -1,4 +1,6 @@
+import { renderStageGpxActions } from './gpx-export-actions.ts'
 import { syncCourseEditorProfile } from './course-editor-panel.ts'
+import { buildEnrichedGpx } from '../../export/enriched-gpx.ts'
 import { selectOrganizationCapabilities } from '../../trip-core/index.ts'
 /**
  * "Mes activités" — CDC phase 6C1 sections 5-7/24-27, reworked across Jalons
@@ -469,6 +471,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   let destroyRaceSegments: (() => void) | null = null
   const windModels = new WeakMap<readonly WaypointWeather[], WeakMap<readonly import('../../trip-core/index.ts').RouteGeometryPoint[], { readonly scope: string; readonly model: RouteWindModel }>>()
   let currentRouteWind: RouteWindModel | null = null
+  let exportingEnrichedGpx = false
   const getMapInteractionHandle = deps.getMapInteractionHandle ?? (() => null)
 
   /**
@@ -926,6 +929,9 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     const detail = buildDayDetail(bundle, dayId, dayPreparationOptions(bundle, dayId))
     if (detail === null) return
     mountedDayDetail = detail
+    const exportActions = container.querySelector('[data-enriched-export-actions]')
+    const stage = bundle.stages.find(stage => stage.dayId === dayId)
+    if (exportActions !== null && stage !== undefined) exportActions.outerHTML = renderStageGpxActions(bundle, stage)
     const statsEl = container.querySelector('[data-day-detail-stats]')
     // The Départ cell is a plain display button now (the edit happens in a
     // modal window), so a fresh `statsHtml` simply shows the saved value.
@@ -2463,6 +2469,35 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       activePickerLabelInputController?.abort()
       activePickerLabelInputController = null
       if (picker !== null) picker.hidden = true
+    } else if (action === 'download-enriched-gpx' && mode.kind === 'day') {
+      const { tripId, dayId } = mode
+      const status = container.querySelector<HTMLElement>('[data-enriched-export-status]')
+      const exportButton = container.querySelector<HTMLButtonElement>('[data-action="download-enriched-gpx"]')
+      if (exportingEnrichedGpx || exportButton?.disabled) return
+      exportingEnrichedGpx = true
+      if (exportButton !== null) exportButton.disabled = true
+      if (status !== null) status.textContent = 'Préparation du fichier…'
+      void (async () => {
+        try {
+          const bundle = await createTripRepository(deps.database).loadTripBundle(tripId)
+          const stage = bundle?.stages.find(stage => stage.dayId === dayId)
+          const route = bundle?.routes.find(route => route.id === stage?.sourceRouteId)
+          const sourceFile = bundle?.sourceFiles.find(file => file.id === route?.sourceFileId)
+          if (!bundle || !stage || !sourceFile) throw new Error('La source GPX est indisponible.')
+          const payload = await createSourceFileRepository(deps.database).getSourceFilePayload(tripId, sourceFile.id)
+          if (payload === null) throw new Error('La source GPX est indisponible. Le fichier ne peut pas être exporté fidèlement.')
+          const xml = await payloadToBlob(payload.content, 'application/gpx+xml').text()
+          const result = await buildEnrichedGpx(bundle, stage, xml)
+          const name = (stage.customName?.trim() || sourceFile.originalName.replace(/\.gpx$/i, '')).replaceAll(/[\\/:*?"<>|]/g, '_') || 'course'
+          downloadBlob(new Blob([result.xml], { type: 'application/gpx+xml' }), `${name}_enrichi.gpx`)
+          if (status !== null) status.textContent = result.warnings.length ? result.warnings.join(' ') : 'GPX enrichi prêt à enregistrer dans Fichiers.'
+        } catch (error) {
+          if (status !== null) status.textContent = error instanceof Error ? error.message : 'Impossible de préparer ce GPX. Réessayez.'
+        } finally {
+          exportingEnrichedGpx = false
+          if (exportButton !== null) exportButton.disabled = false
+        }
+      })()
     } else if (action === 'download-stage-gpx' && mode.kind === 'day') {
       const { tripId, dayId } = mode
       void (async () => {

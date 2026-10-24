@@ -13,6 +13,9 @@ export interface AppRelease {
 }
 
 export const APP_RELEASES: readonly AppRelease[] = [
+  { version: '2026.10.24.3', date: '2026-10-24', changes: [
+    { feature: 'enriched-gpx', title: 'Un GPX qui conserve votre préparation de course', description: 'En League ou Tour, Exporter GPX enrichi conserve la trace d’origine, les limites, noms, segments et réglages d’alerte. Réimportez ce fichier pour retrouver la configuration. Les paramètres à revoir bloquent cet export ; le GPX d’origine reste disponible. Les waypoints standards ne garantissent pas d’alertes sur Garmin : l’export FIT reste à venir.' },
+  ] },
   { version: '2026.10.24.2', date: '2026-10-24', changes: [
     { feature: 'relative-wind', title: 'Le vent reste disponible sur chaque parcours', description: 'Le vent relatif est présent en League comme en Voyage et Tour : profil, points de passage, segments et montées. La moyenne du parcours reste visible pendant la lecture d’un point. Seule la moyenne globale sur un voyage ou une saison est retirée.' },
     { feature: 'course-editor', title: 'Un panneau Course pour préparer votre parcours', description: 'À côté de Météo, ouvrez Course pour définir le départ, l’arrivée et vos segments. Le profil y sert au placement ; il reprend sa place en lecture quand vous fermez le panneau. Les réglages ne chargent plus la page de lecture.' },
