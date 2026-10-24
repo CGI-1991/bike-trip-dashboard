@@ -17,7 +17,7 @@ import { applyRaceMode } from '../../src/trips-manager/race-mode.ts'
 import { createTripBackup, prepareTripBackupRestore, restorePreparedTripBackup } from '../../src/backup/trip-backup.ts'
 import { createSourceFileRepository } from '../../src/storage/indexeddb/source-file-repository.ts'
 import { renderRaceSegmentProfile, renderRaceSegmentsPanel } from '../../src/ui/trips/race-segments-view.ts'
-import { buildGenericRouteMapModel } from '../../src/ui/route-map-model.ts'
+import { buildGenericRouteMapModel, buildRaceSegmentMapLines } from '../../src/ui/route-map-model.ts'
 
 const NOW='2027-05-09T06:00:00.000Z'
 const close=(a,b,tolerance=.001)=>assert.ok(Math.abs(a-b)<tolerance,`${a} != ${b}`)
@@ -240,7 +240,7 @@ test('full backup restore preserves segment ids, provenance, alert overrides and
   }finally{database.close()}
 })
 
-test('segments color the original profile silhouette with escaped names; no separate list or map controls',async()=>{
+test('segments color the original profile silhouette with escaped names; no separate list or map editing controls',async()=>{
   const {database,bundle}=await setup()
   try{
     const next=add(add(bundle,'one',{...fields('sprint',1000,3000),name:'<img src=x onerror=alert(1)>'}),'two',fields('flandrien',2000,4000))
@@ -254,5 +254,39 @@ test('segments color the original profile silhouette with escaped names; no sepa
     assert.equal(map.markers.length,0);assert.equal(map.segmentLines,undefined)
     const changed={...next,sourceFiles:next.sourceFiles.map(file=>({...file,sha256:'0'.repeat(64)}))}
     assert.doesNotMatch(renderRaceSegmentProfile(buildRaceCourse(changed,changed.stages[0]),segments,'',''),/data-profile-segment=/)
+  }finally{database.close()}
+})
+
+test('map lines use exact source-chainage endpoints and the three segment colors, without adding markers or editing controls',async()=>{
+  const {database,bundle}=await setup()
+  try{
+    let next=add(bundle,'sprint',fields('sprint',1050,3000))
+    next=add(next,'climb',fields('climb',2000,4000))
+    next=add(next,'flandrien',fields('flandrien',3100,5000))
+    const before=structuredClone(next),course=buildRaceCourse(next,next.stages[0])
+    const lines=buildRaceSegmentMapLines(course,next.stages[0].raceSegments)
+    assert.equal(lines.length,3)
+    assert.deepEqual(new Set(lines.map(line=>line.color)),new Set(['#16804a','#b73132','#e5bd32']))
+    const sprint=lines.find(line=>line.name==='Sprint · sprint test')
+    close(sprint.coordinates[0][0],45+1050/111195,1e-6)
+    assert.ok(sprint.coordinates.length>2)
+    assert.ok(lines.every(line=>line.dashed===false))
+    assert.ok(lines[0].weight>lines.at(-1).weight,'nested widths preserve colored edges where segments overlap')
+    assert.deepEqual(next,before)
+    assert.equal(buildGenericRouteMapModel([],[]).markers.length,0)
+  }finally{database.close()}
+})
+
+test('map lines omit stale and outside-course segments instead of drawing old positions after a trace/bounds change',async()=>{
+  const {database,bundle}=await setup()
+  try{
+    let next=add(add(bundle,'inside',fields('sprint',2000,3000)),'outside',fields('climb',4000,5000))
+    const stage=next.stages[0],fingerprint=buildRaceCourse(next,stage).fingerprint
+    next=applyRaceBounds(next,stage.id,{routeFingerprint:fingerprint,startOffsetM:1000,finishOffsetM:3500},fingerprint,NOW)
+    const lines=buildRaceSegmentMapLines(buildRaceCourse(next,next.stages[0]),next.stages[0].raceSegments)
+    assert.deepEqual(lines.map(line=>line.name),['Sprint · sprint test'])
+    const changed={...next,sourceFiles:next.sourceFiles.map(file=>({...file,sha256:'0'.repeat(64)}))}
+    assert.deepEqual(buildRaceSegmentMapLines(buildRaceCourse(changed,changed.stages[0]),changed.stages[0].raceSegments),[])
+    assert.equal(next.stages[0].raceSegments.length,2,'pending segments remain available for correction')
   }finally{database.close()}
 })

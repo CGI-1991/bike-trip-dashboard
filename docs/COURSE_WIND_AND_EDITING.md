@@ -1,5 +1,7 @@
 # Vent par parcours et panneau Course — 2026.10.24.2
 
+> Le [lot 2026.10.24.5](STAGE_WIND_AND_SEGMENT_DISPLAY.md) place la moyenne cardinale dans les statistiques, utilise le profil neutre pendant la configuration et ajoute les lignes de segments sur la carte. Il remplace les règles de présentation correspondantes de ce document ; les mini-profils et le vent local restent disponibles.
+
 Ce lot applique la précision directe de l’utilisateur du 24 octobre : conserver le vent dans le détail de chaque parcours, y compris en League, et retirer uniquement la moyenne à l’échelle d’un voyage ou d’une saison. Il remplace les règles de vent et d’accès à l’édition de la [correction précédente](LEAGUE_TOUR_CORRECTIONS.md). Le document source fourni reste conservé comme historique, sans modification.
 
 ## Lecture du parcours

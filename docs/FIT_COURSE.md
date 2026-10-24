@@ -1,6 +1,6 @@
 # FIT Course pour Garmin — essai 2026.10.24.4
 
-Le détail League/Tour propose **FIT Garmin · essai**, à côté des téléchargements GPX. Le fichier est vérifié avec un lecteur indépendant, mais **l’import, l’affichage et les alertes sur Garmin réel restent à confirmer**. Le modèle de l’appareil et son chemin de transfert ne sont pas encore connus. Ne pas annoncer une compatibilité Garmin générale avant cet essai.
+Le détail League/Tour propose **FIT Garmin · essai**, à côté des téléchargements GPX. Le fichier est vérifié avec un lecteur indépendant, mais **l’import, l’affichage et les alertes sur Garmin réel restent à confirmer**. Modèle indiqué par l’utilisateur le 24 octobre : **Garmin Edge Explore 2**. Le chemin de transfert reste à valider. Ne pas annoncer une compatibilité Garmin générale avant cet essai.
 
 ## Comportement
 
@@ -49,7 +49,7 @@ Contrôles Chromium tactiles **320 et 390 × 844** : véritable assistant GPX/In
 
 ## Essai sur appareil restant
 
-Après fusion/déploiement, confirmer le modèle Garmin et un moyen de transfert qui conserve les Course Points. Sur les Edge compatibles, le dossier USB `Garmin/NewFiles` peut servir de test direct depuis un ordinateur ; aucun transfert mobile universel n’est promis. Une conversion par un service tiers peut modifier les points et doit être vérifiée séparément.
+Après fusion/déploiement, tester sur le **Garmin Edge Explore 2** indiqué et confirmer un moyen de transfert qui conserve les Course Points. Sur les Edge compatibles, le dossier USB `Garmin/NewFiles` peut servir de test direct depuis un ordinateur ; aucun transfert mobile universel n’est promis. Une conversion par un service tiers peut modifier les points et doit être vérifiée séparément.
 
 Vérifier la présence du parcours et de son profil, les positions départ/arrivée, les noms/icônes, les alertes avant/début/fin et les réglages de notifications du compteur. Tester aussi un segment proche du départ, des segments chevauchants et un parcours long avec de nombreux points. Les limites de points et la présentation varient selon les appareils ; aucun point n’est supprimé silencieusement pour deviner une capacité matérielle. Garder l’étiquette **essai** jusqu’à cette validation.
 

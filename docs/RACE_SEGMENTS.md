@@ -1,5 +1,7 @@
 # Segments manuels de course
 
+> Le [lot 2026.10.24.5](STAGE_WIND_AND_SEGMENT_DISPLAY.md) utilise le profil neutre pendant la configuration, réserve le pochage à la consultation Neutre et dessine les portions colorées sur la carte du détail/plein écran. Il n’ajoute pas d’édition sur carte.
+
 > L’[export et le réimport GPX enrichi](ENRICHED_GPX.md) sont désormais disponibles ; le FIT Garmin et ses alertes sur appareil restent à réaliser.
 
 > La [précision sur le vent et le panneau Course](COURSE_WIND_AND_EDITING.md) rétablit le vent dans chaque détail, retire la moyenne sur un voyage entier et sépare lecture des segments et édition.

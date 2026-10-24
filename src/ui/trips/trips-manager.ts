@@ -40,7 +40,7 @@ import { deleteTripCompletely, listTripSummaries, setActiveTrip } from '../../tr
 import type { TripListEntry } from '../../trips-manager/trip-summary.ts'
 import { formatShortDate } from '../date-format.ts'
 import type { MapLayerDefinition, RouteMapInteractionHandle } from '../route-map.ts'
-import { buildGenericOverviewDetailMarkers, buildGenericOverviewRouteMapModel, buildGenericRouteMapModel } from '../route-map-model.ts'
+import { buildGenericOverviewDetailMarkers, buildGenericOverviewRouteMapModel, buildGenericRouteMapModel, buildRaceSegmentMapLines } from '../route-map-model.ts'
 import type { RouteMapModel } from '../route-map-model.ts'
 import { buildPracticalPlaceMapLayers } from '../practical-place-map-layers.ts'
 import { mountClimbProfileInteraction, renderGenericElevationProfile } from '../elevation-profile.ts'
@@ -62,7 +62,7 @@ import type { TripBackupPanelHandle } from './trip-backup-panel.ts'
 import { buildRouteWindModel, WAYPOINT_WIND_SMOOTHING_METERS } from '../../weather/relative-wind.ts'
 import type { RouteWindModel } from '../../weather/relative-wind.ts'
 import type { WaypointWeather } from '../../weather/types.ts'
-import { renderRelativeWind, updateProfileWind } from '../relative-wind-view.ts'
+import { renderRelativeWind, renderStageWindStat, updateProfileWind } from '../relative-wind-view.ts'
 import { getCoverageFromDates, getNowLocalDateTime, selectWeatherDisplayMode } from '../../weather/display-policy.ts'
 import { weatherConfig } from '../../weather/config.ts'
 import { renderStagePreparationIndicator, renderStagePreparationNote, renderTripDetail } from './trip-detail-view.ts'
@@ -509,6 +509,8 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
         if (mountedDayDetail?.geometry !== null && mountedDayDetail?.geometry !== undefined) currentRouteWind = routeWindForDay(bundle, day, mountedDayDetail.geometry)
         const windProfile = container.querySelector<HTMLElement>('[data-day-detail-profile]')
         if (windProfile !== null) updateProfileWind(windProfile, currentRouteWind, selectTravelMode(bundle))
+        const windStat = container.querySelector<HTMLElement>('[data-stage-wind-stat]')
+        if (windStat !== null) windStat.innerHTML = renderStageWindStat(currentRouteWind?.meteorologicalMean ?? null)
         // CDC D1.2 section 24: a ride day's own "Points significatifs" list
         // is dropped from this mount — every significant point already
         // carries its own inline weather line in the Parcours timeline
@@ -855,7 +857,8 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       const baseModel = detail.geometry === null
         ? detail.markersOnlyMapModel
         : buildGenericRouteMapModel(visibleWaypoints, detail.geometry.map((point) => [point.latitude, point.longitude] as const))
-      const model = baseModel
+      const course = stage === undefined ? null : buildRaceCourse(bundle, stage)
+      const model = baseModel === null || course === null ? baseModel : { ...baseModel, segmentLines: buildRaceSegmentMapLines(course, stage?.raceSegments ?? []) }
       deps.renderMap(mapContainer, mapDialog, model, [...villagesLayer(detail.villageWaypoints), ...practicalPlaceLayers(bundle, detail, dayId)])
       mapDialog.querySelector<HTMLButtonElement>('[data-close-map]')?.addEventListener('click', () => deps.closeMap(mapDialog))
     }

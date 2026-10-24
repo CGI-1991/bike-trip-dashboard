@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { indexRouteGeometry } from '../../src/route-enrichment/segment-geometry.ts'
 import { buildRouteWindModel, combineRouteWindSummaries, headwindColor, relativeWindComponents, relativeWindLabel, smoothedTravelBearing } from '../../src/weather/relative-wind.ts'
-import { formatRouteWindSummary, installProfileWindControls, renderRelativeWind, selectProfileWind, updateProfileWind } from '../../src/ui/relative-wind-view.ts'
+import { formatRouteWindSummary, installProfileWindControls, renderRelativeWind, renderStageWindStat, selectProfileWind, updateProfileWind } from '../../src/ui/relative-wind-view.ts'
 
 const point = km => ({latitude:45+km/111.195,longitude:6,altitudeM:100})
 const line = (length=10, count=101) => Array.from({length:count},(_,i)=>point(i*length/(count-1)))
@@ -185,16 +185,83 @@ test('the profile retains walking orientation during exploration and restores cy
   selectProfileWind(container,5)
   assert.match(details.textContent,/rafales jusqu’à 30 km\/h/)
   assert.doesNotMatch(readout.innerHTML,/rafales jusqu’à/)
-  assert.match(readout.innerHTML,/data-stage-wind-average/)
+  assert.doesNotMatch(readout.innerHTML,/data-stage-wind-average|Vent moyen du parcours/)
   assert.match(readout.innerHTML,/data-profile-selected-wind/)
   assert.match(readout.innerHTML,/sens de marche/)
   assert.match(readout.innerHTML,/relative-wind__walker/)
   assert.doesNotMatch(readout.innerHTML,/sens de roulage/)
   selectProfileWind(container,null)
-  assert.match(readout.innerHTML,/sens de marche/)
+  assert.equal(readout.innerHTML,'')
   updateProfileWind(container,model)
+  selectProfileWind(container,5)
   assert.match(readout.innerHTML,/sens de roulage/)
   assert.doesNotMatch(readout.innerHTML,/relative-wind__walker/)
+})
+
+test('stage cardinal wind is independent from travel direction, including balanced face and tail on a U-turn',()=>{
+  const north=modelFor(line(),45),south=modelFor(line().reverse(),45)
+  close(north.meteorologicalMean.fromDeg,45)
+  close(south.meteorologicalMean.fromDeg,45)
+  close(north.meteorologicalMean.speedKph,south.meteorologicalMean.speedKph)
+  const loop=modelFor([...line(5,101),...line(5,101).reverse().slice(1)])
+  assert.equal(loop.summary.mean.kind,'variable')
+  assert.equal(loop.meteorologicalMean.kind,'directional')
+  close(loop.meteorologicalMean.fromDeg,0)
+  close(loop.meteorologicalMean.speedKph,20)
+})
+
+test('cardinal direction crosses north using vectors and stage bounds exclude forecasts on access/return legs',()=>{
+  const geometry=line(),length=indexRouteGeometry(geometry).lengthKm
+  const north=buildRouteWindModel(geometry,[forecast(0,359),forecast(length,1)]).meteorologicalMean
+  assert.ok(north.fromDeg<1||north.fromDeg>359)
+  const bounded=buildRouteWindModel(geometry,[forecast(0,0,50),forecast(2,90,10),forecast(8,90,10),forecast(length,180,50)],{startKm:2,finishKm:8})
+  close(bounded.meteorologicalMean.speedKph,10)
+  close(bounded.meteorologicalMean.fromDeg,90)
+  close(bounded.meteorologicalMean.coverage,1)
+})
+
+test('stage mean keeps unavailable coverage, calm and variable weather honest',()=>{
+  assert.equal(modelFor(line(),null,20).meteorologicalMean,null)
+  assert.equal(modelFor(line(),null,0).meteorologicalMean.kind,'calm')
+  const geometry=line(),length=indexRouteGeometry(geometry).lengthKm
+  const partial=buildRouteWindModel(geometry,[forecast(2),forecast(8)]).meteorologicalMean
+  close(partial.coverage,.6,.02)
+  assert.match(renderStageWindStat(partial),/partiel/)
+  const variable=buildRouteWindModel(geometry,[forecast(0,0),forecast(length,180)]).meteorologicalMean
+  assert.equal(variable.kind,'variable')
+  assert.ok(variable.speedKph>1)
+  assert.match(renderStageWindStat(variable),/variable/)
+})
+
+test('stage wind stat shows speed and French cardinal directions without a relative arrow or duplicate average',()=>{
+  for(const [i,label] of ['N','NE','E','SE','S','SO','O','NO','N'].entries()) {
+    const markup=renderStageWindStat({kind:'directional',fromDeg:i*45,speedKph:20.4,coverage:1})
+    assert.match(markup,new RegExp(`>20 km/h · ${label}</span>`))
+    assert.doesNotMatch(markup,/svg|de face|de dos/)
+  }
+  assert.match(renderStageWindStat(null),/indisponible/)
+  assert.match(renderStageWindStat({kind:'calm',fromDeg:null,speedKph:0,coverage:1}),/>0 km\/h · calme/)
+})
+
+test('Course temporarily uses neutral without changing the saved reading mode, then restores it after weather updates',()=>{
+  const previous=Object.getOwnPropertyDescriptor(globalThis,'localStorage'),writes=[]
+  Object.defineProperty(globalThis,'localStorage',{configurable:true,value:{getItem:()=> 'wind',setItem:(...args)=>writes.push(args)}})
+  try {
+    const listeners={},controls={hidden:false},legend={hidden:false,textContent:''},area={style:{}},bands={innerHTML:''}
+    const nodes={'[data-profile-interactive]':{},'[data-profile-color-bands]':bands,'.profile-area':area,'[data-profile-color-legend]':legend,'.profile-modes':controls}
+    const container={dataset:{courseEditing:'false'},querySelector:key=>nodes[key]??null,querySelectorAll:()=>[],addEventListener:(name,handler)=>listeners[name]=handler}
+    installProfileWindControls(container,[],{total:10,x:km=>km,y:altitude=>altitude})
+    assert.equal(container.dataset.profileColorMode,'wind')
+    container.dataset.courseEditing='true';listeners['course-editor-changed']()
+    assert.equal(container.dataset.profileColorMode,'neutral');assert.equal(area.style.opacity,'1');assert.equal(controls.hidden,true);assert.equal(legend.hidden,true)
+    updateProfileWind(container,modelFor())
+    assert.equal(container.dataset.profileColorMode,'neutral')
+    container.dataset.courseEditing='false';listeners['course-editor-changed']()
+    assert.equal(container.dataset.profileColorMode,'wind');assert.equal(controls.hidden,false);assert.equal(area.style.opacity,'0')
+    assert.deepEqual(writes,[])
+  } finally {
+    if(previous)Object.defineProperty(globalThis,'localStorage',previous);else delete globalThis.localStorage
+  }
 })
 
 test('section wind averages the complete segment/climb interval and clips it to real course bounds',()=>{
