@@ -6,9 +6,9 @@ import { renderFeatureUpdateBadge } from '../release-notes.ts'
 export function renderStageGpxActions(bundle: TripBundle, stage: RideStage): string {
   if (!selectRaceMode(bundle)) return '<button class="button button--quiet button--full" type="button" data-action="download-stage-gpx">GPX</button>'
   const reason = enrichedGpxUnavailableReason(bundle, stage)
-  return `<div data-enriched-export-actions><button class="button button--quiet button--full" type="button" data-action="download-stage-gpx">GPX d’origine</button>
-    <div class="enriched-gpx-export"><button class="button button--quiet button--full" type="button" data-action="download-enriched-gpx"${reason === null ? '' : ' disabled'}>Exporter GPX enrichi</button>${renderFeatureUpdateBadge('enriched-gpx')}
-    <p class="field__hint">${reason ?? 'Trace, limites et segments réimportables.'}</p><p data-enriched-export-status role="status"></p></div>
-    <div class="enriched-gpx-export"><button class="button button--quiet button--full" type="button" data-action="download-fit-course"${reason === null ? '' : ' disabled'}>FIT Garmin · essai</button>${renderFeatureUpdateBadge('fit-course')}
-    <p class="field__hint">Tracé GPX complet + alertes. À valider sur votre Garmin.</p><p data-fit-export-status role="status"></p></div></div>`
+  return `<div class="course-exports" data-enriched-export-actions>
+    <div class="course-exports__buttons"><button class="button button--quiet" type="button" data-action="download-enriched-gpx"${reason === null ? '' : ' disabled'}>GPX</button>
+    <button class="button button--quiet" type="button" title="À valider sur votre Garmin" data-action="download-fit-course"${reason === null ? '' : ' disabled'}>FIT <small>essai</small></button></div>
+    ${renderFeatureUpdateBadge('course-exports')}${reason === null ? '' : `<p class="field__hint">${reason}</p>`}
+    <p data-enriched-export-status role="status"></p><p data-fit-export-status role="status"></p></div>`
 }

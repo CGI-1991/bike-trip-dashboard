@@ -1,7 +1,7 @@
 /**
  * The shared "Mode" control — Voyage / Tour — reused verbatim by the
  * creation wizard and the trip editor, exactly like
- * `climb-sensitivity-slider.ts` next to it.
+ * `climb-category-control.ts` next to it.
  *
  * Tour disables the pauses planned DURING a stage. It says so in plain terms
  * right under the control, because the setting removes data the traveller

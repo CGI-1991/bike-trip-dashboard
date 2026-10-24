@@ -235,13 +235,16 @@ function installBandProfileInteraction(container: HTMLElement, samples: readonly
     selectProfileWind(container, sample.distanceKm)
   }
   const clear = (): void => {
+    touchSelection = false
     cursor.setAttribute('hidden', '')
     clearBand()
     live.textContent = ''
     dispatch('profile-sample-cleared')
     selectProfileWind(container, null)
   }
+  let touchSelection = false
   const fromPointer = (event: PointerEvent) => {
+    touchSelection = event.pointerType === 'touch'
     const rect = svg.getBoundingClientRect()
     // Plot spans x=20..780 inside the 800-unit viewBox. Touch and keyboard
     // selection must share the exact chainage, especially for race bounds.
@@ -262,8 +265,11 @@ function installBandProfileInteraction(container: HTMLElement, samples: readonly
   svg.addEventListener('pointerup', (event) => { svg.releasePointerCapture?.(event.pointerId) }, { signal: controller.signal })
   // Keyboard focus leaving the profile (section 21) clears it too — an
   // ArrowLeft/Right keypress itself must never clear mid-navigation.
-  svg.addEventListener('blur', clear, { signal: controller.signal })
+  // Blurring a touch selection while tapping the next card must not collapse
+  // its wind readout and move that card between pointerdown and click.
+  svg.addEventListener('blur', () => { if (!touchSelection) clear() }, { signal: controller.signal })
   svg.addEventListener('keydown', (event) => {
+    touchSelection = false
     if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
     event.preventDefault()
     selectedIndex = Math.min(samples.length - 1, Math.max(0, selectedIndex + (event.key === 'ArrowRight' ? 1 : -1)))
@@ -547,7 +553,7 @@ export function renderGenericElevationProfile(container: HTMLElement, geometry: 
   const windEnabled = options.relativeWind !== false
   container.innerHTML = renderProfileWindControls(windEnabled)
     + renderProfileSvgMarkup(samples, markers, { min, max, total, x, y }, 'generic', `Profil altimétrique interactif de ${stageLabel}`, 'band')
-    + (windEnabled ? '<div class="profile-wind" data-profile-wind></div><details class="profile-wind__details"><summary>Détails du vent</summary><p class="profile-wind__orientation">↑ sens de déplacement · flèche = déplacement de l’air</p><p data-selected-wind-details></p><p class="profile-wind__summary" data-route-wind-summary></p></details>' : '')
+    + (windEnabled ? '<div class="profile-wind" data-profile-wind></div>' : '')
   installProfileWindControls(container, samples, { total, x, y }, windEnabled)
   installBandProfileInteraction(container, samples, min, max, total, { timingCurve })
 }

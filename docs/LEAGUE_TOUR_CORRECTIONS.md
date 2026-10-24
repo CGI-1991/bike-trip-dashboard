@@ -1,5 +1,7 @@
 # Ajustements League / Tour — 2026.10.24.1
 
+> Le [nettoyage 2026.10.24.10](LEAN_COURSE_DETAIL.md) remplace le recouvrement mutuel ci-dessous par la priorité au segment pour tout chevauchement, masque aussi les cols associés et allège les cartes de segments. Il conserve les données enregistrées.
+
 > La [précision sur le vent et le panneau Course](COURSE_WIND_AND_EDITING.md) rétablit le vent dans chaque détail, retire la moyenne sur un voyage entier et sépare lecture des segments et édition.
 
 Ce lot applique le [document de corrections fourni](specs/league-tour-corrections-source.md), avant les exports GPX enrichis et Garmin. Il remplace les choix d’interface décrits dans les lots précédents lorsqu’ils diffèrent de ce cadrage.

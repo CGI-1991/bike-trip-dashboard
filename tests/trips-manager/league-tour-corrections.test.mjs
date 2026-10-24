@@ -9,7 +9,8 @@ import { buildGpxXml, toGpxImportFile } from '../import/gpx/support/fixtures.mjs
 import { createIdFactory, fixedNow, openImportTestDatabase } from '../import/gpx/support/run-import.mjs'
 import { applyRaceBounds, buildRaceCourse, selectStageCourseMetrics } from '../../src/analysis/race-bounds.ts'
 import { applyRaceSegmentChange } from '../../src/analysis/race-segments.ts'
-import { consolidateRaceWaypoints, segmentMatchesClimb } from '../../src/analysis/race-segment-waypoints.ts'
+import { consolidateRaceWaypoints, raceCourseClimbCount, segmentMatchesClimb } from '../../src/analysis/race-segment-waypoints.ts'
+import { renderRaceSegmentTimelineRow } from '../../src/ui/trips/race-segment-timeline.ts'
 import { computeStageWaypoints } from '../../src/analysis/waypoint-timeline.ts'
 import { DEFAULT_RACE_SEGMENT_ALERTS, selectOrganizationCapabilities, validateTripBundle } from '../../src/trip-core/index.ts'
 import { REFERENCE_SPEED_MODES, REFERENCE_SPEED_PRESETS, resolveReferenceSpeedMode } from '../../src/trip-core/model/reference-speed.ts'
@@ -106,13 +107,67 @@ test('clear overlap replaces just the corresponding automatic climb in a single 
   }finally {database.close()}
 })
 
-test('overlap matching tolerates nearby endpoints but rejects a short nested sprint, distant passes, contact and ambiguous partial overlap',()=>{
+test('manual priority includes contained climbs, nested sprints and partial conflicts, using chainage and excluding endpoint contact',()=>{
   const segment={startOffsetM:42400,endOffsetM:45700}
   assert.equal(segmentMatchesClimb(segment,{startDistanceKm:42.3,endDistanceKm:45.8}),true)
-  assert.equal(segmentMatchesClimb({startOffsetM:44000,endOffsetM:44100},{startDistanceKm:42.3,endDistanceKm:45.8}),false)
+  assert.equal(segmentMatchesClimb({startOffsetM:44000,endOffsetM:44100},{startDistanceKm:42.3,endDistanceKm:45.8}),true)
   assert.equal(segmentMatchesClimb(segment,{startDistanceKm:2.3,endDistanceKm:5.8}),false)
   assert.equal(segmentMatchesClimb(segment,{startDistanceKm:45.7,endDistanceKm:47}),false)
-  assert.equal(segmentMatchesClimb(segment,{startDistanceKm:44,endDistanceKm:48}),false)
+  assert.equal(segmentMatchesClimb(segment,{startDistanceKm:45.6,endDistanceKm:47}),true)
+  assert.equal(segmentMatchesClimb(segment,{startDistanceKm:44,endDistanceKm:48}),true)
+  assert.equal(segmentMatchesClimb({startOffsetM:0,endOffsetM:18400},{startDistanceKm:0,endDistanceKm:7.4}),true)
+  assert.equal(segmentMatchesClimb({startOffsetM:0,endOffsetM:18400},{startDistanceKm:7.8,endDistanceKm:15.6}),true)
+  assert.equal(segmentMatchesClimb(segment,{startDistanceKm:44,endDistanceKm:44}),false)
+})
+
+test('a long Grimpeur replaces contained climbs and their named passes consistently, without deleting stored climbs',async()=>{
+  const {database,bundle}=await setup()
+  try {
+    const original=bundle.climbs[0]
+    const climbs=[{...original,id:'first',startDistanceKm:0,endDistanceKm:7.4,name:'Montée 1'},
+      {...original,id:'col',startDistanceKm:7.8,endDistanceKm:15.6,name:'Col du Feu'},
+      {...original,id:'later',startDistanceKm:19,endDistanceKm:21,name:'Montée suivante'}]
+    const prepared={...bundle,climbs,stages:bundle.stages.map(stage=>({...stage,climbIds:climbs.map(c=>c.id)}))}
+    const next=add(prepared,'long',0,18400),stage=next.stages[0],course=buildRaceCourse(next,stage)
+    const base=[{id:'start',kind:'start',climbId:'first',trackDistanceKm:0},
+      {id:'first',kind:'climb',climbId:'first',trackDistanceKm:7.4},
+      {id:'pass',kind:'mountain-pass',climbId:'col',trackDistanceKm:15.6},
+      {id:'independent',kind:'saddle',climbId:null,trackDistanceKm:17},
+      {id:'later',kind:'climb',climbId:'later',trackDistanceKm:21},
+      {id:'end',kind:'end',climbId:null,trackDistanceKm:22}]
+    const snapshot=JSON.stringify({base,next})
+    const points=consolidateRaceWaypoints(base,stage,climbs,course)
+    assert.deepEqual(points.map(p=>p.id),['start',`${stage.id}:segment:long`,'independent','later','end'])
+    assert.equal(raceCourseClimbCount(stage,climbs,course),2,'one manual Grimpeur plus the remaining automatic climb')
+    const detail=buildDayDetail(next,next.days[0].id)
+    assert.doesNotMatch(detail.timelineHtml,/Montée 1|Col du Feu/)
+    assert.match(detail.timelineHtml,/Montée suivante/)
+    assert.match(detail.statsHtml,/<dt>Montées .*?<\/dt><dd>2<\/dd>/s)
+    assert.equal(JSON.stringify({base,next}),snapshot)
+    const removed={...stage,raceSegments:[]}
+    assert.equal(consolidateRaceWaypoints(base,removed,climbs,course),base)
+    assert.equal(raceCourseClimbCount(removed,climbs,course),3)
+    for(const type of ['sprint','flandrien']) assert.equal(raceCourseClimbCount({...stage,raceSegments:stage.raceSegments.map(s=>({...s,type}))},climbs,course),1)
+  }finally{database.close()}
+})
+
+test('all segment types share compact climb metadata while retaining weather, wind and read-only profiles',async()=>{
+  const {database,bundle}=await setup()
+  try {
+    const next=add(bundle),stage=next.stages[0],course=buildRaceCourse(next,stage)
+    for(const type of ['climb','sprint','flandrien']) {
+      const html=renderRaceSegmentTimelineRow(course,{...stage.raceSegments[0],type})
+      assert.match(html,/timeline-meta">3,3 km · \+\d+ m · \d+,\d %<\/span>/)
+      assert.doesNotMatch(html,/km 2,4 → 5,7|% net|D\+ \d+/)
+      assert.match(html,/day-detail__timeline-time-col/)
+      assert.match(html,/data-waypoint-weather/)
+      assert.match(html,/data-wind-start-km="2.4" data-wind-end-km="5.7"/)
+      assert.match(html,/data-action="toggle-climb-profile"/)
+    }
+    const stale=renderRaceSegmentTimelineRow(course,{...stage.raceSegments[0],routeFingerprint:'old'})
+    assert.match(stale,/— km · D\+ — · — %/)
+    assert.match(stale,/Trace modifiée · à replacer/)
+  }finally{database.close()}
 })
 
 test('overlapping explicit segments all remain visible; stale/out-of-course segments cannot mask an automatic climb',async()=>{

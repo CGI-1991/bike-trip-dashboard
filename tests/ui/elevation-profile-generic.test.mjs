@@ -54,3 +54,11 @@ test('includes the stage label in the accessible title', () => {
   renderGenericElevationProfile(container, geometry(), [], 'J3 — Clisson → Nantes')
   assert.match(container.innerHTML, /J3 — Clisson → Nantes/)
 })
+
+test('the compact cycling profile keeps wind controls and its live readout without a verbose wind disclosure', () => {
+  const container = { innerHTML: '' }
+  renderGenericElevationProfile(container, geometry(), [], 'Étape vélo')
+  assert.match(container.innerHTML, /data-profile-mode="wind"/)
+  assert.match(container.innerHTML, /data-profile-wind/)
+  assert.doesNotMatch(container.innerHTML, /Détails du vent|data-selected-wind-details|data-route-wind-summary/)
+})

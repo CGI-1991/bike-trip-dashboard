@@ -13,6 +13,12 @@ export interface AppRelease {
 }
 
 export const APP_RELEASES: readonly AppRelease[] = [
+  { version: '2026.10.24.10', date: '2026-10-24', changes: [
+    { feature: 'race-segments', title: 'Un parcours sans doublons de montées', description: 'Les segments se lisent comme les montées : longueur, D+, pente, météo et vent, avec leur mini-profil au toucher. Un segment manuel valide a priorité sur toute montée qu’il chevauche, y compris les cols associés. Les montées masquées restent enregistrées et réapparaissent quand le segment est supprimé ou déplacé. Le compteur suit les montées représentées et les segments Grimpeur.' },
+    { feature: 'climb-categories', title: 'Un seul réglage des montées, en haut', description: 'Les cinq niveaux Montées retenues se règlent dans le bloc Informations, juste après l’allure, à la création comme dans Modifier. Le second curseur de détection est retiré ; les anciennes calibrations restent conservées. En League et Tour, une montée masquée par un segment ne se compte plus une seconde fois. Chaque segment Grimpeur valide compte comme une montée.' },
+    { feature: 'course-exports', title: 'GPX et FIT côte à côte', description: 'Deux boutons remplacent les exports répétés en League et Tour. GPX conserve le tracé complet avec les limites et segments réimportables ; FIT conserve le même parcours avec ses repères et alertes. Le FIT reste en essai jusqu’à validation sur votre Garmin Edge Explore 2. Le GPX d’origine reste conservé dans les sauvegardes.' },
+    { feature: 'relative-wind', title: 'La lecture du vent est allégée', description: 'Le volet Détails du vent et ses explications sont retirés. Le vent moyen reste dans les statistiques, la direction relative et la vitesse restent visibles au toucher sur le profil et aux points de passage, segments et montées. La coloration Vent du profil reste disponible à vélo. Le dernier point touché reste lisible pour éviter un décalage de la page lors de l’ouverture d’un segment.' },
+  ] },
   { version: '2026.10.24.9', date: '2026-10-24', changes: [
     { feature: 'reference-speed', title: 'Des ETA cohérentes avec le relief', description: 'L’import, les changements d’allure, le profil, les points météo et le FIT réutilisent la même préparation du terrain à vélo et à pied. Les cinq allures et vos vitesses manuelles sont conservées. Les statistiques distinguent la moyenne en mouvement de la référence sur le plat et signalent une altitude insuffisante. L’approche avant course reste incluse dans les ETA.' },
   ] },

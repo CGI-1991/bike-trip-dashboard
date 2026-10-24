@@ -171,6 +171,20 @@ test('the synthetic leave after lifting a finger keeps the selected point readab
   assert.equal(elements['[data-profile-band-distance]'].textContent, '—')
 })
 
+test('moving focus to a card after a touch keeps the reading stable; subsequent keyboard blur still clears it', () => {
+  const { elements, events } = buildInteractiveFixture()
+  const svg = elements['[data-profile-interactive]']
+  svg.emit('pointerdown', { clientX: 400, pointerId: 1, pointerType: 'touch' })
+  svg.emit('pointerup', { pointerId: 1, pointerType: 'touch' })
+  svg.emit('blur')
+  assert.notEqual(elements['[data-profile-band-distance]'].textContent, '—')
+  assert.equal(events.some(event => event.type === 'profile-sample-cleared'), false)
+  svg.emit('keydown', { key: 'Tab' })
+  svg.emit('blur')
+  assert.equal(elements['[data-profile-band-distance]'].textContent, '—')
+  assert.ok(events.some(event => event.type === 'profile-sample-cleared'))
+})
+
 test('AA: keyboard navigation (ArrowRight/ArrowLeft) updates the band and dispatches the same sync event as pointer interaction', () => {
   const { elements, events } = buildInteractiveFixture()
   const svg = elements['[data-profile-interactive]']

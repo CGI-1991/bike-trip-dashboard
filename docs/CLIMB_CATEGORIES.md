@@ -1,5 +1,7 @@
 # Catégories de montées et randonnée — 2026.10.24.8
 
+> Depuis le [lot de nettoyage 2026.10.24.10](LEAN_COURSE_DETAIL.md), le filtre ci-dessous est le seul réglage visible, dans Informations juste après l’allure. Détection avancée est retirée de l’interface ; les calibrations historiques restent conservées.
+
 Le filtre **Montées retenues** possède cinq positions, dans la création et la modification d’une activité. Il complète la sensibilité historique, conservée dans **Détection avancée**. Cette demande directe remplace les anciennes règles excluant tout filtre de catégorie.
 
 | Position | Vélo | Randonnée |
