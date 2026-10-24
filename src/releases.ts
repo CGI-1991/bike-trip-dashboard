@@ -13,6 +13,9 @@ export interface AppRelease {
 }
 
 export const APP_RELEASES: readonly AppRelease[] = [
+  { version: '2026.10.24.4', date: '2026-10-24', changes: [
+    { feature: 'fit-course', title: 'Un FIT de course à essayer sur Garmin', description: 'En League ou Tour, FIT Garmin · essai exporte la portion de course avec son départ, son arrivée et les points d’alerte de vos segments. Une alerte préalable trop proche du départ est omise et signalée. Le fichier est vérifié avec un lecteur indépendant ; son import et les alertes sur votre Garmin restent à confirmer sur appareil. Les GPX et les activités enregistrées sont conservés.' },
+  ] },
   { version: '2026.10.24.3', date: '2026-10-24', changes: [
     { feature: 'enriched-gpx', title: 'Un GPX qui conserve votre préparation de course', description: 'En League ou Tour, Exporter GPX enrichi conserve la trace d’origine, les limites, noms, segments et réglages d’alerte. Réimportez ce fichier pour retrouver la configuration. Les paramètres à revoir bloquent cet export ; le GPX d’origine reste disponible. Les waypoints standards ne garantissent pas d’alertes sur Garmin : l’export FIT reste à venir.' },
   ] },

@@ -1,5 +1,7 @@
 # Export et réimport GPX enrichi — 2026.10.24.3
 
+> Le lot suivant ajoute un [FIT Course en essai](FIT_COURSE.md), avec lecture indépendante validée et comportement sur appareil Garmin encore à confirmer. Le GPX enrichi garde son rôle de format réimportable.
+
 Ce lot complète les [segments de course](RACE_SEGMENTS.md) pour League et Tour. Il préserve le [vent par parcours et le panneau Course](COURSE_WIND_AND_EDITING.md). L’export FIT Garmin reste à réaliser.
 
 ## Usage

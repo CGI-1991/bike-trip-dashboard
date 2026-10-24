@@ -472,6 +472,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   const windModels = new WeakMap<readonly WaypointWeather[], WeakMap<readonly import('../../trip-core/index.ts').RouteGeometryPoint[], { readonly scope: string; readonly model: RouteWindModel }>>()
   let currentRouteWind: RouteWindModel | null = null
   let exportingEnrichedGpx = false
+  let exportingFitCourse = false
   const getMapInteractionHandle = deps.getMapInteractionHandle ?? (() => null)
 
   /**
@@ -2495,6 +2496,31 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
           if (status !== null) status.textContent = error instanceof Error ? error.message : 'Impossible de préparer ce GPX. Réessayez.'
         } finally {
           exportingEnrichedGpx = false
+          if (exportButton !== null) exportButton.disabled = false
+        }
+      })()
+    } else if (action === 'download-fit-course' && mode.kind === 'day') {
+      const { tripId, dayId } = mode
+      const status = container.querySelector<HTMLElement>('[data-fit-export-status]')
+      const exportButton = container.querySelector<HTMLButtonElement>('[data-action="download-fit-course"]')
+      if (exportingFitCourse || exportButton?.disabled) return
+      exportingFitCourse = true
+      if (exportButton !== null) exportButton.disabled = true
+      if (status !== null) status.textContent = 'Préparation du FIT…'
+      void (async () => {
+        try {
+          const bundle = await createTripRepository(deps.database).loadTripBundle(tripId)
+          const stage = bundle?.stages.find(stage => stage.dayId === dayId)
+          if (!bundle || !stage) throw new Error('Le parcours est indisponible.')
+          const { buildFitCourse } = await import('../../export/fit-course.ts')
+          const result = await buildFitCourse(bundle, stage, new Date(deps.now()))
+          const name = (stage.customName?.trim() || 'course').replaceAll(/[\\/:*?"<>|]/g, '_')
+          downloadBlob(new Blob([result.bytes], { type: 'application/octet-stream' }), `${name}.fit`)
+          if (status !== null) status.textContent = [`${result.coursePointCount} points de course · essai Garmin à confirmer.`, ...result.warnings].join(' ')
+        } catch (error) {
+          if (status !== null) status.textContent = error instanceof Error ? error.message : 'Impossible de préparer ce FIT. Réessayez.'
+        } finally {
+          exportingFitCourse = false
           if (exportButton !== null) exportButton.disabled = false
         }
       })()

@@ -1,21 +1,12 @@
 import type { RideStage, TripBundle } from '../trip-core/index.ts'
-import { selectOrganizationCapabilities, selectRaceMode } from '../trip-core/index.ts'
 import { buildRaceCourse } from '../analysis/race-bounds.ts'
-import { analyzeRaceSegment, raceSegmentStatus } from '../analysis/race-segments.ts'
+import { analyzeRaceSegment } from '../analysis/race-segments.ts'
 import { analyzeGpxDocument } from '../import/gpx/analyze-gpx.ts'
 import { parseGpxXml } from '../import/gpx/gpx-xml.ts'
 import { geometrySha256, isGeneratedRaceWaypoint, RACE_GPX_NAMESPACE, validateEnrichedRace, xmlText } from '../gpx/enriched-race-format.ts'
 import type { EnrichedRaceData } from '../gpx/enriched-race-format.ts'
-
-export function enrichedGpxUnavailableReason(bundle: TripBundle, stage: RideStage): string | null {
-  if (!selectRaceMode(bundle)) return 'Choisissez League ou Tour pour exporter une course enrichie.'
-  const course = buildRaceCourse(bundle, stage)
-  if (course === null) return 'La trace complète est indisponible.'
-  if (course.status === 'stale') return 'Redéfinissez les limites de course sur la trace actuelle.'
-  if (selectOrganizationCapabilities(bundle).explicitRaceBounds && course.status !== 'bounded') return 'Définissez le départ et l’arrivée réels avant l’export.'
-  if ((stage.raceSegments ?? []).some(segment => raceSegmentStatus(course, segment) !== 'ready')) return 'Replacez les segments signalés ou ajustez les limites de course avant l’export.'
-  return null
-}
+import { raceExportUnavailableReason as enrichedGpxUnavailableReason } from './race-export.ts'
+export { enrichedGpxUnavailableReason }
 
 /** Preserve original tracks, routes, timestamps, source waypoints and vendor
  * extensions. Only our previous generated annotations are replaced. */
