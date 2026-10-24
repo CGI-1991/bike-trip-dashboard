@@ -605,7 +605,7 @@ test('AA/AB/AC: a climb renders as a tappable mini-card, same skeleton as a plai
   // it's the first line of the same `.day-detail__timeline-body` a plain
   // row uses (AB: the common skeleton).
   if (waypoint.clockTime !== null) assert.match(toggleHtml, new RegExp(`day-detail__timeline-time">${waypoint.clockTime}<`))
-  assert.match(toggleHtml, /<strong><span class="day-detail__timeline-marker" aria-hidden="true">[^<]+<\/span>Col du Test<\/strong>/)
+  assert.match(toggleHtml, /<strong><span class="day-detail__timeline-marker" aria-hidden="true">[^<]+<\/span>Col du Test<span class="climb-category" data-climb-category="3">Cat. 2<\/span><\/strong>/)
   // AC: the compact meta line is now "Longueur · D+ · Pente" (climb length
   // 15 - 10 = 5 km — never the summit's own trackDistanceKm/15 km, which
   // only a plain row would show).

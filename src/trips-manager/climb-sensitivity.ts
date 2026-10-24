@@ -22,12 +22,14 @@ import { buildDistanceIndexedSeries, smoothElevation } from '../analysis/elevati
 import { buildTerrainSlopeProfile } from '../analysis/terrain-profile.ts'
 import { MAX_WALKING_GRADE_PERCENT } from '../analysis/travel-timing.ts'
 import { detectClimbs } from '../analysis/climb-detection.ts'
+import { retainsClimbCategory } from '../analysis/climb-category.ts'
+import { buildCanonicalWaypoints } from '../analysis/canonical-waypoints.ts'
 import { routeGeometry } from '../route-enrichment/route-fingerprint.ts'
 import { isSegmentMarkerClimbName } from '../analysis/gpx-marker-names.ts'
 import { DEFAULT_CLIMB_DETECTION_SENSITIVITY, selectTravelMode } from '../trip-core/index.ts'
 import type { Climb, ClimbDetectionSensitivity, RouteId, TripBundle } from '../trip-core/index.ts'
 
-const ENGINE_VERSION = 'climb-sensitivity@1'
+const ENGINE_VERSION = 'climb-sensitivity@2'
 
 /** How far a recomputed summit may sit from a previously-named one and still be considered the same climb. */
 const NAME_TRANSFER_TOLERANCE_KM = 0.5
@@ -84,12 +86,16 @@ export function recomputeTripClimbs(bundle: TripBundle, sensitivity: ClimbDetect
     const namingCandidates = bundle.routePoints
       .filter((point) => point.routeId === route.id && point.provenance.sourceType === 'gpx')
       .map((point) => ({ name: point.name, latitude: point.latitude, longitude: point.longitude, markerType: point.gpxMarkerType ?? null }))
-    const detected = detectClimbs(profile, namingCandidates, route.id, idFactory, ENGINE_VERSION, sensitivity)
+    const detected = detectClimbs(profile, namingCandidates, route.id, idFactory, ENGINE_VERSION, sensitivity, selectTravelMode(bundle))
     const named = detected.map((climb) => {
+      const identities = previousForRoute.filter(candidate => !isManual(candidate)
+        && Math.abs(candidate.startDistanceKm - climb.startDistanceKm) <= 0.05
+        && Math.abs(candidate.endDistanceKm - climb.endDistanceKm) <= 0.05)
+      const identified = identities.length === 1 ? { ...climb, id: identities[0]!.id } : climb
       const source = previousForRoute
         .filter((candidate) => hasRealName(candidate) && Math.abs(candidate.endDistanceKm - climb.endDistanceKm) <= NAME_TRANSFER_TOLERANCE_KM)
         .sort((left, right) => Math.abs(left.endDistanceKm - climb.endDistanceKm) - Math.abs(right.endDistanceKm - climb.endDistanceKm))[0]
-      return source === undefined ? climb : { ...climb, name: source.name, confidence: source.confidence, provenance: source.provenance }
+      return source === undefined ? identified : { ...identified, name: source.name, confidence: source.confidence, provenance: source.provenance }
     })
     const manual = previousForRoute.filter(isManual)
     const next = [...named, ...manual.filter((climb) => !named.some((candidate) => candidate.id === climb.id))]
@@ -97,11 +103,11 @@ export function recomputeTripClimbs(bundle: TripBundle, sensitivity: ClimbDetect
     if (next.length !== previousForRoute.length) changed = true
     else if (next.some((climb, index) => {
       const before = previousForRoute[index]
-      return before === undefined || before.startDistanceKm !== climb.startDistanceKm || before.endDistanceKm !== climb.endDistanceKm
+      return before === undefined || before.startDistanceKm !== climb.startDistanceKm || before.endDistanceKm !== climb.endDistanceKm || before.maxGradientPercent !== climb.maxGradientPercent || before.averageGradientPercent !== climb.averageGradientPercent || before.elevationGainM !== climb.elevationGainM
     })) changed = true
   }
 
-  if (!changed) return bundle
+  if (!changed) return projectClimbCategories(bundle)
 
   const climbs = bundle.routes.flatMap((route) => climbsByRouteId.get(route.id) ?? [])
   const climbIds = new Set<string>(climbs.map((climb) => climb.id))
@@ -114,7 +120,29 @@ export function recomputeTripClimbs(bundle: TripBundle, sensitivity: ClimbDetect
   // overrides whose target a structural edit removed.
   const overrides = bundle.overrides.filter((override) => override.targetType !== 'climb' || climbIds.has(override.targetId))
 
-  return { ...bundle, climbs, stages, overrides }
+  return projectClimbCategories({ ...bundle, climbs, stages, overrides })
+}
+
+/** Keep the complete detected pool (ids, names and overrides) in the bundle.
+ * Stage membership projects the chosen category consistently to every view. */
+function projectClimbCategories(bundle: TripBundle): TripBundle {
+  const minimum = bundle.settings.global.climbCategoryMinimum ?? 0
+  let changed = false
+  const stages = bundle.stages.map(stage => {
+    const pauses = bundle.settings.stages.find(setting => setting.stageId === stage.id)?.pauses ?? []
+    const candidates = bundle.climbs.filter(climb => climb.routeId === stage.sourceRouteId)
+    const protectedIds = new Set<string>()
+    const route = bundle.routes.find(route => route.id === stage.sourceRouteId)
+    if (minimum > 0 && route !== undefined && pauses.some(pause => pause.active)) {
+      const waypoints = buildCanonicalWaypoints({ stage: { ...stage, climbIds: candidates.map(climb => climb.id) }, route, routePoints: bundle.routePoints, climbs: bundle.climbs })
+      for (const waypoint of waypoints) if (waypoint.climbId !== null && pauses.some(pause => pause.active && pause.routePointId?.toString() === waypoint.id)) protectedIds.add(waypoint.climbId)
+    }
+    const ids = candidates.filter(climb => retainsClimbCategory(climb, minimum, selectTravelMode(bundle)) || protectedIds.has(climb.id)).map(climb => climb.id)
+    if (ids.length === stage.climbIds.length && ids.every((id, index) => id === stage.climbIds[index])) return stage
+    changed = true
+    return { ...stage, climbIds: ids }
+  })
+  return changed ? { ...bundle, stages } : bundle
 }
 
 /**
@@ -123,10 +151,14 @@ export function recomputeTripClimbs(bundle: TripBundle, sensitivity: ClimbDetect
  * callers can skip a pointless save.
  */
 export function applyClimbDetectionSensitivity(bundle: TripBundle, sensitivity: ClimbDetectionSensitivity, idFactory: () => string): TripBundle {
-  if (resolveClimbDetectionSensitivity(bundle) === sensitivity) return bundle
+  return applyClimbDetectionSettings(bundle, sensitivity, bundle.settings.global.climbCategoryMinimum ?? 0, idFactory)
+}
+
+export function applyClimbDetectionSettings(bundle: TripBundle, sensitivity: ClimbDetectionSensitivity, minimum: import('../trip-core/index.ts').ClimbCategoryMinimum, idFactory: () => string, force = false): TripBundle {
+  if (!force && resolveClimbDetectionSensitivity(bundle) === sensitivity && (bundle.settings.global.climbCategoryMinimum ?? 0) === minimum) return bundle
   const withSetting: TripBundle = {
     ...bundle,
-    settings: { ...bundle.settings, global: { ...bundle.settings.global, climbDetectionSensitivity: sensitivity } },
+    settings: { ...bundle.settings, global: { ...bundle.settings.global, climbDetectionSensitivity: sensitivity, climbCategoryMinimum: minimum } },
     enrichmentMetadata: {
       ...bundle.enrichmentMetadata,
       // A persisted automatic pause plan was scored partly on this trip's
@@ -139,5 +171,6 @@ export function applyClimbDetectionSensitivity(bundle: TripBundle, sensitivity: 
       automaticPausePlans: [],
     },
   }
-  return recomputeTripClimbs(withSetting, sensitivity, idFactory)
+  return force || resolveClimbDetectionSensitivity(bundle) !== sensitivity
+    ? recomputeTripClimbs(withSetting, sensitivity, idFactory) : projectClimbCategories(withSetting)
 }

@@ -31,6 +31,11 @@ export const CLIMB_DETECTION_SENSITIVITIES = ['mountain', 'hilly', 'standard', '
 export type ClimbDetectionSensitivity = (typeof CLIMB_DETECTION_SENSITIVITIES)[number]
 export const DEFAULT_CLIMB_DETECTION_SENSITIVITY: ClimbDetectionSensitivity = 'standard'
 
+export type ClimbCategoryMinimum = 0 | 1 | 2 | 3 | 4
+export function isClimbCategoryMinimum(value: unknown): value is ClimbCategoryMinimum {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 4
+}
+
 /**
  * Trip-wide reference speed and pause strategy — preserves the
  * "reference speed × terrain factor" model (CDC section 17.1) as a concept,
@@ -68,6 +73,8 @@ export interface GlobalTripSettings {
    * historical calibration, unchanged.
    */
   readonly climbDetectionSensitivity?: ClimbDetectionSensitivity
+  /** Absent/0: keep all detected climbs. Manual climbs and segments are retained. */
+  readonly climbCategoryMinimum?: ClimbCategoryMinimum
 }
 
 /** Per-day override: departure time and total break budget for that day. */

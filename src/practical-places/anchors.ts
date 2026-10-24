@@ -43,7 +43,8 @@ export function computeStagePracticalPlaceAnchors(bundle: TripBundle, stage: Rid
   // it builds on are the structural truth — départ, arrivée, localities,
   // cols, climbs — and are all this needs.
   const waypoints = buildCanonicalWaypoints({
-    stage,
+    // A display/category choice must not change structural POI search anchors.
+    stage: { ...stage, climbIds: bundle.climbs.filter(climb => climb.routeId === stage.sourceRouteId).map(climb => climb.id) },
     route,
     routePoints: bundle.routePoints,
     climbs: bundle.climbs,

@@ -16,7 +16,9 @@
  */
 
 import { CLIMB_DETECTION_SENSITIVITIES } from '../../trip-core/index.ts'
-import type { ClimbDetectionSensitivity } from '../../trip-core/index.ts'
+import type { ClimbCategoryMinimum, ClimbDetectionSensitivity, TravelMode } from '../../trip-core/index.ts'
+import { CLIMB_CATEGORY_FILTER_LABELS } from '../../analysis/climb-category.ts'
+import { renderFeatureUpdateBadge } from '../release-notes.ts'
 
 const LABELS: Readonly<Record<ClimbDetectionSensitivity, string>> = {
   mountain: 'Montagne',
@@ -48,9 +50,16 @@ export function climbSensitivityAtIndex(index: number): ClimbDetectionSensitivit
   return CLIMB_DETECTION_SENSITIVITIES[index] ?? 'standard'
 }
 
-export function renderClimbSensitivitySlider(value: ClimbDetectionSensitivity): string {
+export function renderClimbSensitivitySlider(value: ClimbDetectionSensitivity, minimum: ClimbCategoryMinimum = 0, mode: TravelMode = 'cycling'): string {
   const index = climbSensitivityIndex(value)
-  return `<div class="field climb-sensitivity" data-climb-sensitivity>
+  const labels = CLIMB_CATEGORY_FILTER_LABELS[mode]
+  return `<div class="field climb-sensitivity" data-climb-category-filter>
+    <label for="climb-category-input">Montées retenues ${renderFeatureUpdateBadge('climb-categories')}</label>
+    <input id="climb-category-input" class="climb-sensitivity__slider" type="range" min="0" max="4" step="1" value="${minimum}" data-field="climb-category" aria-describedby="climb-category-hint" aria-valuetext="${labels[minimum]}">
+    <div class="climb-sensitivity__scale" aria-hidden="true"><span>Toutes</span><span>${labels[4]}</span></div>
+    <p class="climb-sensitivity__value" data-climb-category-value>${labels[minimum]}</p>
+    <p id="climb-category-hint" class="field__hint">${mode === 'walking' ? 'Effort de montée selon la longueur et le D+. La technicité du sentier n’est pas évaluée.' : 'Catégories indicatives selon la longueur et la pente, de Cat. 4 à HC.'} Vos segments manuels sont conservés.</p>
+  </div><details class="climb-sensitivity-advanced"><summary>Détection avancée</summary><div class="field climb-sensitivity" data-climb-sensitivity>
     <label for="climb-sensitivity-input">Détection des montées</label>
     <input id="climb-sensitivity-input" class="climb-sensitivity__slider" type="range" min="0" max="${CLIMB_DETECTION_SENSITIVITIES.length - 1}" step="1" value="${index}"
       data-field="climb-sensitivity" aria-describedby="climb-sensitivity-value climb-sensitivity-hint"
@@ -58,7 +67,14 @@ export function renderClimbSensitivitySlider(value: ClimbDetectionSensitivity): 
     <div class="climb-sensitivity__scale" aria-hidden="true"><span>${escapeHtml(LABELS.mountain)}</span><span>${escapeHtml(LABELS.flat)}</span></div>
     <p id="climb-sensitivity-value" class="climb-sensitivity__value" data-climb-sensitivity-value>${escapeHtml(LABELS[value])}</p>
     <p id="climb-sensitivity-hint" class="field__hint" data-climb-sensitivity-hint>${escapeHtml(HINTS[value])}</p>
-  </div>`
+  </div></details>`
+}
+
+export function patchClimbCategoryLabel(container: { querySelector: (selector: string) => Element | null }, minimum: ClimbCategoryMinimum, mode: TravelMode): void {
+  const label = CLIMB_CATEGORY_FILTER_LABELS[mode][minimum]
+  const value = container.querySelector('[data-climb-category-value]')
+  if (value !== null) value.textContent = label
+  container.querySelector('[data-field="climb-category"]')?.setAttribute('aria-valuetext', label)
 }
 
 /**

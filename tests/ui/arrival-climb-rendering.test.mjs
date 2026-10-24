@@ -89,7 +89,7 @@ test('the final montée keeps its real card — name, longueur, D+, pente and mi
     assert.match(climbRow, /day-detail__climb-profile-shape/, `${file}: the mini-profile is drawn`)
     assert.doesNotMatch(climbRow, /Profil indisponible/, `${file}: and it is not the empty fallback`)
     // Never a GPX segment label ("Fin grimpeur", "Arrivée Bleu"…).
-    const name = /<strong><span class="day-detail__timeline-marker"[^>]*>[^<]*<\/span>([^<]*)<\/strong>/.exec(climbRow)[1]
+    const name = /<strong><span class="day-detail__timeline-marker"[^>]*>[^<]*<\/span>([^<]*)(?:<span class="climb-category"[^>]*>[^<]*<\/span>)?<\/strong>/.exec(climbRow)[1]
     assert.doesNotMatch(name, /^(fin|d[ée]but|arriv[ée]e|d[ée]part)\b/iu, `${file}: "${name}" is a segment marker, not a climb name`)
   }
 })

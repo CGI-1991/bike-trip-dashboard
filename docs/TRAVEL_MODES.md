@@ -1,5 +1,7 @@
 # Vélo et randonnée
 
+> Depuis **2026.10.24.8**, les [catégories, le filtre et les seuils de marche](CLIMB_CATEGORIES.md) complètent la détection historique. Les catégories restent indicatives ; le classement ne modifie pas les segments manuels.
+
 > Les [cinq allures et le mode Manuel](LEAGUE_TOUR_CORRECTIONS.md#enregistrement-et-vitesse) sont désormais réalisés. Le présent document décrit le premier lot marche ; la [feuille de route actuelle](ROADMAP.md) distingue calibration restante et fonctions livrées.
 
 Lot `2026.10.23.5`, dans Mes voyages. Le choix **Déplacement : Vélo / Randonnée** apparaît à la création et dans Modifier le voyage, accompagné d’une balise MAJ. Une randonnée est identifiée dans la bibliothèque et l’aperçu.

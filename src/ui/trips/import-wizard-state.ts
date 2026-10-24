@@ -78,6 +78,7 @@ export interface WizardState {
   /** Mode "Course / Tour" — `false` (Classique) for a new trip, like every existing one. */
   raceMode: boolean
   /** Climb-detection sensitivity — `'standard'` (the historical calibration) for a new trip. */
+  climbCategoryMinimum: import('../../trip-core/index.ts').ClimbCategoryMinimum
   climbSensitivity: ClimbDetectionSensitivity
 }
 
@@ -102,6 +103,7 @@ export function createEmptyWizardState(): WizardState {
     travelMode: 'cycling',
     raceMode: false,
     climbSensitivity: 'standard',
+    climbCategoryMinimum: 0,
   }
 }
 

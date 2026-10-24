@@ -13,6 +13,9 @@ export interface AppRelease {
 }
 
 export const APP_RELEASES: readonly AppRelease[] = [
+  { version: '2026.10.24.8', date: '2026-10-24', changes: [
+    { feature: 'climb-categories', title: 'Des montées classées et filtrables', description: 'Les montées portent une catégorie indicative Cat. 4 à HC à vélo, ou un effort 1 à 5 à pied. Un filtre en cinq positions retient les catégories souhaitées ; Toutes conserve chaque montée détectée. La détection avancée reste accessible. La randonnée détecte aussi les ascensions courtes et raides. Changer de sport recalcule les montées sans toucher aux segments manuels ni aux GPX.' },
+  ] },
   { version: '2026.10.24.7', date: '2026-10-24', changes: [
     { feature: 'fit-course', title: 'GPX et FIT gardent le même parcours', description: 'Le FIT conserve désormais tous les points du GPX, y compris l’approche avant le départ réel et la portion après l’arrivée. Les limites de course, segments et alertes ajoutent des repères sans couper ni modifier le tracé. Les statistiques de course restent limitées à la course. L’essai sur votre Garmin Edge Explore 2 reste à confirmer.' },
   ] },

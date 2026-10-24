@@ -1,3 +1,4 @@
+import { isClimbCategoryMinimum } from '../model/settings.ts'
 import { isReferenceSpeedMode } from '../model/reference-speed.ts'
 import { CURRENT_TRIP_BUNDLE_SCHEMA_VERSION } from '../schema/version.ts'
 import type { TripBundle } from '../schema/version.ts'
@@ -844,6 +845,7 @@ export function validateTripBundle(value: unknown): ValidationResult<TripBundle>
       if (settings.global.raceMode !== undefined && !isBoolean(settings.global.raceMode)) {
         issues.push(issue('settings.global.raceMode', 'invalid-type', 'raceMode doit être un booléen.'))
       }
+      if (settings.global.climbCategoryMinimum !== undefined && !isClimbCategoryMinimum(settings.global.climbCategoryMinimum)) issues.push(issue('settings.global.climbCategoryMinimum', 'invalid-enum', 'Filtre des montées invalide.'))
       if (settings.global.climbDetectionSensitivity !== undefined && !isOneOf(settings.global.climbDetectionSensitivity, CLIMB_DETECTION_SENSITIVITY_VALUES)) {
         issues.push(issue('settings.global.climbDetectionSensitivity', 'invalid-enum', 'climbDetectionSensitivity invalide.'))
       }

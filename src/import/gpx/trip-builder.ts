@@ -18,6 +18,7 @@ import type {
   TripDaySettings,
 } from '../../trip-core/index.ts'
 import { CURRENT_TRIP_BUNDLE_SCHEMA_VERSION } from '../../trip-core/index.ts'
+import { retainsClimbCategory } from '../../analysis/climb-category.ts'
 import type { IsoDate } from '../../trip-core/model/common.ts'
 import { addCivilDays } from '../../trip-core/validation/primitives.ts'
 import type { ResolvedGpxTripImportOptions } from './types.ts'
@@ -74,7 +75,9 @@ export function assembleTripBundle(input: TripBuilderInput): TripBundle {
     },
     calendar: { startDate, endDate, timezone },
     days,
-    stages,
+    stages: options.climbCategoryMinimum === undefined || options.climbCategoryMinimum === 0 ? stages : stages.map(stage => ({ ...stage,
+      climbIds: stage.climbIds.filter(id => { const climb = climbs.find(climb => climb.id === id); return climb !== undefined && retainsClimbCategory(climb, options.climbCategoryMinimum!, options.travelMode) }),
+    })),
     sourceFiles,
     routes,
     climbs,
@@ -90,6 +93,7 @@ export function assembleTripBundle(input: TripBuilderInput): TripBundle {
         ...(options.referenceSpeedMode === undefined ? {} : { referenceSpeedMode: options.referenceSpeedMode }),
         pausePlanMode: 'automatic',
         climbDetectionSensitivity: options.climbDetectionSensitivity,
+        ...(options.climbCategoryMinimum === undefined ? {} : { climbCategoryMinimum: options.climbCategoryMinimum }),
       },
       days: dayTripDaySettings,
       stages: [],

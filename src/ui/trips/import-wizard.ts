@@ -46,7 +46,7 @@ import type { FileEntryId, StructureItem, WizardStage, WizardState } from './imp
 import { renderRaceModeToggle } from './race-mode-toggle.ts'
 import { renderTravelModeToggle } from './travel-mode-toggle.ts'
 import { isTravelMode } from '../../trips-manager/travel-mode.ts'
-import { climbSensitivityAtIndex, patchClimbSensitivityLabels, renderClimbSensitivitySlider } from './climb-sensitivity-slider.ts'
+import { climbSensitivityAtIndex, patchClimbCategoryLabel, patchClimbSensitivityLabels, renderClimbSensitivitySlider } from './climb-sensitivity-slider.ts'
 
 function asTripId(value: string): TripId {
   return value as TripId
@@ -154,6 +154,7 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
         referenceSpeedMode: state.referenceSpeedMode,
         travelMode: state.travelMode,
         climbDetectionSensitivity: state.climbSensitivity,
+        climbCategoryMinimum: state.climbCategoryMinimum,
         totalBreakMinutes: 'adaptive',
         importedAt,
         engineVersion: 'trips-manager-wizard@1',
@@ -425,7 +426,7 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
         ${renderAlerts()}
         <details class="wizard-advanced"><summary>Réglages avancés</summary>
           ${state.raceMode ? '' : '<p>Budget de pauses calculé automatiquement selon la distance, la durée et le D+ de chaque étape.</p>'}
-          ${renderClimbSensitivitySlider(state.climbSensitivity)}
+          ${renderClimbSensitivitySlider(state.climbSensitivity, state.climbCategoryMinimum, state.travelMode)}
         </details>
         ${state.errorMessage !== null ? `<p class="wizard-error" role="alert">${escapeHtml(state.errorMessage)}</p>` : ''}
         ${renderProgress()}
@@ -477,6 +478,11 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
     // a full `render()` per keystroke/drag would reset the caret or drop the
     // range input's pointer capture.
     else if (target.dataset.field === 'stage-name' && target.dataset.position !== undefined) { setStructureCustomName(state, Number(target.dataset.position), target.value); return }
+    else if (target.dataset.field === 'climb-category') {
+      state.climbCategoryMinimum = Number(target.value) as import('../../trip-core/index.ts').ClimbCategoryMinimum
+      patchClimbCategoryLabel(container, state.climbCategoryMinimum, state.travelMode)
+      return
+    }
     else if (target.dataset.field === 'climb-sensitivity') {
       state.climbSensitivity = climbSensitivityAtIndex(Number(target.value))
       patchClimbSensitivityLabels(container, state.climbSensitivity)
