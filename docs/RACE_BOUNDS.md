@@ -1,5 +1,8 @@
 # Limites de course et vent mobile — lot 2
 
+> Depuis **2026.10.24.6**, la [règle de départ GPX et de vent à vélo](GPX_DEPARTURE_AND_WALKING_WIND.md) prime sur les comportements historiques décrits ci-dessous : limites facultatives en League/Tour, heure au départ GPX, approche incluse dans les ETA et module vent masqué en randonnée.
+
+
 > Les [corrections du 24 octobre](LEAGUE_TOUR_CORRECTIONS.md) remplacent les choix d’interface de ce document lorsqu’ils diffèrent : statistiques League, vent, navigation et présentation des segments.
 
 Lot initial 2026.10.23.7. Depuis 2026.10.23.8, les [horaires, météo et vent suivent aussi les limites de course](RACE_COURSE_TIMING.md). Le calendrier League est décrit dans [LEAGUE_CALENDAR.md](LEAGUE_CALENDAR.md).

@@ -31,8 +31,9 @@ export function selectOrganizationMode(bundle: TripBundle): OrganizationMode {
   return bundle.settings.global.organizationMode ?? (bundle.settings.global.raceMode === true ? 'tour' : 'voyage')
 }
 
-export function selectOrganizationCapabilities(bundle: TripBundle): (typeof ORGANIZATION_CAPABILITIES)[OrganizationMode] {
-  return ORGANIZATION_CAPABILITIES[selectOrganizationMode(bundle)]
+export function selectOrganizationCapabilities(bundle: TripBundle): Omit<(typeof ORGANIZATION_CAPABILITIES)[OrganizationMode], 'relativeWind'> & { readonly relativeWind: boolean } {
+  const capabilities = ORGANIZATION_CAPABILITIES[selectOrganizationMode(bundle)]
+  return { ...capabilities, relativeWind: capabilities.relativeWind && selectTravelMode(bundle) === 'cycling' }
 }
 
 export function selectAutomaticPoiSearch(bundle: TripBundle): boolean {

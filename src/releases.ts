@@ -13,6 +13,10 @@ export interface AppRelease {
 }
 
 export const APP_RELEASES: readonly AppRelease[] = [
+  { version: '2026.10.24.6', date: '2026-10-24', changes: [
+    { feature: 'travel-mode', title: 'Le vent est réservé au vélo', description: 'En randonnée, le vent moyen, les flèches relatives et le mode Vent du profil sont masqués. Les autres prévisions météo restent accessibles.' },
+    { feature: 'race-bounds', title: 'Le départ GPX sert de référence', description: 'Sans départ réel défini, la course commence au début du GPX. L’heure saisie correspond toujours au départ GPX. Une portion avant le vrai départ est incluse dans les ETA, avec une référence vélo réduite de 3 km/h et le terrain pris en compte. Le départ réel estimé et la durée sportive restent distincts.' },
+  ] },
   { version: '2026.10.24.5', date: '2026-10-24', changes: [
     { feature: 'stage-wind-stat', title: 'Le vent moyen dans les statistiques', description: 'Le détail de l’étape affiche la vitesse moyenne du vent et sa provenance N, NE, E, SE, S, SO, O ou NO dans les statistiques. Le vent au point exploré et aux passages reste relatif au déplacement. Une prévision partielle ou une direction variable est signalée.' },
     { feature: 'course-editor', title: 'Un profil neutre pour préparer les segments', description: 'Le panneau Course utilise directement le profil neutre. En consultation, les modes Pente et Vent restent accessibles ; le pochage des segments apparaît uniquement en Neutre.' },

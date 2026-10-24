@@ -18,7 +18,7 @@ import type { TripDayTemporalState } from '../../trips-manager/trip-day-temporal
 import type { StagePreparationStatus } from '../../trips-manager/stage-preparation.ts'
 import { formatShortDate } from '../date-format.ts'
 import { compactPlaceName } from '../compact-place-name.ts'
-import { selectOrganizationMode, selectStageCustomName, selectTripDayLabel } from '../../trip-core/index.ts'
+import { selectOrganizationMode, selectStageCustomName, selectTripDayLabel, selectRaceMode } from '../../trip-core/index.ts'
 import { selectOrganizationCapabilities } from '../../trip-core/index.ts'
 import { renderLeagueCalendar } from './league-calendar-view.ts'
 import type { TripBundle, TripDayId } from '../../trip-core/index.ts'
@@ -163,7 +163,7 @@ function renderRideDayCard(bundle: TripBundle, day: TripBundle['days'][number], 
       </span>
       <span class="trip-day-card__schedule">
         <span class="trip-day-card__status">${status}<span data-trip-day-prep-slot>${renderStagePreparationIndicator(prepStatus)}</span></span>
-        <small><span class="visually-hidden">Départ </span>${departureTime ?? '—'}</small>
+        <small><span class="visually-hidden">${selectRaceMode(bundle) ? 'Départ GPX' : 'Départ'} </span>${departureTime ?? '—'}</small>
         ${eta === null && selectOrganizationCapabilities(bundle).explicitRaceBounds ? '' : `<strong><span class="visually-hidden">ETA </span>${eta ?? '—'}</strong>`}
       </span>
     </button>

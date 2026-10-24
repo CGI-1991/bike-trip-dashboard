@@ -4,11 +4,11 @@ Le détail League/Tour propose **FIT Garmin · essai**, à côté des téléchar
 
 ## Comportement
 
-- Exporter uniquement la portion entre les limites de course. En League, deux limites réelles valides sont obligatoires. En Tour, leur absence conserve la trace entière.
+- Exporter uniquement la portion entre les limites de course. Depuis **2026.10.24.6**, League et Tour utilisent le GPX entier en l’absence de limites. Des limites enregistrées obsolètes restent bloquantes.
 - Conserver les sommets de cette portion et interpoler ses extrémités. Les distances FIT commencent à zéro au départ de course ; positions des points et distances restent issues du chaînage original, y compris aux passages répétés dans une boucle.
 - Créer les points de départ/arrivée, puis uniquement les alertes avant/début/fin activées pour chaque segment. Par défaut : 500 m avant et au début, sans alerte de fin. Une alerte préalable avant le départ est omise avec un avertissement, jamais rabattue sur un faux « 500 m ».
 - Bloquer les limites obsolètes et segments hors course/à replacer avec les mêmes contrôles que l’export GPX enrichi.
-- Utiliser le modèle de temps du profil, avec l’allure et le déplacement actifs, sans pause en compétition. Les timestamps FIT commencent à l’instant de l’export et décrivent un rythme théorique, pas une activité enregistrée ni une nouvelle date de calendrier. Les timestamps du GPX source ne sont pas utilisés.
+- Utiliser le modèle de temps du profil, avec l’allure et le déplacement actifs, sans pause en compétition. Les timestamps FIT commencent à l’instant de l’export et décrivent un rythme théorique, pas une activité enregistrée ni une nouvelle date de calendrier. Les timestamps du GPX source ne sont pas utilisés. Depuis **2026.10.24.6**, les ETA de l’application incluent l’approche avant le départ réel ; le FIT reste limité à la course et retranche cette approche de ses timestamps et de sa durée. [Règles du départ GPX](GPX_DEPARTURE_AND_WALKING_WIND.md).
 
 Le bouton prépare et télécharge un fichier local ; il n’envoie rien au compteur ou à Garmin Connect. Vérifier l’enregistrement dans Fichiers sur iPhone. Aucun réseau POI/météo n’est nécessaire. Les GPX d’origine, l’[export enrichi réimportable](ENRICHED_GPX.md) et la [sauvegarde ZIP complète](TRIP_BACKUP.md) restent disponibles. Le FIT n’est pas un format de réimportation de la préparation dans l’application.
 

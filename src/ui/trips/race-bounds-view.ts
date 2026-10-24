@@ -4,16 +4,18 @@ import { buildRaceCourse, validRaceOffsets } from '../../analysis/race-bounds.ts
 import { selectOrganizationCapabilities } from '../../trip-core/index.ts'
 import type { RaceCourse } from '../../analysis/race-bounds.ts'
 import { renderFeatureUpdateBadge } from '../release-notes.ts'
+import { neutralizedCyclingReferenceSpeed } from '../../analysis/waypoint-timeline.ts'
+import { selectTravelMode } from '../../trip-core/index.ts'
 
 const km = (value: number) => value.toFixed(3).replace('.', ',')
 
-export function renderRaceCourseCard(course: RaceCourse, _stage: RideStage, explicitBounds = false): string {
+export function renderRaceCourseCard(course: RaceCourse, _stage: RideStage, explicitBounds = false, approachSpeedKph?: number): string {
   return `<section class="race-course" aria-label="Limites de course"><header><h3>Course</h3>${renderFeatureUpdateBadge('race-bounds')}</header>
     ${course.status === 'stale' ? '<p role="status">La trace a changé : redéfinissez les limites de course.</p>' : ''}
-    <p class="race-course__hint">${course.status === 'full' ? explicitBounds ? 'Définissez le départ et l’arrivée réels pour afficher les statistiques de course.' : 'Trace entière utilisée.' : course.status === 'bounded' ? `Départ km ${km(course.bounds!.startOffsetM / 1000)} · arrivée km ${km(course.bounds!.finishOffsetM / 1000)}. Profil et points en km GPX ; statistiques dans le bloc supérieur.` : 'Horaires et météo suspendus pour ces anciennes limites.'}</p>
+    <p class="race-course__hint">${course.status === 'full' ? 'Départ et arrivée du GPX utilisés pour la course.' : course.status === 'bounded' ? `Départ réel km ${km(course.bounds!.startOffsetM / 1000)} · arrivée km ${km(course.bounds!.finishOffsetM / 1000)}.${course.bounds!.startOffsetM > 0 && approachSpeedKph !== undefined ? ` Avant la course : référence ${approachSpeedKph.toLocaleString('fr-BE')} km/h.` : ''}` : 'Horaires et météo suspendus pour ces anciennes limites.'}</p>
     <details data-race-editor><summary>Départ et arrivée de course</summary><div class="race-course__fields">
-      <label>Départ · km<input type="number" inputmode="decimal" step="any" min="0" data-race-offset="start" aria-label="Départ de course en kilomètres"></label>
-      <label>Arrivée · km<input type="number" inputmode="decimal" step="any" min="0" data-race-offset="finish" aria-label="Arrivée de course en kilomètres"></label>
+      <label>Départ réel facultatif · km GPX<input type="number" inputmode="decimal" step="any" min="0" data-race-offset="start" aria-label="Départ de course en kilomètres" placeholder="0 · départ GPX"></label>
+      <label>Arrivée · km GPX<input type="number" inputmode="decimal" step="any" min="0" data-race-offset="finish" aria-label="Arrivée de course en kilomètres" placeholder="Fin du GPX"></label>
       <button type="button" class="button button--quiet" data-race-pick="start" aria-pressed="false">Placer le départ</button>
       <button type="button" class="button button--quiet" data-race-pick="finish" aria-pressed="false">Placer l’arrivée</button>
     </div><p class="race-course__hint" data-race-status role="status">Choisissez une limite puis touchez le profil, ou saisissez ses kilomètres.</p>
@@ -38,16 +40,16 @@ export function mountRaceBoundsEditor(profile: HTMLElement, bundle: TripBundle, 
   if (course === null) return
   const controller = new AbortController()
   controllers.set(profile, controller)
-  profile.insertAdjacentHTML('afterbegin', `<div data-race-course-host>${renderRaceCourseCard(course, stage, selectOrganizationCapabilities(bundle).explicitRaceBounds)}</div>`)
+  profile.insertAdjacentHTML('afterbegin', `<div data-race-course-host>${renderRaceCourseCard(course, stage, selectOrganizationCapabilities(bundle).explicitRaceBounds,
+    selectTravelMode(bundle) === 'cycling' ? neutralizedCyclingReferenceSpeed(bundle.settings.global.referenceSpeedKph) : undefined)}</div>`)
   const host = profile.querySelector<HTMLElement>('[data-race-course-host]')!
   const editor = host.querySelector<HTMLDetailsElement>('[data-race-editor]')!
   const status = host.querySelector<HTMLElement>('[data-race-status]')!
   const startInput = host.querySelector<HTMLInputElement>('[data-race-offset="start"]')!
   const finishInput = host.querySelector<HTMLInputElement>('[data-race-offset="finish"]')!
   const savedBounds = course.status === 'bounded' ? course.bounds : null
-  const explicitBounds = selectOrganizationCapabilities(bundle).explicitRaceBounds
-  let start = savedBounds?.startOffsetM ?? (explicitBounds ? NaN : 0)
-  let finish = savedBounds?.finishOffsetM ?? (explicitBounds ? NaN : course.indexed.lengthKm * 1000)
+  let start = savedBounds?.startOffsetM ?? 0
+  let finish = savedBounds?.finishOffsetM ?? course.indexed.lengthKm * 1000
   let picked: 'start' | 'finish' | null = null
   let saving = false
   const preview = (): RaceBounds => ({ routeFingerprint: course.fingerprint, startOffsetM: start, finishOffsetM: finish })
@@ -59,17 +61,20 @@ export function mountRaceBoundsEditor(profile: HTMLElement, bundle: TripBundle, 
   const redraw = () => paintRaceBounds(profile, preview(), course.indexed.lengthKm)
   const resetDraft = () => {
     setPicked(null)
-    start = savedBounds?.startOffsetM ?? (explicitBounds ? NaN : 0)
-    finish = savedBounds?.finishOffsetM ?? (explicitBounds ? NaN : course.indexed.lengthKm * 1000)
+    start = savedBounds?.startOffsetM ?? 0
+    finish = savedBounds?.finishOffsetM ?? course.indexed.lengthKm * 1000
     setInputs()
     paintRaceBounds(profile, savedBounds, course.indexed.lengthKm)
   }
   setInputs()
   paintRaceBounds(profile, savedBounds, course.indexed.lengthKm)
-  host.addEventListener('input', () => {
+  host.addEventListener('input', event => {
     if (saving) return
     setPicked(null)
-    start = startInput.valueAsNumber * 1000; finish = finishInput.valueAsNumber * 1000
+    // Only read the field the user changed: the untouched displayed finish
+    // may be rounded to 3 decimals while its exact original offset is kept.
+    if (event.target === startInput) start = startInput.value === '' ? 0 : startInput.valueAsNumber * 1000
+    if (event.target === finishInput) finish = finishInput.value === '' ? course.indexed.lengthKm * 1000 : finishInput.valueAsNumber * 1000
     redraw()
   }, { signal: controller.signal })
   profile.addEventListener('profile-distance-active', event => {

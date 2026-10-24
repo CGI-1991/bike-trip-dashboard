@@ -24,7 +24,8 @@ test('Course/Tour drops the Pauses stat, and leaves every other stat in place', 
 
   const race = buildDayDetail(applyRaceMode(createGenericTripBundle(), true), 'day-alpha')
   assert.doesNotMatch(race.statsHtml, /<dt>Pauses<\/dt>/)
-  for (const label of ['Départ', 'Arrivée estimée', 'Distance', 'Durée', 'D\\+', 'Montées']) {
+  assert.match(race.statsHtml, /<dt>Départ GPX(?: |<\/dt>)/)
+  for (const label of ['Arrivée estimée', 'Distance', 'Durée de course', 'D\\+', 'Montées']) {
     assert.match(race.statsHtml, new RegExp(`<dt>${label}</dt>`))
   }
 })
