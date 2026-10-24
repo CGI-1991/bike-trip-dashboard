@@ -1,4 +1,4 @@
-import type { RelativeWindReading, RouteWindModel, RouteWindSummary } from '../weather/relative-wind.ts'
+import type { GeographicWindReading, RelativeWindReading, RouteWindModel, RouteWindSummary } from '../weather/relative-wind.ts'
 import { headwindColor, relativeWindLabel } from '../weather/relative-wind.ts'
 import { classifyClimbGrade } from '../analysis/climb-profile.ts'
 import type { ProfileSample } from './elevation-profile.ts'
@@ -27,6 +27,15 @@ export function renderRelativeWind(reading: RelativeWindReading | null, compact 
   if (reading === null) return '<span class="relative-wind relative-wind--unknown"><span>Vent indisponible</span></span>'
   const qualifier = reading.coverage < 0.001 ? ' · au point' : reading.coverage < 0.9 ? ' · partiel' : ''
   return `<span class="relative-wind${compact ? ' relative-wind--compact' : ''}" aria-label="${relativeWindLabel(reading)}, ${Math.round(reading.speedKph)} km/h${qualifier}">${compass(reading, travelMode)}<span><strong>${relativeWindLabel(reading)}</strong><span class="relative-wind__detail">${Math.round(reading.speedKph)} km/h${qualifier}</span></span></span>`
+}
+
+/** Compact stage stat; cardinal directions describe where the air comes from. */
+export function renderStageWindStat(reading: GeographicWindReading | null): string {
+  if (reading === null) return '<span aria-label="Vent moyen indisponible">—</span>'
+  const directions = ['N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO']
+  const label = reading.kind === 'calm' ? 'calme' : reading.kind === 'variable' || reading.fromDeg === null ? 'variable' : directions[Math.round(reading.fromDeg / 45) % 8]!
+  const partial = reading.coverage < .9 ? ' · partiel' : ''
+  return `<span aria-label="Vent moyen${reading.kind === 'directional' ? ' provenant de' : ''} ${label}, ${Math.round(reading.speedKph)} kilomètres par heure${partial}">${Math.round(reading.speedKph)} km/h · ${label}${partial}</span>`
 }
 
 export function renderProfileWindControls(windEnabled = true): string {
@@ -68,6 +77,7 @@ export function installProfileWindControls(container: HTMLElement, samples: read
   const readout = container.querySelector<HTMLElement>('[data-profile-wind]')
   const summary = container.querySelector<HTMLElement>('[data-route-wind-summary]')
   const selectedDetails = container.querySelector<HTMLElement>('[data-selected-wind-details]')
+  const controls = container.querySelector<HTMLElement>('.profile-modes')
   if (svg === null || bands === null || area === null || legend === null) return
   const controller = new AbortController()
   let mode = preferredMode()
@@ -75,27 +85,31 @@ export function installProfileWindControls(container: HTMLElement, samples: read
   let wind: RouteWindModel | null = null
   let travelMode: TravelMode = 'cycling'
   let selected: number | null = null
+  let editing = container.dataset?.courseEditing === 'true'
   const renderReadout = () => {
     if (!windEnabled || readout === null) return
-    const reading = selected === null ? wind?.summary.mean ?? null : wind?.at(selected) ?? null
-    const title = selected === null ? 'Vent moyen du parcours' : `Vent vers le km ${selected.toFixed(1).replace('.', ',')}`
-    readout.innerHTML = `<div class="profile-wind__average" data-stage-wind-average><p class="profile-wind__title">Vent moyen du parcours</p>${renderRelativeWind(wind?.summary.mean ?? null, false, travelMode)}</div>${selected === null ? '' : `<div data-profile-selected-wind><p class="profile-wind__title">${title}</p>${renderRelativeWind(reading, false, travelMode)}</div>`}`
+    const reading = selected === null ? null : wind?.at(selected) ?? null
+    readout.innerHTML = selected === null ? '' : `<div data-profile-selected-wind><p class="profile-wind__title">Vent vers le km ${selected.toFixed(1).replace('.', ',')}</p>${renderRelativeWind(reading, false, travelMode)}</div>`
     if (selectedDetails !== null) selectedDetails.textContent = reading === null ? ''
       : `${reading.headwindKph >= 0 ? 'Face' : 'Dos'} ${Math.round(Math.abs(reading.headwindKph))} · latéral ${Math.round(Math.abs(reading.crosswindKph))} km/h${reading.gustsKph === null ? '' : ` · rafales jusqu’à ${Math.round(reading.gustsKph)} km/h`}.`
   }
   function paint(): void {
-    area!.style.opacity = mode === 'neutral' ? '1' : '0'
-    bands!.innerHTML = mode === 'neutral' ? '' : samples.slice(1).map((point, i) => {
+    const displayed = editing ? 'neutral' : mode
+    if (container.dataset) container.dataset.profileColorMode = displayed
+    if (controls !== null) controls.hidden = editing
+    legend!.hidden = editing
+    area!.style.opacity = displayed === 'neutral' ? '1' : '0'
+    bands!.innerHTML = displayed === 'neutral' ? '' : samples.slice(1).map((point, i) => {
       const previous = samples[i]!
       const km = (previous.distanceKm + point.distanceKm) / 2
       const reading = wind?.at(km) ?? null
-      const color = mode === 'grade' ? GRADE_COLORS[classifyClimbGrade((previous.smoothedGradePercent + point.smoothedGradePercent) / 2)] : headwindColor(reading)
+      const color = displayed === 'grade' ? GRADE_COLORS[classifyClimbGrade((previous.smoothedGradePercent + point.smoothedGradePercent) / 2)] : headwindColor(reading)
       return `<path d="M${bounds.x(previous.distanceKm).toFixed(1)},${bounds.y(previous.altitudeM).toFixed(1)} L${bounds.x(point.distanceKm).toFixed(1)},${bounds.y(point.altitudeM).toFixed(1)} L${bounds.x(point.distanceKm).toFixed(1)},214 L${bounds.x(previous.distanceKm).toFixed(1)},214 Z" fill="${color}"/>`
     }).join('')
-    legend!.textContent = mode === 'neutral' ? '' : mode === 'grade'
+    legend!.textContent = displayed === 'neutral' ? '' : displayed === 'grade'
       ? 'Pente : vert → rouge · descentes en violet.'
       : 'Bleu plus foncé = vent de face plus fort · gris = inconnu ou variable.'
-    for (const button of container.querySelectorAll<HTMLElement>('[data-profile-mode]')) button.setAttribute('aria-pressed', String(button.dataset.profileMode === mode))
+    for (const button of container.querySelectorAll<HTMLElement>('[data-profile-mode]')) button.setAttribute('aria-pressed', String(button.dataset.profileMode === displayed))
   }
   function update(model: RouteWindModel | null, nextTravelMode: TravelMode = 'cycling'): void {
     wind = model
@@ -106,12 +120,17 @@ export function installProfileWindControls(container: HTMLElement, samples: read
     if (mode === 'wind') paint()
   }
   container.addEventListener('click', event => {
+    if (editing) return
     if (!(event.target instanceof Element)) return
     const value = event.target.closest<HTMLElement>('[data-profile-mode]')?.dataset.profileMode
     if (value !== 'neutral' && value !== 'grade' && value !== 'wind') return
     if (!windEnabled && value === 'wind') return
     mode = value
     try { localStorage.setItem(MODE_KEY, mode) } catch { /* Session use still works. */ }
+    paint()
+  }, { signal: controller.signal })
+  container.addEventListener('course-editor-changed', () => {
+    editing = container.dataset?.courseEditing === 'true'
     paint()
   }, { signal: controller.signal })
   handles.set(container, { update, select(km) { selected = km; renderReadout() }, destroy() { controller.abort() } })

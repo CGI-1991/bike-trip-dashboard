@@ -1059,6 +1059,7 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
     <div><dt>D+</dt><dd>${metrics.elevationGainM === null ? '—' : `+${Math.round(metrics.elevationGainM)} m`}</dd></div>
     <div><dt>D−</dt><dd>${metrics.elevationLossM === null ? '—' : `−${Math.round(metrics.elevationLossM)} m`}</dd></div>
     <div><dt>Montées</dt><dd>${waypointsInput.raceCourse?.status === 'stale' ? '—' : primaryClimbCount}</dd></div>
+    <div><dt>Vent moyen ${renderFeatureUpdateBadge('stage-wind-stat')}</dt><dd data-stage-wind-stat><span aria-label="Vent moyen indisponible">—</span></dd></div>
     ${pauseResolution.pausesDisabled === true ? '' : `<div><dt>Pauses</dt><dd>${totalPauseMinutes === null ? '—' : `${totalPauseMinutes} min`}</dd></div>`}
   </dl>` : ''}</div>`
 
@@ -1099,7 +1100,7 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
       ${renderPreparationBanner(preparationStatus)}
     </section>
     <section class="card day-detail__map-profile-card" data-day-detail-map-profile-card>
-      <div class="feature-update-line"><span>Carte et services du trajet</span>${renderFeatureUpdateBadge('poi-search')}</div>
+      <div class="feature-update-line"><span>Carte et services du trajet</span><span>${selectRaceMode(bundle) ? renderFeatureUpdateBadge('race-segments') : ''}${renderFeatureUpdateBadge('poi-search')}</span></div>
       <div class="route-map route-map--action" data-day-detail-map data-explore-map role="button" tabindex="0" aria-label="Ouvrir la carte de l’étape en plein écran"></div>
       <div data-day-profile-home><div data-day-detail-profile></div></div>
       <!--

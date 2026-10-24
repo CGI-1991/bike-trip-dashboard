@@ -54,11 +54,20 @@ export interface RouteWindSummary {
   readonly maximumCrosswindGustsKph: number | null
 }
 
+export interface GeographicWindReading {
+  readonly kind: RelativeWindReading['kind']
+  /** Meteorological FROM direction, clockwise from geographic north. */
+  readonly fromDeg: number | null
+  readonly speedKph: number
+  readonly coverage: number
+}
+
 export interface RouteWindModel {
   /** Active length. at() still receives the original GPX chainage. */
   readonly lengthKm: number
   readonly resolutionMeters: number
   readonly summary: RouteWindSummary
+  readonly meteorologicalMean: GeographicWindReading | null
   at(distanceKm: number, windowMeters?: number): RelativeWindReading | null
   between(startKm: number, endKm: number): RelativeWindReading | null
 }
@@ -139,6 +148,14 @@ interface Cell {
   readonly gap: number
 }
 
+interface ForecastCell {
+  readonly north: number
+  readonly east: number
+  readonly speed: number
+  readonly gusts: number | null
+  readonly gap: number
+}
+
 function makeReading(headwindKph: number, crosswindKph: number, speedKph: number, gustsKph: number | null, crosswindGustsKph: number | null, coverage: number, maximumWeatherGapKm: number): RelativeWindReading {
   const kind = speedKph < 1 ? 'calm' : Math.hypot(headwindKph, crosswindKph) < speedKph * 0.25 ? 'variable' : 'directional'
   return { kind, relativeFromDeg: kind === 'directional' ? normalizeDegrees(Math.atan2(crosswindKph, headwindKph) / RADIANS) : null,
@@ -188,7 +205,8 @@ export function buildRouteWindModel(geometry: readonly RouteGeometryPoint[], way
   const cells: (Cell | null)[] = []
   const covered = [0], head = [0], cross = [0], speeds = [0]
   let headDistance = 0, tailDistance = 0, crossDistance = 0, calmDistance = 0
-  function cellAt(km: number): Cell | null {
+  let geographicCovered = 0, geographicNorth = 0, geographicEast = 0, geographicSpeed = 0
+  function forecastAt(km: number): ForecastCell | null {
     let next = upperBound(positions, km)
     // The last anchor belongs to its final interval, including its endpoint.
     if (next === anchors.length && anchors.at(-1)?.km === km) next--
@@ -202,15 +220,23 @@ export function buildRouteWindModel(geometry: readonly RouteGeometryPoint[], way
     const referenceSpeed = mix(before.speed, after.speed)
     const speed = Math.hypot(north, east)
     if (referenceSpeed >= 1 && speed < referenceSpeed * 0.25) return null
-    const bearing = smoothedTravelBearing(route!, km)
-    if (bearing === null) return null
-    const relative = relativeWindComponents(Math.hypot(north, east), normalizeDegrees(Math.atan2(east, north) / RADIANS), bearing)
     const gusts = before.gusts === null || after.gusts === null ? null : mix(before.gusts, after.gusts)
-    return { head: relative.headwindKph, cross: relative.crosswindKph, speed,
-      gusts, gustCross: gusts === null || speed < 1 ? null : Math.abs(Math.sin(relative.relativeFromDeg * RADIANS)) * gusts, gap: after.km - before.km }
+    return { north, east, speed, gusts, gap: after.km - before.km }
   }
   for (let i = 0; i < count; i++) {
-    const cell = cellAt(fromKm + (i + 0.5) * step)
+    const km = fromKm + (i + 0.5) * step
+    const forecast = forecastAt(km)
+    let cell: Cell | null = null
+    if (forecast !== null) {
+      geographicCovered += step
+      geographicNorth += forecast.north * step; geographicEast += forecast.east * step; geographicSpeed += forecast.speed * step
+      const bearing = smoothedTravelBearing(route, km)
+      if (bearing !== null) {
+        const relative = relativeWindComponents(forecast.speed, normalizeDegrees(Math.atan2(forecast.east, forecast.north) / RADIANS), bearing)
+        cell = { head: relative.headwindKph, cross: relative.crosswindKph, speed: forecast.speed, gusts: forecast.gusts,
+          gustCross: forecast.gusts === null || forecast.speed < 1 ? null : Math.abs(Math.sin(relative.relativeFromDeg * RADIANS)) * forecast.gusts, gap: forecast.gap }
+      }
+    }
     cells.push(cell)
     covered.push(covered[i]! + (cell === null ? 0 : step))
     head.push(head[i]! + (cell?.head ?? 0) * step)
@@ -244,7 +270,10 @@ export function buildRouteWindModel(geometry: readonly RouteGeometryPoint[], way
     return makeReading(avg(head), avg(cross), avg(speeds), gusts, gustCross, length / (end - start), gap)
   }
   const mean = average(fromKm, toKm)
+  const geographic = geographicCovered > 0 ? makeReading(geographicNorth / geographicCovered, geographicEast / geographicCovered,
+    geographicSpeed / geographicCovered, null, null, geographicCovered / total, 0) : null
   return { lengthKm: total, resolutionMeters: step * 1000,
+    meteorologicalMean: geographic === null ? null : { kind: geographic.kind, fromDeg: geographic.relativeFromDeg, speedKph: geographic.speedKph, coverage: geographic.coverage },
     between(startKm, endKm) {
       if (!Number.isFinite(startKm) || !Number.isFinite(endKm) || endKm <= startKm) return null
       const start = Math.max(fromKm, startKm), end = Math.min(toKm, endKm)

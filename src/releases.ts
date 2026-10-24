@@ -13,6 +13,11 @@ export interface AppRelease {
 }
 
 export const APP_RELEASES: readonly AppRelease[] = [
+  { version: '2026.10.24.5', date: '2026-10-24', changes: [
+    { feature: 'stage-wind-stat', title: 'Le vent moyen dans les statistiques', description: 'Le détail de l’étape affiche la vitesse moyenne du vent et sa provenance N, NE, E, SE, S, SO, O ou NO dans les statistiques. Le vent au point exploré et aux passages reste relatif au déplacement. Une prévision partielle ou une direction variable est signalée.' },
+    { feature: 'course-editor', title: 'Un profil neutre pour préparer les segments', description: 'Le panneau Course utilise directement le profil neutre. En consultation, les modes Pente et Vent restent accessibles ; le pochage des segments apparaît uniquement en Neutre.' },
+    { feature: 'race-segments', title: 'Les segments colorent la carte', description: 'Les portions Sprint, Grimpeur et Flandrien se dessinent dans leur couleur sur la carte et en plein écran. Les segments à replacer ou hors course restent signalés dans le parcours et l’éditeur.' },
+  ] },
   { version: '2026.10.24.4', date: '2026-10-24', changes: [
     { feature: 'fit-course', title: 'Un FIT de course à essayer sur Garmin', description: 'En League ou Tour, FIT Garmin · essai exporte la portion de course avec son départ, son arrivée et les points d’alerte de vos segments. Une alerte préalable trop proche du départ est omise et signalée. Le fichier est vérifié avec un lecteur indépendant ; son import et les alertes sur votre Garmin restent à confirmer sur appareil. Les GPX et les activités enregistrées sont conservés.' },
   ] },

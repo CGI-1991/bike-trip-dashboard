@@ -17,8 +17,8 @@ test('Course borrows the exact reading profile and returns it home, preserving i
   assert.equal(profile.parentElement,target);assert.ok(hosts.every(host=>!host.hidden));assert.equal(profile.dataset.courseEditing,'true')
   panel.hidden=true;syncCourseEditorProfile(container)
   assert.equal(profile.parentElement,home);assert.equal(profile.draft,draft);assert.deepEqual(profile.draft,{start:1.2,end:2.8})
-  assert.deepEqual(events,['course-editor-hidden'])
-  syncCourseEditorProfile(container);assert.equal(events.length,1)
+  assert.deepEqual(events,['course-editor-changed','course-editor-changed','course-editor-hidden'])
+  syncCourseEditorProfile(container);assert.equal(events.length,3)
 })
 test('classic Voyage and incomplete day shells remain valid without a Course editor',()=>{
   assert.doesNotThrow(()=>syncCourseEditorProfile({querySelector:()=>null}))

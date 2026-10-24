@@ -10,5 +10,6 @@ export function syncCourseEditorProfile(container: HTMLElement): void {
   const previouslyEditing = profile.dataset.courseEditing === 'true'
   profile.dataset.courseEditing = String(editing)
   for (const host of profile.querySelectorAll<HTMLElement>('[data-race-course-host], [data-race-segments-host]')) host.hidden = !editing
+  if (previouslyEditing !== editing) profile.dispatchEvent(new CustomEvent('course-editor-changed'))
   if (previouslyEditing && !editing) profile.dispatchEvent(new CustomEvent('course-editor-hidden'))
 }

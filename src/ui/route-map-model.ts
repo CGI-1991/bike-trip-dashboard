@@ -6,6 +6,10 @@ import type { RoadbookMatchReport, RoadbookPointMatch } from '../trip/roadbook-m
 import type { RideDayTimeline } from '../trip/types.ts'
 import { getGenericRouteMarkerCategory, getRouteMarkerCategory } from './route-marker-style.ts'
 import type { RouteMarkerCategory } from './route-marker-style.ts'
+import type { RaceSegment } from '../trip-core/index.ts'
+import type { RaceCourse } from '../analysis/race-bounds.ts'
+import { analyzeRaceSegment, raceSegmentLanes, raceSegmentStatus } from '../analysis/race-segments.ts'
+import { RACE_SEGMENT_STYLE } from './trips/race-segment-style.ts'
 
 /**
  * Leaflet-free data shaping for the route map, kept in its own module so it
@@ -34,7 +38,7 @@ export interface RouteMapMarkerModel {
 }
 
 export interface RouteMapModel {
-  readonly segmentLines?: readonly { readonly coordinates: readonly LatLngTuple[]; readonly color: string; readonly name: string; readonly dashed: boolean }[]
+  readonly segmentLines?: readonly { readonly coordinates: readonly LatLngTuple[]; readonly color: string; readonly name: string; readonly dashed: boolean; readonly weight?: number }[]
   readonly coordinates: readonly LatLngTuple[]
   readonly markers: readonly RouteMapMarkerModel[]
   /**
@@ -47,6 +51,22 @@ export interface RouteMapModel {
    * callers (RGA, the Étape screen), so neither needs to change.
    */
   readonly extraLines?: readonly (readonly LatLngTuple[])[]
+}
+
+/** Read-only lines, projected by original GPX chainage. Stale/outside
+ * annotations stay in the editor without drawing a misleading map position. */
+export function buildRaceSegmentMapLines(course: RaceCourse, segments: readonly RaceSegment[]): NonNullable<RouteMapModel['segmentLines']> {
+  const lanes = raceSegmentLanes(segments.filter(segment => raceSegmentStatus(course, segment) === 'ready'))
+  const maximumLane = lanes.reduce((maximum, value) => Math.max(maximum, value.lane), 0)
+  // Wider lines go underneath narrower ones so overlapping segments keep
+  // visible colored edges, without offsetting them off the actual route.
+  return [...lanes].sort((a, b) => a.lane - b.lane).flatMap(({ segment, lane }) => {
+    const geometry = analyzeRaceSegment(course, segment).geometry
+    if (geometry === null || geometry.length < 2) return []
+    const style = RACE_SEGMENT_STYLE[segment.type]
+    return [{ coordinates: geometry.map(point => [point.latitude, point.longitude] as LatLngTuple),
+      color: style.color, name: `${style.label} · ${segment.name}`, dashed: false, weight: 6 + Math.min(12, (maximumLane - lane) * 2) }]
+  })
 }
 
 export function routeMapHasContent(model: RouteMapModel | null): model is RouteMapModel {

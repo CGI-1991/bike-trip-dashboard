@@ -251,7 +251,7 @@ export function createRouteMap(container: HTMLElement, model: RouteMapModel, opt
   }
   for (const segment of model.segmentLines ?? []) {
     if (segment.coordinates.length < 2) continue
-    L.polyline(segment.coordinates.map(toLatLng), { color: segment.color, weight: 6, opacity: .85, ...(segment.dashed ? { dashArray: '5 5' } : {}) })
+    L.polyline(segment.coordinates.map(toLatLng), { color: segment.color, weight: segment.weight ?? 6, opacity: .9, className: 'route-map-segment-line', ...(segment.dashed ? { dashArray: '5 5' } : {}) })
       .bindTooltip(escapeHtml(segment.name)).addTo(map)
   }
   // Offsets are resolved across the whole set drawn together, so a climb

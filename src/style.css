@@ -3149,6 +3149,8 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .profile-modes button[aria-pressed='true'] { background: var(--forest-800); color: white; }
 .profile-color-legend, .profile-wind__summary, .profile-wind__orientation { color: var(--ink-soft); font-size: .73rem; line-height: 1.5; }
 .profile-wind { min-height: 66px; padding: 6px 0; }
+.profile-wind:empty { display: none; }
+[data-profile-color-mode='grade'] [data-race-segment-profile], [data-profile-color-mode='wind'] [data-race-segment-profile] { display: none; }
 .profile-wind__title { color: var(--ink-soft); font-size: .75rem; }
 .relative-wind { display: inline-flex; align-items: center; gap: 8px; font-size: .82rem; line-height: 1.4; }
 .relative-wind > span { display: grid; gap: 2px; }
