@@ -3883,3 +3883,9 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .trip-editor__save-top { padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
 .trip-editor__save-top p { margin: 0 0 8px; font-size: .8rem; overflow-wrap: anywhere; }
 .reference-speed-control input, .reference-speed-control select { min-height: 44px; font-size: 16px; }
+
+.profile-wind { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; }
+.profile-wind > div { min-width: 0; }
+.race-segments__chooser { display: grid; gap: 5px; margin-bottom: 10px; font-size: .8rem; }
+.race-segments__chooser select { width: 100%; min-width: 0; min-height: 44px; font-size: 16px; }
+[data-course-profile-target] { min-width: 0; }

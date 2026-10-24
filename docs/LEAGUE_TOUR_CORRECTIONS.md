@@ -1,5 +1,7 @@
 # Ajustements League / Tour — 2026.10.24.1
 
+> La [précision sur le vent et le panneau Course](COURSE_WIND_AND_EDITING.md) rétablit le vent dans chaque détail, retire la moyenne sur un voyage entier et sépare lecture des segments et édition.
+
 Ce lot applique le [document de corrections fourni](specs/league-tour-corrections-source.md), avant les exports GPX enrichis et Garmin. Il remplace les choix d’interface décrits dans les lots précédents lorsqu’ils diffèrent de ce cadrage.
 
 ## Organisation et statistiques

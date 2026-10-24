@@ -37,7 +37,7 @@ function add(bundle,id='manual',start=2400,end=5700) {
   return applyRaceSegmentChange(bundle,bundle.stages[0].id,{kind:'add',id,fields:{type:'climb',name:'GRIMPEUR 2',startOffsetM:start,endOffsetM:end,alerts:DEFAULT_RACE_SEGMENT_ALERTS}},buildRaceCourse(bundle,bundle.stages[0]).fingerprint,NOW)
 }
 
-test('League has a calendar tab, no overview calendar or relative wind, and no course statistics without explicit valid bounds',async()=>{
+test('League has a calendar tab, no overview calendar or global wind, with relative wind on each course, and no course statistics without explicit valid bounds',async()=>{
   const {database,bundle}=await setup()
   try {
     const detail=buildDayDetail(bundle,bundle.days[0].id),overview=buildTripOverview(bundle,NOW).html
@@ -47,7 +47,7 @@ test('League has a calendar tab, no overview calendar or relative wind, and no c
     assert.doesNotMatch(renderTripDetail(bundle,NOW),/data-trip-wind-summary|trip-day-card__metrics/)
     assert.match(renderTripDetail(bundle,NOW),/data-league-calendar/)
     assert.equal(buildGenericAppHeader(bundle,{view:'overview'}).tripTabLabel,'Calendrier')
-    assert.equal(selectOrganizationCapabilities(bundle).relativeWind,false)
+    assert.equal(selectOrganizationCapabilities(bundle).relativeWind,true)
     assert.equal(summarizeTripBundle(bundle).courseStatsUnavailable,true)
     // A missing/obsolete finish must never cause a fallback to the GPX end.
     const fingerprint=buildRaceCourse(bundle,bundle.stages[0]).fingerprint
@@ -72,7 +72,7 @@ test('Tour and classic Voyage retain their relative wind and full source statist
     try {
       assert.equal(selectOrganizationCapabilities(bundle).relativeWind,true)
       assert.equal(selectOrganizationCapabilities(bundle).tripTabLabel,mode==='tour'?'Étapes':'Voyage')
-      assert.match(buildTripOverview(bundle,NOW).html,/data-trip-wind-summary/)
+      assert.doesNotMatch(buildTripOverview(bundle,NOW).html,/data-trip-wind-summary/)
       assert.equal(selectStageCourseMetrics(bundle,bundle.stages[0]),bundle.stages[0])
       assert.match(buildDayDetail(bundle,bundle.days[0].id).statsHtml,/<dt>Distance/)
     }finally {database.close()}
@@ -94,7 +94,7 @@ test('clear overlap replaces just the corresponding automatic climb in a single 
     assert.equal(points[0].kind,'start');assert.equal(points.at(-1).kind,'end')
     assert.ok(points.every((point,i)=>i===0||point.trackDistanceKm>=points[i-1].trackDistanceKm))
     const detail=buildDayDetail(next,next.days[0].id)
-    assert.equal((detail.timelineHtml.match(/data-segment-edit=/g)||[]).length,1)
+    assert.equal((detail.timelineHtml.match(/data-segment-view=/g)||[]).length,1)
     assert.match(detail.timelineHtml,/GRIMPEUR 2/);assert.match(detail.timelineHtml,/Montée gardée/)
     assert.doesNotMatch(detail.timelineHtml,/Montée couverte|race-segments__list/)
     assert.equal(buildGenericRouteMapModel(points,[]).markers.some(marker=>marker.name==='GRIMPEUR 2'),false)
@@ -155,4 +155,23 @@ test('five speed presets are strictly increasing for both sports; manual km/h an
       assert.equal(validateTripBundle(invalid).ok,false)
     }finally {database.close()}
   }
+})
+
+test('competition controls live in Course next to Météo, while segment cards expand a read-only mini-profile',async()=>{
+  const {database,bundle}=await setup('tour')
+  try {
+    const next=add(bounded(bundle)),detail=buildDayDetail(next,next.days[0].id)
+    assert.match(detail.html,/aria-controls="day-bottom-panel-course">Course/)
+    assert.match(detail.html,/aria-controls="day-bottom-panel-weather">Météo/)
+    assert.doesNotMatch(detail.html,/aria-controls="day-bottom-panel-pauses"/)
+    assert.match(detail.html,/data-day-profile-home/);assert.match(detail.html,/data-course-profile-target/)
+    assert.match(detail.timelineHtml,/data-segment-view="manual"/)
+    assert.match(detail.timelineHtml,/id="segment-profile-manual" data-climb-profile hidden/)
+    assert.match(detail.timelineHtml,/data-climb-profile-interactive/)
+    assert.match(detail.timelineHtml,/aria-label="Profil interactif du segment"/)
+    assert.match(detail.timelineHtml,/data-wind-start-km="2.4" data-wind-end-km="5.7"/)
+    assert.doesNotMatch(detail.timelineHtml,/data-segment-edit|data-segment-field/)
+    const noAltitude={...next,routes:next.routes.map(route=>({...route,geometry:{...route.geometry,full:route.geometry.full.map(point=>({...point,altitudeM:null}))}}))}
+    assert.match(buildDayDetail(noAltitude,noAltitude.days[0].id).timelineHtml,/Profil altimétrique indisponible pour ce segment/)
+  }finally{database.close()}
 })

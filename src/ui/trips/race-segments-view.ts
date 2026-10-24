@@ -33,8 +33,9 @@ export function renderRaceSegmentProfile(course: RaceCourse, segments: readonly 
   }).join('')}</g>`
 }
 
-export function renderRaceSegmentsPanel(course: RaceCourse, _stage: RideStage): string {
+export function renderRaceSegmentsPanel(course: RaceCourse, stage: RideStage): string {
   return `<section class="race-segments" data-race-segments-host aria-label="Édition des points de passage">
+  ${(stage.raceSegments?.length ?? 0) > 0 ? `<label class="race-segments__chooser">Modifier un segment<select data-segment-choose aria-label="Segment à modifier"><option value="">Choisir…</option>${stage.raceSegments!.map(segment => `<option value="${escape(segment.id)}">${escape(segment.name)}${statusLabel[raceSegmentStatus(course, segment)] ? ` · ${statusLabel[raceSegmentStatus(course, segment)]}` : ''}</option>`).join('')}</select></label>` : ''}
   <button type="button" class="button button--quiet" data-segment-add${course.status === 'stale' ? ' disabled' : ''}>+ Ajouter un segment</button>${renderFeatureUpdateBadge('race-segments')}
   ${course.status === 'stale' ? '<p class="race-course__hint">Redéfinissez d’abord le départ et l’arrivée de course.</p>' : ''}
   <div data-race-segment-editor hidden><h4 data-segment-editor-title>Nouveau segment</h4>
@@ -52,7 +53,6 @@ export function renderRaceSegmentsPanel(course: RaceCourse, _stage: RideStage): 
 export interface RaceSegmentsEditorOptions {
   readonly idFactory: () => string
   readonly save: (change: RaceSegmentChange, expectedFingerprint: string) => Promise<void>
-  readonly timeline?: HTMLElement | null
 }
 
 export function mountRaceSegmentsEditor(profile: HTMLElement, bundle: TripBundle, stage: RideStage, options: RaceSegmentsEditorOptions): () => void {
@@ -88,6 +88,8 @@ export function mountRaceSegmentsEditor(profile: HTMLElement, bundle: TripBundle
   }
   const close = () => {
     clearTimeout(timer)
+    const chooser = host.querySelector<HTMLSelectElement>('[data-segment-choose]')
+    if (chooser !== null) chooser.value = ''
     editor.hidden = true; setPicked(null); paint()
   }
   const update = () => {
@@ -108,7 +110,10 @@ export function mountRaceSegmentsEditor(profile: HTMLElement, bundle: TripBundle
     live.textContent = `${picked === 'start' ? 'Début' : 'Fin'} au km ${km(offsetM)}. ${picked === 'start' ? 'Placez ensuite la fin.' : 'Enregistrez pour confirmer.'}`
   }
   const open = (segment: RaceSegment | null) => {
-    close(); current = segment; id = segment?.id ?? options.idFactory(); automaticName = segment === null
+    close();
+    const chooser = host.querySelector<HTMLSelectElement>('[data-segment-choose]')
+    if (chooser !== null) chooser.value = segment?.id ?? ''
+    current = segment; id = segment?.id ?? options.idFactory(); automaticName = segment === null
     if (boundsEditor !== null) boundsEditor.open = false
     const stale = segment !== null && raceSegmentStatus(course, segment) === 'stale'
     start = stale || segment === null ? NaN : segment.startOffsetM; end = stale || segment === null ? NaN : segment.endOffsetM
@@ -136,7 +141,8 @@ export function mountRaceSegmentsEditor(profile: HTMLElement, bundle: TripBundle
       live.textContent = error instanceof Error ? error.message : 'Impossible d’enregistrer. Réessayez.'
     }
   }
-  profile.addEventListener('profile-distance-active', event => { if (!editor.hidden) chooseOffset((event as CustomEvent<{ distanceKm: number }>).detail.distanceKm * 1000) }, { signal })
+  profile.addEventListener('course-editor-hidden', () => setPicked(null), { signal })
+  profile.addEventListener('profile-distance-active', event => { if (!editor.hidden && profile.dataset.courseEditing !== 'false') chooseOffset((event as CustomEvent<{ distanceKm: number }>).detail.distanceKm * 1000) }, { signal })
   // The gesture previews continuously, then lifting/clicking fixes that limit.
   // Moving the mouse out of the plot must not move the chosen point again.
   profile.addEventListener('pointerup', event => {
@@ -172,8 +178,12 @@ export function mountRaceSegmentsEditor(profile: HTMLElement, bundle: TripBundle
     if (target.closest('[data-segment-delete-yes]') && current !== null) { void commit(true); return }
   }
   profile.addEventListener('click', onClick, { signal })
-  options.timeline?.addEventListener('click', onClick, { signal })
   host.addEventListener('change', event => {
+    if (event.target instanceof HTMLSelectElement && event.target.hasAttribute('data-segment-choose')) {
+      const selected = segments.find(segment => segment.id === (event.target as HTMLSelectElement).value)
+      if (selected !== undefined) open(selected); else close()
+      return
+    }
     if (event.target instanceof HTMLInputElement && ['start', 'end'].includes(event.target.dataset.segmentField ?? '')) setInputs()
   }, { signal })
 

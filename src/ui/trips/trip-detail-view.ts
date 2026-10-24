@@ -282,7 +282,6 @@ export function renderTripDetail(bundle: TripBundle, options: TripDetailRenderOp
     <div class="trip-detail" data-trip-detail>
       <header class="view-heading"><p class="eyebrow">${selectOrganizationCapabilities(bundle).tripTabLabel}</p><h2>${escapeHtml(bundle.metadata.name)}</h2></header>
       ${prepSummary}
-      ${selectOrganizationCapabilities(bundle).relativeWind ? `<details class="card trip-wind-summary"><summary>${selectOrganizationMode(bundle) === 'voyage' ? 'Vent relatif sur l’ensemble du voyage' : 'Vent relatif sur l’ensemble des courses'}</summary><div data-trip-wind-summary></div></details>` : ''}
       ${selectOrganizationMode(bundle) === 'league' ? renderLeagueCalendar(bundle, day => renderDayCard(bundle, day, getTripDayTemporalState(temporal, day.id) as TripDayTemporalState, temporal.priorityDayId, prepStatuses?.get(day.id))) : `<ol class="trip-day-list">${bundle.days.map((day) => renderDayCard(bundle, day, getTripDayTemporalState(temporal, day.id) as TripDayTemporalState, temporal.priorityDayId, prepStatuses?.get(day.id))).join('')}</ol>`}
       ${hasRideStages ? '<button class="button button--quiet button--full" type="button" data-action="download-trip-gpx">Télécharger les GPX</button>' : ''}
       ${automaticStatus}

@@ -79,7 +79,7 @@ export function installProfileWindControls(container: HTMLElement, samples: read
     if (!windEnabled || readout === null) return
     const reading = selected === null ? wind?.summary.mean ?? null : wind?.at(selected) ?? null
     const title = selected === null ? 'Vent moyen du parcours' : `Vent vers le km ${selected.toFixed(1).replace('.', ',')}`
-    readout.innerHTML = `<p class="profile-wind__title">${title}</p>${renderRelativeWind(reading, false, travelMode)}`
+    readout.innerHTML = `<div class="profile-wind__average" data-stage-wind-average><p class="profile-wind__title">Vent moyen du parcours</p>${renderRelativeWind(wind?.summary.mean ?? null, false, travelMode)}</div>${selected === null ? '' : `<div data-profile-selected-wind><p class="profile-wind__title">${title}</p>${renderRelativeWind(reading, false, travelMode)}</div>`}`
     if (selectedDetails !== null) selectedDetails.textContent = reading === null ? ''
       : `${reading.headwindKph >= 0 ? 'Face' : 'Dos'} ${Math.round(Math.abs(reading.headwindKph))} · latéral ${Math.round(Math.abs(reading.crosswindKph))} km/h${reading.gustsKph === null ? '' : ` · rafales jusqu’à ${Math.round(reading.gustsKph)} km/h`}.`
   }

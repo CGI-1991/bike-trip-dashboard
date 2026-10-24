@@ -1,3 +1,5 @@
+import { renderClimbProfileBar } from './mini-profile-view.ts'
+import { segmentMiniProfile } from './segment-mini-profile.ts'
 import { renderRaceSegmentTimelineRow } from './race-segment-timeline.ts'
 import { raceSegmentStatus } from '../../analysis/race-segments.ts'
 import type { RaceCourse } from '../../analysis/race-bounds.ts'
@@ -35,7 +37,6 @@ import type { StageTimingCurve } from '../../analysis/waypoint-timeline.ts'
 import { isSignificantWaypoint } from '../../analysis/canonical-waypoints.ts'
 import type { CanonicalWaypoint, CanonicalWaypointKind } from '../../analysis/canonical-waypoints.ts'
 import { buildClimbProfile } from '../../analysis/climb-profile.ts'
-import type { ClimbGradeClass, ClimbProfileSegment } from '../../analysis/climb-profile.ts'
 import { routeGeometry } from '../../route-enrichment/route-fingerprint.ts'
 import { resolvePersistedAutomaticPausePlan } from '../../route-enrichment/automatic-pause-plan.ts'
 import { resolveOffCoordinates, resolveOffLocation, resolveSharedInfoDayId, resolveTransferCoordinates, resolveTransferLocations } from '../../analysis/day-location-fill.ts'
@@ -226,15 +227,7 @@ function renderTimelineRow(waypoint: CanonicalWaypoint): string {
  * fixed bands. A brief downhill dip inside a climb's own bounds gets a
  * neutral cool tone, never part of the "positive gradient" scale.
  */
-const GRADE_CLASS_COLORS: Readonly<Record<ClimbGradeClass, string>> = {
-  'descent-7-plus': '#4f7f8f',
-  'descent-0-7': '#7fa9a6',
-  'climb-0-1': '#7fb35a',
-  'climb-1-4': '#c9c24a',
-  'climb-4-8': '#e2963a',
-  'climb-8-12': '#cf4a3a',
-  'climb-12-plus': '#7a2a52',
-}
+
 
 /** < 3 km climbs use 250 m bins to stay readable (CDC Jalon B4.2 section 18); longer climbs use the analysis module's own 500 m default. */
 function climbSegmentLengthMeters(climb: Climb): number {
@@ -258,68 +251,6 @@ function climbSegmentLengthMeters(climb: Climb): number {
  * enough — CDC section 30: "ne pas dépendre de title="" comme interaction
  * principale").
  */
-function renderClimbProfileShape(segments: readonly ClimbProfileSegment[]): string {
-  const altitudes = segments.flatMap((segment) => [segment.startAltitudeM, segment.endAltitudeM]).filter((value): value is number => value !== null)
-  if (altitudes.length === 0) return ''
-  const minAltitude = Math.min(...altitudes)
-  const maxAltitude = Math.max(...altitudes)
-  const span = Math.max(maxAltitude - minAltitude, 1)
-  const totalKm = Math.max((segments[segments.length - 1]?.endDistanceKm ?? 0) - (segments[0]?.startDistanceKm ?? 0), 0.001)
-  const startKm = segments[0]?.startDistanceKm ?? 0
-  const width = 300
-  const height = 130
-  const x = (km: number): number => ((km - startKm) / totalKm) * width
-  const y = (altitude: number): number => height - ((altitude - minAltitude) / span) * (height - 10) - 5
-
-  const bands = segments.map((segment) => {
-    if (segment.startAltitudeM === null || segment.endAltitudeM === null) return ''
-    const x1 = x(segment.startDistanceKm)
-    const x2 = x(segment.endDistanceKm)
-    const y1 = y(segment.startAltitudeM)
-    const y2 = y(segment.endAltitudeM)
-    const color = segment.gradeClass === null ? '#c7d2cc' : GRADE_CLASS_COLORS[segment.gradeClass]
-    return `<polygon points="${x1.toFixed(1)},${height} ${x1.toFixed(1)},${y1.toFixed(1)} ${x2.toFixed(1)},${y2.toFixed(1)} ${x2.toFixed(1)},${height}" fill="${color}"></polygon>`
-  }).join('')
-  const outline = segments
-    .filter((segment) => segment.startAltitudeM !== null)
-    .map((segment, index) => `${index === 0 ? 'M' : 'L'}${x(segment.startDistanceKm).toFixed(1)},${y(segment.startAltitudeM as number).toFixed(1)}`)
-    .join(' ')
-  const last = segments[segments.length - 1]
-  const outlineEnd = last?.endAltitudeM === null || last?.endAltitudeM === undefined ? '' : ` L${x(last.endDistanceKm).toFixed(1)},${y(last.endAltitudeM).toFixed(1)}`
-
-  // Embedded once, read by `mountClimbProfileInteractions` — never a second
-  // recomputation of the climb profile in the DOM-wiring layer.
-  const interactionData = JSON.stringify(segments.map((segment) => [segment.startDistanceKm, segment.endDistanceKm, segment.startAltitudeM, segment.endAltitudeM, segment.averageGradientPercent]))
-
-  return `<svg class="day-detail__climb-profile-shape" data-climb-profile-interactive tabindex="0" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="Profil interactif de la montée" data-segments="${escapeHtml(interactionData)}" data-start-km="${startKm}">${bands}<path d="${outline}${outlineEnd}" fill="none" stroke="var(--forest-950, #102d28)" stroke-width="1.5"></path><g class="profile-cursor" data-profile-cursor hidden><line data-profile-cursor-line y1="0" y2="${height}"></line><circle data-profile-cursor-dot r="4"></circle></g></svg>`
-}
-
-/**
- * CDC Jalon C1 closeout: the colour-coded altimetric silhouette
- * (`renderClimbProfileShape`) already carries the same per-segment gradient
- * colouring — the horizontal colour-coded strip that used to render right
- * below it (`day-detail__climb-profile-bar`, one `<span>` per segment) was a
- * plain duplicate of the exact same information, just flattened. Removed
- * outright; the segmentation itself (`ClimbProfileSegment[]`, grade classes)
- * still drives the shape's colours and the interactive tooltip — only this
- * second, redundant visual is gone.
- */
-function renderClimbProfileBar(segments: readonly ClimbProfileSegment[]): string {
-  if (segments.length === 0) return '<p class="day-detail__climb-profile-empty">Profil indisponible pour cette montée.</p>'
-  const first = segments[0]
-  const last = segments[segments.length - 1]
-  // `.elevation-profile__stage`/`.profile-tooltip` (CDC Jalon B4.4 section
-  // 30) — the exact same positioning classes the main elevation profile
-  // uses for its own interactive tooltip, reused here rather than a second,
-  // parallel set of tooltip CSS.
-  return `<div class="elevation-profile__stage">${renderClimbProfileShape(segments)}<div class="profile-tooltip" data-profile-tooltip hidden></div></div>
-    <p class="visually-hidden" data-profile-live aria-live="polite"></p>
-    <div class="day-detail__climb-profile-scale">
-      <span>${formatKilometers(first?.startDistanceKm ?? 0)} · ${first?.startAltitudeM === null || first?.startAltitudeM === undefined ? '—' : `${Math.round(first.startAltitudeM)} m`}</span>
-      <span>${formatKilometers(last?.endDistanceKm ?? 0)} · ${last?.endAltitudeM === null || last?.endAltitudeM === undefined ? '—' : `${Math.round(last.endAltitudeM)} m`}</span>
-    </div>
-    <p class="day-detail__climb-profile-caption">Touchez le profil pour explorer.</p>`
-}
 
 /**
  * Climb mini-card (CDC Jalon B4.2/B4.3 section 17/34, B4.4 section 28-29,
@@ -357,7 +288,7 @@ function renderClimbCard(waypoint: CanonicalWaypoint, climb: Climb, routeGeometr
       <span class="day-detail__timeline-body">
         <strong><span class="day-detail__timeline-marker" aria-hidden="true">${KIND_MARKERS[waypoint.kind]}</span>${escapeHtml(waypoint.name)}</strong>
         <span class="day-detail__timeline-meta">${partial ? 'Montée partielle dans la course · stats GPX complètes<br>' : ''}${meta}</span>
-        <span class="day-detail__timeline-weather" data-waypoint-weather data-waypoint-id="${escapeHtml(waypoint.id)}"></span>
+        <span class="day-detail__timeline-weather" data-waypoint-weather data-waypoint-id="${escapeHtml(waypoint.id)}" data-wind-start-km="${climb.startDistanceKm}" data-wind-end-km="${climb.endDistanceKm}"></span>
       </span>
     </button>
     <div class="day-detail__climb-profile" id="${profileId}" data-climb-profile hidden>
@@ -391,14 +322,14 @@ function renderTimelineList(waypoints: readonly CanonicalWaypoint[], climbs: rea
     // instead of a plain row with no profile at all.
     if (waypoint.raceSegmentId !== undefined && stage !== undefined && course) {
       const segment = stage.raceSegments?.find(segment => segment.id === waypoint.raceSegmentId)
-      if (segment) return renderRaceSegmentTimelineRow(course, segment, waypoint)
+      if (segment) return renderRaceSegmentTimelineRow(course, segment, waypoint, segmentMiniProfile(course, segment))
     }
     if (waypoint.climbId === null) return renderTimelineRow(waypoint)
     const climb = climbs.find((candidate) => candidate.id === waypoint.climbId)
     const partial = bounds !== null && climb !== undefined && (climb.startDistanceKm < bounds.startOffsetM / 1000 || climb.endDistanceKm > bounds.finishOffsetM / 1000)
     return climb === undefined ? renderTimelineRow(waypoint) : renderClimbCard(waypoint, climb, routeGeometryFull, partial)
   }).join('')
-  const pending = !stage || !course ? '' : (stage.raceSegments ?? []).filter(segment => raceSegmentStatus(course, segment) !== 'ready').map(segment => renderRaceSegmentTimelineRow(course, segment)).join('')
+  const pending = !stage || !course ? '' : (stage.raceSegments ?? []).filter(segment => raceSegmentStatus(course, segment) !== 'ready').map(segment => renderRaceSegmentTimelineRow(course, segment, undefined, segmentMiniProfile(course, segment))).join('')
   return `<ol class="day-detail__timeline">${rows}${pending}</ol>`
 }
 
@@ -523,7 +454,7 @@ function renderPauseEditor(
  * attribute `mountWeatherViews` (`trips-manager.ts`) already queries by —
  * only its container/visibility changed, not the wiring.
  */
-function renderPauseWeatherBottomBlock(pausesHtml: string): string {
+function renderPauseWeatherBottomBlock(pausesHtml: string, courseEditing = false): string {
   // Course/Tour mode: `pausesHtml` is empty because in-stage pauses are
   // disabled, so the Pauses toggle and its panel disappear entirely rather
   // than opening onto nothing ("ne plus proposer leur configuration").
@@ -538,10 +469,11 @@ function renderPauseWeatherBottomBlock(pausesHtml: string): string {
     </div>`
   return `<div class="day-bottom-block" data-day-bottom-block>
     <div class="day-bottom-block__toggles">
-      ${pausesToggle}
+      ${courseEditing ? '<button type="button" class="day-bottom-block__toggle" data-action="toggle-bottom-panel" aria-expanded="false" aria-controls="day-bottom-panel-course">Course</button>' : pausesToggle}
       <button type="button" class="day-bottom-block__toggle" data-action="toggle-bottom-panel" aria-expanded="false" aria-controls="day-bottom-panel-weather">Météo</button>
     </div>
     ${pausesPanel}
+    ${courseEditing ? '<div id="day-bottom-panel-course" class="day-bottom-block__panel" data-bottom-panel hidden><div class="feature-update-line"><span>Limites et segments</span>'+renderFeatureUpdateBadge('course-editor')+'</div><div data-course-profile-target></div></div>' : ''}
     <div id="day-bottom-panel-weather" class="day-bottom-block__panel" data-bottom-panel hidden>
       <div data-day-detail-weather><p role="status">Chargement des prévisions…</p></div>
     </div>
@@ -1168,7 +1100,7 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
     <section class="card day-detail__map-profile-card" data-day-detail-map-profile-card>
       <div class="feature-update-line"><span>Carte et services du trajet</span>${renderFeatureUpdateBadge('poi-search')}</div>
       <div class="route-map route-map--action" data-day-detail-map data-explore-map role="button" tabindex="0" aria-label="Ouvrir la carte de l’étape en plein écran"></div>
-      <div data-day-detail-profile></div>
+      <div data-day-profile-home><div data-day-detail-profile></div></div>
       <!--
         DER-DES-DER sections 105-107: the GPX download belongs visually with
         the trace it downloads. It used to sit at the bottom of the Parcours
@@ -1191,7 +1123,7 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
       </nav>
       <section id="day-panel-route" class="card" role="tabpanel" aria-labelledby="day-tab-route" data-day-panel="route">
         <div data-day-detail-timeline>${timelineHtml}</div>
-        ${renderPauseWeatherBottomBlock(pausesHtml)}
+        ${renderPauseWeatherBottomBlock(pausesHtml, selectRaceMode(bundle))}
       </section>
       ${infosHtml}
     </section>

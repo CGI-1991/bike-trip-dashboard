@@ -1,5 +1,7 @@
 # Horaires, météo et vent de course
 
+> La [précision sur le vent et le panneau Course](COURSE_WIND_AND_EDITING.md) rétablit le vent dans chaque détail, retire la moyenne sur un voyage entier et sépare lecture des segments et édition.
+
 > Les [corrections du 24 octobre](LEAGUE_TOUR_CORRECTIONS.md) remplacent les choix d’interface de ce document lorsqu’ils diffèrent : statistiques League, vent, navigation et présentation des segments.
 
 Version **2026.10.23.8**, après les [limites de course](RACE_BOUNDS.md). Ce lot lève la limitation des horaires et prévisions sur le GPX complet annoncée dans la version précédente.
