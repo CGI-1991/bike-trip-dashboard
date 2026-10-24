@@ -73,12 +73,13 @@ export function mountRaceBoundsEditor(profile: HTMLElement, bundle: TripBundle, 
     redraw()
   }, { signal: controller.signal })
   profile.addEventListener('profile-distance-active', event => {
-    if (picked === null || !editor.open || saving) return
+    if (picked === null || !editor.open || saving || profile.dataset.courseEditing === 'false') return
     const distanceKm = (event as CustomEvent<{ distanceKm: number }>).detail.distanceKm
     if (picked === 'start') start = distanceKm * 1000; else finish = distanceKm * 1000
     setInputs(); redraw()
     status.textContent = `${picked === 'start' ? 'Départ' : 'Arrivée'} au km ${km(distanceKm)}. Enregistrez pour confirmer.`
   }, { signal: controller.signal })
+  profile.addEventListener('course-editor-hidden', () => setPicked(null), { signal: controller.signal })
   editor.addEventListener('toggle', () => { if (!editor.open && !saving) resetDraft() }, { signal: controller.signal })
   host.addEventListener('click', event => {
     const target = event.target

@@ -1,5 +1,7 @@
 # Segments manuels de course
 
+> La [précision sur le vent et le panneau Course](COURSE_WIND_AND_EDITING.md) rétablit le vent dans chaque détail, retire la moyenne sur un voyage entier et sépare lecture des segments et édition.
+
 > Les [corrections du 24 octobre](LEAGUE_TOUR_CORRECTIONS.md) remplacent les choix d’interface de ce document lorsqu’ils diffèrent : statistiques League, vent, navigation et présentation des segments.
 
 Version **2026.10.23.9**, en League et Tour, après le [recalage des horaires et prévisions](RACE_COURSE_TIMING.md).

@@ -13,6 +13,11 @@ export interface AppRelease {
 }
 
 export const APP_RELEASES: readonly AppRelease[] = [
+  { version: '2026.10.24.2', date: '2026-10-24', changes: [
+    { feature: 'relative-wind', title: 'Le vent reste disponible sur chaque parcours', description: 'Le vent relatif est présent en League comme en Voyage et Tour : profil, points de passage, segments et montées. La moyenne du parcours reste visible pendant la lecture d’un point. Seule la moyenne globale sur un voyage ou une saison est retirée.' },
+    { feature: 'course-editor', title: 'Un panneau Course pour préparer votre parcours', description: 'À côté de Météo, ouvrez Course pour définir le départ, l’arrivée et vos segments. Le profil y sert au placement ; il reprend sa place en lecture quand vous fermez le panneau. Les réglages ne chargent plus la page de lecture.' },
+    { feature: 'race-segments', title: 'Les vignettes ouvrent un mini-profil', description: 'Touchez un segment dans les points de passage pour consulter son profil, comme pour une montée. Pour le modifier, utilisez le choix de segment du panneau Course. Le vent affiché sur un segment ou une montée est moyenné sur sa portion du parcours.' },
+  ] },
   { version: '2026.10.24.1', date: '2026-10-24', changes: [
     { feature: 'league-calendar', title: 'League et Tour : navigation adaptée', description: 'Mes activités regroupe vos voyages, League et Tours. L’onglet devient Calendrier en League et Étapes en Tour. L’Aperçu League reste synthétique, sans calendrier ni vent relatif.' },
     { feature: 'race-bounds', title: 'League : statistiques entre les limites réelles', description: 'Définissez le départ et l’arrivée réels. Les statistiques apparaissent alors dans le bloc supérieur du Détail, uniquement entre ces limites. Aucune course entière n’est supposée à partir du GPX.' },

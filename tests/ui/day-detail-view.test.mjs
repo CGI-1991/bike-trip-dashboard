@@ -1007,7 +1007,7 @@ test('H: a climb that also carries an alert-level météo line exposes exactly o
   // can no longer ever produce a `<button>` (R2 section 1), so this stays a
   // single-button row regardless of the weather risk level.
   const mountedHtml = cardMatch[0].replace(
-    `<span class="day-detail__timeline-weather" data-waypoint-weather data-waypoint-id="${waypoint.id}"></span>`,
+    `<span class="day-detail__timeline-weather" data-waypoint-weather data-waypoint-id="${waypoint.id}" data-wind-start-km="${bundle.climbs.find(climb=>climb.id===waypoint.climbId).startDistanceKm}" data-wind-end-km="${bundle.climbs.find(climb=>climb.id===waypoint.climbId).endDistanceKm}"></span>`,
     renderInlineWaypointWeather({
       id: waypoint.id, name: waypoint.name, role: 'passage', available: true, riskLevel: 'red',
       temperatureC: 6, apparentTemperatureC: 3, precipitationProbabilityPct: 80, precipitationMm: 12,

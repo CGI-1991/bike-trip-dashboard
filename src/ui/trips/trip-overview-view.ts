@@ -289,7 +289,6 @@ export function buildTripOverview(bundle: TripBundle, now: Date | string | null)
 
       ${bundle.stages.some(stage => buildRaceCourse(bundle, stage)?.status === 'stale' || (selectOrganizationCapabilities(bundle).explicitRaceBounds && buildRaceCourse(bundle, stage)?.status !== 'bounded')) ? '<p class="race-course__hint" role="status">Limites de course à définir : les totaux incluent uniquement les courses délimitées.</p>' : ''}
       ${renderProgressStats(progress, selectOrganizationMode(bundle) === 'league', !selectOrganizationCapabilities(bundle).explicitRaceBounds || bundle.stages.some(stage => buildRaceCourse(bundle, stage)?.status === 'bounded'))}
-      ${selectOrganizationCapabilities(bundle).relativeWind ? `<details class="card trip-wind-summary"><summary>${selectRaceMode(bundle) ? 'Vent relatif sur l’ensemble des courses' : 'Vent relatif sur l’ensemble du voyage'}</summary><div data-trip-wind-summary></div></details>` : ''}
       <section class="card route-map-card" data-route-visuals>
         <div class="section-heading"><div><p class="eyebrow">Vue d’ensemble</p><h3>Carte du voyage</h3></div><div class="route-map-card__actions"><button class="button button--quiet" type="button" data-action="download-trip-gpx">GPX</button></div></div>
         <div class="route-map route-map--action" data-trip-overview-map data-explore-map role="button" tabindex="0" aria-label="Ouvrir la carte du voyage en plein écran"></div>

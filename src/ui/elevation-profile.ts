@@ -506,7 +506,7 @@ export function mountClimbProfileInteraction(svg: SVGSVGElement): void {
   }
   svg.addEventListener('pointerdown', (event) => { svg.setPointerCapture?.(event.pointerId); fromPointer(event) })
   svg.addEventListener('pointermove', fromPointer)
-  svg.addEventListener('pointerleave', () => { cursor.setAttribute('hidden', ''); tooltip.hidden = true })
+  svg.addEventListener('pointerleave', event => { if (event.pointerType === 'touch') return; cursor.setAttribute('hidden', ''); tooltip.hidden = true })
   svg.addEventListener('pointerup', (event) => { svg.releasePointerCapture?.(event.pointerId) })
   svg.addEventListener('keydown', (event) => {
     if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return

@@ -101,7 +101,7 @@ function interpolateAltitudeAt(points: readonly DistancedGeometryPoint[], target
  */
 export function buildClimbProfile(
   routeGeometryFull: readonly RouteGeometryPoint[],
-  climb: Climb,
+  climb: Pick<Climb, 'id' | 'startDistanceKm' | 'endDistanceKm'>,
   segmentLengthMeters = DEFAULT_CLIMB_SEGMENT_LENGTH_METERS,
 ): ClimbProfile {
   if (routeGeometryFull.length < 2 || climb.endDistanceKm <= climb.startDistanceKm) {

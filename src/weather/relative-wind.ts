@@ -60,6 +60,7 @@ export interface RouteWindModel {
   readonly resolutionMeters: number
   readonly summary: RouteWindSummary
   at(distanceKm: number, windowMeters?: number): RelativeWindReading | null
+  between(startKm: number, endKm: number): RelativeWindReading | null
 }
 
 export function normalizeDegrees(value: number): number { return ((value % 360) + 360) % 360 }
@@ -244,6 +245,11 @@ export function buildRouteWindModel(geometry: readonly RouteGeometryPoint[], way
   }
   const mean = average(fromKm, toKm)
   return { lengthKm: total, resolutionMeters: step * 1000,
+    between(startKm, endKm) {
+      if (!Number.isFinite(startKm) || !Number.isFinite(endKm) || endKm <= startKm) return null
+      const start = Math.max(fromKm, startKm), end = Math.min(toKm, endKm)
+      return end > start ? average(start, end) : null
+    },
     at(km, windowMeters = PROFILE_WIND_SMOOTHING_METERS) {
       if (!Number.isFinite(km) || km < fromKm || km > toKm || !(windowMeters > 0)) return null
       const half = windowMeters / 2000

@@ -1,3 +1,4 @@
+import { syncCourseEditorProfile } from './course-editor-panel.ts'
 import { selectOrganizationCapabilities } from '../../trip-core/index.ts'
 /**
  * "Mes activités" — CDC phase 6C1 sections 5-7/24-27, reworked across Jalons
@@ -56,11 +57,10 @@ import type { ImportWizardResult } from './import-wizard.ts'
 import { createTripEditor } from './trip-editor.ts'
 import { createTripBackupPanel } from './trip-backup-panel.ts'
 import type { TripBackupPanelHandle } from './trip-backup-panel.ts'
-import { buildRouteWindModel, combineRouteWindSummaries, windRouteLengthKm, WAYPOINT_WIND_SMOOTHING_METERS } from '../../weather/relative-wind.ts'
+import { buildRouteWindModel, WAYPOINT_WIND_SMOOTHING_METERS } from '../../weather/relative-wind.ts'
 import type { RouteWindModel } from '../../weather/relative-wind.ts'
 import type { WaypointWeather } from '../../weather/types.ts'
-import { formatRouteWindSummary, renderRelativeWind, updateProfileWind } from '../relative-wind-view.ts'
-import { routeGeometry } from '../../route-enrichment/route-fingerprint.ts'
+import { renderRelativeWind, updateProfileWind } from '../relative-wind-view.ts'
 import { getCoverageFromDates, getNowLocalDateTime, selectWeatherDisplayMode } from '../../weather/display-policy.ts'
 import { weatherConfig } from '../../weather/config.ts'
 import { renderStagePreparationIndicator, renderStagePreparationNote, renderTripDetail } from './trip-detail-view.ts'
@@ -529,28 +529,6 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       const day = bundle.days.find((candidate) => candidate.id === mount.dataset.dayId)
       if (day !== undefined) mount.innerHTML = renderGenericDayCardWeatherLine(weatherCoordinator.getDayWeatherViewModel(day))
     }
-    const tripWind = container.querySelector<HTMLElement>('[data-trip-wind-summary]')
-    if (tripWind !== null) {
-      if (bundle.stages.some(stage => buildRaceCourse(bundle, stage)?.status === 'stale')) {
-        tripWind.innerHTML = '<p class="profile-wind__summary">Redéfinissez les limites de course pour estimer le vent global.</p>'
-        return
-      }
-      const parts = bundle.stages.map(stage => {
-        const route = bundle.routes.find(route => route.id === stage.sourceRouteId)
-        const geometry = route === undefined ? null : routeGeometry(route)
-        const day = bundle.days.find(day => day.id === stage.dayId)
-        // A stage without usable geometry still contributes its known
-        // distance to the uncovered part of the whole-trip estimate.
-        if (geometry === null || day === undefined) return { lengthKm: stage.distanceKm ?? 0, summary: null }
-        const course = buildRaceCourse(bundle, stage)
-        if (course?.status === 'stale') return { lengthKm: 0, summary: null }
-        const model = routeWindForDay(bundle, day, geometry)
-        const length = course?.bounds === null || course?.bounds === undefined ? windRouteLengthKm(geometry) : (course.bounds.finishOffsetM - course.bounds.startOffsetM) / 1000
-        return { lengthKm: model?.lengthKm ?? length, summary: model?.summary ?? null }
-      })
-      const stats = combineRouteWindSummaries(parts)
-      tripWind.innerHTML = renderRelativeWind(stats.mean, false, selectTravelMode(bundle)) + `<details class="profile-wind__details"><summary>Détails du vent</summary><p class="profile-wind__summary">${formatRouteWindSummary(stats)}</p></details>`
-    }
   }
 
   function routeWindForDay(bundle: TripBundle, day: import('../../trip-core/index.ts').TripDay, geometry: readonly import('../../trip-core/index.ts').RouteGeometryPoint[]): RouteWindModel | null {
@@ -586,12 +564,17 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   function mountTimelineWaypointWeather(model: GenericDayWeatherViewModel | GenericTransferWeatherViewModel | null, bundle: TripBundle): void {
     const points = model !== null && !('origin' in model) ? model.points : []
     const byId = new Map(points.map((point) => [point.id, point]))
+    const waypointsById = new Map(mountedDayDetail?.waypoints.map(point => [point.id, point]) ?? [])
     for (const mount of container.querySelectorAll<HTMLElement>('[data-waypoint-weather]')) {
       const waypointId = mount.dataset.waypointId
       mount.innerHTML = waypointId === undefined ? '' : renderInlineWaypointWeather(byId.get(waypointId))
-      const waypoint = mountedDayDetail?.waypoints.find(point => point.id === waypointId)
-      if (waypoint !== undefined && currentRouteWind !== null) {
-        mount.innerHTML += renderRelativeWind(currentRouteWind.at(waypoint.trackDistanceKm, WAYPOINT_WIND_SMOOTHING_METERS), true, selectTravelMode(bundle))
+      const waypoint = waypointId === undefined ? undefined : waypointsById.get(waypointId)
+      if (waypoint !== undefined) {
+        const start = mount.dataset.windStartKm, end = mount.dataset.windEndKm
+        const reading = start !== undefined && end !== undefined
+          ? currentRouteWind?.between(Number(start), Number(end)) ?? null
+          : currentRouteWind?.at(waypoint.trackDistanceKm, WAYPOINT_WIND_SMOOTHING_METERS) ?? null
+        mount.innerHTML += renderRelativeWind(reading, true, selectTravelMode(bundle))
       }
     }
   }
@@ -889,7 +872,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
           }
         })
         destroyRaceSegments = mountRaceSegmentsEditor(profileContainer, bundle, stage, {
-          idFactory: deps.idFactory, timeline: container.querySelector<HTMLElement>('[data-day-detail-timeline]'),
+          idFactory: deps.idFactory,
           save: async (change, fingerprint) => {
             const updated = await mutateTripBundle(bundle.metadata.id, latest => applyRaceSegmentChange(latest, stage.id, change, fingerprint, deps.now()))
             if (updated === null) throw new Error('Cette course n’est plus disponible.')
@@ -898,6 +881,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
         })
       }
     }
+    syncCourseEditorProfile(container)
     // Profile→map sync (CDC D1.1 sections 18-19): re-wired on every call —
     // `mountMapAndProfile` runs on every full mount AND every
     // `patchDayDetail` patch, and `renderGenericElevationProfile` just
@@ -1598,6 +1582,8 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
 
   /** The one place Parcours↔Infos tab visibility changes — shared by the tab click handler so switching tabs is always a plain, consistent toggle. */
   function switchDayTab(target: 'route' | 'infos'): void {
+    const coursePanel = container.querySelector<HTMLElement>('#day-bottom-panel-course')
+    if (target === 'infos' && coursePanel !== null && !coursePanel.hidden) closeBottomPanels()
     activeDayTab = target
     for (const panel of container.querySelectorAll<HTMLElement>('[data-day-panel]')) panel.hidden = panel.dataset.dayPanel !== target
     for (const candidate of container.querySelectorAll<HTMLButtonElement>('[data-day-tab]')) {
@@ -1610,6 +1596,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   function closeBottomPanels(): void {
     for (const panel of container.querySelectorAll<HTMLElement>('[data-bottom-panel]')) panel.hidden = true
     for (const toggle of container.querySelectorAll<HTMLButtonElement>('[data-action="toggle-bottom-panel"]')) toggle.setAttribute('aria-expanded', 'false')
+    syncCourseEditorProfile(container)
   }
 
   /** Resolves the stage id backing the currently-open Étape screen — the pause editor's own wrapper carries it via `data-stage-id`. */
@@ -2166,6 +2153,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
         closeBottomPanels()
         panel.hidden = false
         bottomToggle.setAttribute('aria-expanded', 'true')
+        syncCourseEditorProfile(container)
         // Section 62/36: Météo is consultation only — registered with no
         // fields, so it can never be dirty and leaving it never prompts.
         if (mode.kind === 'day') {
