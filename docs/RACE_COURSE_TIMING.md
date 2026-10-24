@@ -1,5 +1,8 @@
 # Horaires, météo et vent de course
 
+> Depuis **2026.10.24.6**, la [règle de départ GPX et de vent à vélo](GPX_DEPARTURE_AND_WALKING_WIND.md) prime sur les comportements historiques décrits ci-dessous : limites facultatives en League/Tour, heure au départ GPX, approche incluse dans les ETA et module vent masqué en randonnée.
+
+
 > La [précision sur le vent et le panneau Course](COURSE_WIND_AND_EDITING.md) rétablit le vent dans chaque détail, retire la moyenne sur un voyage entier et sépare lecture des segments et édition.
 
 > Les [corrections du 24 octobre](LEAGUE_TOUR_CORRECTIONS.md) remplacent les choix d’interface de ce document lorsqu’ils diffèrent : statistiques League, vent, navigation et présentation des segments.

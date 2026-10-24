@@ -19,7 +19,7 @@ import { createRouteClockTime, formatRouteClockTime } from '../route/time.ts'
 import { consolidateRaceWaypoints } from './race-segment-waypoints.ts'
 import { courseWaypoints } from './race-bounds.ts'
 import type { RaceCourse } from './race-bounds.ts'
-import type { RouteProfilePosition } from '../route/types.ts'
+import type { RouteProfilePosition, TerrainProfilePoint } from '../route/types.ts'
 import type { Climb, PausePlanMode, RideStage, RideStageSettings, Route, RouteGeometryPoint, RoutePoint, TravelMode, TripBundle, TripDay } from '../trip-core/index.ts'
 import { isPracticalPlaceUxCategory } from '../practical-places/taxonomy.ts'
 import { pointAtDistance, routeGeometryWithDistances } from './canonical-waypoints.ts'
@@ -40,6 +40,13 @@ export interface WaypointTimelineSettings {
   /** "HH:MM", the day's actual departure time (`TripDaySettings.departureTime`). */
   readonly departureTime: string
 }
+
+export const NEUTRALIZED_CYCLING_SPEED_REDUCTION_KPH = 3
+export function neutralizedCyclingReferenceSpeed(referenceSpeedKph: number): number {
+  return Math.max(1, referenceSpeedKph - NEUTRALIZED_CYCLING_SPEED_REDUCTION_KPH)
+}
+
+const cyclingTerrainSeries = new WeakMap<readonly RouteGeometryPoint[], readonly TerrainProfilePoint[]>()
 
 /** One resolved manual pause, already reduced to what placement needs: a real, existing canonical waypoint (`routePointId`) and a duration. */
 export interface ManualPauseSetting {
@@ -186,7 +193,11 @@ function movingElapsedMinutesAt(source: RouteProfilePosition[], totalDistanceKm:
     const timing = createTravelTerrainTiming(terrain.profile, terrain.lengthKm, referenceSpeedKph, travelMode)
     return distanceKm => interpolateTerrainTiming(timing, terrainDistanceAt(distanceKm)).movingElapsedMinutes
   }
-  const terrainSeries = buildTerrainProfileSeries(source)
+  let terrainSeries = cyclingTerrainSeries.get(geometry)
+  if (terrainSeries === undefined) {
+    terrainSeries = buildTerrainProfileSeries(source)
+    cyclingTerrainSeries.set(geometry, terrainSeries)
+  }
   if (terrainSeries.length < 2) {
     // No usable altitude data — same flat-terrain fallback philosophy as
     // `timing.ts::computeFlatTiming`: distance / reference speed, no invented precision.
@@ -360,8 +371,9 @@ export function computeStagePauseRecommendations(input: ComputeStageWaypointsInp
 }
 
 export interface StageTimingCurve {
-  /** Minutes since the operational departure, using absolute GPX chainage.
-   * null outside an active course; otherwise includes pauses already completed,
+  /** Minutes since GPX departure, using absolute GPX chainage.
+   * Includes the slower neutralized approach before a real course start.
+   * null after the active finish; otherwise includes pauses already completed,
    * with the exact same composition as each waypoint's elapsedMinutes. */
   elapsedMinutesAt(distanceKm: number): number | null
   clockTimeAt(distanceKm: number): string | null
@@ -391,16 +403,24 @@ export function computeStageTimingCurve(input: ComputeStageWaypointsInput): Stag
   const course = input.raceCourse
   if (course?.status === 'stale') return null
   if (course?.status === 'bounded' && course.bounds !== null) {
-    // Subtract moving time on the full terrain curve. Smoothing and GPX
-    // chainage remain identical on both sides of every chosen boundary.
+    // Departure always belongs to the first GPX point. The optional approach
+    // is ridden at a lower cycling reference speed, using the same terrain
+    // engine (including local speed caps), before the race-paced interval.
     const full = computeStageTimingCurve({ ...input, raceCourse: undefined, manualPauses: [], automaticPausesAllowed: false })
     const start = course.bounds.startOffsetM / 1000, finish = course.bounds.finishOffsetM / 1000
     const initial = full?.elapsedMinutesAt(start)
     if (full === null || initial === null || initial === undefined) return null
+    const approach = start > 0 && input.settings.travelMode !== 'walking'
+      ? computeStageTimingCurve({ ...input, raceCourse: undefined, manualPauses: [], automaticPausesAllowed: false,
+        settings: { ...input.settings, referenceSpeedKph: neutralizedCyclingReferenceSpeed(input.settings.referenceSpeedKph) } })
+      : full
+    const approachDuration = approach?.elapsedMinutesAt(start)
+    if (approach === null || approachDuration == null) return null
     const elapsed = (km: number): number | null => {
-      if (!Number.isFinite(km) || km < start || km > finish) return null
+      if (!Number.isFinite(km) || km < 0 || km > finish) return null
+      if (km <= start) return approach.elapsedMinutesAt(km)
       const value = full.elapsedMinutesAt(km)
-      return value === null ? null : Math.max(0, value - initial)
+      return value === null ? null : approachDuration + Math.max(0, value - initial)
     }
     return { elapsedMinutesAt: elapsed, clockTimeAt(km) {
       const value = elapsed(km)

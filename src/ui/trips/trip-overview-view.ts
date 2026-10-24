@@ -212,7 +212,7 @@ function renderHighlightedDay(bundle: TripBundle, highlightedDayId: TripDayId | 
     <dl class="trip-overview__highlighted-day-stats">${!selectOrganizationCapabilities(bundle).explicitRaceBounds || metrics?.distanceKm !== null ? `
       <div><dt>Distance</dt><dd>${metrics?.distanceKm === null || metrics?.distanceKm === undefined ? '—' : formatKilometers(metrics.distanceKm)}</dd></div>
       <div><dt>D+</dt><dd>${metrics?.elevationGainM === null || metrics?.elevationGainM === undefined ? '—' : `+${Math.round(metrics.elevationGainM)} m`}</dd></div>
-      ` : ''}<div><dt>Départ</dt><dd>${departureTime ?? '—'}</dd></div>
+      ` : ''}<div><dt>${selectRaceMode(bundle) ? 'Départ GPX' : 'Départ'}</dt><dd>${departureTime ?? '—'}</dd></div>
       ${eta === null && selectOrganizationCapabilities(bundle).explicitRaceBounds ? '' : `<div><dt>ETA</dt><dd>${eta ?? '—'}</dd></div>`}
     </dl>
     <div class="trip-overview__weather-mount" data-trip-overview-weather-mount data-day-id="${escapeHtml(day.id)}"><p class="trip-overview__weather-placeholder">Météo non disponible pour le moment.</p></div>
@@ -287,7 +287,7 @@ export function buildTripOverview(bundle: TripBundle, now: Date | string | null)
     <header class="view-heading"><p class="eyebrow">Aperçu${selectTravelMode(bundle) === 'walking' ? ' · Randonnée' : ''}</p></header>
     <section class="trip-overview__zone trip-overview__zone--trip" data-trip-overview-zone="trip">
 
-      ${bundle.stages.some(stage => buildRaceCourse(bundle, stage)?.status === 'stale' || (selectOrganizationCapabilities(bundle).explicitRaceBounds && buildRaceCourse(bundle, stage)?.status !== 'bounded')) ? '<p class="race-course__hint" role="status">Limites de course à définir : les totaux incluent uniquement les courses délimitées.</p>' : ''}
+      ${bundle.stages.some(stage => buildRaceCourse(bundle, stage)?.status === 'stale') ? '<p class="race-course__hint" role="status">Certaines limites de course sont à revoir : les totaux sont partiels.</p>' : ''}
       ${renderProgressStats(progress, selectOrganizationMode(bundle) === 'league', !selectOrganizationCapabilities(bundle).explicitRaceBounds || bundle.stages.some(stage => buildRaceCourse(bundle, stage)?.status === 'bounded'))}
       <section class="card route-map-card" data-route-visuals>
         <div class="section-heading"><div><p class="eyebrow">Vue d’ensemble</p><h3>Carte du voyage</h3></div><div class="route-map-card__actions"><button class="button button--quiet" type="button" data-action="download-trip-gpx">GPX</button></div></div>

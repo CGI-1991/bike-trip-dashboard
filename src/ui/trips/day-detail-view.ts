@@ -1020,10 +1020,13 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
   const dayNumber = selectTripDayNumber(bundle, day.id)
   const stageLabel = `${selectTripDayLabel(bundle, day.id)} — ${customName ?? fullLocations}`
 
+  const timingCurve = computeStageTimingCurve(waypointsInput)
+  const courseStartKm = waypointsInput.raceCourse?.bounds?.startOffsetM === undefined ? 0 : waypointsInput.raceCourse.bounds.startOffsetM / 1000
+  const approachMinutes = timingCurve?.elapsedMinutesAt(courseStartKm) ?? 0
   const arrival = waypoints.find(point => point.kind === 'end') ?? null
   const totalDurationSeconds = arrival?.elapsedMinutes === null || arrival?.elapsedMinutes === undefined
     ? waypointsInput.raceCourse?.status === 'stale' ? null : stage.totalDurationSeconds
-    : Math.round(arrival.elapsedMinutes * 60)
+    : Math.round((arrival.elapsedMinutes - approachMinutes) * 60)
   const bounds = waypointsInput.raceCourse?.status === 'bounded' ? waypointsInput.raceCourse.bounds : null
   const primaryClimbCount = bounds === null && !selectRaceMode(bundle) ? new Set(
     waypoints.filter((waypoint) => waypoint.climbId !== null && isSignificantWaypoint(waypoint)).map((waypoint) => waypoint.climbId),
@@ -1048,18 +1051,19 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
   // the page itself, so a fresh `statsHtml` after a save needs no state to
   // reset.
   const metrics = selectStageCourseMetrics(bundle, stage)
-  const showRaceStats = !selectOrganizationCapabilities(bundle).explicitRaceBounds || waypointsInput.raceCourse?.status === 'bounded'
-  const statsHtml = `<div data-day-detail-stats${showRaceStats ? '' : ' hidden'}>${showRaceStats ? `${waypointsInput.raceCourse?.status === 'bounded' ? '<p class="race-course__hint">Course calculée · horaires et météo entre départ et arrivée.</p>' : ''}<dl class="day-detail__stats">
-    <div><dt>Départ</dt><dd>
-      <button type="button" class="day-detail__departure-value" data-action="edit-day-departure-time" data-day-departure-value aria-label="Heure de départ ${escapeHtml(settings.departureTime)}, modifier">${escapeHtml(settings.departureTime)}</button>
+  const showRaceStats = waypointsInput.raceCourse?.status !== 'stale'
+  const statsHtml = `<div data-day-detail-stats${showRaceStats ? '' : ' hidden'}>${showRaceStats ? `${waypointsInput.raceCourse?.status === 'bounded' ? '<p class="race-course__hint">Approche incluse dans les horaires · statistiques de course.</p>' : ''}<dl class="day-detail__stats">
+    <div><dt>${selectRaceMode(bundle) ? `Départ GPX ${renderFeatureUpdateBadge('race-bounds')}` : 'Départ'}</dt><dd>
+      <button type="button" class="day-detail__departure-value" data-action="edit-day-departure-time" data-day-departure-value aria-label="Heure de départ ${selectRaceMode(bundle) ? 'GPX ' : ''}${escapeHtml(settings.departureTime)}, modifier">${escapeHtml(settings.departureTime)}</button>
     </dd></div>
+    ${courseStartKm > 0 && waypointsInput.raceCourse?.status === 'bounded' ? `<div><dt>Départ réel estimé</dt><dd>${timingCurve?.clockTimeAt(courseStartKm) ?? '—'}</dd></div>` : ''}
     <div><dt>Arrivée estimée</dt><dd>${arrival?.clockTime ?? '—'}</dd></div>
     <div><dt>Distance</dt><dd>${metrics.distanceKm === null ? '—' : formatKilometers(metrics.distanceKm)}</dd></div>
-    <div><dt>Durée</dt><dd>${formatDuration(totalDurationSeconds)}</dd></div>
+    <div><dt>${selectRaceMode(bundle) ? 'Durée de course' : 'Durée'}</dt><dd>${formatDuration(totalDurationSeconds)}</dd></div>
     <div><dt>D+</dt><dd>${metrics.elevationGainM === null ? '—' : `+${Math.round(metrics.elevationGainM)} m`}</dd></div>
     <div><dt>D−</dt><dd>${metrics.elevationLossM === null ? '—' : `−${Math.round(metrics.elevationLossM)} m`}</dd></div>
     <div><dt>Montées</dt><dd>${waypointsInput.raceCourse?.status === 'stale' ? '—' : primaryClimbCount}</dd></div>
-    <div><dt>Vent moyen ${renderFeatureUpdateBadge('stage-wind-stat')}</dt><dd data-stage-wind-stat><span aria-label="Vent moyen indisponible">—</span></dd></div>
+    ${selectOrganizationCapabilities(bundle).relativeWind ? `<div><dt>Vent moyen ${renderFeatureUpdateBadge('stage-wind-stat')}</dt><dd data-stage-wind-stat><span aria-label="Vent moyen indisponible">—</span></dd></div>` : ''}
     ${pauseResolution.pausesDisabled === true ? '' : `<div><dt>Pauses</dt><dd>${totalPauseMinutes === null ? '—' : `${totalPauseMinutes} min`}</dd></div>`}
   </dl>` : ''}</div>`
 
@@ -1081,8 +1085,6 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
   const infoDay = bundle.days.find((candidate) => candidate.id === infoDayId) ?? day
   const accommodation = infoDay.accommodationId === null ? undefined : bundle.accommodations.find((candidate) => candidate.id === infoDay.accommodationId)
   const infosHtml = renderInfosPanel(day, accommodation, { infoDay })
-  const timingCurve = computeStageTimingCurve(waypointsInput)
-
   // CDC D1.1 sections 6-10: three independent blocks, always all three
   // visible regardless of the selected tab — Stats, Map+Profil, and the
   // tabbed Détails card (Parcours|Infos, météo opérationnelle folded into

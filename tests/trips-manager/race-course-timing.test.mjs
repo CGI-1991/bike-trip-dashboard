@@ -8,7 +8,7 @@ import { importGpxTrip } from '../../src/import/gpx/import-gpx-trip.ts'
 import { buildGpxXml, toGpxImportFile } from '../import/gpx/support/fixtures.mjs'
 import { createIdFactory, fixedNow, openImportTestDatabase } from '../import/gpx/support/run-import.mjs'
 import { applyRaceBounds, buildRaceCourse, selectStageCourseMetrics } from '../../src/analysis/race-bounds.ts'
-import { computeStageTimingCurve, computeStageWaypoints } from '../../src/analysis/waypoint-timeline.ts'
+import { computeStageTimingCurve, computeStageWaypoints, neutralizedCyclingReferenceSpeed } from '../../src/analysis/waypoint-timeline.ts'
 import { computeRideArrivalEta, deriveTripTemporalState } from '../../src/trips-manager/trip-day-temporal-state.ts'
 import { updateRaceCourse } from '../../src/trips-manager/race-course.ts'
 import { summarizeTripBundle } from '../../src/trips-manager/trip-summary.ts'
@@ -57,14 +57,16 @@ for(const travelMode of ['cycling','walking']) test(`${travelMode}: course endpo
   const {database,bundle}=await setup({travelMode})
   try {
     const next=bounded(bundle), scoped=input(next), curve=computeStageTimingCurve(scoped), full=computeStageTimingCurve(input(next,0,false))
-    const points=computeStageWaypoints(scoped), start=points[0], finish=points.at(-1)
+    const points=computeStageWaypoints(scoped), gpxStart=points[0], start=points.find(point=>point.name==='Départ de course'), finish=points.at(-1)
     assert.equal(start.trackDistanceKm,6);assert.equal(finish.trackDistanceKm,14)
-    assert.equal(start.elapsedMinutes,0);assert.equal(start.clockTime,'08:00')
-    close(finish.elapsedMinutes,full.elapsedMinutesAt(14)-full.elapsedMinutesAt(6))
-    close(finish.elapsedMinutes,8/scoped.settings.referenceSpeedKph*60,.01)
+    assert.equal(gpxStart.trackDistanceKm,0);assert.equal(gpxStart.elapsedMinutes,0);assert.equal(gpxStart.clockTime,'08:00')
+    const approachInput={...input(next,0,false),settings:{...scoped.settings,referenceSpeedKph:travelMode==='walking'?scoped.settings.referenceSpeedKph:neutralizedCyclingReferenceSpeed(scoped.settings.referenceSpeedKph)}}
+    close(start.elapsedMinutes,computeStageTimingCurve(approachInput).elapsedMinutesAt(6))
+    close(finish.elapsedMinutes-start.elapsedMinutes,full.elapsedMinutesAt(14)-full.elapsedMinutesAt(6))
+    close(finish.elapsedMinutes-start.elapsedMinutes,8/scoped.settings.referenceSpeedKph*60,.01)
     assert.ok(full.elapsedMinutesAt(6)>0)
     for(const point of points){close(point.elapsedMinutes,curve.elapsedMinutesAt(point.trackDistanceKm));assert.equal(point.clockTime,curve.clockTimeAt(point.trackDistanceKm));assert.equal(point.pauseDurationMinutes,null)}
-    assert.equal(curve.clockTimeAt(5.999),null);assert.equal(curve.elapsedMinutesAt(14.001),null)
+    assert.notEqual(curve.clockTimeAt(5.999),null);assert.equal(curve.elapsedMinutesAt(14.001),null)
     const eta=computeRideArrivalEta(next,next.days[0])
     assert.equal(eta.label,finish.clockTime);close(eta.minutesFromDayStart,480+finish.elapsedMinutes)
     const detail=buildDayDetail(next,next.days[0].id)
@@ -83,12 +85,12 @@ test('no-altitude course retains flat-speed timing, and an internal weather poin
     const climb={...fixture.climbs[0],id:'inside-climb',routeId:stage.sourceRouteId,name:'Inside',startDistanceKm:9,endDistanceKm:10,elevationGainM:0,averageGradientPercent:0,startAltitudeM:null,endAltitudeM:null}
     const enriched={...bundle,routePoints:[...bundle.routePoints,pass],climbs:[...bundle.climbs,climb],stages:bundle.stages.map(s=>s.id===stage.id?{...s,routePointIds:[...s.routePointIds,pass.id],climbIds:[...s.climbIds,climb.id]}:s)}
     const next=bounded(enriched), curve=computeStageTimingCurve(input(next)), definition=buildRideDayWeatherDefinition(next,next.days[0])
-    close(curve.elapsedMinutesAt(14),8/18*60)
+    close(curve.elapsedMinutesAt(14),6/15*60+8/18*60)
     assert.equal(selectStageCourseMetrics(next,next.stages[0]).elevationGainM,null)
     const point=definition.samplePoints.find(point=>point.name==='Inside')
-    close(point.eta.totalMinutesFromDeparture,4/18*60)
-    assert.equal(definition.samplePoints[0].name,'Départ de course')
-    for(const point of definition.samplePoints){assert.ok(point.trackDistanceKm>=6&&point.trackDistanceKm<=14);assert.equal(curve.clockTimeAt(point.trackDistanceKm),computeStageWaypoints(input(next)).find(wp=>wp.id===point.id).clockTime)}
+    close(point.eta.totalMinutesFromDeparture,6/15*60+4/18*60)
+    assert.equal(definition.samplePoints[0].name,'Départ GPX')
+    for(const point of definition.samplePoints){assert.ok(point.trackDistanceKm===0||point.trackDistanceKm>=6&&point.trackDistanceKm<=14);assert.equal(curve.clockTimeAt(point.trackDistanceKm),computeStageWaypoints(input(next)).find(wp=>wp.id===point.id).clockTime)}
     assert.equal(validateTripBundle(next).ok,true)
   }finally{database.close()}
 })
@@ -105,7 +107,7 @@ test('after-midnight course forecasts request the ETA dates and completion waits
     assert.equal(afterMidnight.days[0].completed,false)
     assert.equal(afterMidnight.days[0].current,true)
     assert.equal(afterMidnight.priorityDayId,next.days[0].id)
-    assert.equal(deriveTripTemporalState(next,'2027-05-10T22:30:00Z').days[0].completed,true)
+    assert.equal(deriveTripTemporalState(next,'2027-05-10T22:50:00Z').days[0].completed,true)
     const coordinator=new GenericWeatherCoordinator({provider:{id:'open-meteo',fetchForecast:async request=>forecast(request)},cache:cache(),now:()=>new Date(NOW)})
     try {coordinator.setTripBundle(next,next.days[0].id);await coordinator.waitForIdle();const result=coordinator.getDayWeatherState(next.days[0].id);assert.equal(result.data.waypoints.at(-1).etaLocal.slice(0,10),'2027-05-11')}finally{coordinator.dispose()}
   }finally{database.close()}
@@ -126,7 +128,7 @@ test('moving a departure reassociates the same cached hourly forecasts; moving b
     assert.equal(coordinator.getDayWeatherState(day.id).data.waypoints[0].weather.windSpeedKph,20)
     coordinator.setTripBundle(bounded(later,7000,13000),day.id);await coordinator.waitForIdle()
     assert.equal(calls.length,baseline+1)
-    assert.equal(coordinator.getDayWeatherState(day.id).data.waypoints[0].samplePoint.trackDistanceKm,7)
+    assert.ok(coordinator.getDayWeatherState(day.id).data.waypoints.some(point=>point.samplePoint.trackDistanceKm===7))
   }finally{coordinator.dispose();database.close()}
 })
 
@@ -166,7 +168,8 @@ test('a late forecast for previous limits cannot replace the current course asso
     pending[0].resolve(forecast(pending[0].request))
     await coordinator.waitForIdle()
     const points=coordinator.getDayWeatherState(day.id).data.waypoints
-    assert.equal(points[0].samplePoint.trackDistanceKm,7)
+    assert.equal(points[0].samplePoint.trackDistanceKm,0)
+    assert.ok(points.some(point=>point.samplePoint.trackDistanceKm===7))
     assert.equal(points.at(-1).samplePoint.trackDistanceKm,13)
     assert.equal(points[0].etaLocal,'2027-05-10T08:00')
   }finally{for(const request of pending)request.resolve(forecast(request.request));coordinator.dispose();database.close()}
@@ -196,7 +199,7 @@ test('stale limits suppress timing, weather and operational figures instead of r
     assert.equal(computeRideArrivalEta(changed,changed.days[0]),null)
     assert.deepEqual(selectStageCourseMetrics(changed,changed.stages[0]),{distanceKm:null,elevationGainM:null,elevationLossM:null})
     assert.equal(summarizeTripBundle(changed).courseLimitsNeedReview,true)
-    assert.match(buildTripOverview(changed,NOW).html,/uniquement les courses délimitées/)
+    assert.match(buildTripOverview(changed,NOW).html,/les totaux sont partiels/)
     const definition=buildRideDayWeatherDefinition(changed,changed.days[0])
     assert.deepEqual(definition.locations,[]);assert.match(definition.unavailableReason,/limites/)
     const detail=buildDayDetail(changed,changed.days[0].id)
@@ -204,14 +207,14 @@ test('stale limits suppress timing, weather and operational figures instead of r
   }finally{database.close()}
 })
 
-test('a saved service outside the race keeps its marker but has neither a course ETA nor an opening claim',async()=>{
+test('services on the approach get its slower ETA, while services after the finish have no opening claim',async()=>{
   const {database,bundle}=await setup()
   try {
     const next=bounded(bundle), template=createGenericTripBundle().practicalPlaces[0]
     const places=[{...template,id:'before',trackDistanceKm:2},{...template,id:'within',trackDistanceKm:10},{...template,id:'after',trackDistanceKm:20}]
     const views=buildPracticalPlaceViewModels(places,next.days[0],computeStageTimingCurve(input(next)),'08:00')
-    assert.equal(views[0].opening,null);assert.equal(views[0].passageClockTimeLabel,null)
-    assert.equal(views[1].passageClockTimeLabel,'08:13')
+    assert.ok(views[0].opening);assert.equal(views[0].passageClockTimeLabel,computeStageTimingCurve(input(next)).clockTimeAt(2))
+    assert.equal(views[1].passageClockTimeLabel,computeStageTimingCurve(input(next)).clockTimeAt(10))
     assert.equal(views[2].opening,null);assert.equal(views[2].passageClockTimeLabel,null)
   }finally{database.close()}
 })
@@ -227,7 +230,7 @@ test('calendar, day cards and overview use course distance while source statisti
     assert.ok(bundle.stages[0].distanceKm>22)
     const overview=buildTripOverview(next,NOW)
     assert.match(overview.html,/16,0 km/)
-    assert.ok(overview.mapStages.every(stage=>stage.waypoints.every(wp=>wp.trackDistanceKm>=6&&wp.trackDistanceKm<=14)))
+    assert.ok(overview.mapStages.every(stage=>stage.waypoints.every(wp=>wp.trackDistanceKm===0||wp.trackDistanceKm>=6&&wp.trackDistanceKm<=14)))
   }finally{database.close()}
 })
 
@@ -240,7 +243,7 @@ test('extending a Tour course adjusts a conflicting linked departure and invalid
     const result=updateRaceCourse(scheduled,stage.id,{routeFingerprint:fingerprint,startOffsetM:1000,finishOffsetM:14000},fingerprint,NOW)
     assert.equal(result.adjustments.length,1)
     assert.equal(result.adjustments[0].dayId,secondDay.id)
-    assert.equal(result.adjustments[0].to,'08:45')
+    assert.equal(result.adjustments[0].to,'09:00')
     assert.equal(result.bundle.days[0].date,result.bundle.days[1].date)
     assert.equal(validateTripBundle(result.bundle).ok,true)
   }finally{database.close()}

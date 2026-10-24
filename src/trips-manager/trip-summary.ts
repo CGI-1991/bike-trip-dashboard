@@ -50,7 +50,7 @@ export function summarizeTripBundle(bundle: TripBundle, preparationContext: Stag
     totalDistanceKm: bundle.stages.reduce((total, stage) => total + (selectStageCourseMetrics(bundle, stage).distanceKm ?? 0), 0),
     ...(bundle.stages.some(stage => buildRaceCourse(bundle, stage)?.status === 'stale') ? { courseLimitsNeedReview: true as const } : {}),
     status: bundle.metadata.status,
-    ...(selectOrganizationMode(bundle) === 'league' ? { organizationMode: 'league' as const, ...(!bundle.stages.some(stage => buildRaceCourse(bundle, stage)?.status === 'bounded') ? { courseStatsUnavailable: true as const } : {}) } : {}),
+    ...(selectOrganizationMode(bundle) === 'league' ? { organizationMode: 'league' as const, ...(!bundle.stages.some(stage => selectStageCourseMetrics(bundle, stage).distanceKm !== null) ? { courseStatsUnavailable: true as const } : {}) } : {}),
     ...(selectTravelMode(bundle) === 'walking' ? { travelMode: 'walking' as const } : {}),
     preparationSummary: computeTripPreparationSummary(bundle, preparationContext),
   }

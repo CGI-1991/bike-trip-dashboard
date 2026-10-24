@@ -64,7 +64,9 @@ export async function buildFitCourse(bundle: TripBundle, stage: RideStage, creat
   const curve = computeStageTimingCurve({ stage, route, routePoints: bundle.routePoints, climbs: bundle.climbs, raceCourse: course,
     settings: { referenceSpeedKph: bundle.settings.global.referenceSpeedKph, travelMode: selectTravelMode(bundle), departureTime: '00:00' },
     manualPauses: [], automaticPausesAllowed: false })
-  const durationMinutes = curve?.elapsedMinutesAt(finishM / 1000)
+  const approachMinutes = curve?.elapsedMinutesAt(startM / 1000)
+  const finishMinutes = curve?.elapsedMinutesAt(finishM / 1000)
+  const durationMinutes = approachMinutes == null || finishMinutes == null ? null : finishMinutes - approachMinutes
   if (durationMinutes == null || !Number.isFinite(durationMinutes) || durationMinutes <= 0) throw new Error('Les temps du parcours sont indisponibles. Vérifiez son allure avant l’export FIT.')
   // The course's theoretical pace starts at export time. Source GPX timestamps
   // and League dates are not recording times and are deliberately not reused.
@@ -72,7 +74,7 @@ export async function buildFitCourse(bundle: TripBundle, stage: RideStage, creat
   const timestamp = (offsetM: number) => {
     const minutes = curve?.elapsedMinutesAt(offsetM / 1000)
     if (minutes == null) throw new Error('Les temps du parcours sont incomplets. Export FIT annulé.')
-    return scaled(startTime + minutes * 60, 1)
+    return scaled(startTime + (minutes - approachMinutes!) * 60, 1)
   }
   const first = course.geometry![0]!, last = course.geometry!.at(-1)!
   const warnings: string[] = []
