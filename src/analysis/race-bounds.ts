@@ -1,6 +1,6 @@
 import type { RideStage, RouteGeometryPoint, TripBundle } from '../trip-core/index.ts'
 import type { RaceBounds } from '../trip-core/model/ride-stage.ts'
-import { selectRaceMode } from '../trip-core/index.ts'
+import { selectRaceMode, selectOrganizationCapabilities } from '../trip-core/index.ts'
 import { routeFingerprint, routeGeometry } from '../route-enrichment/route-fingerprint.ts'
 import { indexRouteGeometry, sliceRouteGeometry } from '../route-enrichment/segment-geometry.ts'
 import type { DistanceIndexedGeometry } from '../route-enrichment/segment-geometry.ts'
@@ -77,6 +77,7 @@ export function raceCourseMetrics(geometry: readonly RouteGeometryPoint[]): {
 /** Operational figures; source RideStage metrics continue to describe the GPX. */
 export function selectStageCourseMetrics(bundle: TripBundle, stage: RideStage): Pick<RideStage, 'distanceKm' | 'elevationGainM' | 'elevationLossM'> {
   const course = buildRaceCourse(bundle, stage)
+  if (selectOrganizationCapabilities(bundle).explicitRaceBounds && course?.status !== 'bounded') return { distanceKm: null, elevationGainM: null, elevationLossM: null }
   if (course === null || course.status === 'full') return stage
   if (course.geometry === null || course.bounds === null) return { distanceKm: null, elevationGainM: null, elevationLossM: null }
   return { distanceKm: (course.bounds.finishOffsetM - course.bounds.startOffsetM) / 1000, ...raceCourseMetrics(course.geometry) }

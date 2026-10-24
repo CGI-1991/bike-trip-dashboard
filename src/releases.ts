@@ -13,6 +13,13 @@ export interface AppRelease {
 }
 
 export const APP_RELEASES: readonly AppRelease[] = [
+  { version: '2026.10.24.1', date: '2026-10-24', changes: [
+    { feature: 'league-calendar', title: 'League et Tour : navigation adaptée', description: 'Mes activités regroupe vos voyages, League et Tours. L’onglet devient Calendrier en League et Étapes en Tour. L’Aperçu League reste synthétique, sans calendrier ni vent relatif.' },
+    { feature: 'race-bounds', title: 'League : statistiques entre les limites réelles', description: 'Définissez le départ et l’arrivée réels. Les statistiques apparaissent alors dans le bloc supérieur du Détail, uniquement entre ces limites. Aucune course entière n’est supposée à partir du GPX.' },
+    { feature: 'climb-detection', title: 'La détection des montées s’enregistre correctement', description: 'Changer le curseur marque l’activité comme modifiée et affiche le récapitulatif avec Enregistrer en haut. Le recalcul conserve vos segments manuels.' },
+    { feature: 'reference-speed', title: 'Cinq allures et une vitesse manuelle', description: 'Chill, Tempo, Normal, Soutenu ou Sportif règlent la vitesse sur le plat à vélo ou à pied. Choisissez Manuel pour saisir vos km/h. Normal conserve les références de 18 km/h à vélo et 4,5 km/h à pied.' },
+    { feature: 'race-segments', title: 'Les segments rejoignent le parcours et son profil', description: 'Éditez les segments depuis les points de passage, sur le profil ou en kilomètres au dixième. Leur portion colore directement le tracé et son remplissage. Les montées automatiques clairement couvertes cèdent leur place au segment ; les autres restent visibles. L’édition et l’affichage des segments sur carte sont retirés.' },
+  ] },
   { version: '2026.10.23.9', date: '2026-10-23', changes: [
     { feature: 'elevation-profile', title: 'Un GPX sans altitude garde des valeurs inconnues', description: 'Un fichier dépourvu d’altitudes n’affiche plus un faux profil plat à zéro mètre. Les segments restent éditables sur la carte ou par leurs kilomètres, avec pente et dénivelé inconnus.' },
     { feature: 'race-segments', title: 'Vos segments Sprint, Grimpeur et Flandrien', description: 'Dans League et Tour, ajoutez des segments nommés, placez leurs limites sur le profil ou sur une carte interactive et ajustez leurs kilomètres. Les bandes et repères S/G/F acceptent les chevauchements. Les segments manuels, leurs statistiques et réglages pour les futurs exports sont sauvegardés localement, indépendamment des montées automatiques. Après remplacement du GPX, leurs positions doivent être vérifiées.' },

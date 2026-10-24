@@ -29,8 +29,8 @@ export function renderRelativeWind(reading: RelativeWindReading | null, compact 
   return `<span class="relative-wind${compact ? ' relative-wind--compact' : ''}" aria-label="${relativeWindLabel(reading)}, ${Math.round(reading.speedKph)} km/h${qualifier}">${compass(reading, travelMode)}<span><strong>${relativeWindLabel(reading)}</strong><span class="relative-wind__detail">${Math.round(reading.speedKph)} km/h${qualifier}</span></span></span>`
 }
 
-export function renderProfileWindControls(): string {
-  return `<div class="profile-modes"><div role="group" aria-label="Coloration du profil"><button type="button" data-profile-mode="neutral" aria-pressed="true">Neutre</button><button type="button" data-profile-mode="grade" aria-pressed="false">Pente</button><button type="button" data-profile-mode="wind" aria-pressed="false">Vent</button></div>${renderFeatureUpdateBadge('relative-wind')}</div><p class="profile-color-legend" data-profile-color-legend></p>`
+export function renderProfileWindControls(windEnabled = true): string {
+  return `<div class="profile-modes"><div role="group" aria-label="Coloration du profil"><button type="button" data-profile-mode="neutral" aria-pressed="true">Neutre</button><button type="button" data-profile-mode="grade" aria-pressed="false">Pente</button>${windEnabled ? '<button type="button" data-profile-mode="wind" aria-pressed="false">Vent</button>' : ''}</div>${windEnabled ? renderFeatureUpdateBadge('relative-wind') : ''}</div><p class="profile-color-legend" data-profile-color-legend></p>`
 }
 
 export function formatRouteWindSummary(stats: RouteWindSummary | null): string {
@@ -58,7 +58,7 @@ export function installProfileWindControls(container: HTMLElement, samples: read
   readonly total: number
   readonly x: (km: number) => number
   readonly y: (altitude: number) => number
-}): void {
+}, windEnabled = true): void {
   if (typeof container.querySelector !== 'function') return
   handles.get(container)?.destroy()
   const svg = container.querySelector<SVGSVGElement>('[data-profile-interactive]')
@@ -68,13 +68,15 @@ export function installProfileWindControls(container: HTMLElement, samples: read
   const readout = container.querySelector<HTMLElement>('[data-profile-wind]')
   const summary = container.querySelector<HTMLElement>('[data-route-wind-summary]')
   const selectedDetails = container.querySelector<HTMLElement>('[data-selected-wind-details]')
-  if (svg === null || bands === null || area === null || legend === null || readout === null || summary === null) return
+  if (svg === null || bands === null || area === null || legend === null) return
   const controller = new AbortController()
   let mode = preferredMode()
+  if (!windEnabled && mode === 'wind') mode = 'neutral'
   let wind: RouteWindModel | null = null
   let travelMode: TravelMode = 'cycling'
   let selected: number | null = null
   const renderReadout = () => {
+    if (!windEnabled || readout === null) return
     const reading = selected === null ? wind?.summary.mean ?? null : wind?.at(selected) ?? null
     const title = selected === null ? 'Vent moyen du parcours' : `Vent vers le km ${selected.toFixed(1).replace('.', ',')}`
     readout.innerHTML = `<p class="profile-wind__title">${title}</p>${renderRelativeWind(reading, false, travelMode)}`
@@ -100,13 +102,14 @@ export function installProfileWindControls(container: HTMLElement, samples: read
     travelMode = nextTravelMode
     renderReadout()
     const stats = wind?.summary
-    summary!.textContent = formatRouteWindSummary(stats ?? null)
+    if (summary !== null) summary.textContent = formatRouteWindSummary(stats ?? null)
     if (mode === 'wind') paint()
   }
   container.addEventListener('click', event => {
     if (!(event.target instanceof Element)) return
     const value = event.target.closest<HTMLElement>('[data-profile-mode]')?.dataset.profileMode
     if (value !== 'neutral' && value !== 'grade' && value !== 'wind') return
+    if (!windEnabled && value === 'wind') return
     mode = value
     try { localStorage.setItem(MODE_KEY, mode) } catch { /* Session use still works. */ }
     paint()

@@ -490,6 +490,7 @@ export async function editGpxTrip(input: EditGpxTripInput): Promise<EditGpxTripR
       language: existing.metadata.language,
       units: 'metric',
       referenceSpeedKph: existing.settings.global.referenceSpeedKph,
+      referenceSpeedMode: existing.settings.global.referenceSpeedMode,
       travelMode: existing.settings.global.travelMode,
       organizationMode: selectOrganizationMode(existing),
       // Without this, a structural edit would silently re-detect every

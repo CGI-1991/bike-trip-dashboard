@@ -1,5 +1,7 @@
 # Limites de course et vent mobile — lot 2
 
+> Les [corrections du 24 octobre](LEAGUE_TOUR_CORRECTIONS.md) remplacent les choix d’interface de ce document lorsqu’ils diffèrent : statistiques League, vent, navigation et présentation des segments.
+
 Lot initial 2026.10.23.7. Depuis 2026.10.23.8, les [horaires, météo et vent suivent aussi les limites de course](RACE_COURSE_TIMING.md). Le calendrier League est décrit dans [LEAGUE_CALENDAR.md](LEAGUE_CALENDAR.md).
 
 Dans une course League ou une étape Tour, le bloc **Course**, au-dessus du profil, compare **Trace GPX** et **Course calculée**. Déplier **Départ et arrivée de course**, saisir les kilomètres ou choisir une limite puis toucher le profil. Les flèches du clavier fonctionnent aussi. **Enregistrer** confirme ; **Annuler** abandonne l’aperçu ; **Trace entière** supprime les limites enregistrées. La carte porte les repères Départ/Arrivée de course après enregistrement. La sélection sur carte est reportée : le profil désigne sans ambiguïté le passage dans une boucle, et la saisie reste disponible si le GPX n’a pas d’altitude.

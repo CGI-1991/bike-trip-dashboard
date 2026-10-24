@@ -11,9 +11,9 @@ export const ORGANIZATION_MODES = ['voyage', 'league', 'tour'] as const
 export type OrganizationMode = (typeof ORGANIZATION_MODES)[number]
 
 export const ORGANIZATION_CAPABILITIES = {
-  voyage: { independentDates: false, plannedStops: true, linkedStages: false, automaticPoiSearch: true },
-  league: { independentDates: true, plannedStops: false, linkedStages: false, automaticPoiSearch: false },
-  tour: { independentDates: false, plannedStops: false, linkedStages: true, automaticPoiSearch: true },
+  voyage: { tripTabLabel: 'Voyage', relativeWind: true, explicitRaceBounds: false, independentDates: false, plannedStops: true, linkedStages: false, automaticPoiSearch: true },
+  league: { tripTabLabel: 'Calendrier', relativeWind: false, explicitRaceBounds: true, independentDates: true, plannedStops: false, linkedStages: false, automaticPoiSearch: false },
+  tour: { tripTabLabel: 'Étapes', relativeWind: true, explicitRaceBounds: false, independentDates: false, plannedStops: false, linkedStages: true, automaticPoiSearch: true },
 } as const
 
 /**
@@ -43,6 +43,7 @@ export interface GlobalTripSettings {
   readonly leaguePoiSearchEnabled?: boolean
   /** Absent on existing trips: preserve the historical cycling model. */
   readonly travelMode?: TravelMode
+  readonly referenceSpeedMode?: import('./reference-speed.ts').ReferenceSpeedMode
   readonly referenceSpeedKph: KilometersPerHour
   readonly pausePlanMode: PausePlanMode
   /*

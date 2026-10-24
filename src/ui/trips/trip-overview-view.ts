@@ -11,7 +11,7 @@ import { selectTravelMode } from '../../trip-core/index.ts'
 import { buildRaceCourse, selectStageCourseMetrics } from '../../analysis/race-bounds.ts'
 import { computeStageWaypoints, resolveStagePauseSettings } from '../../analysis/waypoint-timeline.ts'
 import { selectOrganizationMode, selectRaceMode, selectStageCustomName, selectTripDayLabel } from '../../trip-core/index.ts'
-import { renderLeagueCalendar } from './league-calendar-view.ts'
+import { selectOrganizationCapabilities } from '../../trip-core/index.ts'
 import { stageAutomaticPausesAllowed } from '../../route-enrichment/enrichment-jobs.ts'
 import type { LatLngTuple } from '../route-map-model.ts'
 import { routeGeometry } from '../../route-enrichment/route-fingerprint.ts'
@@ -139,7 +139,7 @@ function computeTripProgress(bundle: TripBundle, now: Date | string | null): Tri
 }
 
 /** The six field-facing D1 metrics, in the requested order. */
-function renderProgressStats(progress: TripProgress, league = false): string {
+function renderProgressStats(progress: TripProgress, league = false, hasCourseStats = true): string {
   const rows: ReadonlyArray<readonly [string, string]> = [
     ['Distance totale', formatKilometers(progress.distanceTotalKm)],
     ['Distance restante', formatKilometers(progress.distanceRemainingKm)],
@@ -148,7 +148,7 @@ function renderProgressStats(progress: TripProgress, league = false): string {
     [league ? 'Courses terminées' : 'Étapes terminées', String(progress.ridesCompleted)],
     [league ? 'Courses restantes' : 'Étapes restantes', String(progress.stagesRemaining)],
   ]
-  const cells = rows.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join('')
+  const cells = rows.filter((_row, index) => hasCourseStats || index >= 4).map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join('')
   return `<section class="card trip-overview__progress" data-trip-overview-progress>
     <p class="eyebrow">${league ? 'Progression League' : 'Progression du voyage'}</p>
     <dl class="trip-overview__progress-grid">${cells}</dl>
@@ -209,11 +209,11 @@ function renderHighlightedDay(bundle: TripBundle, highlightedDayId: TripDayId | 
     <p class="eyebrow trip-overview__zone-eyebrow">${escapeHtml(zoneLabel)}</p><h3>${headerParts.join(' — ')}</h3>
     ${customName === null ? '' : `<p class="trip-overview__highlighted-day-route">${locations}</p>`}
     <div class="route-map route-map--compact" data-trip-overview-day-map></div>
-    <dl class="trip-overview__highlighted-day-stats">
+    <dl class="trip-overview__highlighted-day-stats">${!selectOrganizationCapabilities(bundle).explicitRaceBounds || metrics?.distanceKm !== null ? `
       <div><dt>Distance</dt><dd>${metrics?.distanceKm === null || metrics?.distanceKm === undefined ? '—' : formatKilometers(metrics.distanceKm)}</dd></div>
       <div><dt>D+</dt><dd>${metrics?.elevationGainM === null || metrics?.elevationGainM === undefined ? '—' : `+${Math.round(metrics.elevationGainM)} m`}</dd></div>
-      <div><dt>Départ</dt><dd>${departureTime ?? '—'}</dd></div>
-      <div><dt>ETA</dt><dd>${eta ?? '—'}</dd></div>
+      ` : ''}<div><dt>Départ</dt><dd>${departureTime ?? '—'}</dd></div>
+      ${eta === null && selectOrganizationCapabilities(bundle).explicitRaceBounds ? '' : `<div><dt>ETA</dt><dd>${eta ?? '—'}</dd></div>`}
     </dl>
     <div class="trip-overview__weather-mount" data-trip-overview-weather-mount data-day-id="${escapeHtml(day.id)}"><p class="trip-overview__weather-placeholder">Météo non disponible pour le moment.</p></div>
   </article>`
@@ -286,10 +286,10 @@ export function buildTripOverview(bundle: TripBundle, now: Date | string | null)
   const html = `<div class="trip-overview" data-trip-overview>
     <header class="view-heading"><p class="eyebrow">Aperçu${selectTravelMode(bundle) === 'walking' ? ' · Randonnée' : ''}</p></header>
     <section class="trip-overview__zone trip-overview__zone--trip" data-trip-overview-zone="trip">
-      ${selectOrganizationMode(bundle) === 'league' ? renderLeagueCalendar(bundle) : ''}
-      ${bundle.stages.some(stage => buildRaceCourse(bundle, stage)?.status === 'stale') ? '<p class="race-course__hint" role="status">Des limites de course sont à redéfinir : les statistiques sont partielles.</p>' : ''}
-      ${renderProgressStats(progress, selectOrganizationMode(bundle) === 'league')}
-      <details class="card trip-wind-summary"><summary>${selectRaceMode(bundle) ? 'Vent relatif sur l’ensemble des courses' : 'Vent relatif sur l’ensemble du voyage'}</summary><div data-trip-wind-summary></div></details>
+
+      ${bundle.stages.some(stage => buildRaceCourse(bundle, stage)?.status === 'stale' || (selectOrganizationCapabilities(bundle).explicitRaceBounds && buildRaceCourse(bundle, stage)?.status !== 'bounded')) ? '<p class="race-course__hint" role="status">Limites de course à définir : les totaux incluent uniquement les courses délimitées.</p>' : ''}
+      ${renderProgressStats(progress, selectOrganizationMode(bundle) === 'league', !selectOrganizationCapabilities(bundle).explicitRaceBounds || bundle.stages.some(stage => buildRaceCourse(bundle, stage)?.status === 'bounded'))}
+      ${selectOrganizationCapabilities(bundle).relativeWind ? `<details class="card trip-wind-summary"><summary>${selectRaceMode(bundle) ? 'Vent relatif sur l’ensemble des courses' : 'Vent relatif sur l’ensemble du voyage'}</summary><div data-trip-wind-summary></div></details>` : ''}
       <section class="card route-map-card" data-route-visuals>
         <div class="section-heading"><div><p class="eyebrow">Vue d’ensemble</p><h3>Carte du voyage</h3></div><div class="route-map-card__actions"><button class="button button--quiet" type="button" data-action="download-trip-gpx">GPX</button></div></div>
         <div class="route-map route-map--action" data-trip-overview-map data-explore-map role="button" tabindex="0" aria-label="Ouvrir la carte du voyage en plein écran"></div>

@@ -1,5 +1,9 @@
 /** Compact structural editor reusing the 6C1 pre-analysis, warnings and GPX engine. */
 
+import { REFERENCE_SPEED_PRESETS, isReferenceSpeedMode, resolveReferenceSpeedMode } from '../../trip-core/model/reference-speed.ts'
+import type { ReferenceSpeedMode } from '../../trip-core/model/reference-speed.ts'
+import { renderReferenceSpeedControl } from './reference-speed-control.ts'
+import { climbSensitivityLabel } from './climb-sensitivity-slider.ts'
 import type { GpxImportFile } from '../../import/gpx/types.ts'
 import { checkChainContinuity, detectStrictDuplicates, editGpxTrip, loadTripEditDraft, preAnalyzeGpxFiles } from '../../trips-manager/index.ts'
 import type { GpxPreAnalysis, TripEditSlot } from '../../trips-manager/index.ts'
@@ -12,7 +16,7 @@ import { formatShortDate } from '../date-format.ts'
 import { climbSensitivityAtIndex, patchClimbSensitivityLabels, renderClimbSensitivitySlider } from './climb-sensitivity-slider.ts'
 import { renderRaceModeToggle } from './race-mode-toggle.ts'
 import { renderTravelModeToggle } from './travel-mode-toggle.ts'
-import { isTravelMode, TRAVEL_MODE_SETTINGS } from '../../trips-manager/travel-mode.ts'
+import { isTravelMode } from '../../trips-manager/travel-mode.ts'
 import { selectOrganizationMode, selectTravelMode } from '../../trip-core/index.ts'
 import { isIsoDate, isTimeOfDay } from '../../trip-core/validation/primitives.ts'
 import { resolveLinkedScheduleConflicts } from '../../trips-manager/linked-stages.ts'
@@ -111,6 +115,8 @@ export function createTripEditor(
    */
   let name = ''
   let startDate: string | null = null
+  let referenceSpeedMode: ReferenceSpeedMode = 'normal'
+  let originalReferenceSpeedMode: ReferenceSpeedMode = 'normal'
   let referenceSpeedKph = 18
   let travelMode: TravelMode = 'cycling'
   let originalTravelMode: TravelMode = 'cycling'
@@ -212,6 +218,7 @@ export function createTripEditor(
     return name.trim() !== originalName
       || (startDate !== null && startDate !== originalStartDate)
       || referenceSpeedKph !== originalReferenceSpeedKph
+      || referenceSpeedMode !== originalReferenceSpeedMode
       || travelMode !== originalTravelMode
       || (isLeague() && originalBundle !== null && leagueSchedule().some(event => event.date !== originalBundle!.days.find(day => day.id === event.dayId)?.date
         || event.departureTime !== (originalBundle!.settings.days.find(day => day.dayId === event.dayId)?.departureTime ?? '08:00')))
@@ -224,7 +231,7 @@ export function createTripEditor(
     return {
       ...(name.trim() !== originalName ? { name } : {}),
       ...(startDate !== null && startDate !== originalStartDate ? { startDate } : {}),
-      ...(referenceSpeedKph !== originalReferenceSpeedKph ? { referenceSpeedKph } : {}),
+      ...(referenceSpeedKph !== originalReferenceSpeedKph || referenceSpeedMode !== originalReferenceSpeedMode ? { referenceSpeedKph, referenceSpeedMode } : {}),
       ...(travelMode !== originalTravelMode ? { travelMode } : {}),
       ...(raceMode !== originalRaceMode ? { raceMode } : {}),
       ...(climbSensitivity !== originalClimbSensitivity ? { climbDetectionSensitivity: climbSensitivity } : {}),
@@ -496,7 +503,7 @@ export function createTripEditor(
       // Use the same timing/mode mutation as a preferences-only save.
       // Structural edits must not keep cycling aggregates under a walking label.
       const applied = applyTripPreferences(result.bundle, {
-        name, ...(startDate === null || isLeague() ? {} : { startDate }), referenceSpeedKph, travelMode,
+        name, ...(startDate === null || isLeague() ? {} : { startDate }), referenceSpeedKph, referenceSpeedMode, travelMode,
         raceMode, climbDetectionSensitivity: climbSensitivity,
       }, deps.now(), deps.idFactory)
       // New courses acquire their permanent ids in the structural merge.
@@ -706,12 +713,7 @@ export function createTripEditor(
       </div>
       ${dateField}
       ${renderTravelModeToggle(travelMode)}
-      <div class='field'>
-        <label for='editor-reference-speed'>Vitesse de référence sur le plat</label>
-        <div class='field__control'><input id='editor-reference-speed' type='number' min='${TRAVEL_MODE_SETTINGS[travelMode].minimumSpeedKph}' max='${TRAVEL_MODE_SETTINGS[travelMode].maximumSpeedKph}' step='0.5' data-editor-field='reference-speed' value='${Number.isFinite(referenceSpeedKph) ? referenceSpeedKph : ''}' aria-describedby='editor-reference-speed-hint editor-reference-speed-error'><span>km/h</span></div>
-        <p id='editor-reference-speed-hint' class='field__hint'>Base utilisée pour estimer les temps de ${travelMode === 'walking' ? 'marche' : 'roulage'} selon la pente.</p>
-        <span id='editor-reference-speed-error' class='field__error' data-field-error='referenceSpeedKph' role='status'>${escapeHtml(fieldErrorFor('referenceSpeedKph'))}</span>
-      </div>
+      ${renderReferenceSpeedControl(referenceSpeedKph, referenceSpeedMode, travelMode, 'editor')}
     </section>`
   }
 
@@ -740,6 +742,23 @@ export function createTripEditor(
     </div>`
   }
 
+  function changeSummary(): string[] {
+    const changes: string[] = []
+    if (name.trim() !== originalName) changes.push('Nom')
+    if (startDate !== originalStartDate) changes.push('Date de départ')
+    if (travelMode !== originalTravelMode) changes.push('Mode de déplacement')
+    if (raceMode !== originalRaceMode) changes.push('Organisation')
+    if (referenceSpeedKph !== originalReferenceSpeedKph || referenceSpeedMode !== originalReferenceSpeedMode) changes.push('Vitesse de référence')
+    if (climbSensitivity !== originalClimbSensitivity) changes.push(`Détection des montées : ${climbSensitivityLabel(originalClimbSensitivity)} → ${climbSensitivityLabel(climbSensitivity)}`)
+    if (isStructureDirty()) changes.push('Structure')
+    if (isLeague() && isPreferencesDirty() && changes.length === 0) changes.push('Calendrier des courses')
+    return changes
+  }
+  function renderSaveState(): string {
+    const changes = changeSummary()
+    return `<p data-editor-dirty role="status">${changes.length ? `Modifications non enregistrées · ${escapeHtml(changes.join(' · '))}` : 'Aucune modification'}</p><button class="button button--primary" type="button" data-editor-action="save" ${canSave() ? '' : 'disabled'}>Enregistrer les modifications</button>`
+  }
+
   function render(): void {
     if (stage === 'loading') {
       container.innerHTML = `<p role='status'>Chargement du voyage…</p>`
@@ -758,7 +777,8 @@ export function createTripEditor(
     const savingMessage = isStructureDirty() ? 'Recalcul et enregistrement atomique…' : 'Enregistrement…'
     const advancedOpen = container.querySelector<HTMLDetailsElement>('details.wizard-advanced')?.open === true
     container.innerHTML = `<div class='wizard' data-trip-editor>
-      <header class='view-heading'><p class='eyebrow'>Mes voyages</p><h2>Modifier ${escapeHtml(tripName)}</h2></header>
+      <header class='view-heading'><p class='eyebrow'>Mes activités</p><h2>Modifier ${escapeHtml(tripName)}</h2></header>
+      <div class='trip-editor__save-top'>${renderSaveState()}</div>
       ${renderInformationsSection()}
       <p class='eyebrow'>Structure du voyage</p>
       <button class='button button--quiet' type='button' data-editor-action='trigger-add'>+ Ajouter des GPX</button>
@@ -768,7 +788,7 @@ export function createTripEditor(
       ${renderWarnings()}
       <details class='wizard-advanced' ${advancedOpen ? 'open' : ''}><summary>Réglages avancés</summary>
       ${renderRaceModeToggle(raceMode, originalBundle === null ? 'voyage' : selectOrganizationMode(originalBundle), true)}
-        ${renderClimbSensitivitySlider(climbSensitivity)}
+        ${renderClimbSensitivitySlider(climbSensitivity)}${renderFeatureUpdateBadge('climb-detection')}
         ${renderRecalculationAction()}
       </details>
       ${errorMessage === null ? '' : `<p class='wizard-error' role='alert'>${escapeHtml(errorMessage)}</p>`}
@@ -798,6 +818,8 @@ export function createTripEditor(
       originalReferenceSpeedKph = draft.bundle.settings.global.referenceSpeedKph
       travelMode = selectTravelMode(draft.bundle)
       originalTravelMode = travelMode
+      referenceSpeedMode = resolveReferenceSpeedMode(referenceSpeedKph, travelMode, draft.bundle.settings.global.referenceSpeedMode)
+      originalReferenceSpeedMode = referenceSpeedMode
       modeSpeeds[travelMode] = referenceSpeedKph
       // Both default to what the bundle already means for a trip saved
       // before these settings existed: Classique, and the historical
@@ -851,8 +873,9 @@ export function createTripEditor(
    * after).
    */
   function updateSaveButtonState(): void {
-    const saveButton = container.querySelector<HTMLButtonElement>('[data-editor-action="save"]')
-    if (saveButton !== null) saveButton.disabled = !canSave()
+    for (const saveButton of container.querySelectorAll<HTMLButtonElement>('[data-editor-action="save"]')) saveButton.disabled = !canSave()
+    const dirty = container.querySelector<HTMLElement>('[data-editor-dirty]')
+    if (dirty !== null) { const changes = changeSummary(); dirty.textContent = changes.length ? `Modifications non enregistrées · ${changes.join(' · ')}` : 'Aucune modification' }
   }
 
   function updateFieldError(field: TripPreferencesFieldError['field'], message: string | null): void {
@@ -862,6 +885,11 @@ export function createTripEditor(
 
   container.addEventListener('change', (event) => {
     const target = event.target
+    if (target instanceof HTMLSelectElement && target.hasAttribute('data-reference-speed-mode') && isReferenceSpeedMode(target.value)) {
+      referenceSpeedMode = target.value
+      if (referenceSpeedMode !== 'manual') referenceSpeedKph = REFERENCE_SPEED_PRESETS[travelMode][referenceSpeedMode]
+      render(); return
+    }
     if (target instanceof HTMLSelectElement && target.dataset.editorAction === 'set-transfer-timing' && target.dataset.position !== undefined) {
       setItemTransferTiming(Number(target.dataset.position), target.value as TransferTiming)
       return
@@ -918,7 +946,7 @@ export function createTripEditor(
     }
     // A range input must never be re-rendered mid-drag either — only its
     // two label lines are refreshed in place.
-    if (target.dataset.editorField === 'climb-sensitivity') {
+    if (target.dataset.field === 'climb-sensitivity') {
       climbSensitivity = climbSensitivityAtIndex(Number(target.value))
       patchClimbSensitivityLabels(container, climbSensitivity)
       updateSaveButtonState()
@@ -932,7 +960,7 @@ export function createTripEditor(
     if (modeButton !== null && isTravelMode(modeButton.dataset.travelMode)) {
       if (Number.isFinite(referenceSpeedKph)) modeSpeeds[travelMode] = referenceSpeedKph
       travelMode = modeButton.dataset.travelMode
-      referenceSpeedKph = modeSpeeds[travelMode]
+      referenceSpeedKph = referenceSpeedMode === 'manual' ? modeSpeeds[travelMode] : REFERENCE_SPEED_PRESETS[travelMode][referenceSpeedMode]
       fieldErrors = []
       render()
       return

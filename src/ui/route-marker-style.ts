@@ -182,6 +182,7 @@ export function getRouteMarkerCategory(point: {
 }
 
 const GENERIC_KIND_TO_MARKER_CATEGORY: Readonly<Record<CanonicalWaypointKind, RouteMarkerCategory>> = {
+  'race-segment': 'passage',
   start: 'start',
   end: 'finish',
   city: 'locality-major',

@@ -1,5 +1,7 @@
 # Horaires, météo et vent de course
 
+> Les [corrections du 24 octobre](LEAGUE_TOUR_CORRECTIONS.md) remplacent les choix d’interface de ce document lorsqu’ils diffèrent : statistiques League, vent, navigation et présentation des segments.
+
 Version **2026.10.23.8**, après les [limites de course](RACE_BOUNDS.md). Ce lot lève la limitation des horaires et prévisions sur le GPX complet annoncée dans la version précédente.
 
 En League et Tour, quand une course possède des limites valides, **Départ désigne l’heure au départ de course**, et non au premier point du GPX. La durée est la différence des temps de déplacement entre ces deux limites sur le profil de terrain complet. Le lissage et les modèles Vélo/Randonnée restent les mêmes ; une approche avant le départ et le retour après l’arrivée ne comptent plus dans l’ETA de course. Aucun arrêt n’est ajouté pendant la course.

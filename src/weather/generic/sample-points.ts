@@ -69,6 +69,7 @@ import type { WeatherDayDefinition, WeatherRequestLocation, WeatherSamplePoint }
  * itself.
  */
 const KIND_TO_ROADBOOK_TYPE: Readonly<Record<CanonicalWaypointKind, RoadbookPointType>> = {
+  'race-segment': 'passage',
   start: 'start',
   end: 'end',
   'mountain-pass': 'col',

@@ -74,7 +74,7 @@ import {
   renderTripDayRouteTimeline,
 } from './ui/route-engine.ts'
 import { renderElevationProfile } from './ui/elevation-profile.ts'
-import { closeExpandedRouteMap, getRouteMapInteractionHandle, mountLocationPicker, mountRoutePicker, renderCompactRouteMapModel, renderGenericRouteMap, renderRouteMap, updateGenericRouteMapLayers } from './ui/route-map.ts'
+import { closeExpandedRouteMap, getRouteMapInteractionHandle, mountLocationPicker, renderCompactRouteMapModel, renderGenericRouteMap, renderRouteMap, updateGenericRouteMapLayers } from './ui/route-map.ts'
 import { closeExpandedOverviewMap, renderOverviewMap } from './ui/overview-map.ts'
 import { buildOverviewViewModel } from './ui/overview-view-model.ts'
 import { renderOverviewView } from './ui/overview-view.ts'
@@ -210,15 +210,15 @@ let tripsManagerHandle: TripsManagerHandle | null = null
 
 /**
  * Jalon B4 (UX consolidation): the bottom-nav Aperçu/Voyage links now show
- * the active `TripBundle` (via "Mes voyages"'s own generic screens) rather
+ * the active `TripBundle` (via "Mes activités"'s own generic screens) rather
  * than the RGA-hardcoded pipeline below — CDC section 3: "la sélection d'un
- * voyage dans Mes voyages détermine le voyage actif affiché ailleurs". Both
+ * voyage dans Mes activités détermine le voyage actif affiché ailleurs". Both
  * share the same `[data-app-view="trips"]` DOM section; the historical
  * `today`/`trip` sections stay in the document (so every `getRequiredElement`
  * below keeps resolving and the RGA pipeline keeps working as a golden
  * master/fixture) but are never shown again. `#/day/Jx` deep links are
  * untouched and still open the historical Étape screen directly — nothing
- * in "Mes voyages" produces that hash shape, so the two never collide.
+ * in "Mes activités" produces that hash shape, so the two never collide.
  *
  * Jalon B4.3 section 19-23: the trip-level settings that used to live in a
  * generic Réglages screen (reference speed, Mode montagne) now live in
@@ -252,12 +252,14 @@ function showView(view: AppView): void {
  * Applies the generic app-shell header (bug 48B closeout) — the only place
  * that writes to `.brand h1`/`.brand p`/`[data-day-indicator]` for the
  * generic multi-trip runtime. `trips-manager.ts` reports a
- * `GenericAppHeaderState` on every full render of Mes voyages/Aperçu/Voyage/
+ * `GenericAppHeaderState` on every full render of Mes activités/Aperçu/Voyage/
  * Étape (see its `onHeaderChange` dep); this just applies it to the DOM.
- * `tripName: null` (Mes voyages/wizard/editor/confirmation) falls back to
+ * `tripName: null` (Mes activités/wizard/editor/confirmation) falls back to
  * the generic app title — never the last active trip's name.
  */
 function applyGenericAppHeader(state: GenericAppHeaderState): void {
+  const tripTab = document.querySelector<HTMLElement>('[data-nav-view="trip"]')
+  if (tripTab !== null) tripTab.textContent = state.tripTabLabel ?? 'Voyage'
   appHeaderTitle.textContent = state.tripName ?? GENERIC_APP_TITLE
   appHeaderSubtitle.textContent = ''
   appHeaderSubtitle.hidden = true
@@ -265,7 +267,7 @@ function applyGenericAppHeader(state: GenericAppHeaderState): void {
   dayIndicator.hidden = state.subtitle === null
 }
 
-/** Drives "Mes voyages" to the active trip's Aperçu/Voyage whenever the bottom nav lands there — a no-op while the database hasn't opened yet (the container's own loading placeholder shows instead); re-applied once it has, see `openBikeTripDatabase().then(...)` below. */
+/** Drives "Mes activités" to the active trip's Aperçu/Voyage whenever the bottom nav lands there — a no-op while the database hasn't opened yet (the container's own loading placeholder shows instead); re-applied once it has, see `openBikeTripDatabase().then(...)` below. */
 function syncGenericTripNav(view: AppView): void {
   if (view === 'today') void tripsManagerHandle?.goToOverviewForActiveTrip()
   else if (view === 'trip') void tripsManagerHandle?.goToDetailForActiveTrip()
@@ -1048,7 +1050,7 @@ void initializeGpxAnalysis(gpxAnalysisContainer, rga2026TripPlan.rideDays).then(
   }
 })
 
-// "Mes voyages" (phase 6C1) — entirely independent of the historical RGA
+// "Mes activités" (phase 6C1) — entirely independent of the historical RGA
 // runtime above: its own IndexedDB connection, never touching
 // `rga2026TripPlan`/`currentTripTimeline`/etc. `new Date()`/
 // `crypto.randomUUID()` here are this feature's one legitimate real-clock/
@@ -1056,9 +1058,9 @@ void initializeGpxAnalysis(gpxAnalysisContainer, rga2026TripPlan.rideDays).then(
 // already does for the historical runtime elsewhere in this file — every
 // deeper module (`src/import/gpx/`, `src/analysis/`, `src/trips-manager/`)
 // still only ever receives injected values.
-// The global "Mes voyages" nav link always returns to the trip list,
+// The global "Mes activités" nav link always returns to the trip list,
 // whatever screen was open inside Aperçu/Voyage/Étape — those screens
-// carry no redundant "Retour à Mes voyages" button of their own.
+// carry no redundant "Retour à Mes activités" button of their own.
 document.querySelector<HTMLAnchorElement>('[data-nav-view="trips"]')?.addEventListener('click', () => {
   tripsManagerHandle?.goToList()
 })
@@ -1102,7 +1104,6 @@ void openBikeTripDatabase()
       updateMapLayers: updateGenericRouteMapLayers,
       closeMap: closeExpandedRouteMap,
       getMapInteractionHandle: getRouteMapInteractionHandle,
-      mountRoutePicker,
       mountLocationPicker: (pickerContainer, initial) => mountLocationPicker(pickerContainer, initial, () => {
         const fallback = pickerContainer.parentElement?.querySelector<HTMLElement>('[data-location-picker-fallback]')
         if (fallback !== null && fallback !== undefined) fallback.hidden = false

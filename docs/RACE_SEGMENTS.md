@@ -1,5 +1,7 @@
 # Segments manuels de course
 
+> Les [corrections du 24 octobre](LEAGUE_TOUR_CORRECTIONS.md) remplacent les choix d’interface de ce document lorsqu’ils diffèrent : statistiques League, vent, navigation et présentation des segments.
+
 Version **2026.10.23.9**, en League et Tour, après le [recalage des horaires et prévisions](RACE_COURSE_TIMING.md).
 
 Sous le profil, **Segments de course** permet d’ajouter, renommer, modifier ou supprimer un **Sprint (S, vert)**, **Grimpeur (G, rouge)** ou **Flandrien (F, jaune)**. Choisir le type, placer le début puis la fin sur le profil, ou saisir leurs kilomètres GPX. Le clavier du profil fonctionne également. Les champs acceptent une précision inférieure au mètre ; aucune longueur minimale arbitraire n’est imposée. Enregistrer confirme la modification ; Annuler abandonne l’aperçu. La suppression demande une confirmation dans le panneau.

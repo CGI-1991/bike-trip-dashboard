@@ -127,7 +127,7 @@ export function buildRouteMapModel(gpx: GpxAnalysisSuccess, timeline: RideDayTim
  * its own.
  */
 export function buildGenericRouteMapModel(waypoints: readonly CanonicalWaypoint[], geometry: readonly LatLngTuple[]): RouteMapModel {
-  const markers: RouteMapMarkerModel[] = waypoints.map((waypoint) => ({
+  const markers: RouteMapMarkerModel[] = waypoints.filter(waypoint => waypoint.raceSegmentId === undefined).map((waypoint) => ({
     id: waypoint.id,
     category: getGenericRouteMarkerCategory(waypoint.kind),
     name: waypoint.name,

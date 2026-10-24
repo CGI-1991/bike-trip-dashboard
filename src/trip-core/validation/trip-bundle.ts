@@ -1,3 +1,4 @@
+import { isReferenceSpeedMode } from '../model/reference-speed.ts'
 import { CURRENT_TRIP_BUNDLE_SCHEMA_VERSION } from '../schema/version.ts'
 import type { TripBundle } from '../schema/version.ts'
 import { ORGANIZATION_MODES, TRAVEL_MODES } from '../model/settings.ts'
@@ -824,6 +825,7 @@ export function validateTripBundle(value: unknown): ValidationResult<TripBundle>
     if (!isPlainObject(settings.global)) {
       issues.push(issue('settings.global', 'missing-required', 'settings.global est requis.'))
     } else {
+      if (settings.global.referenceSpeedMode !== undefined && !isReferenceSpeedMode(settings.global.referenceSpeedMode)) issues.push(issue('settings.global.referenceSpeedMode', 'invalid-enum', 'Allure de référence invalide.'))
       if (!isPositiveNumber(settings.global.referenceSpeedKph)) issues.push(issue('settings.global.referenceSpeedKph', 'invalid-value', 'referenceSpeedKph doit être > 0.'))
       if (settings.global.organizationMode !== undefined) {
         if (!isOneOf(settings.global.organizationMode, ORGANIZATION_MODES)) issues.push(issue('settings.global.organizationMode', 'invalid-enum', 'organizationMode invalide.'))

@@ -72,6 +72,7 @@ export interface WizardState {
   errorMessage: string | null
   duplicateSelectionNotice: string | null
   /** Trip-level settings (CDC Jalon B4.3 sections 19-21): reference speed and Mode montagne belong to the trip, set here at creation and editable afterwards via "Modifier le voyage" — never per-stage/per-day, never a separate global settings screen. */
+  referenceSpeedMode?: import('../../trip-core/model/reference-speed.ts').ReferenceSpeedMode
   referenceSpeedKph: number
   travelMode: TravelMode
   /** Mode "Course / Tour" — `false` (Classique) for a new trip, like every existing one. */
