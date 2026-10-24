@@ -522,7 +522,7 @@ export function mountClimbProfileInteraction(svg: SVGSVGElement): void {
  * computeStageTimingCurve(...)`'s result, or `null`/omitted for an
  * undated/untimed stage; the band's ETA cell then simply stays "—".
  */
-export function renderGenericElevationProfile(container: HTMLElement, geometry: readonly RouteGeometryPoint[] | null, waypoints: readonly CanonicalWaypoint[], stageLabel = 'étape', timingCurve: BandProfileInteractionOptions['timingCurve'] = null): void {
+export function renderGenericElevationProfile(container: HTMLElement, geometry: readonly RouteGeometryPoint[] | null, waypoints: readonly CanonicalWaypoint[], stageLabel = 'étape', timingCurve: BandProfileInteractionOptions['timingCurve'] = null, options: { readonly relativeWind?: boolean } = {}): void {
   if (geometry === null || geometry.length < 2) { container.innerHTML = '<p>Profil indisponible.</p>'; return }
   const samples = sampleElevationProfileFromGeometry(geometry)
   if (samples.length < 2) { container.innerHTML = `<p>Profil altimétrique indisponible. ${renderFeatureUpdateBadge('elevation-profile')}</p>`; return }
@@ -532,6 +532,7 @@ export function renderGenericElevationProfile(container: HTMLElement, geometry: 
   const x = (distance: number) => 20 + 760 * distance / Math.max(total, 0.1)
   const y = (alt: number) => 210 - 180 * (alt - min) / Math.max(max - min, 1)
   const markers = waypoints
+    .filter(waypoint => waypoint.raceSegmentId === undefined)
     .map((waypoint) => {
       const spec: ProfileMarkerSpec = {
         category: getGenericRouteMarkerCategory(waypoint.kind),
@@ -543,9 +544,10 @@ export function renderGenericElevationProfile(container: HTMLElement, geometry: 
       return renderProfileMarker(spec, waypoint.name, x, y)
     })
     .join('')
-  container.innerHTML = renderProfileWindControls()
+  const windEnabled = options.relativeWind !== false
+  container.innerHTML = renderProfileWindControls(windEnabled)
     + renderProfileSvgMarkup(samples, markers, { min, max, total, x, y }, 'generic', `Profil altimétrique interactif de ${stageLabel}`, 'band')
-    + '<div class="profile-wind" data-profile-wind></div><details class="profile-wind__details"><summary>Détails du vent</summary><p class="profile-wind__orientation">↑ sens de déplacement · flèche = déplacement de l’air</p><p data-selected-wind-details></p><p class="profile-wind__summary" data-route-wind-summary></p></details>'
-  installProfileWindControls(container, samples, { total, x, y })
+    + (windEnabled ? '<div class="profile-wind" data-profile-wind></div><details class="profile-wind__details"><summary>Détails du vent</summary><p class="profile-wind__orientation">↑ sens de déplacement · flèche = déplacement de l’air</p><p data-selected-wind-details></p><p class="profile-wind__summary" data-route-wind-summary></p></details>' : '')
+  installProfileWindControls(container, samples, { total, x, y }, windEnabled)
   installBandProfileInteraction(container, samples, min, max, total, { timingCurve })
 }

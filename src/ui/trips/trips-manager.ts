@@ -1,5 +1,6 @@
+import { selectOrganizationCapabilities } from '../../trip-core/index.ts'
 /**
- * "Mes voyages" — CDC phase 6C1 sections 5-7/24-27, reworked across Jalons
+ * "Mes activités" — CDC phase 6C1 sections 5-7/24-27, reworked across Jalons
  * B4.2/B4.3. Lists every stored `TripBundle`, lets the user create one (the
  * import wizard), open its technical view, or delete it. Independent of the
  * historical RGA runtime — see `README.md`.
@@ -10,7 +11,6 @@ import { buildRaceCourse } from '../../analysis/race-bounds.ts'
 import { updateRaceCourse } from '../../trips-manager/race-course.ts'
 import { mountRaceBoundsEditor } from './race-bounds-view.ts'
 import { mountRaceSegmentsEditor } from './race-segments-view.ts'
-import { withRaceSegmentMap } from './race-segment-map.ts'
 import { applyRaceSegmentChange } from '../../analysis/race-segments.ts'
 import { selectTravelMode } from '../../trip-core/index.ts'
 import { createSourceFileRepository } from '../../storage/indexeddb/source-file-repository.ts'
@@ -36,7 +36,7 @@ import { deriveTripTemporalState, resolveAdjacentTripDayId } from '../../trips-m
 import { deleteTripCompletely, listTripSummaries, setActiveTrip } from '../../trips-manager/trip-manager-actions.ts'
 import type { TripListEntry } from '../../trips-manager/trip-summary.ts'
 import { formatShortDate } from '../date-format.ts'
-import type { MapLayerDefinition, RouteMapInteractionHandle, RoutePickerHandle } from '../route-map.ts'
+import type { MapLayerDefinition, RouteMapInteractionHandle } from '../route-map.ts'
 import { buildGenericOverviewDetailMarkers, buildGenericOverviewRouteMapModel, buildGenericRouteMapModel } from '../route-map-model.ts'
 import type { RouteMapModel } from '../route-map-model.ts'
 import { buildPracticalPlaceMapLayers } from '../practical-place-map-layers.ts'
@@ -189,7 +189,7 @@ export interface TripsManagerDeps {
    * Drives the app-shell header (bug 48B closeout) — `main.ts` owns the
    * actual `.brand`/`[data-day-indicator]` DOM nodes (outside this
    * component's own `[data-trips-manager]` container) and applies whatever
-   * state this reports. Called on every full render of Mes voyages/Aperçu/
+   * state this reports. Called on every full render of Mes activités/Aperçu/
    * Voyage/Étape, plus the wizard/editor/confirmation screens (all of which
    * report `GENERIC_APP_HEADER_NO_ACTIVE_TRIP` — CDC: never leak the last
    * active trip's name outside of an actual trip screen). Omitted in tests
@@ -220,7 +220,6 @@ export interface TripsManagerDeps {
    * that never register a real map keep working unchanged.
    */
   readonly getMapInteractionHandle?: (container: HTMLElement) => RouteMapInteractionHandle | null
-  readonly mountRoutePicker?: (container: HTMLElement, model: RouteMapModel, onTileError: () => void) => RoutePickerHandle | null
   /**
    * R3 sections 30-35 — "Choisir sur la carte": always the real
    * `route-map.ts::mountLocationPicker` in production, mounting a small,
@@ -329,7 +328,7 @@ function renderTripCard(trip: TripListEntry): string {
       <dl class="trip-card__stats">
         <div><dt>Dates</dt><dd>${escapeHtml(dateLabel)}</dd></div>
         ${trip.organizationMode === 'league' ? `<div><dt>Courses</dt><dd>${trip.stageCount}</dd></div>` : `<div><dt>Journées</dt><dd>${trip.dayCount}</dd></div><div><dt>Étapes</dt><dd>${trip.stageCount}</dd></div>`}
-        <div><dt>Distance</dt><dd>${trip.courseLimitsNeedReview === true ? 'À vérifier' : `${trip.totalDistanceKm.toFixed(1)} km`}</dd></div>
+        ${trip.courseStatsUnavailable === true ? '' : `<div><dt>Distance</dt><dd>${trip.courseLimitsNeedReview === true ? 'À vérifier' : `${trip.totalDistanceKm.toFixed(1)} km`}</dd></div>`}
       </dl>
       <div class="trip-card__actions">
         <button class="button button--quiet" type="button" data-action="backup-trip" data-trip-id="${escapeHtml(trip.id)}">Sauvegarder</button>
@@ -342,7 +341,7 @@ function renderTripCard(trip: TripListEntry): string {
 export interface TripsManagerHandle {
   readonly refresh: () => Promise<void>
   readonly goToList: () => void
-  /** Opens Aperçu for the currently active trip (CDC Jalon B4 section 3: "Mes voyages détermine le voyage actif affiché ailleurs") — falls back to the trip list when there is none yet. */
+  /** Opens Aperçu for the currently active trip (CDC Jalon B4 section 3: "Mes activités détermine le voyage actif affiché ailleurs") — falls back to the trip list when there is none yet. */
   readonly goToOverviewForActiveTrip: () => Promise<void>
   /** Same, for Voyage. */
   readonly goToDetailForActiveTrip: () => Promise<void>
@@ -396,7 +395,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   // separate from this container's single delegated click listener — torn
   // down by `teardownSubComponent` at the top of every full-screen render in
   // this file (CDC Jalon B4.3 section 16/2: navigating away — even via the
-  // bottom-nav Aperçu/Voyage links, not just "Mes voyages" — while a
+  // bottom-nav Aperçu/Voyage links, not just "Mes activités" — while a
   // wizard/editor was still open used to leave its listeners attached to
   // this shared `container`, so a later click could still reach stale
   // wizard/editor state. Every entry point tearing it down structurally
@@ -435,7 +434,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     // destination isn't another day keeps the watch alive across plain
     // Précédent/Suivant day navigation (no reacquisition flicker) while
     // still covering every real exit ("quitter l'étape / Voyage / Aperçu /
-    // Mes voyages") without a second, divergent teardown list.
+    // Mes activités") without a second, divergent teardown list.
     if (mode.kind !== 'day') stopCurrentLocationTracking()
   }
 
@@ -555,7 +554,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   }
 
   function routeWindForDay(bundle: TripBundle, day: import('../../trip-core/index.ts').TripDay, geometry: readonly import('../../trip-core/index.ts').RouteGeometryPoint[]): RouteWindModel | null {
-    if (day.type !== 'ride') return null
+    if (!selectOrganizationCapabilities(bundle).relativeWind || day.type !== 'ride') return null
     const state = weatherCoordinator.getDayWeatherState(day.id)
     if (state?.data?.type !== 'ride') return null
     const displayMode = selectWeatherDisplayMode({ today: getNowLocalDateTime(new Date(deps.now()), weatherConfig.timezone).slice(0, 10) as import('../../trip/calendar.ts').IsoDate,
@@ -634,7 +633,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     if (trips.length === 0) {
       container.innerHTML = `
         <div class="trips-empty" data-trips-empty>
-          <header class="view-heading"><p class="eyebrow">Mes voyages</p><h2>Aucun voyage pour le moment</h2></header>
+          <header class="view-heading"><p class="eyebrow">Mes activités</p><h2>Aucune activité pour le moment</h2></header>
           <p>Importez vos traces GPX pour créer votre premier voyage.</p>
           <button class="button button--primary button--full" type="button" data-action="create-trip">Créer un voyage</button>
           ${noticeMarkup}${backupMarkup}
@@ -645,7 +644,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
 
     container.innerHTML = `
       <div class="trips-list" data-trips-list>
-        <header class="view-heading"><p class="eyebrow">Mes voyages</p><h2>${trips.length} voyage${trips.length > 1 ? 's' : ''}</h2></header>
+        <header class="view-heading"><p class="eyebrow">Mes activités</p><h2>${trips.length} activité${trips.length > 1 ? 's' : ''}</h2></header>
         <button class="button button--primary button--full" type="button" data-action="create-trip">Créer un voyage</button>
         <ul class="trip-card-list">${trips.map(renderTripCard).join('')}</ul>
         ${noticeMarkup}${backupMarkup}
@@ -869,13 +868,13 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       const baseModel = detail.geometry === null
         ? detail.markersOnlyMapModel
         : buildGenericRouteMapModel(visibleWaypoints, detail.geometry.map((point) => [point.latitude, point.longitude] as const))
-      const model = withRaceSegmentMap(baseModel, bundle, stage)
+      const model = baseModel
       deps.renderMap(mapContainer, mapDialog, model, [...villagesLayer(detail.villageWaypoints), ...practicalPlaceLayers(bundle, detail, dayId)])
       mapDialog.querySelector<HTMLButtonElement>('[data-close-map]')?.addEventListener('click', () => deps.closeMap(mapDialog))
     }
     const profileContainer = container.querySelector<HTMLElement>('[data-day-detail-profile]')
     if (profileContainer !== null) {
-      renderGenericElevationProfile(profileContainer, detail.geometry, visibleWaypoints, detail.stageLabel, detail.timingCurve)
+      renderGenericElevationProfile(profileContainer, detail.geometry, visibleWaypoints, detail.stageLabel, detail.timingCurve, { relativeWind: selectOrganizationCapabilities(bundle).relativeWind })
       if (stage !== undefined && typeof profileContainer.insertAdjacentHTML === 'function') {
         mountRaceBoundsEditor(profileContainer, bundle, stage, async (bounds, expectedFingerprint) => {
           let resolution: ReturnType<typeof updateRaceCourse> | undefined
@@ -889,9 +888,8 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
             if (resolution !== undefined) reportScheduleResolution(resolution)
           }
         })
-        const mapModel = detail.geometry === null ? null : withRaceSegmentMap(buildGenericRouteMapModel(visibleWaypoints, detail.geometry.map(point => [point.latitude, point.longitude] as const)), bundle, stage)
         destroyRaceSegments = mountRaceSegmentsEditor(profileContainer, bundle, stage, {
-          idFactory: deps.idFactory, mapModel, mountPicker: deps.mountRoutePicker,
+          idFactory: deps.idFactory, timeline: container.querySelector<HTMLElement>('[data-day-detail-timeline]'),
           save: async (change, fingerprint) => {
             const updated = await mutateTripBundle(bundle.metadata.id, latest => applyRaceSegmentChange(latest, stage.id, change, fingerprint, deps.now()))
             if (updated === null) throw new Error('Cette course n’est plus disponible.')
@@ -1824,7 +1822,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   }
 
   /**
-   * The trip's landing screen (CDC: Mes voyages → Aperçu → Voyage → Étape) —
+   * The trip's landing screen (CDC: Mes activités → Aperçu → Voyage → Étape) —
    * kicks off automatic enrichment exactly once, same as opening used to from
    * Voyage directly. Also the single place that marks a trip active (CDC
    * section 3): every path that lands here (list click, or the bottom-nav
@@ -1844,7 +1842,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
    * (an explicit `setActiveTrip` choice always wins over automatic
    * selection — see that function's own doc for the "wrong trip opens" bug
    * this fixes). Re-resolved from storage every call, so switching trips in
-   * "Mes voyages" is immediately reflected the next time Aperçu/Voyage is
+   * "Mes activités" is immediately reflected the next time Aperçu/Voyage is
    * opened from the bottom nav.
    */
   async function resolveActiveTripId(): Promise<TripId | null> {
@@ -1936,7 +1934,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
    * Polish-final section 26-28: the ONE gate every navigation that leaves an
    * active edit context goes through — inside the guarded container
    * (`EXTERNAL_ACTIONS`, further below) or from the app-wide bottom nav
-   * OUTSIDE it (`main.ts`'s Aperçu/Voyage/Mes voyages links, wired straight
+   * OUTSIDE it (`main.ts`'s Aperçu/Voyage/Mes activités links, wired straight
    * to `goToOverviewForActiveTrip`/`goToDetailForActiveTrip`/`goToList`
    * below — never through `handleContainerClick` at all). Before this,
    * leaving via that bottom nav skipped the guard outright: `goToList`
@@ -1951,7 +1949,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     if (await editGuard.requestLeave()) await navigate()
   }
 
-  /** Global "Mes voyages" nav click (CDC hardening section 14): always returns to the trip list, whatever screen was open — the reason none of Aperçu/Voyage/Étape carries its own "Retour à Mes voyages" button. */
+  /** Global "Mes activités" nav click (CDC hardening section 14): always returns to the trip list, whatever screen was open — the reason none of Aperçu/Voyage/Étape carries its own "Retour à Mes activités" button. */
   function goToList(): void {
     void attemptLeaveEditContext(() => {
       mode = { kind: 'list' }
@@ -1972,7 +1970,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
           <div><dt>D+</dt><dd>+${Math.round(result.totalElevationGainM)} m</dd></div>
           <div><dt>Montées détectées</dt><dd>${result.climbCount}</dd></div>
         </dl>
-        <button class="button button--primary button--full" type="button" data-action="back-to-list">Retour à Mes voyages</button>
+        <button class="button button--primary button--full" type="button" data-action="back-to-list">Retour à Mes activités</button>
       </div>`
   }
 
@@ -1987,7 +1985,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
 
   /**
    * CDC Jalon B4.3 section 17: creating/editing a trip always returns to
-   * Mes voyages — never opens Aperçu automatically, never silently changes
+   * Mes activités — never opens Aperçu automatically, never silently changes
    * the active trip. The trip simply appears in the list; the user's own
    * "Ouvrir" click is what makes it active (CDC section 4/5).
    */

@@ -16,8 +16,8 @@ import { applyClimbDetectionSensitivity } from '../../src/trips-manager/climb-se
 import { applyRaceMode } from '../../src/trips-manager/race-mode.ts'
 import { createTripBackup, prepareTripBackupRestore, restorePreparedTripBackup } from '../../src/backup/trip-backup.ts'
 import { createSourceFileRepository } from '../../src/storage/indexeddb/source-file-repository.ts'
-import { renderRaceSegmentBands, renderRaceSegmentsPanel } from '../../src/ui/trips/race-segments-view.ts'
-import { withRaceSegmentMap } from '../../src/ui/trips/race-segment-map.ts'
+import { renderRaceSegmentProfile, renderRaceSegmentsPanel } from '../../src/ui/trips/race-segments-view.ts'
+import { buildGenericRouteMapModel } from '../../src/ui/route-map-model.ts'
 
 const NOW='2027-05-09T06:00:00.000Z'
 const close=(a,b,tolerance=.001)=>assert.ok(Math.abs(a-b)<tolerance,`${a} != ${b}`)
@@ -205,15 +205,13 @@ test('switching Tour to Voyage hides competition tools and retains manual segmen
     const next=add(bundle),voyage=applyRaceMode(next,false)
     assert.deepEqual(voyage.stages[0].raceSegments,next.stages[0].raceSegments)
     assert.equal(buildRaceCourse(voyage,voyage.stages[0]),null)
-    const base={coordinates:[],markers:[]}
-    assert.equal(withRaceSegmentMap(base,voyage,voyage.stages[0]),base)
     const tour=applyRaceMode(voyage,true)
     assert.deepEqual(tour.stages[0].raceSegments,next.stages[0].raceSegments)
     assert.equal(analyze(tour).status,'ready')
   }finally{database.close()}
 })
 
-test('profile band previews never reread a long route geometry after its index is built',async()=>{
+test('profile silhouette previews never reread a long route geometry after its index is built',async()=>{
   const {database,bundle}=await setup()
   try{
     const next=add(bundle),route=next.routes[0]
@@ -221,7 +219,7 @@ test('profile band previews never reread a long route geometry after its index i
     const geometry=Array.from({length:10001},(_,i)=>({get latitude(){reads++;return 45+i*.0001},get longitude(){reads++;return 6},altitudeM:200}))
     const long={...next,routes:next.routes.map(value=>value.id===route.id?{...route,geometry:{full:geometry,simplified:null}}:value)}
     const course=buildRaceCourse(long,long.stages[0]);reads=0
-    for(let i=0;i<200;i++)renderRaceSegmentBands(course,[{...long.stages[0].raceSegments[0],endOffsetM:2000+i}])
+    for(let i=0;i<200;i++)renderRaceSegmentProfile(course,[{...long.stages[0].raceSegments[0],endOffsetM:2000+i}], 'M20,200 L780,100', 'M20,200 L780,100 L780,214 L20,214Z')
     assert.equal(reads,0)
   }finally{database.close()}
 })
@@ -242,19 +240,19 @@ test('full backup restore preserves segment ids, provenance, alert overrides and
   }finally{database.close()}
 })
 
-test('profile bands and map keep type letters, overlapping rows and escaped names; stale geometry is never drawn',async()=>{
+test('segments color the original profile silhouette with escaped names; no separate list or map controls',async()=>{
   const {database,bundle}=await setup()
   try{
     const next=add(add(bundle,'one',{...fields('sprint',1000,3000),name:'<img src=x onerror=alert(1)>'}),'two',fields('flandrien',2000,4000))
     const course=buildRaceCourse(next,next.stages[0]),segments=next.stages[0].raceSegments
-    const bands=renderRaceSegmentBands(course,segments),panel=renderRaceSegmentsPanel(course,next.stages[0])
-    assert.match(bands,/top:26px/);assert.match(bands,/>S<\/span>/);assert.match(bands,/>F<\/span>/)
-    assert.doesNotMatch(bands,/<img /);assert.doesNotMatch(panel,/<img /);assert.match(panel,/&lt;img/)
-    const map=withRaceSegmentMap({coordinates:[],markers:[]},next,next.stages[0])
-    assert.equal(map.segmentLines.length,2);assert.equal(map.markers.length,4)
-    assert.equal(map.markers[0].category,'race-sprint')
+    const profile=renderRaceSegmentProfile(course,segments,'M20,200 L780,100','M20,200 L780,100 L780,214 L20,214Z'),panel=renderRaceSegmentsPanel(course,next.stages[0])
+    assert.match(profile,/stroke="#16804a"/);assert.match(profile,/fill="#e5bd32"/)
+    assert.match(profile,/<clipPath/);assert.doesNotMatch(profile,/<img /);assert.match(profile,/&lt;img/)
+    assert.doesNotMatch(panel,/race-segments__list|data-segment-map|<h3>Segments/)
+    assert.match(panel,/step="0.1"/)
+    const map=buildGenericRouteMapModel([],[])
+    assert.equal(map.markers.length,0);assert.equal(map.segmentLines,undefined)
     const changed={...next,sourceFiles:next.sourceFiles.map(file=>({...file,sha256:'0'.repeat(64)}))}
-    assert.equal(renderRaceSegmentBands(buildRaceCourse(changed,changed.stages[0]),segments),'')
-    assert.equal(withRaceSegmentMap({coordinates:[],markers:[]},changed,changed.stages[0]).segmentLines.length,0)
+    assert.doesNotMatch(renderRaceSegmentProfile(buildRaceCourse(changed,changed.stages[0]),segments,'',''),/data-profile-segment=/)
   }finally{database.close()}
 })

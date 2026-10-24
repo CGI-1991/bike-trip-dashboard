@@ -7,6 +7,8 @@
  * preference (CDC section 17): local, pure, one atomic save.
  */
 
+import { isReferenceSpeedMode, REFERENCE_SPEED_PRESETS, resolveReferenceSpeedMode } from '../trip-core/model/reference-speed.ts'
+import type { ReferenceSpeedMode } from '../trip-core/model/reference-speed.ts'
 import { resolveStagePauseSettings } from '../analysis/waypoint-timeline.ts'
 import { recomputeStageTiming } from './stage-timing.ts'
 import { refreshAutomaticPausePlansForTravelMode } from '../route-enrichment/automatic-pause-plan.ts'
@@ -37,6 +39,7 @@ export interface TripPreferencesUpdate {
   readonly name?: string
   /** "YYYY-MM-DD" from a native `<input type="date">`. Absent leaves the calendar untouched; only meaningful for an already-dated trip (CDC section 6 — dating a still-undated trip is out of this milestone's scope). */
   readonly startDate?: string
+  readonly referenceSpeedMode?: ReferenceSpeedMode
   readonly referenceSpeedKph?: number
   readonly travelMode?: TravelMode
   readonly leagueEvents?: readonly LeagueEventSchedule[]
@@ -70,6 +73,7 @@ export function validateTripPreferencesUpdate(update: TripPreferencesUpdate, cur
   if (update.travelMode !== undefined && !isTravelMode(update.travelMode)) {
     errors.push({ field: 'travelMode', message: 'Mode de déplacement invalide.' })
   }
+  if (update.referenceSpeedMode !== undefined && !isReferenceSpeedMode(update.referenceSpeedMode)) errors.push({ field: 'referenceSpeedKph', message: 'Allure de référence invalide.' })
   const mode = isTravelMode(update.travelMode) ? update.travelMode : currentMode
   const { minimumSpeedKph, maximumSpeedKph } = TRAVEL_MODE_SETTINGS[mode]
   if (update.name !== undefined) {
@@ -95,6 +99,7 @@ export function tripPreferencesUpdateIsNoop(bundle: TripBundle, update: TripPref
   if (update.name !== undefined && update.name.trim() !== bundle.metadata.name) return false
   if (update.startDate !== undefined && update.startDate !== bundle.calendar.startDate) return false
   if (update.referenceSpeedKph !== undefined && update.referenceSpeedKph !== bundle.settings.global.referenceSpeedKph) return false
+  if (update.referenceSpeedMode !== undefined && update.referenceSpeedMode !== resolveReferenceSpeedMode(bundle.settings.global.referenceSpeedKph, selectTravelMode(bundle), bundle.settings.global.referenceSpeedMode)) return false
   if (update.travelMode !== undefined && update.travelMode !== selectTravelMode(bundle)) return false
   if (update.raceMode !== undefined && update.raceMode !== (bundle.settings.global.raceMode === true)) return false
   if (update.climbDetectionSensitivity !== undefined && update.climbDetectionSensitivity !== resolveClimbDetectionSensitivity(bundle)) return false
@@ -224,9 +229,11 @@ export function applyTripPreferences(bundle: TripBundle, update: TripPreferences
     next = { ...next, settings: { ...next.settings, global: { ...next.settings.global, travelMode: update.travelMode } },
       weather: [], stages: next.stages.map(stage => ({ ...stage, weatherRecordIds: [] })) }
   }
-  if (update.referenceSpeedKph !== undefined || modeChanged) {
-    const speed = update.referenceSpeedKph ?? TRAVEL_MODE_SETTINGS[selectTravelMode(next)].referenceSpeedKph
+  if (update.referenceSpeedKph !== undefined || update.referenceSpeedMode !== undefined || modeChanged) {
+    const selected = update.referenceSpeedMode
+    const speed = selected !== undefined && selected !== 'manual' ? REFERENCE_SPEED_PRESETS[selectTravelMode(next)][selected] : update.referenceSpeedKph ?? TRAVEL_MODE_SETTINGS[selectTravelMode(next)].referenceSpeedKph
     next = applyReferenceSpeed(next, speed)
+    next = { ...next, settings: { ...next.settings, global: { ...next.settings.global, referenceSpeedMode: selected ?? resolveReferenceSpeedMode(speed, selectTravelMode(next)) } } }
   }
 
   // Course/Tour before the sensitivity: the former re-times every stage, the

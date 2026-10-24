@@ -1,3 +1,4 @@
+import { selectOrganizationCapabilities } from '../trip-core/index.ts'
 import { selectTravelMode } from '../trip-core/index.ts'
 import { buildRaceCourse } from '../analysis/race-bounds.ts'
 import { addCivilDays } from '../trip-core/validation/primitives.ts'
@@ -84,6 +85,7 @@ export function computeRideArrivalEta(bundle: TripBundle, day: TripDay): RideArr
   if (day.type !== 'ride' || day.stageId === null) return null
   const stage = bundle.stages.find((candidate) => candidate.id === day.stageId)
   if (stage === undefined) return null
+  if (selectOrganizationCapabilities(bundle).explicitRaceBounds && buildRaceCourse(bundle, stage)?.status !== 'bounded') return null
   const route = bundle.routes.find((candidate) => candidate.id === stage.sourceRouteId)
   if (route === undefined || routeGeometry(route) === null) return null
   const daySettings = bundle.settings.days.find((candidate) => candidate.dayId === day.id)
@@ -102,7 +104,7 @@ export function computeRideArrivalEta(bundle: TripBundle, day: TripDay): RideArr
     // moving time — honest, and it stops being wrong once enrichment lands.
     automaticPausesAllowed: stageAutomaticPausesAllowed(bundle, stage.id),
   })
-  const arrival = waypoints.at(-1)
+  const arrival = waypoints.find(point => point.kind === 'end')
   if (arrival?.clockTime === null || arrival?.clockTime === undefined || arrival.elapsedMinutes === null) return null
   return {
     label: arrival.clockTime,

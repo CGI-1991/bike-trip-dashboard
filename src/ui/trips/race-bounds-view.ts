@@ -1,30 +1,23 @@
 import type { RideStage, TripBundle } from '../../trip-core/index.ts'
 import type { RaceBounds } from '../../trip-core/model/ride-stage.ts'
-import { buildRaceCourse, raceCourseMetrics, validRaceOffsets } from '../../analysis/race-bounds.ts'
+import { buildRaceCourse, validRaceOffsets } from '../../analysis/race-bounds.ts'
+import { selectOrganizationCapabilities } from '../../trip-core/index.ts'
 import type { RaceCourse } from '../../analysis/race-bounds.ts'
 import { renderFeatureUpdateBadge } from '../release-notes.ts'
 
 const km = (value: number) => value.toFixed(3).replace('.', ',')
-const distance = (value: number | null) => value === null ? '—' : `${value.toFixed(2).replace('.', ',')} km`
-const meters = (value: number | null) => value === null ? '—' : `${Math.round(value)} m`
 
-export function renderRaceCourseCard(course: RaceCourse, stage: RideStage): string {
-  const metrics = course.geometry === null ? null : raceCourseMetrics(course.geometry)
-  const length = course.status === 'stale' ? null : course.bounds === null ? course.indexed.lengthKm : (course.bounds.finishOffsetM - course.bounds.startOffsetM) / 1000
+export function renderRaceCourseCard(course: RaceCourse, _stage: RideStage, explicitBounds = false): string {
   return `<section class="race-course" aria-label="Limites de course"><header><h3>Course</h3>${renderFeatureUpdateBadge('race-bounds')}</header>
     ${course.status === 'stale' ? '<p role="status">La trace a changé : redéfinissez les limites de course.</p>' : ''}
-    <table><caption class="visually-hidden">Statistiques de la trace et de la course</caption><thead><tr><th scope="col"></th><th scope="col">Distance</th><th scope="col">D+</th><th scope="col">D−</th></tr></thead><tbody>
-    <tr><th scope="row">Trace GPX</th><td>${distance(stage.distanceKm)}</td><td>${meters(stage.elevationGainM)}</td><td>${meters(stage.elevationLossM)}</td></tr>
-    <tr><th scope="row">Course calculée</th><td data-race-distance>${distance(length)}</td><td>${meters(metrics?.elevationGainM ?? null)}</td><td>${meters(metrics?.elevationLossM ?? null)}</td></tr></tbody></table>
-    ${course.geometry?.some(point => point.altitudeM === null) ? '<p class="race-course__hint">Dénivelés partiels : altitudes manquantes.</p>' : ''}
-    <p class="race-course__hint">${course.status === 'full' ? 'Trace entière utilisée.' : course.status === 'bounded' ? `Départ km ${km(course.bounds!.startOffsetM / 1000)} · arrivée km ${km(course.bounds!.finishOffsetM / 1000)}. Profil et points en km GPX ; horaires, météo et vent entre ces limites.` : 'Horaires et météo suspendus pour ces anciennes limites.'}</p>
+    <p class="race-course__hint">${course.status === 'full' ? explicitBounds ? 'Définissez le départ et l’arrivée réels pour afficher les statistiques de course.' : 'Trace entière utilisée.' : course.status === 'bounded' ? `Départ km ${km(course.bounds!.startOffsetM / 1000)} · arrivée km ${km(course.bounds!.finishOffsetM / 1000)}. Profil et points en km GPX ; statistiques dans le bloc supérieur.` : 'Horaires et météo suspendus pour ces anciennes limites.'}</p>
     <details data-race-editor><summary>Départ et arrivée de course</summary><div class="race-course__fields">
       <label>Départ · km<input type="number" inputmode="decimal" step="any" min="0" data-race-offset="start" aria-label="Départ de course en kilomètres"></label>
       <label>Arrivée · km<input type="number" inputmode="decimal" step="any" min="0" data-race-offset="finish" aria-label="Arrivée de course en kilomètres"></label>
       <button type="button" class="button button--quiet" data-race-pick="start" aria-pressed="false">Placer le départ</button>
       <button type="button" class="button button--quiet" data-race-pick="finish" aria-pressed="false">Placer l’arrivée</button>
     </div><p class="race-course__hint" data-race-status role="status">Choisissez une limite puis touchez le profil, ou saisissez ses kilomètres.</p>
-    <div class="race-course__actions"><button type="button" class="button" data-race-save>Enregistrer</button><button type="button" class="button button--quiet" data-race-cancel>Annuler</button><button type="button" class="button button--quiet" data-race-reset>Trace entière</button></div></details></section>`
+    <div class="race-course__actions"><button type="button" class="button" data-race-save>Enregistrer</button><button type="button" class="button button--quiet" data-race-cancel>Annuler</button><button type="button" class="button button--quiet" data-race-reset>${explicitBounds ? 'Effacer les limites' : 'Trace entière'}</button></div></details></section>`
 }
 
 /** Full source trace stays visible, independently of the Neutre/Pente/Vent layer. */
@@ -45,19 +38,20 @@ export function mountRaceBoundsEditor(profile: HTMLElement, bundle: TripBundle, 
   if (course === null) return
   const controller = new AbortController()
   controllers.set(profile, controller)
-  profile.insertAdjacentHTML('afterbegin', `<div data-race-course-host>${renderRaceCourseCard(course, stage)}</div>`)
+  profile.insertAdjacentHTML('afterbegin', `<div data-race-course-host>${renderRaceCourseCard(course, stage, selectOrganizationCapabilities(bundle).explicitRaceBounds)}</div>`)
   const host = profile.querySelector<HTMLElement>('[data-race-course-host]')!
   const editor = host.querySelector<HTMLDetailsElement>('[data-race-editor]')!
   const status = host.querySelector<HTMLElement>('[data-race-status]')!
   const startInput = host.querySelector<HTMLInputElement>('[data-race-offset="start"]')!
   const finishInput = host.querySelector<HTMLInputElement>('[data-race-offset="finish"]')!
   const savedBounds = course.status === 'bounded' ? course.bounds : null
-  let start = savedBounds === null ? 0 : savedBounds.startOffsetM
-  let finish = savedBounds === null ? course.indexed.lengthKm * 1000 : savedBounds.finishOffsetM
+  const explicitBounds = selectOrganizationCapabilities(bundle).explicitRaceBounds
+  let start = savedBounds?.startOffsetM ?? (explicitBounds ? NaN : 0)
+  let finish = savedBounds?.finishOffsetM ?? (explicitBounds ? NaN : course.indexed.lengthKm * 1000)
   let picked: 'start' | 'finish' | null = null
   let saving = false
   const preview = (): RaceBounds => ({ routeFingerprint: course.fingerprint, startOffsetM: start, finishOffsetM: finish })
-  const setInputs = () => { startInput.value = (start / 1000).toFixed(3); finishInput.value = (finish / 1000).toFixed(3) }
+  const setInputs = () => { startInput.value = Number.isFinite(start) ? (start / 1000).toFixed(3) : ''; finishInput.value = Number.isFinite(finish) ? (finish / 1000).toFixed(3) : '' }
   const setPicked = (value: typeof picked) => {
     picked = value
     for (const button of host.querySelectorAll<HTMLButtonElement>('[data-race-pick]')) button.setAttribute('aria-pressed', String(button.dataset.racePick === picked))
@@ -65,8 +59,8 @@ export function mountRaceBoundsEditor(profile: HTMLElement, bundle: TripBundle, 
   const redraw = () => paintRaceBounds(profile, preview(), course.indexed.lengthKm)
   const resetDraft = () => {
     setPicked(null)
-    start = savedBounds?.startOffsetM ?? 0
-    finish = savedBounds?.finishOffsetM ?? course.indexed.lengthKm * 1000
+    start = savedBounds?.startOffsetM ?? (explicitBounds ? NaN : 0)
+    finish = savedBounds?.finishOffsetM ?? (explicitBounds ? NaN : course.indexed.lengthKm * 1000)
     setInputs()
     paintRaceBounds(profile, savedBounds, course.indexed.lengthKm)
   }

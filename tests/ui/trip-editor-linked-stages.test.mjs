@@ -47,6 +47,7 @@ function createFakeContainer() {
     },
     dispatch(type, event) { for (const listener of [...(listeners[type] ?? [])]) listener(event) },
     querySelector(selector) { return nodes.get(selector) ?? null },
+    querySelectorAll(selector) { return nodes.has(selector) ? [nodes.get(selector)] : [] },
     register(selector, node) { nodes.set(selector, node) },
   }
 }
@@ -68,7 +69,7 @@ function clickTarget(dataset) {
 
 function inputTarget(field, value, position) {
   return Object.assign(new globalThis.HTMLInputElement(), {
-    dataset: position === undefined ? { editorField: field } : { editorField: field, position: String(position) },
+    dataset: position === undefined ? { editorField: field, field } : { editorField: field, field, position: String(position) },
     value,
   })
 }

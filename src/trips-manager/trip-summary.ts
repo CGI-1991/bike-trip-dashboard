@@ -1,5 +1,5 @@
 /**
- * Pure projection of a stored `TripBundle` into the "Mes voyages" list row
+ * Pure projection of a stored `TripBundle` into the "Mes activités" list row
  * (CDC phase 6C1 section 6): name, dates, day/stage counts, total
  * distance, status. No IndexedDB access here — see `trip-manager-actions.ts`
  * for the IO that loads the bundles this reads.
@@ -21,13 +21,14 @@ export interface TripListEntry {
   readonly endDate: IsoDate | null
   readonly dayCount: number
   readonly stageCount: number
+  readonly courseStatsUnavailable?: true
   readonly totalDistanceKm: number
   readonly courseLimitsNeedReview?: true
   readonly status: TripStatus
   readonly travelMode?: TravelMode
   readonly organizationMode?: 'league'
   /**
-   * RC2 final-closeout sections 19-20 — the "Mes voyages" card's own
+   * RC2 final-closeout sections 19-20 — the "Mes activités" card's own
    * discreet enrichment indicator: `null` once every ride day is ready (or
    * the trip has no ride day at all), otherwise a ready/total count. Omitted
    * `preparationContext` (most callers — anything that isn't rendering the
@@ -49,7 +50,7 @@ export function summarizeTripBundle(bundle: TripBundle, preparationContext: Stag
     totalDistanceKm: bundle.stages.reduce((total, stage) => total + (selectStageCourseMetrics(bundle, stage).distanceKm ?? 0), 0),
     ...(bundle.stages.some(stage => buildRaceCourse(bundle, stage)?.status === 'stale') ? { courseLimitsNeedReview: true as const } : {}),
     status: bundle.metadata.status,
-    ...(selectOrganizationMode(bundle) === 'league' ? { organizationMode: 'league' as const } : {}),
+    ...(selectOrganizationMode(bundle) === 'league' ? { organizationMode: 'league' as const, ...(!bundle.stages.some(stage => buildRaceCourse(bundle, stage)?.status === 'bounded') ? { courseStatsUnavailable: true as const } : {}) } : {}),
     ...(selectTravelMode(bundle) === 'walking' ? { travelMode: 'walking' as const } : {}),
     preparationSummary: computeTripPreparationSummary(bundle, preparationContext),
   }

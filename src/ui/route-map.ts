@@ -223,7 +223,6 @@ function markerTooltip(marker: RouteMapMarkerModel): string {
 function toLatLng(tuple: readonly [number, number]): L.LatLngTuple { return [tuple[0], tuple[1]] }
 
 export interface CreateRouteMapOptions {
-  readonly bubbleMarkerClicks?: boolean
   readonly interactive: boolean
   readonly fitPadding: L.PointExpression
   readonly maxInitialZoom?: number
@@ -262,7 +261,7 @@ export function createRouteMap(container: HTMLElement, model: RouteMapModel, opt
   const markerOffsets = resolveMarkerIconOffsets(model.markers)
   model.markers.forEach((marker, index) => {
     bounds.extend(toLatLng(marker.coordinate))
-    L.marker(toLatLng(marker.coordinate), { bubblingMouseEvents: options.bubbleMarkerClicks ?? false, icon: createRouteDivIcon(marker.category, { offRoute: marker.offRoute, pauseActive: marker.pauseActive, iconOffset: markerOffsets[index] }) })
+    L.marker(toLatLng(marker.coordinate), { bubblingMouseEvents: false, icon: createRouteDivIcon(marker.category, { offRoute: marker.offRoute, pauseActive: marker.pauseActive, iconOffset: markerOffsets[index] }) })
       .bindTooltip(markerTooltip(marker))
       .addTo(map)
   })
@@ -303,14 +302,6 @@ export function mountLocationPicker(container: HTMLElement, initial: { readonly 
   const map = createRouteMap(container, model, { interactive: true, fitPadding: [24, 24], maxInitialZoom: 13 }, onTileError)
   if (initial === null) map.setView([48.6, 3.5], 5)
   return getRouteMapInteractionHandle(container)
-}
-
-export interface RoutePickerHandle { readonly handle: RouteMapInteractionHandle; destroy(): void }
-/** Synchronous route picker for a local editor, with explicit Leaflet cleanup. */
-export function mountRoutePicker(container: HTMLElement, model: RouteMapModel, onTileError: () => void): RoutePickerHandle | null {
-  createRouteMap(container, model, { interactive: true, bubbleMarkerClicks: true, fitPadding: [24, 24], maxInitialZoom: 14 }, onTileError)
-  const handle = getRouteMapInteractionHandle(container)
-  return handle === null ? null : { handle, destroy: () => destroy(container) }
 }
 
 /**

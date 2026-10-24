@@ -16,6 +16,7 @@
 import { interpolateTerrainTiming, buildTerrainProfileSeries } from '../route/terrain-profile.ts'
 import { createTravelTerrainTiming, walkingTerrainForGeometry } from './travel-timing.ts'
 import { createRouteClockTime, formatRouteClockTime } from '../route/time.ts'
+import { consolidateRaceWaypoints } from './race-segment-waypoints.ts'
 import { courseWaypoints } from './race-bounds.ts'
 import type { RaceCourse } from './race-bounds.ts'
 import type { RouteProfilePosition } from '../route/types.ts'
@@ -244,8 +245,8 @@ function resolveAutomaticPlacedPauses(
 export function computeStageWaypoints(input: ComputeStageWaypointsInput): readonly CanonicalWaypoint[] {
   const { stage, route, routePoints, climbs, settings } = input
   const baseWaypoints = buildCanonicalWaypoints({ stage, route, routePoints, climbs })
-  if (input.raceCourse !== undefined && input.raceCourse !== null && input.raceCourse.status !== 'full') {
-    const points = courseWaypoints(baseWaypoints, stage, input.raceCourse)
+  if (input.raceCourse !== undefined && input.raceCourse !== null) {
+    const points = consolidateRaceWaypoints(courseWaypoints(baseWaypoints, stage, input.raceCourse), stage, climbs, input.raceCourse)
     const curve = computeStageTimingCurve(input)
     return points.map(point => ({ ...point, elapsedMinutes: curve?.elapsedMinutesAt(point.trackDistanceKm) ?? null,
       clockTime: curve?.clockTimeAt(point.trackDistanceKm) ?? null }))

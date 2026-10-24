@@ -6,10 +6,10 @@
  * `[data-day-indicator]` driven only by the legacy `rga2026TripPlan`
  * constant — `J1 sur ${plan.totalDays}` where `totalDays` traced back to a
  * hand-written `12`, never `bundle.days.length`). `trips-manager.ts`'s
- * generic multi-trip screens (Aperçu/Voyage/Étape/Mes voyages) never touched
+ * generic multi-trip screens (Aperçu/Voyage/Étape/Mes activités) never touched
  * `.brand`/`[data-day-indicator]` at all, so the header kept showing the RGA
  * trip's name regardless of which generic trip was actually active — even
- * once "Mes voyages" became the app's real entry point.
+ * once "Mes activités" became the app's real entry point.
  *
  * This is the single, pure view-model both `trips-manager.ts` (which knows
  * the active bundle/day) and `main.ts` (which owns the actual DOM nodes,
@@ -18,18 +18,19 @@
  */
 
 import { deriveTripTemporalState } from '../../trips-manager/trip-day-temporal-state.ts'
-import { calendarDaySpan, selectOrganizationMode, selectTripDayNumber } from '../../trip-core/index.ts'
+import { calendarDaySpan, selectOrganizationCapabilities, selectOrganizationMode, selectTripDayNumber } from '../../trip-core/index.ts'
 import { formatShortDate } from '../date-format.ts'
 import type { TripBundle, TripDay, TripDayType } from '../../trip-core/index.ts'
 
 export interface GenericAppHeaderState {
   /**
-   * `null` means "no active-trip context" — Mes voyages, the trip creation
+   * `null` means "no active-trip context" — Mes activités, the trip creation
    * wizard, the trip editor, or the post-import confirmation screen. Never
    * the last active trip's name in that case (CDC: "ne jamais afficher le
    * nom du dernier voyage actif comme si l'utilisateur était encore
    * dedans").
    */
+  readonly tripTabLabel?: string
   readonly tripName: string | null
   /**
    * One compact, screen-appropriate line (CDC D1.2 section 1) — this header
@@ -50,7 +51,7 @@ export interface GenericAppHeaderState {
 /** Matches `public/manifest.webmanifest`'s own `"name"` — never a second, invented app title. */
 export const GENERIC_APP_TITLE = 'Bike Trip Dashboard'
 
-/** No active trip context at all — Mes voyages, wizard, editor, post-import confirmation. */
+/** No active trip context at all — Mes activités, wizard, editor, post-import confirmation. */
 export const GENERIC_APP_HEADER_NO_ACTIVE_TRIP: GenericAppHeaderState = { tripName: null, subtitle: null }
 
 /** CDC D1.2 section 9: the Détail header/subtitle use "Étape", matching the Voyage day card's own badge wording (D1.1 section 3) — never "Roulé" any more. */
@@ -114,7 +115,8 @@ export type GenericAppHeaderContext =
  */
 export function buildGenericAppHeader(bundle: TripBundle, context: GenericAppHeaderContext): GenericAppHeaderState {
   const tripName = bundle.metadata.name
-  if (context.view === 'overview') return { tripName, subtitle: overviewSubtitle(bundle) }
-  if (context.view === 'trip') return { tripName, subtitle: tripSubtitle(bundle, context.now) }
-  return { tripName, subtitle: daySubtitle(bundle, context.day) }
+  const tripTabLabel = selectOrganizationCapabilities(bundle).tripTabLabel
+  if (context.view === 'overview') return { tripName, ...(tripTabLabel === 'Voyage' ? {} : { tripTabLabel }), subtitle: overviewSubtitle(bundle) }
+  if (context.view === 'trip') return { tripName, ...(tripTabLabel === 'Voyage' ? {} : { tripTabLabel }), subtitle: tripSubtitle(bundle, context.now) }
+  return { tripName, ...(tripTabLabel === 'Voyage' ? {} : { tripTabLabel }), subtitle: daySubtitle(bundle, context.day) }
 }

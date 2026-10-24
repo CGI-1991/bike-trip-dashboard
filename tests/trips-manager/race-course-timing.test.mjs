@@ -173,7 +173,7 @@ test('a late forecast for previous limits cannot replace the current course asso
 })
 
 test('Voyage and a competition without limits retain the complete original timing and weather points',async()=>{
-  for(const mode of ['voyage','tour','league']) {
+  for(const mode of ['voyage','tour']) {
     const {database,bundle}=await setup({mode})
     try {
       const full=computeStageTimingCurve(input(bundle,0,false)), scoped=computeStageTimingCurve(input(bundle))
@@ -196,11 +196,11 @@ test('stale limits suppress timing, weather and operational figures instead of r
     assert.equal(computeRideArrivalEta(changed,changed.days[0]),null)
     assert.deepEqual(selectStageCourseMetrics(changed,changed.stages[0]),{distanceKm:null,elevationGainM:null,elevationLossM:null})
     assert.equal(summarizeTripBundle(changed).courseLimitsNeedReview,true)
-    assert.match(buildTripOverview(changed,NOW).html,/statistiques sont partielles/)
+    assert.match(buildTripOverview(changed,NOW).html,/uniquement les courses délimitées/)
     const definition=buildRideDayWeatherDefinition(changed,changed.days[0])
     assert.deepEqual(definition.locations,[]);assert.match(definition.unavailableReason,/limites/)
     const detail=buildDayDetail(changed,changed.days[0].id)
-    assert.match(detail.statsHtml,/<dt>Durée<\/dt><dd>—/)
+    assert.equal(detail.statsHtml,'<div data-day-detail-stats hidden></div>')
   }finally{database.close()}
 })
 

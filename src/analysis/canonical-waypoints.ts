@@ -20,7 +20,7 @@ import { normalizeName } from '../route-enrichment/enrichment.ts'
 import { routeGeometry } from '../route-enrichment/route-fingerprint.ts'
 import type { Climb, ClimbId, RideStage, Route, RouteGeometryPoint, RoutePoint } from '../trip-core/index.ts'
 
-export type CanonicalWaypointKind = 'start' | 'end' | 'city' | 'town' | 'village' | 'mountain-pass' | 'saddle' | 'climb' | 'pause'
+export type CanonicalWaypointKind = 'start' | 'end' | 'city' | 'town' | 'village' | 'mountain-pass' | 'saddle' | 'climb' | 'pause' | 'race-segment'
 export type CanonicalWaypointImportance = 'major' | 'secondary' | 'minor'
 
 /** The only `RoutePoint.osmFeatureType` values the generic pipeline still surfaces (V1 final scope). */
@@ -37,6 +37,7 @@ export interface CanonicalWaypoint {
   readonly longitude: number
   readonly elevationM: number | null
   /** Set when this waypoint carries (merged into, or stands in for) a detected climb. */
+  readonly raceSegmentId?: string
   readonly climbId: ClimbId | null
   /** Filled by `pause-placement.ts` — always `null` from this module's own output. */
   readonly pauseDurationMinutes: number | null
@@ -80,6 +81,7 @@ export function isSignificantWaypoint(waypoint: CanonicalWaypoint): boolean {
  * waypoints would otherwise tie or visually collide.
  */
 const KIND_PRIORITY: Readonly<Record<CanonicalWaypointKind, number>> = {
+  'race-segment': 1,
   start: 0,
   end: 0,
   'mountain-pass': 1,
@@ -92,6 +94,7 @@ const KIND_PRIORITY: Readonly<Record<CanonicalWaypointKind, number>> = {
 }
 
 const KIND_PRESENTATION: Readonly<Record<CanonicalWaypointKind, { readonly importance: CanonicalWaypointImportance; readonly visibleByDefault: boolean }>> = {
+  'race-segment': { importance: 'major', visibleByDefault: true },
   start: { importance: 'major', visibleByDefault: true },
   end: { importance: 'major', visibleByDefault: true },
   'mountain-pass': { importance: 'major', visibleByDefault: true },

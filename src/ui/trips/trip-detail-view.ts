@@ -6,7 +6,7 @@
  * view (`day-detail-view.ts`) — never duplicated here. The whole card is the
  * navigation target for a ride day (CDC section 4: no separate "Voir le
  * détail" button when the card itself can carry the action). The global
- * "Mes voyages" app-nav link always returns to the trip list, so this screen
+ * "Mes activités" app-nav link always returns to the trip list, so this screen
  * carries no redundant "Retour" button of its own (CDC hardening section 14).
  */
 
@@ -19,6 +19,7 @@ import type { StagePreparationStatus } from '../../trips-manager/stage-preparati
 import { formatShortDate } from '../date-format.ts'
 import { compactPlaceName } from '../compact-place-name.ts'
 import { selectOrganizationMode, selectStageCustomName, selectTripDayLabel } from '../../trip-core/index.ts'
+import { selectOrganizationCapabilities } from '../../trip-core/index.ts'
 import { renderLeagueCalendar } from './league-calendar-view.ts'
 import type { TripBundle, TripDayId } from '../../trip-core/index.ts'
 
@@ -157,13 +158,13 @@ function renderRideDayCard(bundle: TripBundle, day: TripBundle['days'][number], 
       ${renderDayNumberGroup(bundle, day)}
       <span class="trip-day-card__content">
         <span class="trip-day-card__route" title="${escapeHtml(fullRoute)}" aria-label="${escapeHtml(fullRoute)}">${locations}</span>
-        <span class="trip-day-card__metrics"><span>${metrics.distanceKm === null ? '—' : formatKilometers(metrics.distanceKm)}</span><span>${metrics.elevationGainM === null ? '—' : `+${Math.round(metrics.elevationGainM)} m`}</span></span>
+        ${!selectOrganizationCapabilities(bundle).explicitRaceBounds || metrics.distanceKm !== null ? `<span class="trip-day-card__metrics"><span>${metrics.distanceKm === null ? '—' : formatKilometers(metrics.distanceKm)}</span><span>${metrics.elevationGainM === null ? '—' : `+${Math.round(metrics.elevationGainM)} m`}</span></span>` : ''}
         <span class="trip-day-card__weather-mount" data-trip-day-weather-mount data-day-id="${escapeHtml(day.id)}"></span>
       </span>
       <span class="trip-day-card__schedule">
         <span class="trip-day-card__status">${status}<span data-trip-day-prep-slot>${renderStagePreparationIndicator(prepStatus)}</span></span>
         <small><span class="visually-hidden">Départ </span>${departureTime ?? '—'}</small>
-        <strong><span class="visually-hidden">ETA </span>${eta ?? '—'}</strong>
+        ${eta === null && selectOrganizationCapabilities(bundle).explicitRaceBounds ? '' : `<strong><span class="visually-hidden">ETA </span>${eta ?? '—'}</strong>`}
       </span>
     </button>
     <span data-trip-day-note-slot data-day-id="${escapeHtml(day.id)}">${renderStagePreparationNote(prepStatus)}</span>
@@ -279,9 +280,9 @@ export function renderTripDetail(bundle: TripBundle, options: TripDetailRenderOp
 
   return `
     <div class="trip-detail" data-trip-detail>
-      <header class="view-heading"><p class="eyebrow">${selectOrganizationMode(bundle) === 'league' ? 'League' : 'Voyage'}</p><h2>${escapeHtml(bundle.metadata.name)}</h2></header>
+      <header class="view-heading"><p class="eyebrow">${selectOrganizationCapabilities(bundle).tripTabLabel}</p><h2>${escapeHtml(bundle.metadata.name)}</h2></header>
       ${prepSummary}
-      <details class="card trip-wind-summary"><summary>${selectOrganizationMode(bundle) === 'voyage' ? 'Vent relatif sur l’ensemble du voyage' : 'Vent relatif sur l’ensemble des courses'}</summary><div data-trip-wind-summary></div></details>
+      ${selectOrganizationCapabilities(bundle).relativeWind ? `<details class="card trip-wind-summary"><summary>${selectOrganizationMode(bundle) === 'voyage' ? 'Vent relatif sur l’ensemble du voyage' : 'Vent relatif sur l’ensemble des courses'}</summary><div data-trip-wind-summary></div></details>` : ''}
       ${selectOrganizationMode(bundle) === 'league' ? renderLeagueCalendar(bundle, day => renderDayCard(bundle, day, getTripDayTemporalState(temporal, day.id) as TripDayTemporalState, temporal.priorityDayId, prepStatuses?.get(day.id))) : `<ol class="trip-day-list">${bundle.days.map((day) => renderDayCard(bundle, day, getTripDayTemporalState(temporal, day.id) as TripDayTemporalState, temporal.priorityDayId, prepStatuses?.get(day.id))).join('')}</ol>`}
       ${hasRideStages ? '<button class="button button--quiet button--full" type="button" data-action="download-trip-gpx">Télécharger les GPX</button>' : ''}
       ${automaticStatus}

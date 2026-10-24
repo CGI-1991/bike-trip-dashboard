@@ -123,6 +123,7 @@ function resolveOptions(raw: GpxTripImportOptions): { readonly options: Resolved
       units: raw.units ?? 'metric',
       startDate,
       referenceSpeedKph,
+      referenceSpeedMode: raw.referenceSpeedMode,
       organizationMode,
       travelMode,
       departureTime,

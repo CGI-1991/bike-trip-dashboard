@@ -2,20 +2,17 @@ import { DEFAULT_RACE_SEGMENT_ALERTS, RACE_SEGMENT_TYPES } from '../../trip-core
 import type { RaceSegment, RaceSegmentFields, RideStage, TripBundle } from '../../trip-core/index.ts'
 import { buildRaceCourse } from '../../analysis/race-bounds.ts'
 import type { RaceCourse } from '../../analysis/race-bounds.ts'
-import { pointAtIndexedDistance } from '../../route-enrichment/segment-geometry.ts'
-import { analyzeRaceSegment, projectRacePosition, raceSegmentLanes, raceSegmentStatus } from '../../analysis/race-segments.ts'
+import { analyzeRaceSegment, raceSegmentStatus } from '../../analysis/race-segments.ts'
 import type { RaceSegmentChange } from '../../analysis/race-segments.ts'
 import { isValidRaceSegmentFields } from '../../trip-core/validation/race-segment.ts'
-import type { RoutePickerHandle } from '../route-map.ts'
-import type { RouteMapModel } from '../route-map-model.ts'
 import { renderFeatureUpdateBadge } from '../release-notes.ts'
 import { RACE_SEGMENT_STYLE } from './race-segment-style.ts'
 
 const escape = (value: string) => value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;')
-const km = (m: number) => (m / 1000).toFixed(3).replace('.', ',')
+const km = (m: number) => (m / 1000).toFixed(1).replace('.', ',')
 const statusLabel = { ready: '', 'outside-course': 'Hors course', stale: 'Trace modifiée · à replacer', 'course-stale': 'Limites de course à redéfinir' } as const
 export function formatSegmentLength(m: number): string {
-  return m >= 1000 ? `${(m / 1000).toFixed(2).replace('.', ',')} km` : `${m < .001 ? m.toExponential(1) : m.toFixed(m < 1 ? 3 : m < 10 ? 1 : 0).replace('.', ',')} m`
+  return `${(m / 1000).toFixed(1).replace('.', ',')} km`
 }
 export function segmentStats(course: RaceCourse, segment: RaceSegment): string {
   const value = analyzeRaceSegment(course, segment)
@@ -24,35 +21,27 @@ export function segmentStats(course: RaceCourse, segment: RaceSegment): string {
   return `${formatSegmentLength(value.distanceM)}${segment.type !== 'climb' ? '' : ` · D+ ${value.elevationGainM === null ? 'inconnu' : `${Math.round(value.elevationGainM)} m`} · ${grade}`}${value.partialAltitude ? ' · altitude incomplète' : ''}`
 }
 
-export function renderRaceSegmentBands(course: RaceCourse, segments: readonly RaceSegment[], draftId?: string): string {
+/** Colored portions reuse the original silhouette: no bar or extra plot. */
+export function renderRaceSegmentProfile(course: RaceCourse, segments: readonly RaceSegment[], line: string, area: string, draftId?: string): string {
   const drawable = segments.filter(segment => raceSegmentStatus(course, segment) !== 'stale')
-  const lanes = raceSegmentLanes(drawable)
-  if (lanes.length === 0) return ''
-  return `<div class="race-segment-bands" data-race-segment-bands style="height:${(Math.max(...lanes.map(item => item.lane)) + 1) * 26}px" aria-label="Segments sur le profil">${lanes.map(({ segment, lane }) => {
-    const style = RACE_SEGMENT_STYLE[segment.type], status = raceSegmentStatus(course, segment)
-    const left = (20 + 760 * segment.startOffsetM / (course.indexed.lengthKm * 1000)) / 8
-    const width = 95 * (segment.endOffsetM - segment.startOffsetM) / (course.indexed.lengthKm * 1000)
-    const title = `${style.label} · ${segment.name} · km ${km(segment.startOffsetM)} à ${km(segment.endOffsetM)}${statusLabel[status] ? ` · ${statusLabel[status]}` : ''}`
-    return `<button type="button" class="race-segment-band race-segment--${segment.type}${status !== 'ready' || segment.id === draftId ? ' race-segment-band--draft' : ''}" style="left:${left}%;width:${width}%;top:${lane * 26}px" data-segment-edit="${escape(segment.id)}" title="${escape(title)}" aria-label="${escape(title)}"><span>${style.letter}</span> ${escape(segment.name)}</button>`
-  }).join('')}</div>`
+  return `<g data-race-segment-profile pointer-events="none"><defs><path id="race-segment-source-line" d="${escape(line)}"/><path id="race-segment-source-area" d="${escape(area)}"/></defs>${drawable.map((segment, index) => {
+    const style = RACE_SEGMENT_STYLE[segment.type]
+    const left = 20 + 760 * segment.startOffsetM / (course.indexed.lengthKm * 1000)
+    const right = 20 + 760 * segment.endOffsetM / (course.indexed.lengthKm * 1000)
+    const clip = `race-segment-clip-${index}`
+    return `<g data-profile-segment="${escape(segment.id)}"><title>${escape(segment.name)} · km ${km(segment.startOffsetM)} → ${km(segment.endOffsetM)}</title><clipPath id="${clip}"><rect x="${left}" y="25" width="${Math.max(0, right-left)}" height="189"/></clipPath><g clip-path="url(#${clip})"><use href="#race-segment-source-area" fill="${style.color}" opacity=".4"/><use href="#race-segment-source-line" fill="none" stroke="${style.color}" stroke-width="4"${segment.id === draftId || raceSegmentStatus(course, segment) !== 'ready' ? ' stroke-dasharray="7 4"' : ''}/></g></g>`
+  }).join('')}</g>`
 }
 
-export function renderRaceSegmentsPanel(course: RaceCourse, stage: RideStage): string {
-  const segments = stage.raceSegments ?? []
-  return `<section class="race-segments" data-race-segments-host><header><h3>Segments de course <span>(${segments.length})</span></h3>${renderFeatureUpdateBadge('race-segments')}</header>
-  <ul class="race-segments__list">${segments.map(segment => {
-    const style = RACE_SEGMENT_STYLE[segment.type], value = analyzeRaceSegment(course, segment)
-    return `<li><button type="button" data-segment-edit="${escape(segment.id)}"><strong><span class="race-segment-tag race-segment--${segment.type}">${style.letter}</span> ${escape(segment.name)}</strong><span>${style.label} · km ${km(segment.startOffsetM)} → ${km(segment.endOffsetM)}</span><span>${segmentStats(course, segment)}</span>${value.status === 'ready' ? '' : `<span class="race-segments__warning">${statusLabel[value.status]}</span>`}</button></li>`
-  }).join('')}</ul>
-  <button type="button" class="button button--quiet" data-segment-add${course.status === 'stale' ? ' disabled' : ''}>+ Ajouter un segment</button>
+export function renderRaceSegmentsPanel(course: RaceCourse, _stage: RideStage): string {
+  return `<section class="race-segments" data-race-segments-host aria-label="Édition des points de passage">
+  <button type="button" class="button button--quiet" data-segment-add${course.status === 'stale' ? ' disabled' : ''}>+ Ajouter un segment</button>${renderFeatureUpdateBadge('race-segments')}
   ${course.status === 'stale' ? '<p class="race-course__hint">Redéfinissez d’abord le départ et l’arrivée de course.</p>' : ''}
   <div data-race-segment-editor hidden><h4 data-segment-editor-title>Nouveau segment</h4>
   <div class="race-segments__fields"><label>Type<select data-segment-field="type" aria-label="Type de segment">${RACE_SEGMENT_TYPES.map(type => `<option value="${type}">${RACE_SEGMENT_STYLE[type].label}</option>`).join('')}</select></label><label>Nom<input data-segment-field="name" aria-label="Nom du segment"></label>
-  <label>Début · km GPX<input type="number" min="0" step="any" inputmode="decimal" data-segment-field="start" aria-label="Début du segment en kilomètres GPX"></label>
-  <label>Fin · km GPX<input type="number" min="0" step="any" inputmode="decimal" data-segment-field="end" aria-label="Fin du segment en kilomètres GPX"></label>
+  <label>Début · km GPX<input type="number" min="0" step="0.1" inputmode="decimal" data-segment-field="start" aria-label="Début du segment en kilomètres GPX"></label>
+  <label>Fin · km GPX<input type="number" min="0" step="0.1" inputmode="decimal" data-segment-field="end" aria-label="Fin du segment en kilomètres GPX"></label>
   <button type="button" class="button button--quiet" data-segment-pick="start" aria-pressed="false">Placer le début</button><button type="button" class="button button--quiet" data-segment-pick="end" aria-pressed="false">Placer la fin</button></div>
-  <div class="race-segments__actions"><button type="button" class="button button--quiet" data-segment-map>Choisir sur la carte</button></div>
-  <div data-segment-map-panel hidden><div class="race-segments__map" data-segment-map-canvas></div><p class="race-course__hint" data-segment-map-fallback hidden>Fond de carte indisponible ; le tracé reste sélectionnable.</p><div data-segment-map-choices></div></div>
   <p class="race-course__hint" data-segment-live role="status"></p><p class="race-course__hint" data-segment-preview></p>
   <details class="race-segments__alerts"><summary>Réglages pour les futurs exports</summary><label><input type="checkbox" data-segment-field="beforeEnabled"> Alerte avant</label><label>Distance avant · m<input type="number" min="0" step="any" inputmode="decimal" data-segment-field="beforeM" aria-label="Distance d’alerte avant le segment en mètres"></label><label><input type="checkbox" data-segment-field="atStart"> Alerte au début</label><label><input type="checkbox" data-segment-field="atEnd"> Alerte à la fin</label></details>
   <div class="race-segments__actions"><button type="button" class="button" data-segment-save>Enregistrer</button><button type="button" class="button button--quiet" data-segment-cancel>Annuler</button><button type="button" class="button button--quiet" data-segment-delete hidden>Supprimer</button></div>
@@ -63,8 +52,7 @@ export function renderRaceSegmentsPanel(course: RaceCourse, stage: RideStage): s
 export interface RaceSegmentsEditorOptions {
   readonly idFactory: () => string
   readonly save: (change: RaceSegmentChange, expectedFingerprint: string) => Promise<void>
-  readonly mapModel: RouteMapModel | null
-  readonly mountPicker?: (container: HTMLElement, model: RouteMapModel, onTileError: () => void) => RoutePickerHandle | null
+  readonly timeline?: HTMLElement | null
 }
 
 export function mountRaceSegmentsEditor(profile: HTMLElement, bundle: TripBundle, stage: RideStage, options: RaceSegmentsEditorOptions): () => void {
@@ -78,28 +66,28 @@ export function mountRaceSegmentsEditor(profile: HTMLElement, bundle: TripBundle
   const live = host.querySelector<HTMLElement>('[data-segment-live]')!
   const preview = host.querySelector<HTMLElement>('[data-segment-preview]')!
   const field = (name: string) => host.querySelector<HTMLInputElement>(`[data-segment-field="${name}"]`)!
-  const mapPanel = host.querySelector<HTMLElement>('[data-segment-map-panel]')!
-  const mapChoices = host.querySelector<HTMLElement>('[data-segment-map-choices]')!
   let current: RaceSegment | null = null, id = '', picked: 'start' | 'end' | null = null, saving = false, automaticName = false
-  let start = NaN, end = NaN, timer: ReturnType<typeof setTimeout> | undefined, picker: RoutePickerHandle | null = null
+  let start = NaN, end = NaN, timer: ReturnType<typeof setTimeout> | undefined
   const boundsEditor = profile.querySelector<HTMLDetailsElement>('[data-race-editor]')
   const read = (): RaceSegmentFields => ({ type: field('type').value as RaceSegmentFields['type'], name: field('name').value,
     startOffsetM: start, endOffsetM: end, alerts: { beforeEnabled: field('beforeEnabled').checked, beforeM: field('beforeM').valueAsNumber, atStart: field('atStart').checked, atEnd: field('atEnd').checked } })
   const draft = (): RaceSegment => ({ ...read(), id, routeFingerprint: course.fingerprint,
     provenance: current?.provenance ?? { sourceType: 'user', sourceId: null, fetchedAt: null, engineVersion: 'race-segments@1', confidence: 'high', manuallyOverridden: true } })
   const paint = (values: readonly RaceSegment[] = segments, draftId?: string) => {
-    profile.querySelector('[data-race-segment-bands]')?.remove()
-    profile.querySelector('.elevation-profile')?.insertAdjacentHTML('afterbegin', renderRaceSegmentBands(course, values, draftId))
+    const svg = profile.querySelector<SVGSVGElement>('[data-profile-interactive]')
+    svg?.querySelector('[data-race-segment-profile]')?.remove()
+    const line = svg?.querySelector('.profile-line')?.getAttribute('d'), area = svg?.querySelector('.profile-area')?.getAttribute('d')
+    if (svg !== null && line && area) svg.querySelector('.profile-line')?.insertAdjacentHTML('afterend', renderRaceSegmentProfile(course, values, line, area, draftId))
   }
   const setInputs = () => {
-    for (const [key, value] of [['start', start], ['end', end]] as const) field(key).value = Number.isFinite(value) ? (value / 1000).toFixed(6).replace(/\.?0+$/, '') : ''
+    for (const [key, value] of [['start', start], ['end', end]] as const) field(key).value = Number.isFinite(value) ? (value / 1000).toFixed(1) : ''
   }
   const setPicked = (value: typeof picked) => {
     picked = value
     for (const button of host.querySelectorAll<HTMLButtonElement>('[data-segment-pick]')) button.setAttribute('aria-pressed', String(button.dataset.segmentPick === value))
   }
   const close = () => {
-    clearTimeout(timer); picker?.destroy(); picker = null; mapPanel.hidden = true; mapChoices.innerHTML = ''
+    clearTimeout(timer)
     editor.hidden = true; setPicked(null); paint()
   }
   const update = () => {
@@ -112,17 +100,12 @@ export function mountRaceSegmentsEditor(profile: HTMLElement, bundle: TripBundle
       preview.textContent = `${segmentStats(course, value)}${statusLabel[analysis.status] ? ` · ${statusLabel[analysis.status]}` : ''}${analysis.beforeOmitted ? ' · Alerte avant omise : départ de course trop proche.' : ''}`
     }, 180)
   }
-  const chooseOffset = (offsetM: number, confirm = false) => {
+  const chooseOffset = (value: number) => {
+    const offsetM = Math.min(Math.floor(course.indexed.lengthKm * 10) * 100, Math.max(0, Math.round(value / 100) * 100))
     if (picked === null || saving) return
     if (picked === 'start') start = offsetM; else end = offsetM
-    if (picker !== null) {
-      const projected = pointAtIndexedDistance(course.indexed, offsetM / 1000)
-      picker.handle.setTemporaryMarker(projected.latitude, projected.longitude)
-    }
     setInputs(); update()
     live.textContent = `${picked === 'start' ? 'Début' : 'Fin'} au km ${km(offsetM)}. ${picked === 'start' ? 'Placez ensuite la fin.' : 'Enregistrez pour confirmer.'}`
-    mapChoices.innerHTML = ''
-    if (confirm) setPicked(null)
   }
   const open = (segment: RaceSegment | null) => {
     close(); current = segment; id = segment?.id ?? options.idFactory(); automaticName = segment === null
@@ -168,12 +151,12 @@ export function mountRaceSegmentsEditor(profile: HTMLElement, bundle: TripBundle
   host.addEventListener('input', event => {
     if (!(event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement) || saving) return
     const key = event.target.dataset.segmentField
-    if (key === 'start' || key === 'end') { setPicked(null); if (key === 'start') start = field('start').valueAsNumber * 1000; else end = field('end').valueAsNumber * 1000 }
+    if (key === 'start' || key === 'end') { setPicked(null); if (key === 'start') start = Math.round(field('start').valueAsNumber * 10) * 100; else end = Math.round(field('end').valueAsNumber * 10) * 100 }
     if (key === 'name') automaticName = false
     if (key === 'type' && automaticName) field('name').value = `${RACE_SEGMENT_STYLE[read().type].label} ${segments.filter(value => value.type === read().type).length + 1}`
     update()
   }, { signal })
-  profile.addEventListener('click', event => {
+  const onClick = (event: Event) => {
     if (!(event.target instanceof Element) || saving) return
     const target = event.target
     const editId = target.closest<HTMLElement>('[data-segment-edit]')?.dataset.segmentEdit
@@ -182,30 +165,18 @@ export function mountRaceSegmentsEditor(profile: HTMLElement, bundle: TripBundle
     if (target.closest('[data-segment-add]')) { open(null); return }
     if (target.closest('[data-segment-cancel]')) { close(); return }
     const pick = target.closest<HTMLElement>('[data-segment-pick]')?.dataset.segmentPick
-    if (pick === 'start' || pick === 'end') { setPicked(pick); live.textContent = `Touchez le profil ou la carte pour placer ${pick === 'start' ? 'le début' : 'la fin'}.`; return }
-    const offset = target.closest<HTMLElement>('[data-segment-projection]')?.dataset.segmentProjection
-    if (offset !== undefined) { chooseOffset(Number(offset), true); return }
+    if (pick === 'start' || pick === 'end') { setPicked(pick); live.textContent = `Touchez le profil pour placer ${pick === 'start' ? 'le début' : 'la fin'}.`; return }
     if (target.closest('[data-segment-save]')) { void commit(false); return }
     if (target.closest('[data-segment-delete]')) { host.querySelector<HTMLElement>('[data-segment-delete-confirm]')!.hidden = false; return }
     if (target.closest('[data-segment-delete-no]')) { host.querySelector<HTMLElement>('[data-segment-delete-confirm]')!.hidden = true; return }
     if (target.closest('[data-segment-delete-yes]') && current !== null) { void commit(true); return }
-    if (!target.closest('[data-segment-map]')) return
-    if (picker !== null) { picker.destroy(); picker = null; mapPanel.hidden = true; return }
-    if (options.mountPicker === undefined || options.mapModel === null) { live.textContent = 'Utilisez le profil ou les kilomètres pour placer cette limite.'; return }
-    mapPanel.hidden = false
-    picker = options.mountPicker(host.querySelector<HTMLElement>('[data-segment-map-canvas]')!, options.mapModel, () => { host.querySelector<HTMLElement>('[data-segment-map-fallback]')!.hidden = false })
-    if (picked === null) setPicked('start')
-    picker?.handle.onMapClick((latitude, longitude) => {
-      if (picked === null || saving) return
-      const candidates = projectRacePosition(course, { latitude, longitude })
-      mapChoices.innerHTML = ''
-      if (candidates.length === 0) { live.textContent = 'Touchez plus près de la trace, zoomez ou utilisez le profil.'; return }
-      if (candidates.length > 8) { live.textContent = 'Trop de passages proches : choisissez le kilomètre sur le profil.'; return }
-      if (candidates.length === 1) { chooseOffset(candidates[0]!.offsetM, true); return }
-      live.textContent = 'Plusieurs passages sont proches. Choisissez le kilomètre voulu.'
-      mapChoices.innerHTML = candidates.map(value => `<button type="button" class="button button--quiet" data-segment-projection="${value.offsetM}">Passage au km ${km(value.offsetM)}</button>`).join('')
-    })
+  }
+  profile.addEventListener('click', onClick, { signal })
+  options.timeline?.addEventListener('click', onClick, { signal })
+  host.addEventListener('change', event => {
+    if (event.target instanceof HTMLInputElement && ['start', 'end'].includes(event.target.dataset.segmentField ?? '')) setInputs()
   }, { signal })
+
   paint()
-  return () => { clearTimeout(timer); controller.abort(); picker?.destroy(); picker = null }
+  return () => { clearTimeout(timer); controller.abort() }
 }

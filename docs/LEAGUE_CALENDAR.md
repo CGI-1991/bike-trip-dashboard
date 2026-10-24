@@ -1,5 +1,7 @@
 # League — premier lot : calendrier des courses
 
+> Les [corrections du 24 octobre](LEAGUE_TOUR_CORRECTIONS.md) remplacent les choix d’interface de ce document lorsqu’ils diffèrent : statistiques League, vent, navigation et présentation des segments.
+
 Version `2026.10.23.6`. Le [cadrage League/Tour](LEAGUE.md) prévoit plusieurs lots ; celui-ci livre le calendrier et le socle de modes, sans annoncer les segments ou les exports Garmin comme disponibles.
 
 ## Utilisation sur iPhone

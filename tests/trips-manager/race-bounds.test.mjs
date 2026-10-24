@@ -150,7 +150,7 @@ test('structural edits preserve limits on retained courses, and replacement GPX 
     assert.equal(validateTripBundle(replaced.bundle).ok, true)
     const markup = renderRaceCourseCard(course, changed)
     assert.match(markup, /redéfinissez/)
-    assert.match(markup, /data-race-distance>—/)
+    assert.doesNotMatch(markup, /data-race-distance|<table>/)
     const reset = applyRaceBounds(replaced.bundle, changed.id, null, course.fingerprint, NOW)
     assert.equal(buildRaceCourse(reset, reset.stages.find(stage => stage.id === changed.id)).status, 'full')
   } finally { database.close() }

@@ -31,6 +31,7 @@ export interface GpxTripImportOptions {
   readonly language?: string
   readonly units?: 'metric'
   readonly startDate?: string | null
+  readonly referenceSpeedMode?: import('../../trip-core/model/reference-speed.ts').ReferenceSpeedMode
   readonly referenceSpeedKph?: number
   readonly departureTime?: string
   /** A fixed budget in minutes, or `'adaptive'` for a per-stage estimate (CDC phase 6C1 section 22) — see `route-analysis.ts`. */
@@ -52,6 +53,7 @@ export interface ResolvedGpxTripImportOptions {
   readonly language: string
   readonly units: 'metric'
   readonly startDate: string | null
+  readonly referenceSpeedMode?: import('../../trip-core/model/reference-speed.ts').ReferenceSpeedMode
   readonly referenceSpeedKph: number
   readonly departureTime: string
   readonly totalBreakMinutes: number | 'adaptive'

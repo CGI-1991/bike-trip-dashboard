@@ -87,6 +87,7 @@ export function assembleTripBundle(input: TripBuilderInput): TripBundle {
         ...(options.organizationMode === undefined || options.organizationMode === 'voyage' ? {} : { organizationMode: options.organizationMode, raceMode: true }),
         travelMode: options.travelMode,
         referenceSpeedKph: options.referenceSpeedKph,
+        ...(options.referenceSpeedMode === undefined ? {} : { referenceSpeedMode: options.referenceSpeedMode }),
         pausePlanMode: 'automatic',
         climbDetectionSensitivity: options.climbDetectionSensitivity,
       },

@@ -1,3 +1,5 @@
+import { REFERENCE_SPEED_PRESETS, isReferenceSpeedMode, resolveReferenceSpeedMode } from '../../trip-core/model/reference-speed.ts'
+import { renderReferenceSpeedControl } from './reference-speed-control.ts'
 /**
  * "Créer un voyage" assistant (CDC phase 6C1 sections 8-23, annexe
  * fonctionnelle sections 2-13). Compact by design (section 4: simplicité
@@ -43,7 +45,7 @@ import type { TransferTiming } from '../../trip-core/index.ts'
 import type { FileEntryId, StructureItem, WizardStage, WizardState } from './import-wizard-state.ts'
 import { renderRaceModeToggle } from './race-mode-toggle.ts'
 import { renderTravelModeToggle } from './travel-mode-toggle.ts'
-import { isTravelMode, TRAVEL_MODE_SETTINGS } from '../../trips-manager/travel-mode.ts'
+import { isTravelMode } from '../../trips-manager/travel-mode.ts'
 import { climbSensitivityAtIndex, patchClimbSensitivityLabels, renderClimbSensitivitySlider } from './climb-sensitivity-slider.ts'
 
 function asTripId(value: string): TripId {
@@ -149,6 +151,7 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
         organizationMode: state.organizationMode === 'league' ? 'league' : state.raceMode ? 'tour' : 'voyage',
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         referenceSpeedKph: state.referenceSpeedKph,
+        referenceSpeedMode: state.referenceSpeedMode,
         travelMode: state.travelMode,
         climbDetectionSensitivity: state.climbSensitivity,
         totalBreakMinutes: 'adaptive',
@@ -410,7 +413,7 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
           ${renderRaceModeToggle(state.raceMode, state.organizationMode)}
           ${state.organizationMode === 'league' ? '<p>Ajoutez un GPX par course, puis indiquez sa date et son heure. Le calendrier sera classé automatiquement.</p>' : `<div class="field"><label for="wizard-start-date">Date de départ</label><div class="field__control"><input id="wizard-start-date" type="date" data-field="start-date" value="${escapeHtml(state.startDate)}" required></div></div>`}
           ${renderTravelModeToggle(state.travelMode)}
-          <div class="field"><label for="wizard-reference-speed">Vitesse de référence sur le plat</label><div class="field__control"><input id="wizard-reference-speed" type="number" min="${TRAVEL_MODE_SETTINGS[state.travelMode].minimumSpeedKph}" max="${TRAVEL_MODE_SETTINGS[state.travelMode].maximumSpeedKph}" step="0.5" data-field="reference-speed" value="${Number.isFinite(state.referenceSpeedKph) ? state.referenceSpeedKph : ''}"><span>km/h</span></div></div>
+          ${renderReferenceSpeedControl(state.referenceSpeedKph, state.referenceSpeedMode ?? resolveReferenceSpeedMode(state.referenceSpeedKph, state.travelMode), state.travelMode, 'wizard')}
         </section>
         <p class="eyebrow">Structure</p>
         <button class="button button--quiet" type="button" data-action="trigger-add-files">+ Ajouter des GPX</button>
@@ -484,6 +487,11 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
 
   container.addEventListener('change', (event) => {
     const target = event.target
+    if (target instanceof HTMLSelectElement && target.hasAttribute('data-reference-speed-mode') && isReferenceSpeedMode(target.value)) {
+      state.referenceSpeedMode = target.value
+      if (target.value !== 'manual') state.referenceSpeedKph = REFERENCE_SPEED_PRESETS[state.travelMode][target.value]
+      render(); return
+    }
     if (target instanceof HTMLInputElement && target.dataset.field === 'files' && target.files !== null && target.files.length > 0) {
       const files = Array.from(target.files)
       // Reset immediately after capturing a plain-array snapshot, so the
@@ -514,7 +522,7 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
     if (action === 'set-travel-mode' && isTravelMode(button.dataset.travelMode)) {
       if (Number.isFinite(state.referenceSpeedKph)) modeSpeeds[state.travelMode] = state.referenceSpeedKph
       state.travelMode = button.dataset.travelMode
-      state.referenceSpeedKph = modeSpeeds[state.travelMode]
+      state.referenceSpeedKph = state.referenceSpeedMode !== undefined && state.referenceSpeedMode !== 'manual' ? REFERENCE_SPEED_PRESETS[state.travelMode][state.referenceSpeedMode] : modeSpeeds[state.travelMode]
       render()
       return
     }
