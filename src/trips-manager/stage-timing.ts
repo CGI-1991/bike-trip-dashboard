@@ -15,10 +15,9 @@
 import { computeStageTiming } from '../analysis/timing.ts'
 import { estimateAutomaticBreakBudget } from '../analysis/pause-budget.ts'
 import { routeGeometryWithDistances } from '../analysis/canonical-waypoints.ts'
-import { buildTerrainProfileSeries } from '../route/terrain-profile.ts'
-import { walkingTerrainForGeometry } from '../analysis/travel-timing.ts'
+import { travelTerrainForGeometry } from '../analysis/travel-timing.ts'
 import { selectTravelMode } from '../trip-core/index.ts'
-import type { RouteProfilePosition, TerrainProfilePoint } from '../route/types.ts'
+import type { TerrainProfilePoint } from '../route/types.ts'
 import type { RideStage, Route, TravelMode, TripBundle } from '../trip-core/index.ts'
 
 /**
@@ -35,23 +34,7 @@ export type StageBreakBudget = number | 'adaptive' | 'preserve'
 export function buildTerrainProfileForRoute(route: Route, travelMode: TravelMode = 'cycling'): readonly TerrainProfilePoint[] | null {
   const geometryWithDistances = routeGeometryWithDistances(route)
   if (geometryWithDistances === null) return null
-  const { geometry, distances } = geometryWithDistances
-  if (travelMode === 'walking') return walkingTerrainForGeometry(geometry).profile
-  const source: RouteProfilePosition[] = geometry.map((point, index) => ({
-    latitude: point.latitude,
-    longitude: point.longitude,
-    sourceFileNumber: 1,
-    sourceFileName: 'route.gpx',
-    distanceKm: distances[index] ?? 0,
-    elevationGainM: 0,
-    elevationLossM: 0,
-    altitudeM: point.altitudeM,
-    localSlopePercent: 0,
-    speedMultiplier: 1,
-    weightedDistanceKm: distances[index] ?? 0,
-  }))
-  const series = buildTerrainProfileSeries(source)
-  return series.length < 2 ? null : series
+  return travelTerrainForGeometry(geometryWithDistances.geometry, travelMode).profile
 }
 
 /**

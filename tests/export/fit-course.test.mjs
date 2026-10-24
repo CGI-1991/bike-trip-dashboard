@@ -261,7 +261,8 @@ test('full GPX timing includes the slower approach, course and suffix while cour
       const seconds = (Math.min(km, 1) / 15 + Math.max(0, km - 1) / 18) * 3600
       close((record.timestamp - new Date(NOW)) / 1000, seconds, .51)
     }
-    close(decoded.laps[0].total_timer_time, (1 / 15 + (course.indexed.lengthKm - 1) / 18) * 3600, .001)
+    const chainageScale = stage.distanceKm / course.indexed.lengthKm
+    close(decoded.laps[0].total_timer_time, (1 / 15 + (course.indexed.lengthKm - 1) / 18) * 3600 * chainageScale, .001)
     assert.equal(stage.raceBounds.finishOffsetM - stage.raceBounds.startOffsetM, 11000)
     assert.ok(result.distanceM > 22000)
     const finish = decoded.course_points.find(point => point.name === 'RACE FINISH')

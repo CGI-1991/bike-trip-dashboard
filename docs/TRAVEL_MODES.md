@@ -1,5 +1,7 @@
 # Vélo et randonnée
 
+> Depuis **2026.10.24.9**, les [allures et ETA utilisent la même préparation du relief](PACE_AND_ETA_CALIBRATION.md) à l’import, au recalcul et en consultation, avec moyenne en mouvement et indication d’altitude insuffisante.
+
 > Depuis **2026.10.24.8**, les [catégories, le filtre et les seuils de marche](CLIMB_CATEGORIES.md) complètent la détection historique. Les catégories restent indicatives ; le classement ne modifie pas les segments manuels.
 
 > Les [cinq allures et le mode Manuel](LEAGUE_TOUR_CORRECTIONS.md#enregistrement-et-vitesse) sont désormais réalisés. Le présent document décrit le premier lot marche ; la [feuille de route actuelle](ROADMAP.md) distingue calibration restante et fonctions livrées.

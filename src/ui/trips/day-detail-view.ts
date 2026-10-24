@@ -1,4 +1,5 @@
 import { classifyClimb } from '../../analysis/climb-category.ts'
+import { travelTerrainForGeometry } from '../../analysis/travel-timing.ts'
 import { renderClimbProfileBar } from './mini-profile-view.ts'
 import { segmentMiniProfile } from './segment-mini-profile.ts'
 import { renderStageGpxActions } from './gpx-export-actions.ts'
@@ -1054,6 +1055,10 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
   // the page itself, so a fresh `statsHtml` after a save needs no state to
   // reset.
   const metrics = selectStageCourseMetrics(bundle, stage)
+  const placedPauseMinutes = arrival === null ? 0 : waypoints.filter(point => point.trackDistanceKm < arrival.trackDistanceKm - 1e-9).reduce((sum, point) => sum + (point.pauseDurationMinutes ?? 0), 0)
+  const movingMinutes = arrival?.elapsedMinutes == null ? null : arrival.elapsedMinutes - approachMinutes - placedPauseMinutes
+  const averageSpeed = metrics.distanceKm === null || movingMinutes === null || movingMinutes <= 0 ? null : metrics.distanceKm / movingMinutes * 60
+  const flatEstimate = timingCurve !== null && geometry !== null && travelTerrainForGeometry(geometry, selectTravelMode(bundle)).profile === null
   const showRaceStats = waypointsInput.raceCourse?.status !== 'stale'
   const statsHtml = `<div data-day-detail-stats${showRaceStats ? '' : ' hidden'}>${showRaceStats ? `${waypointsInput.raceCourse?.status === 'bounded' ? '<p class="race-course__hint">Approche incluse dans les horaires · statistiques de course.</p>' : ''}<dl class="day-detail__stats">
     <div><dt>${selectRaceMode(bundle) ? `Départ GPX ${renderFeatureUpdateBadge('race-bounds')}` : 'Départ'}</dt><dd>
@@ -1062,13 +1067,14 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
     ${courseStartKm > 0 && waypointsInput.raceCourse?.status === 'bounded' ? `<div><dt>Départ réel estimé</dt><dd>${timingCurve?.clockTimeAt(courseStartKm) ?? '—'}</dd></div>` : ''}
     <div><dt>Arrivée estimée</dt><dd>${arrival?.clockTime ?? '—'}</dd></div>
     <div><dt>Distance</dt><dd>${metrics.distanceKm === null ? '—' : formatKilometers(metrics.distanceKm)}</dd></div>
+    <div><dt>Moyenne en mouvement ${renderFeatureUpdateBadge('reference-speed')}</dt><dd data-stage-moving-speed>${averageSpeed === null ? '—' : `${averageSpeed.toFixed(1).replace('.', ',')} km/h`}</dd></div>
     <div><dt>${selectRaceMode(bundle) ? 'Durée de course' : 'Durée'}</dt><dd>${formatDuration(totalDurationSeconds)}</dd></div>
     <div><dt>D+</dt><dd>${metrics.elevationGainM === null ? '—' : `+${Math.round(metrics.elevationGainM)} m`}</dd></div>
     <div><dt>D−</dt><dd>${metrics.elevationLossM === null ? '—' : `−${Math.round(metrics.elevationLossM)} m`}</dd></div>
     <div><dt>Montées ${renderFeatureUpdateBadge('climb-categories')}</dt><dd>${waypointsInput.raceCourse?.status === 'stale' ? '—' : primaryClimbCount}</dd></div>
     ${selectOrganizationCapabilities(bundle).relativeWind ? `<div><dt>Vent moyen ${renderFeatureUpdateBadge('stage-wind-stat')}</dt><dd data-stage-wind-stat><span aria-label="Vent moyen indisponible">—</span></dd></div>` : ''}
     ${pauseResolution.pausesDisabled === true ? '' : `<div><dt>Pauses</dt><dd>${totalPauseMinutes === null ? '—' : `${totalPauseMinutes} min`}</dd></div>`}
-  </dl>` : ''}</div>`
+  </dl>${flatEstimate ? '<p class="field__hint" data-flat-timing-estimate>Altitude insuffisante · estimation sur le plat.</p>' : ''}` : ''}</div>`
 
   // Course/Tour mode disables in-stage pauses: their configuration is not
   // offered at all (`renderPauseWeatherBottomBlock` then drops the whole

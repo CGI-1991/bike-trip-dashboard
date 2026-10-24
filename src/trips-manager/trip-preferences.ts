@@ -355,7 +355,7 @@ export async function updateTripPreferences(input: UpdateTripPreferencesInput): 
 
   const applied = applyTripPreferences(existing, input.update, input.now(), input.idFactory)
   const schedule = selectTravelMode(existing) !== selectTravelMode(applied)
-    || (selectTravelMode(applied) === 'walking' && existing.settings.global.referenceSpeedKph !== applied.settings.global.referenceSpeedKph)
+    || existing.settings.global.referenceSpeedKph !== applied.settings.global.referenceSpeedKph
     ? resolveLinkedScheduleConflicts(applied) : null
   const next = schedule?.bundle ?? applied
   const validation = validateTripBundle(next)
