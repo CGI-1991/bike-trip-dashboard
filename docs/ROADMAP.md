@@ -1,6 +1,6 @@
 # Feuille de route Trip(+)
 
-État au 24 octobre 2026, avec le lot `2026.10.24.6` proposé en PR. Les demandes directes de l’utilisateur priment sur les documents sources conservés dans `specs/`.
+État au 24 octobre 2026, avec le lot `2026.10.24.7` proposé en PR. Les demandes directes de l’utilisateur priment sur les documents sources conservés dans `specs/`.
 
 Livraison : une PR par lot cohérent et validé. Fusion et déploiement sont des étapes distinctes. Chaque changement d’usage porte une entrée Nouveautés et une petite balise MAJ locale, accessible au toucher sur iPhone. Conserver l’origine du site, l’identité de la PWA et les activités locales : aucune réinstallation à demander.
 
@@ -16,7 +16,7 @@ Livraison : une PR par lot cohérent et validé. Fusion et déploiement sont des
 | League / Tour | Calendrier League indépendant, dates et départs explicites, navigation Voyage/Calendrier/Étapes ; limites de course facultatives (GPX entier par défaut), heure au départ GPX, approche vélo à référence −3 km/h, statistiques de course distinctes et segments Sprint/Grimpeur/Flandrien. [Départs et approche](GPX_DEPARTURE_AND_WALKING_WIND.md). [Cadrage](LEAGUE.md). |
 | Lecture et édition | Vignettes ouvrant les mini-profils ; limites et segments édités dans **Course**, à côté de Météo, sur le profil neutre. Pochage des segments uniquement en Neutre ; portions colorées sur la carte du détail et en plein écran. [Comportement actuel](STAGE_WIND_AND_SEGMENT_DISPLAY.md). |
 | Export GPX enrichi | Lot `2026.10.24.3` : trace d’origine conservée, limites, noms, segments et réglages réimportables ; waypoints standards et extension versionnée. **Ce GPX ne garantit pas d’alertes Garmin.** [Format et vérifications](ENRICHED_GPX.md). |
-| Export FIT Course — essai | Lot `2026.10.24.4` : portion de course et points d’alerte explicites, lecture indépendante et premier export hors connexion vérifiés. **Validation sur appareil Garmin encore nécessaire.** [Format, limites et essai terrain](FIT_COURSE.md). |
+| Export FIT Course — essai | Lot `2026.10.24.7` : tracé GPX intégral dans le FIT, limites et alertes ajoutées comme repères, comparaison indépendante GPX/FIT et premier export hors connexion vérifiés. [Même parcours](FULL_GPX_FIT_ROUTE.md). **Validation sur appareil Garmin encore nécessaire.** [Format, limites et essai terrain](FIT_COURSE.md). |
 | Sauvegardes et mises à jour | Sauvegarde/restauration ZIP complète, originaux conservés, copies sans écrasement ; historique Nouveautés et balises MAJ. [Sauvegarde](TRIP_BACKUP.md), [mises à jour](RELEASE_NOTES.md). |
 
 « Réalisé » décrit le code des lots livrés/proposés ; l’utilisateur retrouve une version sur son téléphone après fusion et déploiement. Nouveautés indique la version effectivement chargée.

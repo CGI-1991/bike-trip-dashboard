@@ -51,34 +51,48 @@ function scaled(value: number, scale: number, maximum = 0xfffffffe): number {
   return raw
 }
 
-/** A Course, never a recorded Activity. Encodes the active course only, using
- * original GPX chainage for both records and explicit segment alerts. */
+/** A Course, never a recorded Activity. Keeps every original GPX vertex;
+ * race boundaries and segment alerts add points without clipping the track. */
 export async function buildFitCourse(bundle: TripBundle, stage: RideStage, createdAt = new Date()): Promise<FitCourseResult> {
   const reason = raceExportUnavailableReason(bundle, stage)
   if (reason !== null) throw new Error(reason)
   const course = buildRaceCourse(bundle, stage)!
   const route = bundle.routes.find(route => route.id === stage.sourceRouteId)!
-  const startM = course.bounds?.startOffsetM ?? 0
   const finishM = course.bounds?.finishOffsetM ?? course.indexed.lengthKm * 1000
-  const distanceM = finishM - startM
-  const curve = computeStageTimingCurve({ stage, route, routePoints: bundle.routePoints, climbs: bundle.climbs, raceCourse: course,
+  const distanceM = course.indexed.lengthKm * 1000
+  const timingInput = { stage, route, routePoints: bundle.routePoints, climbs: bundle.climbs,
     settings: { referenceSpeedKph: bundle.settings.global.referenceSpeedKph, travelMode: selectTravelMode(bundle), departureTime: '00:00' },
-    manualPauses: [], automaticPausesAllowed: false })
-  const approachMinutes = curve?.elapsedMinutesAt(startM / 1000)
+    manualPauses: [], automaticPausesAllowed: false }
+  const fullCurve = computeStageTimingCurve(timingInput)
+  const curve = course.bounds === null ? fullCurve : computeStageTimingCurve({ ...timingInput, raceCourse: course })
   const finishMinutes = curve?.elapsedMinutesAt(finishM / 1000)
-  const durationMinutes = approachMinutes == null || finishMinutes == null ? null : finishMinutes - approachMinutes
+  const fullFinishMinutes = fullCurve?.elapsedMinutesAt(finishM / 1000)
+  if (curve === null || fullCurve === null || finishMinutes == null || fullFinishMinutes == null) throw new Error('Les temps du parcours sont indisponibles. Vérifiez son allure avant l’export FIT.')
+  // Keep the app's GPX-departure/neutralized-approach timing through the
+  // real finish. The remaining GPX uses normal terrain pace, continuously;
+  // this export-only continuation does not change operational race ETAs.
+  const elapsedMinutesAt = (offsetM: number): number | null => {
+    if (offsetM <= finishM) return curve.elapsedMinutesAt(offsetM / 1000)
+    const value = fullCurve.elapsedMinutesAt(offsetM / 1000)
+    return value === null ? null : value + finishMinutes - fullFinishMinutes
+  }
+  const durationMinutes = elapsedMinutesAt(distanceM)
   if (durationMinutes == null || !Number.isFinite(durationMinutes) || durationMinutes <= 0) throw new Error('Les temps du parcours sont indisponibles. Vérifiez son allure avant l’export FIT.')
-  // The course's theoretical pace starts at export time. Source GPX timestamps
+  // The full GPX's theoretical pace starts at export time. Source GPX timestamps
   // and League dates are not recording times and are deliberately not reused.
   const startTime = FitEncoder.toFitTimestamp(createdAt)
   const timestamp = (offsetM: number) => {
-    const minutes = curve?.elapsedMinutesAt(offsetM / 1000)
+    const minutes = elapsedMinutesAt(offsetM)
     if (minutes == null) throw new Error('Les temps du parcours sont incomplets. Export FIT annulé.')
-    return scaled(startTime + (minutes - approachMinutes!) * 60, 1)
+    return scaled(startTime + minutes * 60, 1)
   }
-  const first = course.geometry![0]!, last = course.geometry!.at(-1)!
+  const first = course.indexed.points[0]!, last = course.indexed.points.at(-1)!
   const warnings: string[] = []
-  const points: CoursePoint[] = [{ offsetM: startM, point: first, name: 'START COURSE', type: 0 }]
+  const points: CoursePoint[] = [{ offsetM: 0, point: first, name: 'START GPX', type: 0 }]
+  if (course.bounds !== null) points.push(
+    { offsetM: course.bounds.startOffsetM, point: course.geometry![0]!, name: 'RACE START', type: 0 },
+    { offsetM: finishM, point: course.geometry!.at(-1)!, name: 'RACE FINISH', type: 0 },
+  )
   const labels = { sprint: 'SPRINT', climb: 'CLIMB', flandrien: 'FLAND' }, counts = { sprint: 0, climb: 0, flandrien: 0 }
   for (const segment of stage.raceSegments ?? []) {
     const analysis = analyzeRaceSegment(course, segment)
@@ -88,7 +102,7 @@ export async function buildFitCourse(bundle: TripBundle, stage: RideStage, creat
       type: alert.kind === 'start' ? 24 : alert.kind === 'end' ? 25 : segment.type === 'sprint' ? 15 : 0 })
     if (analysis.beforeOmitted) warnings.push(`${segment.name} : alerte préalable omise, départ de course trop proche.`)
   }
-  points.push({ offsetM: finishM, point: last, name: 'FINISH COURSE', type: 0 })
+  points.push({ offsetM: distanceM, point: last, name: 'FINISH GPX', type: 0 })
   points.sort((a, b) => a.offsetM - b.offsetM)
   const encoder = new FitEncoder({ protocolVersion: 0x10, profileVersion: 21188 })
   // Two files created within the same second still need distinct file ids.
@@ -98,7 +112,7 @@ export async function buildFitCourse(bundle: TripBundle, stage: RideStage, creat
     field(3, 4, Base.Uint32z, serial), u32(4, startTime)], 0)
   encoder.writeMessage(31, [en(4, selectTravelMode(bundle) === 'walking' ? 17 : 2), text(5, stage.customName?.trim() || 'Trip+ Course'),
     u32(6, 2 | 4 | 8 | 16 | 512)], 1)
-  encoder.writeMessage(19, [u32(253, timestamp(finishM)), u32(2, startTime), pos(3, first.latitude), pos(4, first.longitude),
+  encoder.writeMessage(19, [u32(253, timestamp(distanceM)), u32(2, startTime), pos(3, first.latitude), pos(4, first.longitude),
     pos(5, last.latitude), pos(6, last.longitude), u32(7, scaled(durationMinutes * 60, 1000)), u32(8, scaled(durationMinutes * 60, 1000)),
     u32(9, scaled(distanceM, 100))], 2)
   const timer = (time: number, type: number) => encoder.writeMessage(21, [u32(253, time), en(0, 0), en(1, type), field(4, 1, Base.Uint8, 0)], 3)
@@ -108,7 +122,7 @@ export async function buildFitCourse(bundle: TripBundle, stage: RideStage, creat
     while (points[alertIndex] !== undefined && points[alertIndex]!.offsetM <= offsetM) {
       const point = points[alertIndex++]!
       encoder.writeMessage(32, [u32(1, timestamp(point.offsetM)), pos(2, point.point.latitude), pos(3, point.point.longitude),
-        u32(4, scaled(point.offsetM - startM, 100)), en(5, point.type), text(6, point.name)], 5)
+        u32(4, scaled(point.offsetM, 100)), en(5, point.type), text(6, point.name)], 5)
     }
   }
   const record = (offsetM: number, point: RouteGeometryPoint) => {
@@ -117,22 +131,17 @@ export async function buildFitCourse(bundle: TripBundle, stage: RideStage, creat
     const usableAltitude = altitude !== null && altitude >= 0 && altitude < 0xffff
     if (altitude !== null && !usableAltitude) altitudeOmitted = true
     encoder.writeMessage(20, [u32(253, timestamp(offsetM)), pos(0, point.latitude), pos(1, point.longitude),
-      field(2, 2, Base.Uint16, usableAltitude ? altitude : 0xffff), u32(5, scaled(offsetM - startM, 100))], 4)
+      field(2, 2, Base.Uint16, usableAltitude ? altitude : 0xffff), u32(5, scaled(offsetM, 100))], 4)
     recordCount++
   }
-  writePointsThrough(startM)
-  record(startM, first)
   for (let i = 0; i < course.indexed.points.length; i++) {
     const offsetM = course.indexed.distancesKm[i]! * 1000
-    if (offsetM <= startM || offsetM >= finishM) continue
     writePointsThrough(offsetM)
     record(offsetM, course.indexed.points[i]!)
     // Yield during long traces so a phone can paint the preparation status.
     if (recordCount % 2048 === 0) await new Promise(resolve => setTimeout(resolve, 0))
   }
-  writePointsThrough(finishM)
-  record(finishM, last)
-  timer(timestamp(finishM), 4)
+  timer(timestamp(distanceM), 4)
   if (altitudeOmitted) warnings.push('Certaines altitudes ne sont pas représentables en FIT et restent inconnues dans ce fichier.')
   return { bytes: encoder.close() as Uint8Array<ArrayBuffer>, warnings, coursePointCount: points.length, recordCount, distanceM }
 }

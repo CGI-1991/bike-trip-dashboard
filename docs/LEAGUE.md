@@ -1,5 +1,7 @@
 # Cadrage League et Tour
 
+> Précision **2026.10.24.7** : le [FIT conserve le même parcours complet que le GPX](FULL_GPX_FIT_ROUTE.md), approche et fin de trace comprises. Les limites restent des repères et définissent les statistiques de course, sans découper les exports. Cette règle remplace les anciens choix de découpage FIT décrits ci-dessous.
+
 > Depuis **2026.10.24.6**, la [règle de départ GPX et de vent à vélo](GPX_DEPARTURE_AND_WALKING_WIND.md) prime sur les comportements historiques décrits ci-dessous : limites facultatives en League/Tour, heure au départ GPX, approche incluse dans les ETA et module vent masqué en randonnée.
 
 

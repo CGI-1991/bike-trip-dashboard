@@ -1,5 +1,7 @@
 # Départ GPX, approche et vent à vélo — 2026.10.24.6
 
+> Précision **2026.10.24.7** : le [FIT conserve le même parcours complet que le GPX](FULL_GPX_FIT_ROUTE.md), approche et fin de trace comprises. Les limites restent des repères et définissent les statistiques de course, sans découper les exports. Cette règle remplace les anciens choix de découpage FIT décrits ci-dessous.
+
 Ce lot applique la dernière précision directe de l’utilisateur. Elle remplace les règles historiques imposant deux limites en League, affectant l’heure saisie au départ réel ou affichant le module vent en randonnée. Les documents sources dans `specs/` restent conservés sans modification.
 
 ## Randonnée

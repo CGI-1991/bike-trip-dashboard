@@ -13,6 +13,9 @@ export interface AppRelease {
 }
 
 export const APP_RELEASES: readonly AppRelease[] = [
+  { version: '2026.10.24.7', date: '2026-10-24', changes: [
+    { feature: 'fit-course', title: 'GPX et FIT gardent le même parcours', description: 'Le FIT conserve désormais tous les points du GPX, y compris l’approche avant le départ réel et la portion après l’arrivée. Les limites de course, segments et alertes ajoutent des repères sans couper ni modifier le tracé. Les statistiques de course restent limitées à la course. L’essai sur votre Garmin Edge Explore 2 reste à confirmer.' },
+  ] },
   { version: '2026.10.24.6', date: '2026-10-24', changes: [
     { feature: 'travel-mode', title: 'Le vent est réservé au vélo', description: 'En randonnée, le vent moyen, les flèches relatives et le mode Vent du profil sont masqués. Les autres prévisions météo restent accessibles.' },
     { feature: 'race-bounds', title: 'Le départ GPX sert de référence', description: 'Sans départ réel défini, la course commence au début du GPX. L’heure saisie correspond toujours au départ GPX. Une portion avant le vrai départ est incluse dans les ETA, avec une référence vélo réduite de 3 km/h et le terrain pris en compte. Le départ réel estimé et la durée sportive restent distincts.' },
