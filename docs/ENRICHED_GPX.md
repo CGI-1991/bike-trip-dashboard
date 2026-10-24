@@ -1,5 +1,8 @@
 # Export et réimport GPX enrichi — 2026.10.24.3
 
+> Depuis **2026.10.24.6**, la [règle de départ GPX et de vent à vélo](GPX_DEPARTURE_AND_WALKING_WIND.md) prime sur les comportements historiques décrits ci-dessous : limites facultatives en League/Tour, heure au départ GPX, approche incluse dans les ETA et module vent masqué en randonnée.
+
+
 > Le lot suivant ajoute un [FIT Course en essai](FIT_COURSE.md), avec lecture indépendante validée et comportement sur appareil Garmin encore à confirmer. Le GPX enrichi garde son rôle de format réimportable.
 
 Ce lot complète les [segments de course](RACE_SEGMENTS.md) pour League et Tour. Il préserve le [vent par parcours et le panneau Course](COURSE_WIND_AND_EDITING.md). L’export FIT Garmin reste à réaliser.

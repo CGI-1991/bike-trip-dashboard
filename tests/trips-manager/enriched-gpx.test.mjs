@@ -77,11 +77,12 @@ test('a GPX changed externally is rejected before any import writes, and pre-ana
   }finally{database.close()}
 })
 
-test('export rejects missing real League limits, stale or outside segments, mismatched source bytes and classic Voyage',async()=>{
+test('GPX defaults export without limits; stale/outside segments, mismatched source bytes and Voyage are rejected',async()=>{
   const {database,bundle,xml}=await fixture()
   try {
     const stage=bundle.stages[0],without={...bundle,stages:[{...stage,raceBounds:undefined}]}
-    assert.match(enrichedGpxUnavailableReason(without,without.stages[0]),/départ et l’arrivée/)
+    assert.equal(enrichedGpxUnavailableReason(without,without.stages[0]),null)
+    assert.equal(parseGpxXml((await buildEnrichedGpx(without,without.stages[0],xml)).xml).enrichedRace.bounds,null)
     const stale={...bundle,stages:[{...stage,raceSegments:stage.raceSegments.map(segment=>({...segment,routeFingerprint:'old'}))}]}
     assert.match(enrichedGpxUnavailableReason(stale,stale.stages[0]),/segments/)
     const outside={...bundle,stages:[{...stage,raceBounds:{...stage.raceBounds,startOffsetM:1500}}]}
@@ -196,7 +197,7 @@ test('the export action follows live bounds and segment validity while the origi
   try {
     const stage=bundle.stages[0]
     assert.doesNotMatch(renderStageGpxActions(bundle,stage),/data-action="download-enriched-gpx" disabled/)
-    assert.match(renderStageGpxActions(bundle,{...stage,raceBounds:undefined}),/data-action="download-enriched-gpx" disabled/)
+    assert.doesNotMatch(renderStageGpxActions(bundle,{...stage,raceBounds:undefined}),/data-action="download-enriched-gpx" disabled/)
     const stale={...stage,raceSegments:stage.raceSegments.map(segment=>({...segment,routeFingerprint:'obsolete'}))}
     assert.match(renderStageGpxActions(bundle,stale),/data-action="download-enriched-gpx" disabled/)
     assert.match(renderStageGpxActions(bundle,stale),/data-action="download-stage-gpx">GPX d’origine/)

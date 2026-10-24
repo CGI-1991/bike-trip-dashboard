@@ -37,32 +37,32 @@ function add(bundle,id='manual',start=2400,end=5700) {
   return applyRaceSegmentChange(bundle,bundle.stages[0].id,{kind:'add',id,fields:{type:'climb',name:'GRIMPEUR 2',startOffsetM:start,endOffsetM:end,alerts:DEFAULT_RACE_SEGMENT_ALERTS}},buildRaceCourse(bundle,bundle.stages[0]).fingerprint,NOW)
 }
 
-test('League has a calendar tab, no overview calendar or global wind, with relative wind on each course, and no course statistics without explicit valid bounds',async()=>{
+test('League uses GPX endpoints by default, while obsolete explicit bounds still block course statistics',async()=>{
   const {database,bundle}=await setup()
   try {
     const detail=buildDayDetail(bundle,bundle.days[0].id),overview=buildTripOverview(bundle,NOW).html
-    assert.equal(detail.statsHtml,'<div data-day-detail-stats hidden></div>')
-    assert.deepEqual(selectStageCourseMetrics(bundle,bundle.stages[0]),{distanceKm:null,elevationGainM:null,elevationLossM:null})
-    assert.doesNotMatch(overview,/data-league-calendar|data-trip-wind-summary|Distance totale|D\+ total/)
-    assert.doesNotMatch(renderTripDetail(bundle,NOW),/data-trip-wind-summary|trip-day-card__metrics/)
+    assert.match(detail.statsHtml,/<dt>Distance/)
+    assert.equal(selectStageCourseMetrics(bundle,bundle.stages[0]),bundle.stages[0])
+    assert.doesNotMatch(overview,/data-league-calendar|data-trip-wind-summary/)
     assert.match(renderTripDetail(bundle,NOW),/data-league-calendar/)
+    assert.doesNotMatch(renderTripDetail(bundle,NOW),/data-trip-wind-summary/)
     assert.equal(buildGenericAppHeader(bundle,{view:'overview'}).tripTabLabel,'Calendrier')
     assert.equal(selectOrganizationCapabilities(bundle).relativeWind,true)
-    assert.equal(summarizeTripBundle(bundle).courseStatsUnavailable,true)
-    // A missing/obsolete finish must never cause a fallback to the GPX end.
+    assert.equal(summarizeTripBundle(bundle).courseStatsUnavailable,undefined)
     const fingerprint=buildRaceCourse(bundle,bundle.stages[0]).fingerprint
+    // Absent bounds mean defaults; a malformed/obsolete saved reference is
+    // still invalid and must never silently become a new set of bounds.
     for (const bounds of [{routeFingerprint:fingerprint,startOffsetM:1000},{routeFingerprint:'old',startOffsetM:1000,finishOffsetM:20000}]) {
       const stale={...bundle,stages:bundle.stages.map(stage=>({...stage,raceBounds:bounds}))}
       assert.equal(selectStageCourseMetrics(stale,stale.stages[0]).distanceKm,null)
       assert.doesNotMatch(buildDayDetail(stale,stale.days[0].id).statsHtml,/<dl/)
     }
     const next=bounded(bundle)
-    const stats=buildDayDetail(next,next.days[0].id).statsHtml
-    assert.match(stats,/<dt>Distance<\/dt><dd>19,0 km/)
+    assert.match(buildDayDetail(next,next.days[0].id).statsHtml,/<dt>Distance<\/dt><dd>19,0 km/)
     assert.equal((buildDayDetail(next,next.days[0].id).html.match(/day-detail__stats-card/g)||[]).length,1)
-    assert.equal(summarizeTripBundle(next).courseStatsUnavailable,undefined)
     const cleared=applyRaceBounds(next,next.stages[0].id,null,fingerprint,NOW)
-    assert.doesNotMatch(buildDayDetail(cleared,cleared.days[0].id).statsHtml,/<dl/)
+    assert.match(buildDayDetail(cleared,cleared.days[0].id).statsHtml,/<dt>Distance/)
+    assert.equal(selectStageCourseMetrics(cleared,cleared.stages[0]),cleared.stages[0])
   }finally {database.close()}
 })
 

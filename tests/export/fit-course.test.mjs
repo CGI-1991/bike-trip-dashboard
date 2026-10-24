@@ -55,7 +55,7 @@ for (const mode of ['league', 'tour']) test(`${mode}: FIT is a Course with clipp
     assert.deepEqual(decoded.course_points.map(point => point.name), ['START COURSE', 'FINISH COURSE'])
     const curve = computeStageTimingCurve({ stage, route: bundle.routes[0], routePoints: bundle.routePoints, climbs: bundle.climbs, raceCourse: course,
       settings: { referenceSpeedKph: bundle.settings.global.referenceSpeedKph, travelMode: 'cycling', departureTime: '00:00' }, manualPauses: [], automaticPausesAllowed: false })
-    close(decoded.laps[0].total_timer_time, curve.elapsedMinutesAt(12) * 60, .001)
+    close(decoded.laps[0].total_timer_time, (curve.elapsedMinutesAt(12)-curve.elapsedMinutesAt(1)) * 60, .001)
     assert.equal(decoded.records[0].timestamp.toISOString(), NOW)
     assert.ok(decoded.records.every((record, i, records) => !i || record.distance >= records[i - 1].distance && record.timestamp >= records[i - 1].timestamp))
     assert.equal(readFitMessages(result.bytes).protocolVersion, 0x10)
@@ -103,11 +103,12 @@ test('unknown or out-of-range elevations never become false zero metres', async 
   }
 })
 
-test('League without explicit bounds, stale bounds, stale/outside segments and Voyage cannot be exported', async () => {
+test('League uses GPX defaults; stale bounds, stale/outside segments and Voyage cannot be exported', async () => {
   for (const mode of ['league', 'voyage']) {
     const { database, bundle: initial } = await fixture({ mode, bounded: false })
     try {
-      await assert.rejects(buildFitCourse(initial, initial.stages[0]), mode === 'league' ? /départ et l’arrivée/ : /League ou Tour/)
+      if(mode==='league') assert.ok((await buildFitCourse(initial,initial.stages[0])).distanceM>22000)
+      else await assert.rejects(buildFitCourse(initial,initial.stages[0]),/League ou Tour/)
     } finally { database.close() }
   }
   const { database, bundle: initial } = await fixture()
@@ -198,7 +199,8 @@ test('FIT action follows the same bounds guards as GPX and clearly remains an on
   const { database, bundle } = await fixture()
   try {
     assert.match(renderStageGpxActions(bundle, bundle.stages[0]), /data-action="download-fit-course">FIT Garmin · essai/)
-    assert.match(renderStageGpxActions(bundle, { ...bundle.stages[0], raceBounds: undefined }), /data-action="download-fit-course" disabled/)
+    assert.doesNotMatch(renderStageGpxActions(bundle, { ...bundle.stages[0], raceBounds: undefined }), /data-action="download-fit-course" disabled/)
+    assert.match(renderStageGpxActions(bundle, { ...bundle.stages[0], raceBounds: {...bundle.stages[0].raceBounds,routeFingerprint:'old'} }), /data-action="download-fit-course" disabled/)
     assert.match(renderStageGpxActions(bundle, bundle.stages[0]), /À valider sur votre Garmin/)
   } finally { database.close() }
 })

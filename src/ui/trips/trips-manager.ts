@@ -15,7 +15,7 @@ import { updateRaceCourse } from '../../trips-manager/race-course.ts'
 import { mountRaceBoundsEditor } from './race-bounds-view.ts'
 import { mountRaceSegmentsEditor } from './race-segments-view.ts'
 import { applyRaceSegmentChange } from '../../analysis/race-segments.ts'
-import { selectTravelMode } from '../../trip-core/index.ts'
+import { selectTravelMode, selectRaceMode } from '../../trip-core/index.ts'
 import { createSourceFileRepository } from '../../storage/indexeddb/source-file-repository.ts'
 import type { SourceFilePayloadContent } from '../../storage/indexeddb/source-file-repository.ts'
 import type { GeocodingProvider } from '../../geocoding/types.ts'
@@ -568,6 +568,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
    * coordinator already has cached/computed for this day.
    */
   function mountTimelineWaypointWeather(model: GenericDayWeatherViewModel | GenericTransferWeatherViewModel | null, bundle: TripBundle): void {
+    const windEnabled = selectOrganizationCapabilities(bundle).relativeWind
     const points = model !== null && !('origin' in model) ? model.points : []
     const byId = new Map(points.map((point) => [point.id, point]))
     const waypointsById = new Map(mountedDayDetail?.waypoints.map(point => [point.id, point]) ?? [])
@@ -575,7 +576,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       const waypointId = mount.dataset.waypointId
       mount.innerHTML = waypointId === undefined ? '' : renderInlineWaypointWeather(byId.get(waypointId))
       const waypoint = waypointId === undefined ? undefined : waypointsById.get(waypointId)
-      if (waypoint !== undefined) {
+      if (waypoint !== undefined && windEnabled) {
         const start = mount.dataset.windStartKm, end = mount.dataset.windEndKm
         const reading = start !== undefined && end !== undefined
           ? currentRouteWind?.between(Number(start), Number(end)) ?? null
@@ -974,8 +975,8 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     const previousDay = position > 0 ? bundle.days.find((candidate) => candidate.id === group[position - 1]) : undefined
     const ask = deps.openTimeEditDialog ?? openTimeEditDialog
     const chosen = await ask({
-      title: 'Heure de départ',
-      label: 'Départ',
+      title: selectRaceMode(bundle) ? 'Heure de départ GPX' : 'Heure de départ',
+      label: selectRaceMode(bundle) ? 'Départ GPX' : 'Départ',
       value: dayDepartureTime(bundle, dayId),
       hint: previousDay === undefined ? null : 'Étape liée : elle suit l’étape précédente, le même jour.',
       validate: (value) => {

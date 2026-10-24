@@ -232,8 +232,8 @@ test('League month groups expose course dates and departure times while escaping
     bundle.stages[0].customName = '<img src=x onerror=alert(1)>'
     const html = renderLeagueCalendar(bundle)
     assert.match(html, /mai 2027/)
-    assert.match(html, /10 mai · Départ 08:30/)
-    assert.match(html, /24 mai · Départ 10:00/)
+    assert.match(html, /10 mai · Départ GPX 08:30/)
+    assert.match(html, /24 mai · Départ GPX 10:00/)
     assert.match(html, /&lt;img/)
     assert.doesNotMatch(html, /<img/)
     assert.equal((html.match(/data-action="open-day-detail"/g) ?? []).length, 2)
