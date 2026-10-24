@@ -1,4 +1,4 @@
-import type { GeographicWindReading, RelativeWindReading, RouteWindModel, RouteWindSummary } from '../weather/relative-wind.ts'
+import type { GeographicWindReading, RelativeWindReading, RouteWindModel } from '../weather/relative-wind.ts'
 import { headwindColor, relativeWindLabel } from '../weather/relative-wind.ts'
 import { classifyClimbGrade } from '../analysis/climb-profile.ts'
 import type { ProfileSample } from './elevation-profile.ts'
@@ -42,12 +42,6 @@ export function renderProfileWindControls(windEnabled = true): string {
   return `<div class="profile-modes"><div role="group" aria-label="Coloration du profil"><button type="button" data-profile-mode="neutral" aria-pressed="true">Neutre</button><button type="button" data-profile-mode="grade" aria-pressed="false">Pente</button>${windEnabled ? '<button type="button" data-profile-mode="wind" aria-pressed="false">Vent</button>' : ''}</div>${windEnabled ? renderFeatureUpdateBadge('relative-wind') : ''}</div><p class="profile-color-legend" data-profile-color-legend></p>`
 }
 
-export function formatRouteWindSummary(stats: RouteWindSummary | null): string {
-  if (stats === null || stats.mean === null) return 'Prévisions de vent indisponibles pour la date du voyage.'
-  const percent = (value: number) => Math.round(value * 100)
-  return `Par distance : ${percent(stats.headwindFraction)} % face · ${percent(stats.tailwindFraction)} % dos · ${percent(stats.crosswindFraction)} % latéral${stats.calmFraction > 0.005 ? ` · ${percent(stats.calmFraction)} % calme` : ''}. Estimation sur ${percent(stats.coveredFraction)} % du parcours. Cap lissé sur 100 m ; prévisions interpolées entre points météo, espacés jusqu’à ${stats.mean.maximumWeatherGapKm.toFixed(1).replace('.', ',')} km.${stats.maximumCrosswindGustsKph === null ? '' : ` Rafales latérales estimées jusqu’à ${Math.round(stats.maximumCrosswindGustsKph)} km/h, selon la direction du vent moyen.`}`
-}
-
 const GRADE_COLORS = {
   'climb-0-1': '#a1cfa4', 'climb-1-4': '#6bae6e', 'climb-4-8': '#e4c64e', 'climb-8-12': '#e78b39', 'climb-12-plus': '#bd4444',
   'descent-0-7': '#b4b8d7', 'descent-7-plus': '#7568a4',
@@ -75,8 +69,6 @@ export function installProfileWindControls(container: HTMLElement, samples: read
   const area = container.querySelector<SVGPathElement>('.profile-area')
   const legend = container.querySelector<HTMLElement>('[data-profile-color-legend]')
   const readout = container.querySelector<HTMLElement>('[data-profile-wind]')
-  const summary = container.querySelector<HTMLElement>('[data-route-wind-summary]')
-  const selectedDetails = container.querySelector<HTMLElement>('[data-selected-wind-details]')
   const controls = container.querySelector<HTMLElement>('.profile-modes')
   if (svg === null || bands === null || area === null || legend === null) return
   const controller = new AbortController()
@@ -90,8 +82,6 @@ export function installProfileWindControls(container: HTMLElement, samples: read
     if (!windEnabled || readout === null) return
     const reading = selected === null ? null : wind?.at(selected) ?? null
     readout.innerHTML = selected === null ? '' : `<div data-profile-selected-wind><p class="profile-wind__title">Vent vers le km ${selected.toFixed(1).replace('.', ',')}</p>${renderRelativeWind(reading, false, travelMode)}</div>`
-    if (selectedDetails !== null) selectedDetails.textContent = reading === null ? ''
-      : `${reading.headwindKph >= 0 ? 'Face' : 'Dos'} ${Math.round(Math.abs(reading.headwindKph))} · latéral ${Math.round(Math.abs(reading.crosswindKph))} km/h${reading.gustsKph === null ? '' : ` · rafales jusqu’à ${Math.round(reading.gustsKph)} km/h`}.`
   }
   function paint(): void {
     const displayed = editing ? 'neutral' : mode
@@ -115,8 +105,6 @@ export function installProfileWindControls(container: HTMLElement, samples: read
     wind = model
     travelMode = nextTravelMode
     renderReadout()
-    const stats = wind?.summary
-    if (summary !== null) summary.textContent = formatRouteWindSummary(stats ?? null)
     if (mode === 'wind') paint()
   }
   container.addEventListener('click', event => {

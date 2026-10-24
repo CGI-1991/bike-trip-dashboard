@@ -192,15 +192,21 @@ test('enriched names are shown in the wizard before submission; explicit removal
   }finally{database.close()}
 })
 
-test('the export action follows live bounds and segment validity while the original GPX remains available',async()=>{
+test('two adjacent exports follow live validity without a duplicate original GPX action',async()=>{
   const {database,bundle}=await fixture()
   try {
     const stage=bundle.stages[0]
-    assert.doesNotMatch(renderStageGpxActions(bundle,stage),/data-action="download-enriched-gpx" disabled/)
+    const actions=renderStageGpxActions(bundle,stage)
+    assert.doesNotMatch(actions,/data-action="download-enriched-gpx" disabled/)
+    assert.equal((actions.match(/data-action="download-/g)||[]).length,2)
+    assert.match(actions,/course-exports__buttons/)
+    assert.match(actions,/data-action="download-enriched-gpx">GPX<\/button>/)
+    assert.match(actions,/data-feature-update="course-exports"/)
     assert.doesNotMatch(renderStageGpxActions(bundle,{...stage,raceBounds:undefined}),/data-action="download-enriched-gpx" disabled/)
     const stale={...stage,raceSegments:stage.raceSegments.map(segment=>({...segment,routeFingerprint:'obsolete'}))}
     assert.match(renderStageGpxActions(bundle,stale),/data-action="download-enriched-gpx" disabled/)
-    assert.match(renderStageGpxActions(bundle,stale),/data-action="download-stage-gpx">GPX d’origine/)
+    assert.doesNotMatch(renderStageGpxActions(bundle,stale),/data-action="download-stage-gpx"/)
+    assert.match(renderStageGpxActions(bundle,stale),/field__hint/)
   }finally{database.close()}
 })
 

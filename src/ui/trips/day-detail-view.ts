@@ -5,6 +5,7 @@ import { segmentMiniProfile } from './segment-mini-profile.ts'
 import { renderStageGpxActions } from './gpx-export-actions.ts'
 import { renderRaceSegmentTimelineRow } from './race-segment-timeline.ts'
 import { raceSegmentStatus } from '../../analysis/race-segments.ts'
+import { raceCourseClimbCount } from '../../analysis/race-segment-waypoints.ts'
 import type { RaceCourse } from '../../analysis/race-bounds.ts'
 import type { RideStage } from '../../trip-core/index.ts'
 import { selectOrganizationCapabilities } from '../../trip-core/index.ts'
@@ -720,7 +721,7 @@ export interface DayDetail {
   readonly stageLabel: string
   /** Villages only (CDC Jalon B4 section 9): hidden by default on both map/profile, offered as an opt-in fullscreen-map layer. */
   readonly villageWaypoints: readonly CanonicalWaypoint[]
-  /** For the "GPX" download action in Parcours (CDC Jalon B4.3 section 33) — the original source file, never a reconstruction. `null` when the route has no known source (should not happen for a resolvable ride day, but never assumed). */
+  /** Original source for GPX downloads/annotations. `null` when unavailable. */
   readonly sourceFileId: SourceFileId | null
   /** Targeted-patch fragments (CDC Jalon B4.2/B4.3 section 3): each already carries its own stable wrapper attribute, so a caller can replace just one subtree instead of the whole screen after a pause/filter/Infos mutation — never a full `renderDay`. */
   readonly statsHtml: string
@@ -1034,7 +1035,7 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
   const bounds = waypointsInput.raceCourse?.status === 'bounded' ? waypointsInput.raceCourse.bounds : null
   const primaryClimbCount = bounds === null && !selectRaceMode(bundle) ? new Set(
     waypoints.filter((waypoint) => waypoint.climbId !== null && isSignificantWaypoint(waypoint)).map((waypoint) => waypoint.climbId),
-  ).size : bundle.climbs.filter(climb => stage.climbIds.includes(climb.id) && (bounds === null || (climb.startDistanceKm < bounds.finishOffsetM / 1000 && climb.endDistanceKm > bounds.startOffsetM / 1000))).length
+  ).size : waypointsInput.raceCourse == null ? 0 : raceCourseClimbCount(stage, bundle.climbs, waypointsInput.raceCourse)
   // In manual mode, the displayed total reflects the actually-placed pauses
   // (which the user controls directly) rather than the imported automatic
   // budget estimate — the two only ever match by coincidence once edited.
@@ -1114,14 +1115,8 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
       <div class="feature-update-line"><span>Carte et services du trajet</span><span>${selectRaceMode(bundle) ? renderFeatureUpdateBadge('race-segments') : ''}${renderFeatureUpdateBadge('poi-search')}</span></div>
       <div class="route-map route-map--action" data-day-detail-map data-explore-map role="button" tabindex="0" aria-label="Ouvrir la carte de l’étape en plein écran"></div>
       <div data-day-profile-home><div data-day-detail-profile></div></div>
-      <!--
-        DER-DES-DER sections 105-107: the GPX download belongs visually with
-        the trace it downloads. It used to sit at the bottom of the Parcours
-        tab, several sections away from the map and relief profile it
-        actually corresponds to — and invisible entirely while the Infos tab
-        was selected. Same button, same behaviour (the stored original file,
-        still available offline), full width at the foot of this block.
-      -->
+      <!-- Exports stay with their trace. Competition GPX includes saved
+        preparation; both formats retain every source track point. -->
       ${renderStageGpxActions(bundle, stage)}
     </section>
     <dialog class="route-map-dialog" data-day-detail-map-dialog aria-labelledby="day-detail-expanded-map-title">

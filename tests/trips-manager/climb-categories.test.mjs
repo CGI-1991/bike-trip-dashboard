@@ -17,7 +17,7 @@ import { buildDayDetail } from '../../src/ui/trips/day-detail-view.ts'
 import { buildRaceCourse } from '../../src/analysis/race-bounds.ts'
 import { applyRaceSegmentChange } from '../../src/analysis/race-segments.ts'
 import { validateTripBundle } from '../../src/trip-core/index.ts'
-import { renderClimbSensitivitySlider } from '../../src/ui/trips/climb-sensitivity-slider.ts'
+import { renderClimbCategoryControl } from '../../src/ui/trips/climb-category-control.ts'
 
 const NOW='2027-05-09T06:00:00.000Z'
 const metric=(length,gain,grade=gain/length/10)=>({startDistanceKm:0,endDistanceKm:length,elevationGainM:gain,averageGradientPercent:grade})
@@ -136,12 +136,12 @@ test('invalid category settings cannot reach persistence or a restored bundle',a
   }finally{database.close()}
 })
 
-test('the five-position category control is separate from the retained advanced detection and names the active sport',()=>{
+test('one five-position climb control names the active sport without a second sensitivity setting',()=>{
   for(const mode of ['cycling','walking']){
-    const html=renderClimbSensitivitySlider('flat',3,mode)
+    const html=renderClimbCategoryControl(3,mode)
     assert.match(html,/max="4" step="1" value="3" data-field="climb-category"/)
-    assert.match(html,/<details[^>]*><summary>Détection avancée/)
-    assert.match(html,/data-field="climb-sensitivity"/)
+    assert.doesNotMatch(html,/Détection avancée|data-field="climb-sensitivity"/)
+    assert.equal((html.match(/type="range"/g)||[]).length,1)
     assert.match(html,mode==='cycling'?/Cat. 2 et plus/:/Effort 3 et plus/)
   }
 })

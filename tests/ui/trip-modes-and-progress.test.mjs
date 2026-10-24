@@ -7,7 +7,7 @@ import test from 'node:test'
 import { buildTripOverview } from '../../src/ui/trips/trip-overview-view.ts'
 import { buildDayDetail } from '../../src/ui/trips/day-detail-view.ts'
 import { renderRaceModeToggle } from '../../src/ui/trips/race-mode-toggle.ts'
-import { renderClimbSensitivitySlider } from '../../src/ui/trips/climb-sensitivity-slider.ts'
+import { renderClimbCategoryControl } from '../../src/ui/trips/climb-category-control.ts'
 import { isSignificantWaypoint } from '../../src/analysis/canonical-waypoints.ts'
 import { deriveTripTemporalState } from '../../src/trips-manager/trip-day-temporal-state.ts'
 import { createLinkedTripBundle, withVillages } from '../trips-manager/support/linked-trip-fixture.mjs'
@@ -42,12 +42,13 @@ test('a trip still carrying a legacy mountainMode value behaves exactly like one
   assert.equal(buildDayDetail(legacy, 'day-alpha').timelineHtml, buildDayDetail(plain, 'day-alpha').timelineHtml)
 })
 
-test('the 5-level detection sensitivity survives, slider included, and its "Montagne" step is not the removed mode', () => {
-  const html = renderClimbSensitivitySlider('standard')
-  assert.match(html, /data-field="climb-sensitivity"/)
+test('the single five-level climb control filters categories without restoring the removed terrain mode', () => {
+  const html = renderClimbCategoryControl()
+  assert.match(html, /data-field="climb-category"/)
   assert.match(html, /max="4"/, 'five steps, 0 through 4')
-  assert.match(html, /Montagne/)
-  assert.match(html, /Pays plat/)
+  assert.match(html, /Toutes/)
+  assert.match(html, /Cat. 1 et HC/)
+  assert.doesNotMatch(html, /data-field="climb-sensitivity"/)
   assert.doesNotMatch(html, /set-terrain-mode/)
 })
 

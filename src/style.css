@@ -3147,7 +3147,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .profile-modes [role='group'] { display: flex; flex-wrap: wrap; gap: 4px; }
 .profile-modes button[data-profile-mode] { min-height: 44px; padding: 6px 13px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--ink); font: inherit; font-size: .8rem; cursor: pointer; }
 .profile-modes button[aria-pressed='true'] { background: var(--forest-800); color: white; }
-.profile-color-legend, .profile-wind__summary, .profile-wind__orientation { color: var(--ink-soft); font-size: .73rem; line-height: 1.5; }
+.profile-color-legend { color: var(--ink-soft); font-size: .73rem; line-height: 1.5; }
 .profile-wind { min-height: 66px; padding: 6px 0; }
 .profile-wind:empty { display: none; }
 [data-profile-color-mode='grade'] [data-race-segment-profile], [data-profile-color-mode='wind'] [data-race-segment-profile] { display: none; }
@@ -3162,10 +3162,8 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .relative-wind__bike .relative-wind__wheels { stroke-width: 3.5; }
 .relative-wind__bike path { fill: none; }
 .profile-color-legend:empty { display: none; }
-.profile-wind__details { color: var(--ink-soft); font-size: .73rem; }
-.profile-wind__details > summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; }
-.profile-wind__details > summary::after, .race-course summary::after { content: '⌄'; margin-left: .5em; }
-.profile-wind__details[open] > summary::after, .race-course details[open] > summary::after { transform: rotate(180deg); }
+.race-course summary::after { content: '⌄'; margin-left: .5em; }
+.race-course details[open] > summary::after { transform: rotate(180deg); }
 .relative-wind--compact { display: flex; margin-top: 5px; font-size: .73rem; }
 .relative-wind--compact .relative-wind__compass { width: 38px; height: 38px; flex-basis: 38px; }
 .relative-wind__detail, .relative-wind--unknown { color: var(--ink-soft); }
@@ -3261,7 +3259,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .wizard-structure__group-label { margin: 0 0 6px; color: var(--forest-800); font-size: .72rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
 .wizard-structure__group-list { display: grid; gap: 6px; }
 
-/* The 5-step climb-detection slider (`climb-sensitivity-slider.ts`), shared
+/* The five-step climb filter (`climb-category-control.ts`), shared
    by the creation wizard and the trip editor. */
 .climb-sensitivity { display: grid; gap: 4px; }
 .climb-sensitivity__slider { width: 100%; }
@@ -3891,8 +3889,12 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .race-segments__chooser { display: grid; gap: 5px; margin-bottom: 10px; font-size: .8rem; }
 .race-segments__chooser select { width: 100%; min-width: 0; min-height: 44px; font-size: 16px; }
 [data-course-profile-target] { min-width: 0; }
-.enriched-gpx-export { margin-top: 8px; }
-.enriched-gpx-export .feature-update-badge { margin-top: 6px; }
+.course-exports { margin-top: 8px; }
+.course-exports__buttons { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.course-exports__buttons .button { min-width: 0; min-height: 44px; }
+.course-exports__buttons small { font-size: .65em; font-weight: 400; }
+.course-exports > .feature-update-badge { margin-top: 6px; }
+.course-exports > [role='status']:empty { display: none; }
 .climb-category {
   display: inline-block;
   margin-inline-start: .45rem;

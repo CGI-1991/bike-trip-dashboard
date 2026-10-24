@@ -217,7 +217,7 @@ test('a dense 166 km course retains its vertices and yields during preparation',
 test('FIT action follows the same bounds guards as GPX and clearly remains an on-device trial', async () => {
   const { database, bundle } = await fixture()
   try {
-    assert.match(renderStageGpxActions(bundle, bundle.stages[0]), /data-action="download-fit-course">FIT Garmin · essai/)
+    assert.match(renderStageGpxActions(bundle, bundle.stages[0]), /data-action="download-fit-course">FIT <small>essai<\/small>/)
     assert.doesNotMatch(renderStageGpxActions(bundle, { ...bundle.stages[0], raceBounds: undefined }), /data-action="download-fit-course" disabled/)
     assert.match(renderStageGpxActions(bundle, { ...bundle.stages[0], raceBounds: {...bundle.stages[0].raceBounds,routeFingerprint:'old'} }), /data-action="download-fit-course" disabled/)
     assert.match(renderStageGpxActions(bundle, bundle.stages[0]), /À valider sur votre Garmin/)

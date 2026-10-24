@@ -234,16 +234,22 @@ test('leaving Course/Tour on a SAVED trip separates the linked stages and gives 
   }
 })
 
-test('the detection sensitivity picked in the editor is saved with the trip', async () => {
+test('the single climb filter appears in top settings and saves without changing legacy detection calibration', async () => {
   const { bundle, database } = await importThreeStageTrip()
   try {
+    await createTripRepository(database).saveTripBundle({...bundle,settings:{...bundle.settings,global:{...bundle.settings.global,climbDetectionSensitivity:'flat'}}})
     const { container, editor, saved } = await openEditor(database, bundle.metadata.id)
-    // Slider position 4 is the most sensitive step ("Pays plat").
-    container.dispatch('input', { target: inputTarget('climb-sensitivity', '4') })
+    const top=container.innerHTML.match(/data-trip-editor-info[\s\S]*?<\/section>/)?.[0]
+    assert.match(top,/data-reference-speed-mode/)
+    assert.match(top,/data-field="climb-category"/)
+    assert.equal((container.innerHTML.match(/data-field="climb-category"/g)||[]).length,1)
+    assert.doesNotMatch(container.innerHTML,/data-field="climb-sensitivity"|Détection avancée/)
+    container.dispatch('input', { target: inputTarget('climb-category', '4') })
     container.dispatch('click', { target: clickTarget({ editorAction: 'save' }) })
     await waitFor(() => saved.length === 1, 'the save completed')
     const stored = await createTripRepository(database).loadTripBundle(bundle.metadata.id)
     assert.equal(stored.settings.global.climbDetectionSensitivity, 'flat')
+    assert.equal(stored.settings.global.climbCategoryMinimum, 4)
     assert.equal(validateTripBundle(stored).ok, true)
     editor.destroy()
   } finally {

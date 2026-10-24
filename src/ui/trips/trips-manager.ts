@@ -2495,7 +2495,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
           const result = await buildEnrichedGpx(bundle, stage, xml)
           const name = (stage.customName?.trim() || sourceFile.originalName.replace(/\.gpx$/i, '')).replaceAll(/[\\/:*?"<>|]/g, '_') || 'course'
           downloadBlob(new Blob([result.xml], { type: 'application/gpx+xml' }), `${name}_enrichi.gpx`)
-          if (status !== null) status.textContent = result.warnings.length ? result.warnings.join(' ') : 'GPX enrichi prêt à enregistrer dans Fichiers.'
+          if (status !== null) status.textContent = result.warnings.length ? result.warnings.join(' ') : 'GPX prêt.'
         } catch (error) {
           if (status !== null) status.textContent = error instanceof Error ? error.message : 'Impossible de préparer ce GPX. Réessayez.'
         } finally {
@@ -2520,7 +2520,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
           const result = await buildFitCourse(bundle, stage, new Date(deps.now()))
           const name = (stage.customName?.trim() || 'course').replaceAll(/[\\/:*?"<>|]/g, '_')
           downloadBlob(new Blob([result.bytes], { type: 'application/octet-stream' }), `${name}.fit`)
-          if (status !== null) status.textContent = [`${result.coursePointCount} points de course · essai Garmin à confirmer.`, ...result.warnings].join(' ')
+          if (status !== null) status.textContent = ['FIT prêt.', ...result.warnings].join(' ')
         } catch (error) {
           if (status !== null) status.textContent = error instanceof Error ? error.message : 'Impossible de préparer ce FIT. Réessayez.'
         } finally {

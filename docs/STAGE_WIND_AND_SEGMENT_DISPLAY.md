@@ -1,5 +1,7 @@
 # Vent des statistiques et affichage des segments — 2026.10.24.5
 
+> Le [nettoyage 2026.10.24.10](LEAN_COURSE_DETAIL.md) retire le volet Détails du vent, simplifie les exports et les métadonnées des segments, et masque les montées chevauchant un segment manuel valide. Le vent local et le profil Vent restent disponibles.
+
 > Depuis **2026.10.24.6**, la [règle de départ GPX et de vent à vélo](GPX_DEPARTURE_AND_WALKING_WIND.md) prime sur les comportements historiques décrits ci-dessous : limites facultatives en League/Tour, heure au départ GPX, approche incluse dans les ETA et module vent masqué en randonnée.
 
 

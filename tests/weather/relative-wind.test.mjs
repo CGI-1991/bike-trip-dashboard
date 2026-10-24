@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { indexRouteGeometry } from '../../src/route-enrichment/segment-geometry.ts'
 import { buildRouteWindModel, combineRouteWindSummaries, headwindColor, relativeWindComponents, relativeWindLabel, smoothedTravelBearing } from '../../src/weather/relative-wind.ts'
-import { formatRouteWindSummary, installProfileWindControls, renderRelativeWind, renderStageWindStat, selectProfileWind, updateProfileWind } from '../../src/ui/relative-wind-view.ts'
+import { installProfileWindControls, renderRelativeWind, renderStageWindStat, selectProfileWind, updateProfileWind } from '../../src/ui/relative-wind-view.ts'
 
 const point = km => ({latitude:45+km/111.195,longitude:6,altitudeM:100})
 const line = (length=10, count=101) => Array.from({length:count},(_,i)=>point(i*length/(count-1)))
@@ -120,7 +120,6 @@ test('trip aggregation includes uncovered stages in its denominator and never av
   close(stats.headwindFraction,0.25)
   close(stats.tailwindFraction,0.25)
   assert.equal(stats.mean.kind,'variable')
-  assert.match(formatRouteWindSummary(stats),/50 % du parcours/)
 })
 
 test('profile exploration never scans the full GPX again after model construction',()=>{
@@ -168,22 +167,19 @@ test('mobile wind shows total wind speed rather than its headwind component and 
 
 test('the profile retains walking orientation during exploration and restores cycling wording when the mode changes',()=>{
   const readout={innerHTML:''}
-  const details={textContent:''}
   const elements={
     '[data-profile-interactive]':{},
     '[data-profile-color-bands]':{innerHTML:''},
     '.profile-area':{style:{}},
     '[data-profile-color-legend]':{textContent:''},
     '[data-profile-wind]':readout,
-    '[data-route-wind-summary]':{textContent:''},
-    '[data-selected-wind-details]':details,
   }
   const container={querySelector:selector=>elements[selector]??null,querySelectorAll:()=>[],addEventListener(){}}
   installProfileWindControls(container,[],{total:10,x:km=>km,y:altitude=>altitude})
   const model=modelFor()
   updateProfileWind(container,model,'walking')
   selectProfileWind(container,5)
-  assert.match(details.textContent,/rafales jusqu’à 30 km\/h/)
+  assert.match(readout.innerHTML,/20 km\/h/)
   assert.doesNotMatch(readout.innerHTML,/rafales jusqu’à/)
   assert.doesNotMatch(readout.innerHTML,/data-stage-wind-average|Vent moyen du parcours/)
   assert.match(readout.innerHTML,/data-profile-selected-wind/)

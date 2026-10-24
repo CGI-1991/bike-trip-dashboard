@@ -3,7 +3,6 @@
 import { REFERENCE_SPEED_PRESETS, isReferenceSpeedMode, resolveReferenceSpeedMode } from '../../trip-core/model/reference-speed.ts'
 import type { ReferenceSpeedMode } from '../../trip-core/model/reference-speed.ts'
 import { renderReferenceSpeedControl } from './reference-speed-control.ts'
-import { climbSensitivityLabel } from './climb-sensitivity-slider.ts'
 import type { GpxImportFile } from '../../import/gpx/types.ts'
 import { checkChainContinuity, detectStrictDuplicates, editGpxTrip, loadTripEditDraft, preAnalyzeGpxFiles } from '../../trips-manager/index.ts'
 import type { GpxPreAnalysis, TripEditSlot } from '../../trips-manager/index.ts'
@@ -13,7 +12,7 @@ import { createTripRepository } from '../../storage/indexeddb/trip-repository.ts
 import { resolveOffLocation, resolveTransferLocations } from '../../analysis/day-location-fill.ts'
 import { resetPracticalPlacesForRefresh } from '../../route-enrichment/settled-stages.ts'
 import { formatShortDate } from '../date-format.ts'
-import { climbSensitivityAtIndex, patchClimbCategoryLabel, patchClimbSensitivityLabels, renderClimbSensitivitySlider } from './climb-sensitivity-slider.ts'
+import { patchClimbCategoryLabel, renderClimbCategoryControl } from './climb-category-control.ts'
 import { renderRaceModeToggle } from './race-mode-toggle.ts'
 import { renderTravelModeToggle } from './travel-mode-toggle.ts'
 import { isTravelMode } from '../../trips-manager/travel-mode.ts'
@@ -718,6 +717,7 @@ export function createTripEditor(
       ${dateField}
       ${renderTravelModeToggle(travelMode)}
       ${renderReferenceSpeedControl(referenceSpeedKph, referenceSpeedMode, travelMode, 'editor')}
+      ${renderClimbCategoryControl(climbCategoryMinimum, travelMode)}
     </section>`
   }
 
@@ -754,7 +754,6 @@ export function createTripEditor(
     if (raceMode !== originalRaceMode) changes.push('Organisation')
     if (referenceSpeedKph !== originalReferenceSpeedKph || referenceSpeedMode !== originalReferenceSpeedMode) changes.push('Vitesse de référence')
     if (climbCategoryMinimum !== originalClimbCategoryMinimum) changes.push(`Filtre des montées : niveau ${originalClimbCategoryMinimum + 1}/5 → ${climbCategoryMinimum + 1}/5`)
-    if (climbSensitivity !== originalClimbSensitivity) changes.push(`Détection des montées : ${climbSensitivityLabel(originalClimbSensitivity)} → ${climbSensitivityLabel(climbSensitivity)}`)
     if (isStructureDirty()) changes.push('Structure')
     if (isLeague() && isPreferencesDirty() && changes.length === 0) changes.push('Calendrier des courses')
     return changes
@@ -793,7 +792,6 @@ export function createTripEditor(
       ${renderWarnings()}
       <details class='wizard-advanced' ${advancedOpen ? 'open' : ''}><summary>Réglages avancés</summary>
       ${renderRaceModeToggle(raceMode, originalBundle === null ? 'voyage' : selectOrganizationMode(originalBundle), true)}
-        ${renderClimbSensitivitySlider(climbSensitivity, climbCategoryMinimum, travelMode)}${renderFeatureUpdateBadge('climb-detection')}
         ${renderRecalculationAction()}
       </details>
       ${errorMessage === null ? '' : `<p class='wizard-error' role='alert'>${escapeHtml(errorMessage)}</p>`}
@@ -956,11 +954,6 @@ export function createTripEditor(
     if (target.dataset.field === 'climb-category') {
       climbCategoryMinimum = Number(target.value) as import('../../trip-core/index.ts').ClimbCategoryMinimum
       patchClimbCategoryLabel(container, climbCategoryMinimum, travelMode)
-      updateSaveButtonState()
-    }
-    if (target.dataset.field === 'climb-sensitivity') {
-      climbSensitivity = climbSensitivityAtIndex(Number(target.value))
-      patchClimbSensitivityLabels(container, climbSensitivity)
       updateSaveButtonState()
     }
   }, { signal: controller.signal })

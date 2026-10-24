@@ -46,7 +46,7 @@ import type { FileEntryId, StructureItem, WizardStage, WizardState } from './imp
 import { renderRaceModeToggle } from './race-mode-toggle.ts'
 import { renderTravelModeToggle } from './travel-mode-toggle.ts'
 import { isTravelMode } from '../../trips-manager/travel-mode.ts'
-import { climbSensitivityAtIndex, patchClimbCategoryLabel, patchClimbSensitivityLabels, renderClimbSensitivitySlider } from './climb-sensitivity-slider.ts'
+import { patchClimbCategoryLabel, renderClimbCategoryControl } from './climb-category-control.ts'
 
 function asTripId(value: string): TripId {
   return value as TripId
@@ -415,6 +415,7 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
           ${state.organizationMode === 'league' ? '<p>Ajoutez un GPX par course, puis indiquez sa date et son heure de départ GPX. Le calendrier sera classé automatiquement.</p>' : `<div class="field"><label for="wizard-start-date">Date de départ</label><div class="field__control"><input id="wizard-start-date" type="date" data-field="start-date" value="${escapeHtml(state.startDate)}" required></div></div>`}
           ${renderTravelModeToggle(state.travelMode)}
           ${renderReferenceSpeedControl(state.referenceSpeedKph, state.referenceSpeedMode ?? resolveReferenceSpeedMode(state.referenceSpeedKph, state.travelMode), state.travelMode, 'wizard')}
+          ${renderClimbCategoryControl(state.climbCategoryMinimum, state.travelMode)}
         </section>
         <p class="eyebrow">Structure</p>
         <button class="button button--quiet" type="button" data-action="trigger-add-files">+ Ajouter des GPX</button>
@@ -424,10 +425,6 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
         ${loopChoice}
         <ul class="wizard-structure__list" data-wizard-structure>${timelineRows}</ul>
         ${renderAlerts()}
-        <details class="wizard-advanced"><summary>Réglages avancés</summary>
-          ${state.raceMode ? '' : '<p>Budget de pauses calculé automatiquement selon la distance, la durée et le D+ de chaque étape.</p>'}
-          ${renderClimbSensitivitySlider(state.climbSensitivity, state.climbCategoryMinimum, state.travelMode)}
-        </details>
         ${state.errorMessage !== null ? `<p class="wizard-error" role="alert">${escapeHtml(state.errorMessage)}</p>` : ''}
         ${renderProgress()}
         <footer class="wizard-actions">
@@ -481,11 +478,6 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
     else if (target.dataset.field === 'climb-category') {
       state.climbCategoryMinimum = Number(target.value) as import('../../trip-core/index.ts').ClimbCategoryMinimum
       patchClimbCategoryLabel(container, state.climbCategoryMinimum, state.travelMode)
-      return
-    }
-    else if (target.dataset.field === 'climb-sensitivity') {
-      state.climbSensitivity = climbSensitivityAtIndex(Number(target.value))
-      patchClimbSensitivityLabels(container, state.climbSensitivity)
       return
     }
     else return
