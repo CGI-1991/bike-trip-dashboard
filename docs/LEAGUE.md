@@ -1,6 +1,6 @@
 # Cadrage League et Tour
 
-Document de développement, à partir du [cadrage fourni par l’utilisateur](specs/league-source.md), conservé sans modification. Ce fichier adapte la proposition à l’application existante. Le [calendrier](LEAGUE_CALENDAR.md), les [limites avec statistiques distinctes](RACE_BOUNDS.md), le [recalage des horaires, météo et vent](RACE_COURSE_TIMING.md), les [segments manuels](RACE_SEGMENTS.md) et l’[export/réimport GPX enrichi](ENRICHED_GPX.md) sont réalisés ; le FIT Garmin et sa validation sur appareil restent planifiés.
+Document de développement, à partir du [cadrage fourni par l’utilisateur](specs/league-source.md), conservé sans modification. Ce fichier adapte la proposition à l’application existante. Le [calendrier](LEAGUE_CALENDAR.md), les [limites avec statistiques distinctes](RACE_BOUNDS.md), le [recalage des horaires, météo et vent](RACE_COURSE_TIMING.md), les [segments manuels](RACE_SEGMENTS.md) et l’[export/réimport GPX enrichi](ENRICHED_GPX.md) sont réalisés. Le [FIT Course](FIT_COURSE.md) est disponible en essai, vérifié avec un lecteur indépendant ; sa validation sur appareil Garmin reste à faire.
 
 La [précision directe du 24 octobre](COURSE_WIND_AND_EDITING.md) conserve le vent dans chaque détail League/Tour, retire uniquement sa moyenne sur plusieurs parcours et regroupe l’édition dans Course, à côté de Météo. Elle prime sur les anciennes règles d’interface des documents sources.
 
@@ -45,7 +45,7 @@ Les bandes de segments se superposent aux modes de profil existants Neutre/Pente
 ## Exports et alertes
 
 1. GPX enrichi réimportable réalisé : conserver trace, limites, segments, noms et réglages d’alerte. Waypoints standards pour une compatibilité minimale ; extension XML versionnée pour conserver la préparation de cette course. Le GPX ne remplace pas la sauvegarde ZIP complète et ne garantit pas de notifications Garmin. [Format et conservation](ENRICHED_GPX.md).
-2. FIT Garmin de type Course : parcours et Course Points. Ne pas annoncer la disponibilité avant validation avec un lecteur FIT indépendant et sur appareil Garmin.
+2. FIT de type Course : parcours et Course Points générés, lecteur indépendant vérifié. Bouton **FIT Garmin · essai** tant que l’import et les alertes n’ont pas été confirmés sur un appareil réel ; ne pas annoncer une compatibilité Garmin validée avant cet essai.
 3. Par défaut, alerte **500 m avant** un segment et au début ; alerte de fin désactivée. Générer explicitement le point `début du segment − distance d’alerte` sur la trace.
 
 L’alerte ne doit jamais passer avant le début de course, produire un offset négatif ni annoncer une fausse distance restante lorsqu’elle a été rabattue au départ. Définir une règle explicite pour ce cas. Un segment hors des limites de course doit être signalé et traité avant export. Un GPX remplacé invalide les références géométriques jusqu’à remappage vérifié, sans déplacement silencieux.
@@ -57,7 +57,7 @@ Le stockage local reste la source de vérité. Strava, Garmin Connect et Komoot 
 1. Modèle/capacités + calendrier League, compatibilité et sauvegarde/restauration, avec une interface minimale utilisable.
 2. Limites de course, statistiques distinctes et éditeur graphique des segments réalisés.
 3. Export/réimport GPX enrichi réalisé, avec vérification de conservation de la trace et de la préparation de course.
-4. FIT Course et alertes, puis validation sur Garmin réel.
+4. FIT Course et points d’alerte réalisés en essai ; validation sur Garmin réel restante.
 
 Chaque lot porte une balise MAJ locale, une entrée Nouveautés et des tests des cas limites qu’il introduit. Ne pas présenter la V1 complète comme achevée avant que les critères du document source, notamment les deux exports, soient vérifiés.
 
