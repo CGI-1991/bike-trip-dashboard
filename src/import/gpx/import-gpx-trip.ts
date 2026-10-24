@@ -1,3 +1,5 @@
+import { EnrichedRaceError, validateEnrichedRace } from '../../gpx/enriched-race-format.ts'
+import type { EnrichedRaceData } from '../../gpx/enriched-race-format.ts'
 /**
  * The public, high-level entry point for the generic GPX import pipeline
  * (CDC section 7/11/13/16, phase 6): turns one or more GPX files into a
@@ -50,6 +52,8 @@ import type { DayStructureSlot } from './day-structure.ts'
 export type ImportProgressLabel = 'reading' | 'validating' | 'analyzing' | 'climbs' | 'stages' | 'saving'
 
 export interface ImportGpxTripInput {
+  /** Internal structural rebuild: retain live segment ids, renew incoming collisions. */
+  readonly reservedRaceSegmentIds?: readonly string[]
   readonly files: readonly GpxImportFile[]
   readonly options: GpxTripImportOptions
   readonly database: IDBDatabase
@@ -208,6 +212,7 @@ async function processGpxTrip(input: BuildGpxTripInput & { readonly database: ID
 
   const allIssues: ImportIssue[] = []
   const sourceFiles: SourceFile[] = []
+  const enrichedByRoute = new Map<string, EnrichedRaceData>()
   const routes: Route[] = []
   const routePoints: RoutePoint[] = []
   const stages: RideStage[] = []
@@ -215,8 +220,8 @@ async function processGpxTrip(input: BuildGpxTripInput & { readonly database: ID
   const climbs: Climb[] = []
   let blockingCode: ImportErrorCode | null = null
 
-  hashedFiles.forEach((entry, index) => {
-    if (blockingCode !== null) return
+  for (const [index, entry] of hashedFiles.entries()) {
+    if (blockingCode !== null) break
     try {
       const document = parseGpxXml(new TextDecoder('utf-8').decode(entry.file.bytes))
       const analysis = analyzeGpxDocument(document, entry.file.name)
@@ -236,6 +241,7 @@ async function processGpxTrip(input: BuildGpxTripInput & { readonly database: ID
       const routeIdValue = idFactory()
       const { route, routePoints: builtRoutePoints } = buildRouteFromAnalysis(analysis, sourceFile.id, routeIdValue, options.engineVersion, idFactory)
       routes.push(route)
+      if (document.enrichedRace !== undefined) enrichedByRoute.set(route.id, await validateEnrichedRace(document.enrichedRace, route.geometry!.full!))
       routePoints.push(...builtRoutePoints)
 
       const routeAnalysis = analyzeRouteTerrainClimbsAndTiming(
@@ -266,7 +272,10 @@ async function processGpxTrip(input: BuildGpxTripInput & { readonly database: ID
       days.push(day)
       input.onProgress?.('stages')
     } catch (error) {
-      if (error instanceof GpxXmlParseError) {
+      if (error instanceof EnrichedRaceError) {
+        allIssues.push(importIssue('validation-error', 'error', `${entry.file.name} : ${error.message}`, { fileName: entry.file.name }))
+        blockingCode = 'validation-error'
+      } else if (error instanceof GpxXmlParseError) {
         allIssues.push(importIssue('invalid-xml', 'error', `${entry.file.name} : ${error.message}`, { fileName: entry.file.name, sourceFileId: entry.sourceFileIdValue }))
         blockingCode = 'invalid-xml'
       } else if (error instanceof GpxImportError) {
@@ -276,7 +285,7 @@ async function processGpxTrip(input: BuildGpxTripInput & { readonly database: ID
         throw error
       }
     }
-  })
+  }
 
   if (blockingCode !== null) {
     return failed(job, nowFn(), allIssues, blockingCode)
@@ -288,6 +297,36 @@ async function processGpxTrip(input: BuildGpxTripInput & { readonly database: ID
   try {
     if (options.organizationMode === 'league' && input.dayStructure === undefined) throw new Error('Les dates des courses League doivent être renseignées explicitement.')
     bundle = input.dayStructure === undefined ? assembledBundle : applyDayStructure(assembledBundle, input.dayStructure, idFactory)
+    const segmentIds = new Set<string>(input.reservedRaceSegmentIds ?? [])
+    const nameOverrides = new Map<string, boolean>()
+    let rideIndex = 0
+    for (const slot of input.dayStructure ?? []) {
+      if (slot.kind !== 'ride') continue
+      const routeId = routes[rideIndex++]?.id
+      if (routeId !== undefined) nameOverrides.set(routeId, slot.customName !== undefined)
+    }
+    bundle = { ...bundle, stages: bundle.stages.map(stage => {
+      const data = enrichedByRoute.get(stage.sourceRouteId)
+      if (data === undefined) return stage
+      const route = bundle.routes.find(route => route.id === stage.sourceRouteId)!
+      const source = bundle.sourceFiles.find(file => file.id === route.sourceFileId)!
+      const fingerprint = `sha256:${source.sha256}`
+      return { ...stage, ...(nameOverrides.get(stage.sourceRouteId) || stage.customName?.trim() || !data.customName ? {} : { customName: data.customName }),
+        ...(data.bounds === null ? {} : { raceBounds: { ...data.bounds, routeFingerprint: fingerprint } }),
+        raceSegments: data.segments.map(segment => {
+          let id = segment.id
+          for (let attempt = 0; segmentIds.has(id); attempt++) {
+            if (attempt >= 100) throw new Error('Impossible d’attribuer un identifiant de segment unique.')
+            id = idFactory()
+          }
+          if (id !== segment.id) allIssues.push(importIssue('validation-error', 'warning', 'Un identifiant de segment partagé par plusieurs fichiers a été renouvelé ; sa configuration est conservée.'))
+          segmentIds.add(id)
+          return { ...segment, id, routeFingerprint: fingerprint,
+            provenance: { sourceType: 'user' as const, sourceId: null, fetchedAt: null, engineVersion: 'enriched-gpx@1', confidence: 'high' as const, manuallyOverridden: true } }
+        }),
+      }
+    }) }
+
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Structure de journées invalide.'
     return failed(job, nowFn(), [...allIssues, importIssue('validation-error', 'error', message)], 'validation-error')

@@ -1,3 +1,4 @@
+import { validateEnrichedRace } from '../gpx/enriched-race-format.ts'
 /**
  * Light pre-analysis shown while the wizard is being configured (annexe
  * fonctionnelle section 4, CDC phase 6C1 section 9) — reuses the exact
@@ -15,6 +16,8 @@ import type { GpxImportFile } from '../import/gpx/types.ts'
 import { sampleTracePoints } from './duplicate-detection.ts'
 
 export interface GpxPreAnalysis {
+  readonly enrichedRace?: true
+  readonly enrichedRaceCustomName?: string | null
   readonly fileName: string
   readonly sha256: string
   readonly status: 'valid' | 'invalid'
@@ -61,7 +64,9 @@ export async function preAnalyzeGpxFile(file: GpxImportFile): Promise<GpxPreAnal
 
   try {
     const xmlText = new TextDecoder('utf-8').decode(file.bytes)
-    const analysis = analyzeGpxDocument(parseGpxXml(xmlText), file.name)
+    const document = parseGpxXml(xmlText)
+    const analysis = analyzeGpxDocument(document, file.name)
+    const enrichedRace = document.enrichedRace === undefined ? undefined : await validateEnrichedRace(document.enrichedRace, analysis.points.map(point => ({ latitude: point.latitude, longitude: point.longitude, altitudeM: point.elevationM })))
     const first = analysis.points[0]
     const last = analysis.points[analysis.points.length - 1]
     if (first === undefined || last === undefined) {
@@ -69,6 +74,7 @@ export async function preAnalyzeGpxFile(file: GpxImportFile): Promise<GpxPreAnal
     }
 
     return {
+      ...(enrichedRace === undefined ? {} : { enrichedRace: true as const, enrichedRaceCustomName: enrichedRace.customName }),
       fileName: file.name,
       sha256,
       status: 'valid',

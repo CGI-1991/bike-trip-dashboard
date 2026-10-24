@@ -1,5 +1,7 @@
 # Segments manuels de course
 
+> L’[export et le réimport GPX enrichi](ENRICHED_GPX.md) sont désormais disponibles ; le FIT Garmin et ses alertes sur appareil restent à réaliser.
+
 > La [précision sur le vent et le panneau Course](COURSE_WIND_AND_EDITING.md) rétablit le vent dans chaque détail, retire la moyenne sur un voyage entier et sépare lecture des segments et édition.
 
 > Les [corrections du 24 octobre](LEAGUE_TOUR_CORRECTIONS.md) remplacent les choix d’interface de ce document lorsqu’ils diffèrent : statistiques League, vent, navigation et présentation des segments.

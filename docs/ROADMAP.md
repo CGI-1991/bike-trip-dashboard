@@ -1,42 +1,39 @@
 # Feuille de route Trip(+)
 
-Demandes confirmées le 22 octobre 2026.
+État au 24 octobre 2026, avec le lot `2026.10.24.3` proposé en PR. Les demandes directes de l’utilisateur priment sur les documents sources conservés dans `specs/`.
 
-Livraison : une PR par lot cohérent, suffisamment abouti et validé. La fusion et la publication restent des étapes distinctes.
-Chaque mise à jour doit être expliquée dans Nouveautés et signalée par une petite balise MAJ à l’endroit de la fonctionnalité concernée, accessible au toucher sur iPhone.
+Livraison : une PR par lot cohérent et validé. Fusion et déploiement sont des étapes distinctes. Chaque changement d’usage porte une entrée Nouveautés et une petite balise MAJ locale, accessible au toucher sur iPhone. Conserver l’origine du site, l’identité de la PWA et les activités locales : aucune réinstallation à demander.
 
-## Priorités confirmées le 23 octobre 2026
+## Réalisé
 
-1. **POI** : les deux premiers lots sont livrés ; le premier essai iPhone communiqué par l’utilisateur est rapide, fluide et résiste à l’extinction de l’écran. Garder les contrôles de non-régression et le suivi terrain.
-2. **Vent relatif au déplacement** : premier lot réalisé, documenté dans [RELATIVE_WIND.md](RELATIVE_WIND.md). Mini cycliste vers le haut, flèche suivant le déplacement de l’air, lecture sur le profil et aux points du Parcours, moyennes étape/voyage, parts face/dos/latéral, couverture et rafales latérales estimées. Trois modes : neutre, pente, composante de vent de face en bleu. Lissage initial 100 m sur le profil et moyenne 1 km aux points ; à calibrer sur iPhone et dans les lacets. La résolution réelle des prévisions reste explicite.
-3. **Modes randonnée et vélo** : premier lot réalisé, [TRAVEL_MODES.md](TRAVEL_MODES.md). Choix par voyage, temps de marche selon la pente, ETA cohérentes, liens à pied et repère du vent adapté. Calibration terrain, allure à cinq niveaux et filtres de montées dédiés restent à poursuivre.
-4. **League (usage BCF)** : [premier lot calendrier réalisé](LEAGUE_CALENDAR.md), avec dates/départs indépendants, classement chronologique, parcours ouvrables et sauvegarde/restauration. Voyage / League / Tour sont visibles à la création ; League conserve son organisation lors de l’édition. [Cadrage adapté au dépôt](LEAGUE.md). Prochains lots : limites de course et statistiques, segments manuels Grimpeur/Sprint/Flandrien, GPX enrichi réimportable puis FIT Garmin avec alertes explicites 500 m avant. Les montées automatiques et segments de compétition doivent rester distincts.
-5. **Vitesse / effort** : cinq niveaux de Chill à Sportif, avec un niveau central de référence stable pour le mode choisi.
-6. **Montées**, sauvegarde/restauration complète, repères MAJ et future refonte mobile restent dans le périmètre. Les montées à cinq niveaux avaient déjà été demandées et ne doivent pas disparaître de la feuille de route.
+| Chantier | État et référence |
+| --- | --- |
+| POI | Recherche progressive, sauvegardée et reprenable, couverture du tracé et gestion des fournisseurs. Le premier essai iPhone communiqué par l’utilisateur est rapide, fluide et résiste à l’extinction de l’écran. [Fiabilité](POI_RELIABILITY.md), [fournisseurs](POI_PROVIDER_RESILIENCE.md). |
+| Vent relatif | Repère compact, direction et vitesse, lecture tactile sur le profil et aux points de passage, moyenne du parcours et des segments/montées, modes Neutre/Pente/Vent. Disponible dans chaque détail Voyage/League/Tour. **Aucune moyenne globale sur plusieurs parcours ou une saison.** [Règles actuelles](COURSE_WIND_AND_EDITING.md), [calcul](RELATIVE_WIND.md). |
+| Randonnée et vélo | Déplacement par activité, références de vitesse et modèle de marche tenant compte de la pente ; recalcul cohérent des temps, pauses et ETA météo. [Déplacements](TRAVEL_MODES.md). |
+| Allure | Cinq niveaux **Chill / Tempo / Normal / Soutenu / Sportif**, plus Manuel. Normal reste à **18 km/h à vélo**, **4,5 km/h à pied**, avant correction du terrain ; anciennes vitesses conservées. [Références et conservation](LEAGUE_TOUR_CORRECTIONS.md). |
+| Montées | Cinq sensibilités déjà présentes ; enregistrement du curseur corrigé. Recalcul indépendant des segments manuels, conservation des valeurs sources. La lisibilité des catégories et la calibration marche restent à améliorer. [Contrôles](LEAGUE.md#détection-des-montées--point-de-contrôle). |
+| League / Tour | Calendrier League indépendant, dates et départs explicites, navigation Voyage/Calendrier/Étapes ; limites de course, statistiques et horaires cohérents, segments Sprint/Grimpeur/Flandrien. [Cadrage](LEAGUE.md). |
+| Lecture et édition | Vignettes de segments ouvrant leur mini-profil en lecture ; limites et segments édités dans **Course**, à côté de Météo, avec le même profil principal. [Comportement actuel](COURSE_WIND_AND_EDITING.md). |
+| Export GPX enrichi | Lot `2026.10.24.3` : trace d’origine conservée, limites, noms, segments et réglages réimportables ; waypoints standards et extension versionnée. **Ce n’est pas encore un export FIT ni une garantie d’alertes Garmin.** [Format et vérifications](ENRICHED_GPX.md). |
+| Sauvegardes et mises à jour | Sauvegarde/restauration ZIP complète, originaux conservés, copies sans écrasement ; historique Nouveautés et balises MAJ. [Sauvegarde](TRIP_BACKUP.md), [mises à jour](RELEASE_NOTES.md). |
 
-- Nom de travail : **Trip(+)**. Variante suggérée : **Trip+**, plus simple à lire et à rechercher. Le changement de nom visible ne doit pas changer l’origine du site, l’identité de l’app installée ni la base des voyages.
-- Ajouter l’**itinérance à pied**, en complément du vélo : mode de déplacement par voyage, estimation des durées et services pertinents adaptés. Prévoir des voyages d’un jour, multi-étapes et sportifs.
-- Remplacer la saisie principale de vitesse par **cinq niveaux d’allure**, de **Chill** à **Sportif**. Le niveau 3 correspond à une vitesse de référence standard stable pour le mode choisi. Les cinq intitulés et les coefficients restent à définir ; préserver les réglages existants à la migration. Distinguer l’allure choisie de l’estimation tenant compte du terrain.
-- Faire évoluer les **cinq niveaux de détection des montées déjà présents** (Montagne → Pays plat) vers une détection/filtration plus lisible, inspirée du principe des catégories Garmin : permettre de voir davantage de petites montées ou seulement les plus significatives. Clarifier les critères distance, pente, dénivelé et catégorie et les adapter à la marche ; conserver le profil et les altitudes sources.
-- Après la fiabilisation du moteur : **refonte complète de l’interface mobile**, plus simple, agréable et cohérente, avec priorité à l’utilisation sur iPhone en app d’écran d’accueil.
+« Réalisé » décrit le code des lots livrés/proposés ; l’utilisateur retrouve une version sur son téléphone après fusion et déploiement. Nouveautés indique la version effectivement chargée.
 
-## Chantier engagé : fiabilité des POI
+## Suite proposée
 
-1. Couverture continue du tracé, y compris les frontières et subdivisions.
-2. Résultats partiels visibles, sauvegardés et reprenables après interruption.
-3. Dépendances par étape ; une étape éloignée ne doit pas bloquer toutes les autres.
-4. Projection géographique accélérée, erreurs réseau/stockage distinctes et diagnostics honnêtes.
-5. Reprise au retour au premier plan ; mise à jour de l’app sans réinstallation et conservation des voyages, GPX, logements, réglages et pauses manuelles.
-6. Actualisation ciblée des services, fraîcheur du cache et contrôle des accès/détours réels.
-7. Sauvegarde/restauration complète des voyages et validation de mise à jour sur iPhone.
+1. **FIT Garmin Course et alertes** : sélectionner un encodeur/licence compatible, préparer les Course Points, vérifier avec un lecteur indépendant puis avec le modèle Garmin ciblé. Conserver les alertes explicites avant/début/fin et l’omission annoncée si les 500 m ne sont pas disponibles avant un segment. Le modèle d’appareil reste à préciser ; cela ne bloque pas le GPX.
+2. **Calibration terrain** : vent dans les lacets (cap/profil lissés sur 100 m, points sur 1 km), couverture météo, temps de marche et allures selon le terrain. Faire évoluer les cinq sensibilités vers des catégories de montées plus compréhensibles, avec critères distance/pente/dénivelé et adaptation à pied ; conserver les profils et segments manuels.
+3. **Refonte de l’interface mobile**, prioritairement iPhone en app d’écran d’accueil : hiérarchie plus simple, lecture du parcours, navigation et formulaires cohérents, moins de texte. Préparer un lot d’interface concret avant de généraliser.
+4. **Nom visible** : nom de travail **Trip(+)**, variante recommandée **Trip+**. Changer le nom et l’identité visuelle sans changer l’origine, l’identité technique de la PWA ni le stockage local.
 
-L’allure à cinq niveaux, le filtrage des montées et le nouveau nom restent mémorisés ici ; leur interface ne fait pas partie du correctif POI. Le premier lot marche est documenté séparément.
+En continu : surveiller les recherches POI longues et multi-étapes, les reprises après veille et les changements de version ; conserver des résultats partiels et des diagnostics explicites. Le suivi terrain n’impose pas une nouvelle recherche complète à chaque ouverture.
 
-## Suggestions pour la qualité de l’information
+## Suggestions à cadrer ensuite
 
 - Météo intermédiaire avec budget réseau/cache pour réduire les grandes distances entre prévisions.
 - Comparaison d’horaires de départ : vent, rafales, pluie, chaleur et arrivée avant la nuit.
-- Vent apparent et estimation d’effort, à relier au futur modèle d’allure avant de modifier les ETA.
+- Vent apparent et estimation d’effort, à relier au modèle d’allure avant de modifier les ETA.
 - Autonomie eau et ravitaillement : prochain service accessible, temps pour l’atteindre et fiabilité de l’information.
 
-La sauvegarde/restauration complète est réalisée dans le lot `2026.10.23.3` ([TRIP_BACKUP.md](TRIP_BACKUP.md)). Les repères de mise à jour restent une exigence de chaque livraison. La validation terrain du vent et de la marche, le calendrier League, l’allure à cinq niveaux, le filtrage des montées et la refonte mobile suivent les priorités ci-dessus.
+Ces suggestions restent des pistes, pas des fonctions annoncées comme disponibles.

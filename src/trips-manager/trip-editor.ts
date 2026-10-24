@@ -291,9 +291,10 @@ export function mergeEditedTripBundle(existing: TripBundle, rebuilt: TripBundle,
     // A retained course keeps its offsets; a replacement keeps the old
     // fingerprint as an explicit stale reference, never a silent remap.
     const previousStage = existingStage ?? existing.stages.find(candidate => candidate.dayId === (remaps.dayIds.get(stage.dayId) ?? stage.dayId))
-    const previousBounds = previousStage?.raceBounds
+    const { raceBounds: incomingBounds, ...stageWithoutBounds } = stage
+    const previousBounds = previousStage?.raceBounds ?? (existingStage === undefined ? incomingBounds : undefined)
     return {
-      ...stage,
+      ...stageWithoutBounds,
       id: mappedId,
       dayId: remaps.dayIds.get(stage.dayId) ?? stage.dayId,
       sourceRouteId: mappedRouteId,
@@ -481,6 +482,7 @@ export async function editGpxTrip(input: EditGpxTripInput): Promise<EditGpxTripR
   const firstDaySettings = existing.settings.days[0]
   const buildResult = await buildGpxTrip({
     files: rideSlots.map((slot) => slot.file),
+    reservedRaceSegmentIds: existing.stages.flatMap(stage => (stage.raceSegments ?? []).map(segment => segment.id)),
     options: {
       tripId: existing.metadata.id,
       slug: existing.metadata.slug,

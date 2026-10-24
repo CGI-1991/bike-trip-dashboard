@@ -1,5 +1,7 @@
 # Vent relatif au parcours
 
+> Ce document décrit le premier lot. Les [règles actuelles de lecture](COURSE_WIND_AND_EDITING.md) conservent le vent par parcours, y compris en League, et retirent sa moyenne globale sur plusieurs parcours. Le repère mobile est depuis simplifié ; les calculs de base décrits ici restent utilisés.
+
 Livraison `2026.10.23.4`, dans les voyages ouverts depuis **Mes voyages**. La balise MAJ se trouve à côté des modes du profil ; Nouveautés conserve l’explication après lecture.
 
 ## Lecture sur téléphone

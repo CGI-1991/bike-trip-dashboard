@@ -268,7 +268,7 @@ export function createTripEditor(
     const importFiles = await Promise.all(Array.from(files).map(browserFileToImportFile))
     const analyses = await preAnalyzeGpxFiles(importFiles)
     importFiles.forEach((file, index) => {
-      items.push({ key: nextKey(), kind: 'ride', existingDayId: null, existingSourceFileId: null, file, preAnalysis: analyses[index] ?? null, customName: null, linkedToPrevious: false })
+      items.push({ key: nextKey(), kind: 'ride', existingDayId: null, existingSourceFileId: null, file, preAnalysis: analyses[index] ?? null, customName: analyses[index]?.enrichedRaceCustomName ?? null, linkedToPrevious: false })
     })
     render()
   }
