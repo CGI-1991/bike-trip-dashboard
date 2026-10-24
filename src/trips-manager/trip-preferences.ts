@@ -1,3 +1,4 @@
+import { isClimbCategoryMinimum } from '../trip-core/index.ts'
 /**
  * D3.1 — a genuinely LIGHT save path for the trip's own preferences (name,
  * start date, reference speed, terrain override), entirely separate from
@@ -16,7 +17,7 @@ import { isTravelMode, TRAVEL_MODE_SETTINGS } from './travel-mode.ts'
 import { resolveLinkedScheduleConflicts } from './linked-stages.ts'
 import type { LinkedScheduleAdjustment, LinkedScheduleOverflow } from './linked-stages.ts'
 import { applyRaceMode } from './race-mode.ts'
-import { applyClimbDetectionSensitivity, resolveClimbDetectionSensitivity } from './climb-sensitivity.ts'
+import { applyClimbDetectionSettings, resolveClimbDetectionSensitivity } from './climb-sensitivity.ts'
 import type { ClimbDetectionSensitivity, TravelMode } from '../trip-core/index.ts'
 import { addCivilDays, isIsoDate } from '../trip-core/validation/primitives.ts'
 import { applyLeagueSchedule, calendarDayOffsets, lastCalendarDayOffset, selectOrganizationMode, selectRaceMode, selectTravelMode, validateTripBundle } from '../trip-core/index.ts'
@@ -55,17 +56,19 @@ export interface TripPreferencesUpdate {
    * over the stored route geometry (never a display filter, never a GPX
    * re-parse) — see `climb-sensitivity.ts`.
    */
+  readonly climbCategoryMinimum?: import('../trip-core/index.ts').ClimbCategoryMinimum
   readonly climbDetectionSensitivity?: ClimbDetectionSensitivity
 }
 
 export interface TripPreferencesFieldError {
-  readonly field: 'name' | 'startDate' | 'referenceSpeedKph' | 'travelMode' | 'leagueEvents'
+  readonly field: 'name' | 'startDate' | 'referenceSpeedKph' | 'travelMode' | 'leagueEvents' | 'climbCategoryMinimum'
   readonly message: string
 }
 
 /** Pure — never throws, never touches storage. Accumulates every issue rather than stopping at the first (CDC section 36: "afficher validation inline"). */
 export function validateTripPreferencesUpdate(update: TripPreferencesUpdate, currentMode: TravelMode = 'cycling'): readonly TripPreferencesFieldError[] {
   const errors: TripPreferencesFieldError[] = []
+  if (update.climbCategoryMinimum !== undefined && !isClimbCategoryMinimum(update.climbCategoryMinimum)) errors.push({ field: 'climbCategoryMinimum', message: 'Filtre des montées invalide.' })
   if (update.leagueEvents !== undefined && (!Array.isArray(update.leagueEvents) || update.leagueEvents.some(event => event === null || typeof event !== 'object'
     || typeof event.dayId !== 'string' || !isIsoDate(event.date) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(event.departureTime)))) {
     errors.push({ field: 'leagueEvents', message: 'Chaque course exige une date et une heure de départ valides.' })
@@ -102,6 +105,7 @@ export function tripPreferencesUpdateIsNoop(bundle: TripBundle, update: TripPref
   if (update.referenceSpeedMode !== undefined && update.referenceSpeedMode !== resolveReferenceSpeedMode(bundle.settings.global.referenceSpeedKph, selectTravelMode(bundle), bundle.settings.global.referenceSpeedMode)) return false
   if (update.travelMode !== undefined && update.travelMode !== selectTravelMode(bundle)) return false
   if (update.raceMode !== undefined && update.raceMode !== (bundle.settings.global.raceMode === true)) return false
+  if (update.climbCategoryMinimum !== undefined && update.climbCategoryMinimum !== (bundle.settings.global.climbCategoryMinimum ?? 0)) return false
   if (update.climbDetectionSensitivity !== undefined && update.climbDetectionSensitivity !== resolveClimbDetectionSensitivity(bundle)) return false
   return true
 }
@@ -241,7 +245,7 @@ export function applyTripPreferences(bundle: TripBundle, update: TripPreferences
   // be equivalent, but this order keeps the timing pass the last word on
   // durations.
   if (update.raceMode !== undefined) next = applyRaceMode(next, update.raceMode)
-  if (update.climbDetectionSensitivity !== undefined) next = applyClimbDetectionSensitivity(next, update.climbDetectionSensitivity, idFactory)
+  if (modeChanged || update.climbDetectionSensitivity !== undefined || update.climbCategoryMinimum !== undefined) next = applyClimbDetectionSettings(next, update.climbDetectionSensitivity ?? resolveClimbDetectionSensitivity(next), update.climbCategoryMinimum ?? next.settings.global.climbCategoryMinimum ?? 0, idFactory, modeChanged)
   if (modeChanged) next = refreshAutomaticPausePlansForTravelMode(next, idFactory)
 
   if (next === bundle) return bundle

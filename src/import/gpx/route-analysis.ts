@@ -77,7 +77,7 @@ export function analyzeRouteTerrainClimbsAndTiming(
     )
   }
 
-  const climbs = terrainProfile === null ? [] : detectClimbs(terrainProfile, analysis.waypoints, routeIdValue, idFactory, engineVersion, climbSensitivity)
+  const climbs = terrainProfile === null ? [] : detectClimbs(terrainProfile, analysis.waypoints, routeIdValue, idFactory, engineVersion, climbSensitivity, timingOptions.travelMode)
 
   const resolvedBreakMinutes =
     timingOptions.totalBreakMinutes === 'adaptive'

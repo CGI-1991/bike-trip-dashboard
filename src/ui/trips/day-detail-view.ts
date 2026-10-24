@@ -1,3 +1,4 @@
+import { classifyClimb } from '../../analysis/climb-category.ts'
 import { renderClimbProfileBar } from './mini-profile-view.ts'
 import { segmentMiniProfile } from './segment-mini-profile.ts'
 import { renderStageGpxActions } from './gpx-export-actions.ts'
@@ -273,8 +274,9 @@ function climbSegmentLengthMeters(climb: Climb): number {
  * whole point of the merge is that this is still the named col, just with
  * its profile attached.
  */
-function renderClimbCard(waypoint: CanonicalWaypoint, climb: Climb, routeGeometryFull: readonly RouteGeometryPoint[] | null, partial = false): string {
+function renderClimbCard(waypoint: CanonicalWaypoint, climb: Climb, routeGeometryFull: readonly RouteGeometryPoint[] | null, partial = false, travelMode: import('../../trip-core/index.ts').TravelMode = 'cycling'): string {
   const profile = routeGeometryFull === null ? null : buildClimbProfile(routeGeometryFull, climb, climbSegmentLengthMeters(climb))
+  const category = classifyClimb(climb, travelMode)
   const profileId = `climb-profile-${escapeHtml(climb.id)}`
   // CDC D1.2 sections 17/22: the SAME skeleton as a plain timeline row —
   // time on the left, marker-prefixed name/meta/météo in the body — never a
@@ -287,12 +289,13 @@ function renderClimbCard(waypoint: CanonicalWaypoint, climb: Climb, routeGeometr
     <button class="day-detail__climb-toggle" type="button" data-action="toggle-climb-profile" data-climb-id="${escapeHtml(climb.id)}" aria-expanded="false" aria-controls="${profileId}">
       ${renderTimelineTimeColumn(waypoint)}
       <span class="day-detail__timeline-body">
-        <strong><span class="day-detail__timeline-marker" aria-hidden="true">${KIND_MARKERS[waypoint.kind]}</span>${escapeHtml(waypoint.name)}</strong>
+        <strong><span class="day-detail__timeline-marker" aria-hidden="true">${KIND_MARKERS[waypoint.kind]}</span>${escapeHtml(waypoint.name)}${category === null ? '' : `<span class="climb-category" data-climb-category="${category.rank}">${category.label}</span>`}</strong>
         <span class="day-detail__timeline-meta">${partial ? 'Montée partielle dans la course · stats GPX complètes<br>' : ''}${meta}</span>
         <span class="day-detail__timeline-weather" data-waypoint-weather data-waypoint-id="${escapeHtml(waypoint.id)}" data-wind-start-km="${climb.startDistanceKm}" data-wind-end-km="${climb.endDistanceKm}"></span>
       </span>
     </button>
     <div class="day-detail__climb-profile" id="${profileId}" data-climb-profile hidden>
+      ${category === null ? '' : `<p class="field__hint">${category.explanation}</p>`}
       ${profile === null ? '<p class="day-detail__climb-profile-empty">Profil indisponible pour cette montée.</p>' : renderClimbProfileBar(profile.segments)}
     </div>
   </li>`
@@ -309,7 +312,7 @@ function renderClimbCard(waypoint: CanonicalWaypoint, climb: Climb, routeGeometr
 // the Aperçu screen and the generic weather sampler. No display-level climb
 // filter exists any more: which climbs are shown is decided by which climbs
 // the trip's detection sensitivity produced (`climb-detection.ts`).
-function renderTimelineList(waypoints: readonly CanonicalWaypoint[], climbs: readonly Climb[], routeGeometryFull: readonly RouteGeometryPoint[] | null, bounds: RaceBounds | null = null, stage?: RideStage, course?: RaceCourse | null): string {
+function renderTimelineList(waypoints: readonly CanonicalWaypoint[], climbs: readonly Climb[], routeGeometryFull: readonly RouteGeometryPoint[] | null, bounds: RaceBounds | null = null, stage?: RideStage, course?: RaceCourse | null, travelMode: import('../../trip-core/index.ts').TravelMode = 'cycling'): string {
   const visible = waypoints.filter((waypoint) => isSignificantWaypoint(waypoint))
   if (visible.length === 0 && !stage?.raceSegments?.length) return '<p>Aucun point de passage disponible.</p>'
   const rows = visible.map((waypoint) => {
@@ -328,7 +331,7 @@ function renderTimelineList(waypoints: readonly CanonicalWaypoint[], climbs: rea
     if (waypoint.climbId === null) return renderTimelineRow(waypoint)
     const climb = climbs.find((candidate) => candidate.id === waypoint.climbId)
     const partial = bounds !== null && climb !== undefined && (climb.startDistanceKm < bounds.startOffsetM / 1000 || climb.endDistanceKm > bounds.finishOffsetM / 1000)
-    return climb === undefined ? renderTimelineRow(waypoint) : renderClimbCard(waypoint, climb, routeGeometryFull, partial)
+    return climb === undefined ? renderTimelineRow(waypoint) : renderClimbCard(waypoint, climb, routeGeometryFull, partial, travelMode)
   }).join('')
   const pending = !stage || !course ? '' : (stage.raceSegments ?? []).filter(segment => raceSegmentStatus(course, segment) !== 'ready').map(segment => renderRaceSegmentTimelineRow(course, segment, undefined, segmentMiniProfile(course, segment))).join('')
   return `<ol class="day-detail__timeline">${rows}${pending}</ol>`
@@ -1062,7 +1065,7 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
     <div><dt>${selectRaceMode(bundle) ? 'Durée de course' : 'Durée'}</dt><dd>${formatDuration(totalDurationSeconds)}</dd></div>
     <div><dt>D+</dt><dd>${metrics.elevationGainM === null ? '—' : `+${Math.round(metrics.elevationGainM)} m`}</dd></div>
     <div><dt>D−</dt><dd>${metrics.elevationLossM === null ? '—' : `−${Math.round(metrics.elevationLossM)} m`}</dd></div>
-    <div><dt>Montées</dt><dd>${waypointsInput.raceCourse?.status === 'stale' ? '—' : primaryClimbCount}</dd></div>
+    <div><dt>Montées ${renderFeatureUpdateBadge('climb-categories')}</dt><dd>${waypointsInput.raceCourse?.status === 'stale' ? '—' : primaryClimbCount}</dd></div>
     ${selectOrganizationCapabilities(bundle).relativeWind ? `<div><dt>Vent moyen ${renderFeatureUpdateBadge('stage-wind-stat')}</dt><dd data-stage-wind-stat><span aria-label="Vent moyen indisponible">—</span></dd></div>` : ''}
     ${pauseResolution.pausesDisabled === true ? '' : `<div><dt>Pauses</dt><dd>${totalPauseMinutes === null ? '—' : `${totalPauseMinutes} min`}</dd></div>`}
   </dl>` : ''}</div>`
@@ -1074,7 +1077,7 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
   const pausesHtml = pauseResolution.pausesDisabled === true
     ? ''
     : renderPauseEditor(stage.id, pauseResolution, stageSettings, anchorCandidates, pauseRecommendations, openingStatusByCandidateId)
-  const timelineHtml = renderTimelineList(waypoints, bundle.climbs, geometry, bounds, selectRaceMode(bundle) ? stage : undefined, waypointsInput.raceCourse)
+  const timelineHtml = renderTimelineList(waypoints, bundle.climbs, geometry, bounds, selectRaceMode(bundle) ? stage : undefined, waypointsInput.raceCourse, selectTravelMode(bundle))
   // Étapes liées: a stage ridden the same day as the previous one shares
   // that day's lodging/notes — resolved through the same single function
   // the OFF/transfer shell already uses (`resolveSharedInfoDayId`), so both

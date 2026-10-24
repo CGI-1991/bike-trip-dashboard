@@ -17,7 +17,7 @@
  */
 
 import { calculateHaversineDistanceKm } from '../gpx/parser.ts'
-import type { Climb, ClimbConfidence, ClimbDetectionSensitivity, ClimbId, ConfidenceLevel, RouteId } from '../trip-core/index.ts'
+import type { Climb, ClimbConfidence, ClimbDetectionSensitivity, ClimbId, ConfidenceLevel, RouteId, TravelMode } from '../trip-core/index.ts'
 import { climbId, DEFAULT_CLIMB_DETECTION_SENSITIVITY } from '../trip-core/index.ts'
 import type { TerrainProfilePoint } from '../route/types.ts'
 import { deriveTerrainLabelFromElevationGainPerKm } from './terrain-context.ts'
@@ -52,8 +52,8 @@ function satisfiesProfile(metrics: ClimbSignificanceMetrics, profile: ClimbSigni
 }
 
 /** Pure final qualification, deliberately independent from pivot extraction and tolerant-dip merging. `sensitivity` defaults to the historical calibration. */
-export function isSignificantClimb(metrics: ClimbSignificanceMetrics, sensitivity: ClimbDetectionSensitivity = DEFAULT_CLIMB_DETECTION_SENSITIVITY): boolean {
-  return climbSignificanceProfilesFor(sensitivity).some((profile) => satisfiesProfile(metrics, profile))
+export function isSignificantClimb(metrics: ClimbSignificanceMetrics, sensitivity: ClimbDetectionSensitivity = DEFAULT_CLIMB_DETECTION_SENSITIVITY, travelMode: TravelMode = 'cycling'): boolean {
+  return climbSignificanceProfilesFor(sensitivity, travelMode).some((profile) => satisfiesProfile(metrics, profile))
 }
 
 /**
@@ -171,24 +171,30 @@ const MIN_CLIMB_LENGTH_KM = 0.25
 const MIN_CLIMB_ELEVATION_GAIN_M = 20
 const MIN_CLIMB_AVERAGE_GRADIENT_PERCENT = 1.5
 
-function scaleProfile(profile: ClimbSignificanceProfile, tuning: ClimbSensitivityTuning): ClimbSignificanceProfile {
+function scaleProfile(profile: ClimbSignificanceProfile, tuning: ClimbSensitivityTuning, travelMode: TravelMode = 'cycling'): ClimbSignificanceProfile {
   return {
     terrain: profile.terrain,
-    minLengthKm: Math.max(MIN_CLIMB_LENGTH_KM, profile.minLengthKm * tuning.thresholdScale),
+    minLengthKm: Math.max(travelMode === 'walking' ? 0.1 : MIN_CLIMB_LENGTH_KM, profile.minLengthKm * tuning.thresholdScale),
     minElevationGainM: Math.max(MIN_CLIMB_ELEVATION_GAIN_M, profile.minElevationGainM * tuning.thresholdScale),
-    minAverageGradientPercent: Math.max(MIN_CLIMB_AVERAGE_GRADIENT_PERCENT, profile.minAverageGradientPercent * tuning.gradientScale),
+    minAverageGradientPercent: Math.max(travelMode === 'walking' ? 3 : MIN_CLIMB_AVERAGE_GRADIENT_PERCENT, profile.minAverageGradientPercent * tuning.gradientScale),
   }
 }
 
 /** The qualification profiles actually used at one sensitivity — identical to `CLIMB_SIGNIFICANCE_PROFILES` at `'standard'`. */
-export function climbSignificanceProfilesFor(sensitivity: ClimbDetectionSensitivity): readonly ClimbSignificanceProfile[] {
+export function climbSignificanceProfilesFor(sensitivity: ClimbDetectionSensitivity, travelMode: TravelMode = 'cycling'): readonly ClimbSignificanceProfile[] {
   const tuning = CLIMB_SENSITIVITY_TUNINGS[sensitivity]
-  return CLIMB_SIGNIFICANCE_PROFILES.map((profile) => scaleProfile(profile, tuning))
+  const profiles: readonly ClimbSignificanceProfile[] = travelMode === 'walking' ? [
+    { terrain: 'long', minLengthKm: 0.6, minElevationGainM: 100, minAverageGradientPercent: 3 },
+    { terrain: 'intermediate', minLengthKm: 0.3, minElevationGainM: 60, minAverageGradientPercent: 8 },
+    { terrain: 'short-steep', minLengthKm: 0.15, minElevationGainM: 35, minAverageGradientPercent: 10 },
+  ] : CLIMB_SIGNIFICANCE_PROFILES
+  return profiles.map((profile) => scaleProfile(profile, tuning, travelMode))
 }
 
 /** The dip-merge/extra-profile tuning actually used for one stage's relief at one sensitivity — identical to `RELIEF_TUNING[label]` at `'standard'`. */
-function reliefTuningFor(label: TripTerrainLabel, sensitivity: ClimbDetectionSensitivity): ReliefTuning {
+function reliefTuningFor(label: TripTerrainLabel, sensitivity: ClimbDetectionSensitivity, travelMode: TravelMode = 'cycling'): ReliefTuning {
   const tuning = CLIMB_SENSITIVITY_TUNINGS[sensitivity]
+  if (travelMode === 'walking') return { toleratedLossM: 10 * tuning.mergeScale, maxFlatKm: 0.15 * tuning.mergeScale, extraProfile: null }
   const base = tuning.reliefAdaptive ? RELIEF_TUNING[label] : RELIEF_TUNING.mountain
   const extraProfile = base.extraProfile !== null
     ? base.extraProfile
@@ -418,10 +424,11 @@ export function detectClimbs(
   idFactory: () => string,
   engineVersion: string,
   sensitivity: ClimbDetectionSensitivity = DEFAULT_CLIMB_DETECTION_SENSITIVITY,
+  travelMode: TravelMode = 'cycling',
 ): readonly Climb[] {
   if (profile.length < 2) return []
 
-  const tuning = reliefTuningFor(computeStageReliefLabel(profile), sensitivity)
+  const tuning = reliefTuningFor(computeStageReliefLabel(profile), sensitivity, travelMode)
   const pivotIndices = extractPivotIndices(profile, CLIMB_SENSITIVITY_TUNINGS[sensitivity].pivotNoiseEpsilonM)
   const pivots = classifyPivots(profile, pivotIndices)
   const rawPairs = buildRawAscentPairs(pivots)
@@ -443,7 +450,7 @@ export function detectClimbs(
     // sustained gradient. D+ remains the separate effort/qualification metric.
     const averageGradientPercent = lengthKm > 0 ? ((end.elevationM - start.elevationM) / (lengthKm * 1000)) * 100 : 0
 
-    let qualifies = isSignificantClimb({ lengthKm, elevationGainM, averageGradientPercent }, sensitivity)
+    let qualifies = isSignificantClimb({ lengthKm, elevationGainM, averageGradientPercent }, sensitivity, travelMode)
     if (!qualifies && tuning.extraProfile !== null) {
       // Polish-final section 6-9: on non-mountain relief only, cumulative D+
       // ("effort" grade) is checked too, alongside the net valley-to-peak

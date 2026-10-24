@@ -13,7 +13,7 @@ import { createTripRepository } from '../../storage/indexeddb/trip-repository.ts
 import { resolveOffLocation, resolveTransferLocations } from '../../analysis/day-location-fill.ts'
 import { resetPracticalPlacesForRefresh } from '../../route-enrichment/settled-stages.ts'
 import { formatShortDate } from '../date-format.ts'
-import { climbSensitivityAtIndex, patchClimbSensitivityLabels, renderClimbSensitivitySlider } from './climb-sensitivity-slider.ts'
+import { climbSensitivityAtIndex, patchClimbCategoryLabel, patchClimbSensitivityLabels, renderClimbSensitivitySlider } from './climb-sensitivity-slider.ts'
 import { renderRaceModeToggle } from './race-mode-toggle.ts'
 import { renderTravelModeToggle } from './travel-mode-toggle.ts'
 import { isTravelMode } from '../../trips-manager/travel-mode.ts'
@@ -123,6 +123,8 @@ export function createTripEditor(
   const modeSpeeds = { cycling: 18, walking: 4.5 }
   /** Mode "Course / Tour" — in-stage pauses disabled, and the only mode in which stages may be linked onto one day. */
   let raceMode = false
+  let climbCategoryMinimum: import('../../trip-core/index.ts').ClimbCategoryMinimum = 0
+  let originalClimbCategoryMinimum: import('../../trip-core/index.ts').ClimbCategoryMinimum = 0
   let climbSensitivity: ClimbDetectionSensitivity = 'standard'
   /** Which lodging each newly formed group keeps, answered at link time — keyed by the group's head day (see `editGpxTrip`'s own `lodgingResolutions`). */
   const lodgingResolutions = new Map<TripDayId, AccommodationId>()
@@ -223,6 +225,7 @@ export function createTripEditor(
       || (isLeague() && originalBundle !== null && leagueSchedule().some(event => event.date !== originalBundle!.days.find(day => day.id === event.dayId)?.date
         || event.departureTime !== (originalBundle!.settings.days.find(day => day.dayId === event.dayId)?.departureTime ?? '08:00')))
       || raceMode !== originalRaceMode
+      || climbCategoryMinimum !== originalClimbCategoryMinimum
       || climbSensitivity !== originalClimbSensitivity
   }
 
@@ -234,6 +237,7 @@ export function createTripEditor(
       ...(referenceSpeedKph !== originalReferenceSpeedKph || referenceSpeedMode !== originalReferenceSpeedMode ? { referenceSpeedKph, referenceSpeedMode } : {}),
       ...(travelMode !== originalTravelMode ? { travelMode } : {}),
       ...(raceMode !== originalRaceMode ? { raceMode } : {}),
+      ...(climbCategoryMinimum !== originalClimbCategoryMinimum ? { climbCategoryMinimum } : {}),
       ...(climbSensitivity !== originalClimbSensitivity ? { climbDetectionSensitivity: climbSensitivity } : {}),
       ...(isLeague() ? { leagueEvents: leagueSchedule() } : {}),
     }
@@ -504,7 +508,7 @@ export function createTripEditor(
       // Structural edits must not keep cycling aggregates under a walking label.
       const applied = applyTripPreferences(result.bundle, {
         name, ...(startDate === null || isLeague() ? {} : { startDate }), referenceSpeedKph, referenceSpeedMode, travelMode,
-        raceMode, climbDetectionSensitivity: climbSensitivity,
+        raceMode, climbDetectionSensitivity: climbSensitivity, climbCategoryMinimum,
       }, deps.now(), deps.idFactory)
       // New courses acquire their permanent ids in the structural merge.
       // Event times have already passed through that same import pipeline.
@@ -749,6 +753,7 @@ export function createTripEditor(
     if (travelMode !== originalTravelMode) changes.push('Mode de déplacement')
     if (raceMode !== originalRaceMode) changes.push('Organisation')
     if (referenceSpeedKph !== originalReferenceSpeedKph || referenceSpeedMode !== originalReferenceSpeedMode) changes.push('Vitesse de référence')
+    if (climbCategoryMinimum !== originalClimbCategoryMinimum) changes.push(`Filtre des montées : niveau ${originalClimbCategoryMinimum + 1}/5 → ${climbCategoryMinimum + 1}/5`)
     if (climbSensitivity !== originalClimbSensitivity) changes.push(`Détection des montées : ${climbSensitivityLabel(originalClimbSensitivity)} → ${climbSensitivityLabel(climbSensitivity)}`)
     if (isStructureDirty()) changes.push('Structure')
     if (isLeague() && isPreferencesDirty() && changes.length === 0) changes.push('Calendrier des courses')
@@ -788,7 +793,7 @@ export function createTripEditor(
       ${renderWarnings()}
       <details class='wizard-advanced' ${advancedOpen ? 'open' : ''}><summary>Réglages avancés</summary>
       ${renderRaceModeToggle(raceMode, originalBundle === null ? 'voyage' : selectOrganizationMode(originalBundle), true)}
-        ${renderClimbSensitivitySlider(climbSensitivity)}${renderFeatureUpdateBadge('climb-detection')}
+        ${renderClimbSensitivitySlider(climbSensitivity, climbCategoryMinimum, travelMode)}${renderFeatureUpdateBadge('climb-detection')}
         ${renderRecalculationAction()}
       </details>
       ${errorMessage === null ? '' : `<p class='wizard-error' role='alert'>${escapeHtml(errorMessage)}</p>`}
@@ -826,6 +831,8 @@ export function createTripEditor(
       // detection calibration.
       raceMode = draft.bundle.settings.global.raceMode === true
       originalRaceMode = raceMode
+      climbCategoryMinimum = draft.bundle.settings.global.climbCategoryMinimum ?? 0
+      originalClimbCategoryMinimum = climbCategoryMinimum
       climbSensitivity = resolveClimbDetectionSensitivity(draft.bundle)
       originalClimbSensitivity = climbSensitivity
       // D3.1 section 42: this re-analyzes every retained GPX byte-for-byte
@@ -946,6 +953,11 @@ export function createTripEditor(
     }
     // A range input must never be re-rendered mid-drag either — only its
     // two label lines are refreshed in place.
+    if (target.dataset.field === 'climb-category') {
+      climbCategoryMinimum = Number(target.value) as import('../../trip-core/index.ts').ClimbCategoryMinimum
+      patchClimbCategoryLabel(container, climbCategoryMinimum, travelMode)
+      updateSaveButtonState()
+    }
     if (target.dataset.field === 'climb-sensitivity') {
       climbSensitivity = climbSensitivityAtIndex(Number(target.value))
       patchClimbSensitivityLabels(container, climbSensitivity)

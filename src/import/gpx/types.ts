@@ -37,6 +37,7 @@ export interface GpxTripImportOptions {
   /** A fixed budget in minutes, or `'adaptive'` for a per-stage estimate (CDC phase 6C1 section 22) — see `route-analysis.ts`. */
   readonly totalBreakMinutes?: number | 'adaptive'
   /** Climb-detection sensitivity for the whole trip — `'standard'` (the historical calibration) when omitted. */
+  readonly climbCategoryMinimum?: import('../../trip-core/index.ts').ClimbCategoryMinimum
   readonly climbDetectionSensitivity?: ClimbDetectionSensitivity
   readonly importedAt: string
   readonly engineVersion: string
@@ -57,6 +58,7 @@ export interface ResolvedGpxTripImportOptions {
   readonly referenceSpeedKph: number
   readonly departureTime: string
   readonly totalBreakMinutes: number | 'adaptive'
+  readonly climbCategoryMinimum?: import('../../trip-core/index.ts').ClimbCategoryMinimum
   readonly climbDetectionSensitivity: ClimbDetectionSensitivity
   readonly importedAt: string
   readonly engineVersion: string

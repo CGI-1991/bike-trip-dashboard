@@ -500,6 +500,7 @@ export async function editGpxTrip(input: EditGpxTripInput): Promise<EditGpxTripR
       // setting (which `mergeEditedTripBundle` then dutifully preserves,
       // leaving the setting and the climbs disagreeing).
       climbDetectionSensitivity: existing.settings.global.climbDetectionSensitivity,
+      climbCategoryMinimum: existing.settings.global.climbCategoryMinimum,
       departureTime: firstDaySettings?.departureTime ?? '08:00',
       totalBreakMinutes: 'adaptive',
       importedAt: updatedAt,

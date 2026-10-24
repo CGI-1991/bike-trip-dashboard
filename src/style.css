@@ -3893,3 +3893,18 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 [data-course-profile-target] { min-width: 0; }
 .enriched-gpx-export { margin-top: 8px; }
 .enriched-gpx-export .feature-update-badge { margin-top: 6px; }
+.climb-category {
+  display: inline-block;
+  margin-inline-start: .45rem;
+  padding: .1rem .35rem;
+  border: 1px solid currentColor;
+  border-radius: .35rem;
+  font-size: .72rem;
+  line-height: 1.35;
+  white-space: nowrap;
+  color: #356c4a;
+  vertical-align: middle;
+}
+.climb-category[data-climb-category="2"] { color: #806312; }
+.climb-category[data-climb-category="3"] { color: #9d491b; }
+.climb-category[data-climb-category="4"], .climb-category[data-climb-category="5"] { color: #a33338; }

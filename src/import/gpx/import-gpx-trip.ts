@@ -1,3 +1,4 @@
+import { isClimbCategoryMinimum } from '../../trip-core/index.ts'
 import { EnrichedRaceError, validateEnrichedRace } from '../../gpx/enriched-race-format.ts'
 import type { EnrichedRaceData } from '../../gpx/enriched-race-format.ts'
 /**
@@ -91,6 +92,7 @@ function resolveOptions(raw: GpxTripImportOptions): { readonly options: Resolved
   if (!isNonEmptyString(raw.importedAt)) issues.push(importIssue('validation-error', 'error', 'importedAt est requis.'))
   if (!isNonEmptyString(raw.engineVersion)) issues.push(importIssue('validation-error', 'error', 'engineVersion est requis.'))
 
+  if (raw.climbCategoryMinimum !== undefined && !isClimbCategoryMinimum(raw.climbCategoryMinimum)) issues.push(importIssue('validation-error', 'error', 'Filtre des montées invalide.'))
   if (raw.travelMode !== undefined && raw.travelMode !== 'cycling' && raw.travelMode !== 'walking') {
     issues.push(importIssue('validation-error', 'error', 'Mode de déplacement invalide.'))
   }
@@ -132,6 +134,7 @@ function resolveOptions(raw: GpxTripImportOptions): { readonly options: Resolved
       travelMode,
       departureTime,
       totalBreakMinutes,
+      climbCategoryMinimum: raw.climbCategoryMinimum,
       climbDetectionSensitivity: raw.climbDetectionSensitivity ?? DEFAULT_CLIMB_DETECTION_SENSITIVITY,
       importedAt: raw.importedAt,
       engineVersion: raw.engineVersion,

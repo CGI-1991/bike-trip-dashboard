@@ -1,6 +1,6 @@
 # Feuille de route Trip(+)
 
-État au 24 octobre 2026, avec le lot `2026.10.24.7` proposé en PR. Les demandes directes de l’utilisateur priment sur les documents sources conservés dans `specs/`.
+État au 24 octobre 2026, avec le lot `2026.10.24.8` proposé en PR. Les demandes directes de l’utilisateur priment sur les documents sources conservés dans `specs/`.
 
 Livraison : une PR par lot cohérent et validé. Fusion et déploiement sont des étapes distinctes. Chaque changement d’usage porte une entrée Nouveautés et une petite balise MAJ locale, accessible au toucher sur iPhone. Conserver l’origine du site, l’identité de la PWA et les activités locales : aucune réinstallation à demander.
 
@@ -12,7 +12,7 @@ Livraison : une PR par lot cohérent et validé. Fusion et déploiement sont des
 | Vent | Moyenne de l’étape dans les statistiques : vitesse et provenance cardinale. Vent local relatif sur le profil, aux points et sur les segments/montées ; modes Neutre/Pente/Vent en consultation. Disponible à vélo dans chaque détail Voyage/League/Tour ; masqué en randonnée, avec les autres prévisions météo conservées. **Aucune moyenne globale sur plusieurs parcours ou une saison.** [Règles actuelles](STAGE_WIND_AND_SEGMENT_DISPLAY.md), [calcul](RELATIVE_WIND.md). |
 | Randonnée et vélo | Déplacement par activité, références de vitesse et modèle de marche tenant compte de la pente ; recalcul cohérent des temps, pauses et ETA météo. [Déplacements](TRAVEL_MODES.md). |
 | Allure | Cinq niveaux **Chill / Tempo / Normal / Soutenu / Sportif**, plus Manuel. Normal reste à **18 km/h à vélo**, **4,5 km/h à pied**, avant correction du terrain ; anciennes vitesses conservées. [Références et conservation](LEAGUE_TOUR_CORRECTIONS.md). |
-| Montées | Cinq sensibilités déjà présentes ; enregistrement du curseur corrigé. Recalcul indépendant des segments manuels, conservation des valeurs sources. La lisibilité des catégories et la calibration marche restent à améliorer. [Contrôles](LEAGUE.md#détection-des-montées--point-de-contrôle). |
+| Montées | Catégories vélo Cat. 4 à HC et effort marche 1 à 5, filtre en cinq positions réversible, ancienne sensibilité dans Détection avancée. Seuils de marche adaptés et recalcul au changement de sport, segments conservés. [Critères et contrôles](CLIMB_CATEGORIES.md). |
 | League / Tour | Calendrier League indépendant, dates et départs explicites, navigation Voyage/Calendrier/Étapes ; limites de course facultatives (GPX entier par défaut), heure au départ GPX, approche vélo à référence −3 km/h, statistiques de course distinctes et segments Sprint/Grimpeur/Flandrien. [Départs et approche](GPX_DEPARTURE_AND_WALKING_WIND.md). [Cadrage](LEAGUE.md). |
 | Lecture et édition | Vignettes ouvrant les mini-profils ; limites et segments édités dans **Course**, à côté de Météo, sur le profil neutre. Pochage des segments uniquement en Neutre ; portions colorées sur la carte du détail et en plein écran. [Comportement actuel](STAGE_WIND_AND_SEGMENT_DISPLAY.md). |
 | Export GPX enrichi | Lot `2026.10.24.3` : trace d’origine conservée, limites, noms, segments et réglages réimportables ; waypoints standards et extension versionnée. **Ce GPX ne garantit pas d’alertes Garmin.** [Format et vérifications](ENRICHED_GPX.md). |
