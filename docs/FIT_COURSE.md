@@ -1,5 +1,7 @@
 # FIT Course pour Garmin — essai 2026.10.24.7
 
+> Depuis **2026.10.24.9**, les [allures et ETA utilisent la même préparation du relief](PACE_AND_ETA_CALIBRATION.md) à l’import, au recalcul et en consultation, avec moyenne en mouvement et indication d’altitude insuffisante.
+
 Le détail League/Tour propose **FIT Garmin · essai**, à côté des téléchargements GPX. Le fichier est vérifié avec un lecteur indépendant, mais **l’import, l’affichage et les alertes sur Garmin réel restent à confirmer**. Modèle indiqué par l’utilisateur le 24 octobre : **Garmin Edge Explore 2**. Le chemin de transfert reste à valider. Ne pas annoncer une compatibilité Garmin générale avant cet essai.
 
 ## Comportement

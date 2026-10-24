@@ -85,10 +85,11 @@ test('no-altitude course retains flat-speed timing, and an internal weather poin
     const climb={...fixture.climbs[0],id:'inside-climb',routeId:stage.sourceRouteId,name:'Inside',startDistanceKm:9,endDistanceKm:10,elevationGainM:0,averageGradientPercent:0,startAltitudeM:null,endAltitudeM:null}
     const enriched={...bundle,routePoints:[...bundle.routePoints,pass],climbs:[...bundle.climbs,climb],stages:bundle.stages.map(s=>s.id===stage.id?{...s,routePointIds:[...s.routePointIds,pass.id],climbIds:[...s.climbIds,climb.id]}:s)}
     const next=bounded(enriched), curve=computeStageTimingCurve(input(next)), definition=buildRideDayWeatherDefinition(next,next.days[0])
-    close(curve.elapsedMinutesAt(14),6/15*60+8/18*60)
+    const chainageScale = next.stages[0].distanceKm / buildRaceCourse(next,next.stages[0]).indexed.lengthKm
+    close(curve.elapsedMinutesAt(14),(6/15*60+8/18*60)*chainageScale)
     assert.equal(selectStageCourseMetrics(next,next.stages[0]).elevationGainM,null)
     const point=definition.samplePoints.find(point=>point.name==='Inside')
-    close(point.eta.totalMinutesFromDeparture,6/15*60+4/18*60)
+    close(point.eta.totalMinutesFromDeparture,(6/15*60+4/18*60)*chainageScale)
     assert.equal(definition.samplePoints[0].name,'Départ GPX')
     for(const point of definition.samplePoints){assert.ok(point.trackDistanceKm===0||point.trackDistanceKm>=6&&point.trackDistanceKm<=14);assert.equal(curve.clockTimeAt(point.trackDistanceKm),computeStageWaypoints(input(next)).find(wp=>wp.id===point.id).clockTime)}
     assert.equal(validateTripBundle(next).ok,true)

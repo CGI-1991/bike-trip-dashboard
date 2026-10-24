@@ -13,13 +13,12 @@
  * `route-analysis.ts` already does at import time, not a new cost.
  */
 
-import { interpolateTerrainTiming, buildTerrainProfileSeries } from '../route/terrain-profile.ts'
-import { createTravelTerrainTiming, walkingTerrainForGeometry } from './travel-timing.ts'
+import { interpolateTerrainTiming } from '../route/terrain-profile.ts'
+import { createTravelTerrainTiming, travelTerrainForGeometry } from './travel-timing.ts'
 import { createRouteClockTime, formatRouteClockTime } from '../route/time.ts'
 import { consolidateRaceWaypoints } from './race-segment-waypoints.ts'
 import { courseWaypoints } from './race-bounds.ts'
 import type { RaceCourse } from './race-bounds.ts'
-import type { RouteProfilePosition, TerrainProfilePoint } from '../route/types.ts'
 import type { Climb, PausePlanMode, RideStage, RideStageSettings, Route, RouteGeometryPoint, RoutePoint, TravelMode, TripBundle, TripDay } from '../trip-core/index.ts'
 import { isPracticalPlaceUxCategory } from '../practical-places/taxonomy.ts'
 import { pointAtDistance, routeGeometryWithDistances } from './canonical-waypoints.ts'
@@ -46,7 +45,6 @@ export function neutralizedCyclingReferenceSpeed(referenceSpeedKph: number): num
   return Math.max(1, referenceSpeedKph - NEUTRALIZED_CYCLING_SPEED_REDUCTION_KPH)
 }
 
-const cyclingTerrainSeries = new WeakMap<readonly RouteGeometryPoint[], readonly TerrainProfilePoint[]>()
 
 /** One resolved manual pause, already reduced to what placement needs: a real, existing canonical waypoint (`routePointId`) and a duration. */
 export interface ManualPauseSetting {
@@ -183,28 +181,14 @@ export function buildAutomaticPauseEnrichment(bundle: TripBundle, stage: RideSta
   return { practicalPlaces: places, weather, weekdayAtDeparture }
 }
 
-function movingElapsedMinutesAt(source: RouteProfilePosition[], totalDistanceKm: number, referenceSpeedKph: number, travelMode: TravelMode | undefined, geometry: readonly RouteGeometryPoint[]): (distanceKm: number) => number {
-  if (travelMode === 'walking') {
-    const terrain = walkingTerrainForGeometry(geometry)
-    // Canonical waypoint distances use the existing planar index. Import's
-    // terrain uses haversine; align the endpoint without changing POI chainage.
-    const terrainDistanceAt = (distanceKm: number) => Math.max(0, Math.min(1, distanceKm / totalDistanceKm)) * terrain.lengthKm
-    if (terrain.profile === null || terrain.profile.length < 2) return distanceKm => terrainDistanceAt(distanceKm) / referenceSpeedKph * 60
-    const timing = createTravelTerrainTiming(terrain.profile, terrain.lengthKm, referenceSpeedKph, travelMode)
-    return distanceKm => interpolateTerrainTiming(timing, terrainDistanceAt(distanceKm)).movingElapsedMinutes
-  }
-  let terrainSeries = cyclingTerrainSeries.get(geometry)
-  if (terrainSeries === undefined) {
-    terrainSeries = buildTerrainProfileSeries(source)
-    cyclingTerrainSeries.set(geometry, terrainSeries)
-  }
-  if (terrainSeries.length < 2) {
-    // No usable altitude data — same flat-terrain fallback philosophy as
-    // `timing.ts::computeFlatTiming`: distance / reference speed, no invented precision.
-    return (distanceKm: number) => (Math.max(0, distanceKm) / referenceSpeedKph) * 60
-  }
-  const timing = createTravelTerrainTiming(terrainSeries, totalDistanceKm, referenceSpeedKph, travelMode)
-  return (distanceKm: number) => interpolateTerrainTiming(timing, distanceKm).movingElapsedMinutes
+function movingElapsedMinutesAt(totalDistanceKm: number, referenceSpeedKph: number, travelMode: TravelMode | undefined, geometry: readonly RouteGeometryPoint[]): (distanceKm: number) => number {
+  const terrain = travelTerrainForGeometry(geometry, travelMode)
+  // Operational map/profile/POI chainage stays untouched. Match its endpoint
+  // to the import's haversine terrain distance in both sports.
+  const terrainDistanceAt = (distanceKm: number) => Math.max(0, Math.min(1, distanceKm / totalDistanceKm)) * terrain.lengthKm
+  if (terrain.profile === null || terrain.profile.length < 2) return distanceKm => terrainDistanceAt(distanceKm) / referenceSpeedKph * 60
+  const timing = createTravelTerrainTiming(terrain.profile, terrain.lengthKm, referenceSpeedKph, travelMode)
+  return distanceKm => interpolateTerrainTiming(timing, terrainDistanceAt(distanceKm)).movingElapsedMinutes
 }
 
 /**
@@ -274,20 +258,7 @@ export function computeStageWaypoints(input: ComputeStageWaypointsInput): readon
   // placed) is computed BEFORE pause selection precisely so scoring can use
   // an approximate ETA without depending on its own not-yet-decided output.
   const hasValidTiming = settings.referenceSpeedKph > 0 && totalDistanceKm > 0
-  const source: RouteProfilePosition[] = !hasValidTiming ? [] : geometry.map((point, index) => ({
-    latitude: point.latitude,
-    longitude: point.longitude,
-    sourceFileNumber: 1,
-    sourceFileName: 'route.gpx',
-    distanceKm: distances[index] ?? 0,
-    elevationGainM: 0,
-    elevationLossM: 0,
-    altitudeM: point.altitudeM,
-    localSlopePercent: 0,
-    speedMultiplier: 1,
-    weightedDistanceKm: distances[index] ?? 0,
-  }))
-  const movingElapsedAt = hasValidTiming ? movingElapsedMinutesAt(source, totalDistanceKm, settings.referenceSpeedKph, settings.travelMode, geometry) : undefined
+  const movingElapsedAt = hasValidTiming ? movingElapsedMinutesAt(totalDistanceKm, settings.referenceSpeedKph, settings.travelMode, geometry) : undefined
   const departureMinutes = hasValidTiming ? parseClockToMinutes(settings.departureTime) : undefined
 
   const placedPauses: readonly PlacedPause[] = input.manualPauses !== undefined
@@ -343,20 +314,7 @@ export function computeStagePauseRecommendations(input: ComputeStageWaypointsInp
   const totalBreakMinutes = (stage.pauseDurationSeconds ?? 0) / 60
 
   const hasValidTiming = settings.referenceSpeedKph > 0 && totalDistanceKm > 0
-  const source: RouteProfilePosition[] = !hasValidTiming ? [] : geometry.map((point, index) => ({
-    latitude: point.latitude,
-    longitude: point.longitude,
-    sourceFileNumber: 1,
-    sourceFileName: 'route.gpx',
-    distanceKm: distances[index] ?? 0,
-    elevationGainM: 0,
-    elevationLossM: 0,
-    altitudeM: point.altitudeM,
-    localSlopePercent: 0,
-    speedMultiplier: 1,
-    weightedDistanceKm: distances[index] ?? 0,
-  }))
-  const movingElapsedAt = hasValidTiming ? movingElapsedMinutesAt(source, totalDistanceKm, settings.referenceSpeedKph, settings.travelMode, geometry) : undefined
+  const movingElapsedAt = hasValidTiming ? movingElapsedMinutesAt(totalDistanceKm, settings.referenceSpeedKph, settings.travelMode, geometry) : undefined
   const departureMinutes = hasValidTiming ? parseClockToMinutes(settings.departureTime) : undefined
   const enrichment = input.automaticPauseEnrichment
 
@@ -442,20 +400,7 @@ export function computeStageTimingCurve(input: ComputeStageWaypointsInput): Stag
   // CDC C3 section 28: same "base timing before pause selection" ordering
   // as `computeStageWaypoints` — never derived from the pauses-included
   // timeline this function itself is about to produce.
-  const source: RouteProfilePosition[] = geometry.map((point, index) => ({
-    latitude: point.latitude,
-    longitude: point.longitude,
-    sourceFileNumber: 1,
-    sourceFileName: 'route.gpx',
-    distanceKm: distances[index] ?? 0,
-    elevationGainM: 0,
-    elevationLossM: 0,
-    altitudeM: point.altitudeM,
-    localSlopePercent: 0,
-    speedMultiplier: 1,
-    weightedDistanceKm: distances[index] ?? 0,
-  }))
-  const movingElapsedAt = movingElapsedMinutesAt(source, totalDistanceKm, settings.referenceSpeedKph, settings.travelMode, geometry)
+  const movingElapsedAt = movingElapsedMinutesAt(totalDistanceKm, settings.referenceSpeedKph, settings.travelMode, geometry)
   const departureMinutes = parseClockToMinutes(settings.departureTime)
 
   const placedPauses: readonly PlacedPause[] = input.manualPauses !== undefined

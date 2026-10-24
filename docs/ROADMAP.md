@@ -1,6 +1,6 @@
 # Feuille de route Trip(+)
 
-État au 24 octobre 2026, avec le lot `2026.10.24.8` proposé en PR. Les demandes directes de l’utilisateur priment sur les documents sources conservés dans `specs/`.
+État au 24 octobre 2026, avec le lot `2026.10.24.9` proposé en PR. Les demandes directes de l’utilisateur priment sur les documents sources conservés dans `specs/`.
 
 Livraison : une PR par lot cohérent et validé. Fusion et déploiement sont des étapes distinctes. Chaque changement d’usage porte une entrée Nouveautés et une petite balise MAJ locale, accessible au toucher sur iPhone. Conserver l’origine du site, l’identité de la PWA et les activités locales : aucune réinstallation à demander.
 
@@ -11,7 +11,7 @@ Livraison : une PR par lot cohérent et validé. Fusion et déploiement sont des
 | POI | Recherche progressive, sauvegardée et reprenable, couverture du tracé et gestion des fournisseurs. Le premier essai iPhone communiqué par l’utilisateur est rapide, fluide et résiste à l’extinction de l’écran. [Fiabilité](POI_RELIABILITY.md), [fournisseurs](POI_PROVIDER_RESILIENCE.md). |
 | Vent | Moyenne de l’étape dans les statistiques : vitesse et provenance cardinale. Vent local relatif sur le profil, aux points et sur les segments/montées ; modes Neutre/Pente/Vent en consultation. Disponible à vélo dans chaque détail Voyage/League/Tour ; masqué en randonnée, avec les autres prévisions météo conservées. **Aucune moyenne globale sur plusieurs parcours ou une saison.** [Règles actuelles](STAGE_WIND_AND_SEGMENT_DISPLAY.md), [calcul](RELATIVE_WIND.md). |
 | Randonnée et vélo | Déplacement par activité, références de vitesse et modèle de marche tenant compte de la pente ; recalcul cohérent des temps, pauses et ETA météo. [Déplacements](TRAVEL_MODES.md). |
-| Allure | Cinq niveaux **Chill / Tempo / Normal / Soutenu / Sportif**, plus Manuel. Normal reste à **18 km/h à vélo**, **4,5 km/h à pied**, avant correction du terrain ; anciennes vitesses conservées. [Références et conservation](LEAGUE_TOUR_CORRECTIONS.md). |
+| Allure | Cinq niveaux **Chill / Tempo / Normal / Soutenu / Sportif**, plus Manuel. Normal reste à **18 km/h à vélo**, **4,5 km/h à pied**, avant correction du terrain ; anciennes vitesses conservées. Import/recalcul/profil/météo/FIT partagent le même relief ; moyenne en mouvement et altitude insuffisante explicites. [Calibration et contrôles](PACE_AND_ETA_CALIBRATION.md). |
 | Montées | Catégories vélo Cat. 4 à HC et effort marche 1 à 5, filtre en cinq positions réversible, ancienne sensibilité dans Détection avancée. Seuils de marche adaptés et recalcul au changement de sport, segments conservés. [Critères et contrôles](CLIMB_CATEGORIES.md). |
 | League / Tour | Calendrier League indépendant, dates et départs explicites, navigation Voyage/Calendrier/Étapes ; limites de course facultatives (GPX entier par défaut), heure au départ GPX, approche vélo à référence −3 km/h, statistiques de course distinctes et segments Sprint/Grimpeur/Flandrien. [Départs et approche](GPX_DEPARTURE_AND_WALKING_WIND.md). [Cadrage](LEAGUE.md). |
 | Lecture et édition | Vignettes ouvrant les mini-profils ; limites et segments édités dans **Course**, à côté de Météo, sur le profil neutre. Pochage des segments uniquement en Neutre ; portions colorées sur la carte du détail et en plein écran. [Comportement actuel](STAGE_WIND_AND_SEGMENT_DISPLAY.md). |
@@ -24,7 +24,7 @@ Livraison : une PR par lot cohérent et validé. Fusion et déploiement sont des
 ## Suite proposée
 
 1. **Validation Garmin réelle — Edge Explore 2** : modèle précisé par l’utilisateur ; confirmer le transfert, vérifier les Course Points et alertes avant/début/fin, puis les capacités sur parcours long. Le lot d’export conserve l’étiquette essai jusque-là. L’encodeur MIT, la lecture indépendante et le contrôle hors connexion sont réalisés ; les réglages globaux d’alerte héritables restent à cadrer au-delà des réglages par segment déjà présents.
-2. **Calibration terrain** : vent dans les lacets (cap/profil lissés sur 100 m, points sur 1 km), couverture météo, temps de marche et allures selon le terrain. Faire évoluer les cinq sensibilités vers des catégories de montées plus compréhensibles, avec critères distance/pente/dénivelé et adaptation à pied ; conserver les profils et segments manuels.
+2. **Calibration terrain** : vent dans les lacets (cap/profil lissés sur 100 m, points sur 1 km), couverture météo, temps de marche et allures selon le terrain. Les catégories et le filtre sont réalisés, ainsi que la cohérence des ETA ; confronter maintenant ces indicateurs et les allures à des sorties mesurées, sans annoncer une précision terrain non mesurée.
 3. **Refonte de l’interface mobile**, prioritairement iPhone en app d’écran d’accueil : hiérarchie plus simple, lecture du parcours, navigation et formulaires cohérents, moins de texte. Préparer un lot d’interface concret avant de généraliser.
 4. **Nom visible** : nom de travail **Trip(+)**, variante recommandée **Trip+**. Changer le nom et l’identité visuelle sans changer l’origine, l’identité technique de la PWA ni le stockage local.
 

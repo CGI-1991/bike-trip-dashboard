@@ -18,9 +18,8 @@
  * Pure: bundle + idFactory in, bundle out. No storage, no network.
  */
 
-import { buildDistanceIndexedSeries, smoothElevation } from '../analysis/elevation-profile.ts'
-import { buildTerrainSlopeProfile } from '../analysis/terrain-profile.ts'
-import { MAX_WALKING_GRADE_PERCENT } from '../analysis/travel-timing.ts'
+import { buildDistanceIndexedSeries } from '../analysis/elevation-profile.ts'
+import { buildTravelTerrainProfile } from '../analysis/travel-timing.ts'
 import { detectClimbs } from '../analysis/climb-detection.ts'
 import { retainsClimbCategory } from '../analysis/climb-category.ts'
 import { buildCanonicalWaypoints } from '../analysis/canonical-waypoints.ts'
@@ -71,8 +70,7 @@ export function recomputeTripClimbs(bundle: TripBundle, sensitivity: ClimbDetect
       continue
     }
     const series = buildDistanceIndexedSeries(geometry.map((point) => ({ latitude: point.latitude, longitude: point.longitude, elevationM: point.altitudeM })))
-    const profile = buildTerrainSlopeProfile(smoothElevation(series), undefined, undefined,
-      selectTravelMode(bundle) === 'walking' ? MAX_WALKING_GRADE_PERCENT : undefined)
+    const profile = buildTravelTerrainProfile(series, selectTravelMode(bundle))
     if (profile === null) {
       climbsByRouteId.set(route.id, [...previousForRoute])
       continue

@@ -6,6 +6,7 @@ import { createTerrainTiming } from '../route/terrain-profile.ts'
 import type { TerrainTiming } from '../route/terrain-profile.ts'
 import type { TerrainProfilePoint, TerrainTimingPoint } from '../route/types.ts'
 import type { RouteGeometryPoint, TravelMode } from '../trip-core/index.ts'
+import type { DistanceIndexedPoint } from './elevation-profile.ts'
 import { assessAltitudeQuality, buildDistanceIndexedSeries, smoothElevation } from './elevation-profile.ts'
 import { buildTerrainSlopeProfile } from './terrain-profile.ts'
 
@@ -45,23 +46,36 @@ export function createTravelTerrainTiming(series: readonly TerrainProfilePoint[]
   return { points, totalMovingMinutes }
 }
 
-interface WalkingTerrain {
+export interface TravelTerrain {
   readonly profile: readonly TerrainProfilePoint[] | null
   readonly lengthKm: number
 }
-const walkingTerrains = new WeakMap<readonly RouteGeometryPoint[], WalkingTerrain>()
 
-/** Match import's altitude-quality, smoothing and slope sampling exactly.
- * Missing/insufficient altitude retains a flat-speed fallback. Geometry is
- * immutable; sharing its result avoids rebuilding it for each weather point. */
-export function walkingTerrainForGeometry(geometry: readonly RouteGeometryPoint[]): WalkingTerrain {
-  const cached = walkingTerrains.get(geometry)
-  if (cached !== undefined) return cached
-  const series = buildDistanceIndexedSeries(geometry.map(point => ({ latitude: point.latitude, longitude: point.longitude, elevationM: point.altitudeM })))
-  const result = {
-    profile: assessAltitudeQuality(series).isSufficient ? buildTerrainSlopeProfile(smoothElevation(series), undefined, undefined, MAX_WALKING_GRADE_PERCENT) : null,
-    lengthKm: series.at(-1)?.distanceKm ?? 0,
+/** One altitude-quality/smoothing/slope preparation for import and live ETA. */
+export function buildTravelTerrainProfile(series: readonly DistanceIndexedPoint[], travelMode: TravelMode = 'cycling'): readonly TerrainProfilePoint[] | null {
+  return assessAltitudeQuality(series).isSufficient
+    ? buildTerrainSlopeProfile(smoothElevation(series), undefined, undefined, travelMode === 'walking' ? MAX_WALKING_GRADE_PERCENT : undefined)
+    : null
+}
+
+const terrains = new WeakMap<readonly RouteGeometryPoint[], { readonly series: readonly DistanceIndexedPoint[]; readonly modes: Map<TravelMode, TravelTerrain> }>()
+
+/** Geometry is immutable. Cache its distance series and each sport's profile;
+ * reference speed changes only integrate a new pace over the same terrain. */
+export function travelTerrainForGeometry(geometry: readonly RouteGeometryPoint[], travelMode: TravelMode = 'cycling'): TravelTerrain {
+  let cached = terrains.get(geometry)
+  if (cached === undefined) {
+    cached = { series: buildDistanceIndexedSeries(geometry.map(point => ({ latitude: point.latitude, longitude: point.longitude, elevationM: point.altitudeM }))), modes: new Map() }
+    terrains.set(geometry, cached)
   }
-  walkingTerrains.set(geometry, result)
+  const previous = cached.modes.get(travelMode)
+  if (previous !== undefined) return previous
+  const result = { profile: buildTravelTerrainProfile(cached.series, travelMode), lengthKm: cached.series.at(-1)?.distanceKm ?? 0 }
+  cached.modes.set(travelMode, result)
   return result
+}
+
+/** Compatibility alias for existing callers. */
+export function walkingTerrainForGeometry(geometry: readonly RouteGeometryPoint[]): TravelTerrain {
+  return travelTerrainForGeometry(geometry, 'walking')
 }

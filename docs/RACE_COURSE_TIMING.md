@@ -1,5 +1,7 @@
 # Horaires, météo et vent de course
 
+> Depuis **2026.10.24.9**, les [allures et ETA utilisent la même préparation du relief](PACE_AND_ETA_CALIBRATION.md) à l’import, au recalcul et en consultation, avec moyenne en mouvement et indication d’altitude insuffisante.
+
 > Depuis **2026.10.24.6**, la [règle de départ GPX et de vent à vélo](GPX_DEPARTURE_AND_WALKING_WIND.md) prime sur les comportements historiques décrits ci-dessous : limites facultatives en League/Tour, heure au départ GPX, approche incluse dans les ETA et module vent masqué en randonnée.
 
 
