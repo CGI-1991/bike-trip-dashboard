@@ -1,5 +1,10 @@
 # Cadrage League et Tour
 
+> Précision **2026.10.24.7** : le [FIT conserve le même parcours complet que le GPX](FULL_GPX_FIT_ROUTE.md), approche et fin de trace comprises. Les limites restent des repères et définissent les statistiques de course, sans découper les exports. Cette règle remplace les anciens choix de découpage FIT décrits ci-dessous.
+
+> Depuis **2026.10.24.6**, la [règle de départ GPX et de vent à vélo](GPX_DEPARTURE_AND_WALKING_WIND.md) prime sur les comportements historiques décrits ci-dessous : limites facultatives en League/Tour, heure au départ GPX, approche incluse dans les ETA et module vent masqué en randonnée.
+
+
 Document de développement, à partir du [cadrage fourni par l’utilisateur](specs/league-source.md), conservé sans modification. Ce fichier adapte la proposition à l’application existante. Le [calendrier](LEAGUE_CALENDAR.md), les [limites avec statistiques distinctes](RACE_BOUNDS.md), le [recalage des horaires, météo et vent](RACE_COURSE_TIMING.md), les [segments manuels](RACE_SEGMENTS.md) et l’[export/réimport GPX enrichi](ENRICHED_GPX.md) sont réalisés. Le [FIT Course](FIT_COURSE.md) est disponible en essai, vérifié avec un lecteur indépendant ; sa validation sur appareil Garmin reste à faire.
 
 La [précision directe du 24 octobre](COURSE_WIND_AND_EDITING.md) conserve le vent dans chaque détail League/Tour, retire uniquement sa moyenne sur plusieurs parcours et regroupe l’édition dans Course, à côté de Météo. Elle prime sur les anciennes règles d’interface des documents sources.

@@ -12,7 +12,7 @@ export type OrganizationMode = (typeof ORGANIZATION_MODES)[number]
 
 export const ORGANIZATION_CAPABILITIES = {
   voyage: { tripTabLabel: 'Voyage', relativeWind: true, explicitRaceBounds: false, independentDates: false, plannedStops: true, linkedStages: false, automaticPoiSearch: true },
-  league: { tripTabLabel: 'Calendrier', relativeWind: true, explicitRaceBounds: true, independentDates: true, plannedStops: false, linkedStages: false, automaticPoiSearch: false },
+  league: { tripTabLabel: 'Calendrier', relativeWind: true, explicitRaceBounds: false, independentDates: true, plannedStops: false, linkedStages: false, automaticPoiSearch: false },
   tour: { tripTabLabel: 'Étapes', relativeWind: true, explicitRaceBounds: false, independentDates: false, plannedStops: false, linkedStages: true, automaticPoiSearch: true },
 } as const
 

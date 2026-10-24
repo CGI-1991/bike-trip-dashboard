@@ -14,6 +14,11 @@ import { applyRaceSegmentChange } from '../../src/analysis/race-segments.ts'
 import { computeStageTimingCurve } from '../../src/analysis/waypoint-timeline.ts'
 import { buildFitCourse } from '../../src/export/fit-course.ts'
 import { renderStageGpxActions } from '../../src/ui/trips/gpx-export-actions.ts'
+import { buildEnrichedGpx } from '../../src/export/enriched-gpx.ts'
+import { parseGpxXml } from '../../src/import/gpx/gpx-xml.ts'
+
+// Native XML serialization is also exercised through the compiled browser app.
+globalThis.XMLSerializer = class { serializeToString(node) { return node.rawXml } }
 
 const NOW = '2027-05-09T06:00:00.000Z'
 const close = (actual, expected, tolerance = .011) => assert.ok(Math.abs(actual - expected) <= tolerance, `${actual} != ${expected}`)
@@ -30,7 +35,7 @@ async function fixture({ mode = 'league', altitude = true, points, travelMode = 
     const stage = bundle.stages[0], fingerprint = buildRaceCourse(bundle, stage).fingerprint
     bundle = applyRaceBounds(bundle, stage.id, { routeFingerprint: fingerprint, startOffsetM: 1000, finishOffsetM: 12000 }, fingerprint, NOW)
   }
-  return { database, bundle }
+  return { database, bundle, xml }
 }
 function add(bundle, id, type, start, end, alerts = {}) {
   const stage = bundle.stages[0]
@@ -38,7 +43,7 @@ function add(bundle, id, type, start, end, alerts = {}) {
     alerts: { beforeEnabled: true, beforeM: 500, atStart: true, atEnd: false, ...alerts } } }, buildRaceCourse(bundle, stage).fingerprint, NOW)
 }
 
-for (const mode of ['league', 'tour']) test(`${mode}: FIT is a Course with clipped original geometry, relative chainage and the app's terrain-aware pace`, async () => {
+for (const mode of ['league', 'tour']) test(`${mode}: FIT keeps every GPX vertex and absolute chainage, with extra real-course markers`, async () => {
   const { database, bundle } = await fixture({ mode })
   try {
     const before = structuredClone(bundle), stage = bundle.stages[0], course = buildRaceCourse(bundle, stage)
@@ -47,15 +52,29 @@ for (const mode of ['league', 'tour']) test(`${mode}: FIT is a Course with clipp
     assert.equal(decoded.course.sport, 'cycling')
     assert.equal(decoded.messages.activity, undefined)
     assert.equal(decoded.messages.session, undefined)
-    assert.equal(result.distanceM, 11000)
-    close(decoded.records[0].distance, 0); close(decoded.records.at(-1).distance, 11000)
-    close(decoded.records[0].position_lat, course.geometry[0].latitude, 1e-6)
-    close(decoded.records.at(-1).position_lat, course.geometry.at(-1).latitude, 1e-6)
+    close(result.distanceM, course.indexed.lengthKm * 1000)
+    close(decoded.records[0].distance, 0); close(decoded.records.at(-1).distance, result.distanceM)
+    close(decoded.records[0].position_lat, course.indexed.points[0].latitude, 1e-6)
+    close(decoded.records.at(-1).position_lat, course.indexed.points.at(-1).latitude, 1e-6)
     assert.equal(decoded.records.length, result.recordCount)
-    assert.deepEqual(decoded.course_points.map(point => point.name), ['START COURSE', 'FINISH COURSE'])
+    assert.equal(result.recordCount, course.indexed.points.length)
+    for (const [i, point] of course.indexed.points.entries()) {
+      close(decoded.records[i].position_lat, point.latitude, 180 / 2 ** 31)
+      close(decoded.records[i].position_long, point.longitude, 180 / 2 ** 31)
+      close(decoded.records[i].altitude, point.altitudeM, .101)
+      close(decoded.records[i].distance, course.indexed.distancesKm[i] * 1000)
+    }
+    assert.deepEqual(decoded.course_points.map(point => point.name), ['START GPX', 'RACE START', 'RACE FINISH', 'FINISH GPX'])
+    close(decoded.course_points[1].distance, 1000); close(decoded.course_points[2].distance, 12000)
+    close(decoded.course_points[1].position_lat, course.geometry[0].latitude, 180 / 2 ** 31)
+    close(decoded.course_points[2].position_lat, course.geometry.at(-1).latitude, 180 / 2 ** 31)
     const curve = computeStageTimingCurve({ stage, route: bundle.routes[0], routePoints: bundle.routePoints, climbs: bundle.climbs, raceCourse: course,
       settings: { referenceSpeedKph: bundle.settings.global.referenceSpeedKph, travelMode: 'cycling', departureTime: '00:00' }, manualPauses: [], automaticPausesAllowed: false })
-    close(decoded.laps[0].total_timer_time, curve.elapsedMinutesAt(12) * 60, .001)
+    const normal = computeStageTimingCurve({ stage, route: bundle.routes[0], routePoints: bundle.routePoints, climbs: bundle.climbs,
+      settings: { referenceSpeedKph: bundle.settings.global.referenceSpeedKph, travelMode: 'cycling', departureTime: '00:00' }, manualPauses: [], automaticPausesAllowed: false })
+    close(decoded.laps[0].total_timer_time, (curve.elapsedMinutesAt(12) + normal.elapsedMinutesAt(course.indexed.lengthKm) - normal.elapsedMinutesAt(12)) * 60, .001)
+    close((decoded.course_points[1].timestamp - decoded.records[0].timestamp) / 1000, curve.elapsedMinutesAt(1) * 60, .51)
+    close((decoded.course_points[2].timestamp - decoded.records[0].timestamp) / 1000, curve.elapsedMinutesAt(12) * 60, .51)
     assert.equal(decoded.records[0].timestamp.toISOString(), NOW)
     assert.ok(decoded.records.every((record, i, records) => !i || record.distance >= records[i - 1].distance && record.timestamp >= records[i - 1].timestamp))
     assert.equal(readFitMessages(result.bytes).protocolVersion, 0x10)
@@ -63,7 +82,7 @@ for (const mode of ['league', 'tour']) test(`${mode}: FIT is a Course with clipp
   } finally { database.close() }
 })
 
-test('explicit alerts use original offsets minus course start, all types, overlap, overrides and omitted pre-start points', async () => {
+test('explicit alerts keep original GPX offsets, types, overlap, overrides and omitted pre-race points', async () => {
   const { database, bundle: initial } = await fixture()
   try {
     let bundle = add(initial, 'Near', 'sprint', 1200, 1800)
@@ -72,13 +91,13 @@ test('explicit alerts use original offsets minus course start, all types, overla
     const result = await buildFitCourse(bundle, bundle.stages[0], new Date(NOW)), decoded = await parse(result.bytes)
     assert.equal(result.warnings.length, 1); assert.match(result.warnings[0], /Near.*omise/)
     assert.deepEqual(decoded.course_points.map(({ name, distance }) => [name, distance]), [
-      ['START COURSE', 0], ['SPRINT1 START', 200], ['CLIMB1 1000m', 1000], ['CLIMB1 START', 2000],
-      ['FLAND1 END', 4000], ['CLIMB1 END', 5000], ['FINISH COURSE', 11000],
+      ['START GPX', 0], ['RACE START', 1000], ['SPRINT1 START', 1200], ['CLIMB1 1000m', 2000], ['CLIMB1 START', 3000],
+      ['FLAND1 END', 5000], ['CLIMB1 END', 6000], ['RACE FINISH', 12000], ['FINISH GPX', Math.round(result.distanceM * 100) / 100],
     ])
     assert.equal(decoded.course_points.find(point => point.name === 'CLIMB1 START').type, 'segment_start')
     assert.equal(decoded.course_points.find(point => point.name === 'CLIMB1 END').type, 'segment_end')
-    assert.equal(result.coursePointCount, 7)
-    assert.ok(decoded.course_points.every(point => point.distance >= 0 && point.distance <= 11000))
+    assert.equal(result.coursePointCount, 9)
+    assert.ok(decoded.course_points.every(point => point.distance >= 0 && point.distance <= result.distanceM + .01))
   } finally { database.close() }
 })
 
@@ -88,7 +107,7 @@ test('zero-distance pre-alerts do not double a start alert; disabled alerts stay
     let bundle = add(initial, 'Zero', 'sprint', 2000, 3000, { beforeM: 0 })
     bundle = add(bundle, 'Off', 'climb', 4000, 5000, { beforeEnabled: false, atStart: false, atEnd: false })
     const decoded = await parse((await buildFitCourse(bundle, bundle.stages[0], new Date(NOW))).bytes)
-    assert.deepEqual(decoded.course_points.map(point => point.name), ['START COURSE', 'SPRINT1 START', 'FINISH COURSE'])
+    assert.deepEqual(decoded.course_points.map(point => point.name), ['START GPX', 'RACE START', 'SPRINT1 START', 'RACE FINISH', 'FINISH GPX'])
   } finally { database.close() }
 })
 
@@ -103,11 +122,12 @@ test('unknown or out-of-range elevations never become false zero metres', async 
   }
 })
 
-test('League without explicit bounds, stale bounds, stale/outside segments and Voyage cannot be exported', async () => {
+test('League uses GPX defaults; stale bounds, stale/outside segments and Voyage cannot be exported', async () => {
   for (const mode of ['league', 'voyage']) {
     const { database, bundle: initial } = await fixture({ mode, bounded: false })
     try {
-      await assert.rejects(buildFitCourse(initial, initial.stages[0]), mode === 'league' ? /départ et l’arrivée/ : /League ou Tour/)
+      if(mode==='league') assert.ok((await buildFitCourse(initial,initial.stages[0])).distanceM>22000)
+      else await assert.rejects(buildFitCourse(initial,initial.stages[0]),/League ou Tour/)
     } finally { database.close() }
   }
   const { database, bundle: initial } = await fixture()
@@ -198,7 +218,72 @@ test('FIT action follows the same bounds guards as GPX and clearly remains an on
   const { database, bundle } = await fixture()
   try {
     assert.match(renderStageGpxActions(bundle, bundle.stages[0]), /data-action="download-fit-course">FIT Garmin · essai/)
-    assert.match(renderStageGpxActions(bundle, { ...bundle.stages[0], raceBounds: undefined }), /data-action="download-fit-course" disabled/)
+    assert.doesNotMatch(renderStageGpxActions(bundle, { ...bundle.stages[0], raceBounds: undefined }), /data-action="download-fit-course" disabled/)
+    assert.match(renderStageGpxActions(bundle, { ...bundle.stages[0], raceBounds: {...bundle.stages[0].raceBounds,routeFingerprint:'old'} }), /data-action="download-fit-course" disabled/)
     assert.match(renderStageGpxActions(bundle, bundle.stages[0]), /À valider sur votre Garmin/)
+  } finally { database.close() }
+})
+
+test('original GPX, enriched GPX and FIT retain the same complete vertex sequence when bounds and segments change', async () => {
+  for (const travelMode of ['cycling', 'walking']) {
+    const { database, bundle: initial, xml } = await fixture({ travelMode })
+    try {
+      const bundle = add(initial, 'Extra points', 'climb', 3000, 6000, { atEnd: true })
+      const stage = bundle.stages[0], course = buildRaceCourse(bundle, stage)
+      const before = structuredClone(bundle)
+      const enriched = await buildEnrichedGpx(bundle, stage, xml)
+      const vertices = source => parseGpxXml(source).tracks.flatMap(track => track.segments.flatMap(segment => segment.points))
+      assert.deepEqual(vertices(enriched.xml), vertices(xml))
+      const decoded = await parse((await buildFitCourse(bundle, stage, new Date(NOW))).bytes)
+      const original = vertices(xml)
+      assert.equal(decoded.records.length, original.length)
+      for (const [i, point] of original.entries()) {
+        close(decoded.records[i].position_lat, point.latitude, 180 / 2 ** 31)
+        close(decoded.records[i].position_long, point.longitude, 180 / 2 ** 31)
+        close(decoded.records[i].altitude, point.elevationM, .101)
+      }
+      const changed = applyRaceBounds(bundle, stage.id, { routeFingerprint: course.fingerprint, startOffsetM: 2000, finishOffsetM: 10000 }, course.fingerprint, NOW)
+      const changedFit = await parse((await buildFitCourse(changed, changed.stages[0], new Date(NOW))).bytes)
+      const geometry = fit => fit.records.map(({ position_lat, position_long, altitude, distance }) => [position_lat, position_long, altitude, distance])
+      assert.deepEqual(geometry(changedFit), geometry(decoded), 'moving real boundaries changes markers and pace, never GPX geometry')
+      assert.deepEqual(bundle, before)
+    } finally { database.close() }
+  }
+})
+
+test('full GPX timing includes the slower approach, course and suffix while course statistics stay bounded', async () => {
+  const { database, bundle } = await fixture({ altitude: false })
+  try {
+    const stage = bundle.stages[0], course = buildRaceCourse(bundle, stage)
+    const result = await buildFitCourse(bundle, stage, new Date(NOW)), decoded = await parse(result.bytes)
+    for (const record of decoded.records) {
+      const km = record.distance / 1000
+      const seconds = (Math.min(km, 1) / 15 + Math.max(0, km - 1) / 18) * 3600
+      close((record.timestamp - new Date(NOW)) / 1000, seconds, .51)
+    }
+    close(decoded.laps[0].total_timer_time, (1 / 15 + (course.indexed.lengthKm - 1) / 18) * 3600, .001)
+    assert.equal(stage.raceBounds.finishOffsetM - stage.raceBounds.startOffsetM, 11000)
+    assert.ok(result.distanceM > 22000)
+    const finish = decoded.course_points.find(point => point.name === 'RACE FINISH')
+    assert.ok(decoded.records.at(-1).timestamp > finish.timestamp, 'time continues after the race finish')
+  } finally { database.close() }
+})
+
+test('loops and coincident GPX points are retained even at the first and last real boundaries', async () => {
+  const a = { lat: 45, lon: 6, ele: 200 }, b = { lat: 45.03, lon: 6.01, ele: 250 }, c = { lat: 45.01, lon: 6.02, ele: 220 }
+  const points = [a, a, b, a, c, c]
+  const { database, bundle: initial } = await fixture({ bounded: false, points })
+  try {
+    const stage = initial.stages[0], course = buildRaceCourse(initial, stage)
+    const bundle = applyRaceBounds(initial, stage.id, { routeFingerprint: course.fingerprint, startOffsetM: 0, finishOffsetM: course.indexed.lengthKm * 1000 }, course.fingerprint, NOW)
+    const decoded = await parse((await buildFitCourse(bundle, bundle.stages[0], new Date(NOW))).bytes)
+    assert.equal(decoded.records.length, points.length)
+    for (const [i, point] of points.entries()) {
+      close(decoded.records[i].position_lat, point.lat, 180 / 2 ** 31)
+      close(decoded.records[i].position_long, point.lon, 180 / 2 ** 31)
+    }
+    assert.equal(decoded.records[0].distance, decoded.records[1].distance)
+    assert.equal(decoded.records.at(-1).distance, decoded.records.at(-2).distance)
+    assert.deepEqual(decoded.course_points.map(point => point.name), ['START GPX', 'RACE START', 'RACE FINISH', 'FINISH GPX'])
   } finally { database.close() }
 })

@@ -1,5 +1,8 @@
 # Vent des statistiques et affichage des segments — 2026.10.24.5
 
+> Depuis **2026.10.24.6**, la [règle de départ GPX et de vent à vélo](GPX_DEPARTURE_AND_WALKING_WIND.md) prime sur les comportements historiques décrits ci-dessous : limites facultatives en League/Tour, heure au départ GPX, approche incluse dans les ETA et module vent masqué en randonnée.
+
+
 Ce lot applique la demande directe du 24 octobre : vent moyen de l’étape dans les statistiques, configuration des segments sur profil neutre et segments colorés sur la carte. Il complète les [règles de lecture et d’édition](COURSE_WIND_AND_EDITING.md) ; les anciennes restrictions d’affichage des segments sur carte ne s’appliquent plus à ces lignes de consultation.
 
 ## Vent moyen de l’étape

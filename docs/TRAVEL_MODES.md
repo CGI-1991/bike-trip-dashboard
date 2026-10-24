@@ -30,7 +30,7 @@ Limite préexistante : le budget théorique de pauses agrégé peut différer du
 
 Les liens de guidage vers les POI passent en mode marche, y compris lorsqu’une position GPS est ajoutée à l’ouverture de la popup. Les lieux restent issus de la recherche existante le long de la trace ; ce choix ne certifie pas qu’un chemin d’accès est praticable à pied.
 
-Le vent relatif garde ses calculs et ses trois modes de profil. Un marcheur remplace le cycliste et le repère devient « sens de marche » en randonnée.
+Depuis **2026.10.24.6**, le module vent est réservé au vélo : pas de vent moyen dans les statistiques, de flèche relative aux points/segments/montées, ni de mode Vent ou de détails du vent sur le profil en randonnée. Neutre et Pente restent disponibles. Les prévisions météo ordinaires sont conservées. Le passage en marche ne supprime aucune donnée météo ni préférence de profil ; revenir à vélo retrouve les contrôles vent. [Départ GPX et approche](GPX_DEPARTURE_AND_WALKING_WIND.md).
 
 ## Conservation et vérification
 

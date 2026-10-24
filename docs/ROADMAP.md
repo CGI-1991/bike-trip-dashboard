@@ -1,6 +1,6 @@
 # Feuille de route Trip(+)
 
-État au 24 octobre 2026, avec le lot `2026.10.24.5` proposé en PR. Les demandes directes de l’utilisateur priment sur les documents sources conservés dans `specs/`.
+État au 24 octobre 2026, avec le lot `2026.10.24.7` proposé en PR. Les demandes directes de l’utilisateur priment sur les documents sources conservés dans `specs/`.
 
 Livraison : une PR par lot cohérent et validé. Fusion et déploiement sont des étapes distinctes. Chaque changement d’usage porte une entrée Nouveautés et une petite balise MAJ locale, accessible au toucher sur iPhone. Conserver l’origine du site, l’identité de la PWA et les activités locales : aucune réinstallation à demander.
 
@@ -9,14 +9,14 @@ Livraison : une PR par lot cohérent et validé. Fusion et déploiement sont des
 | Chantier | État et référence |
 | --- | --- |
 | POI | Recherche progressive, sauvegardée et reprenable, couverture du tracé et gestion des fournisseurs. Le premier essai iPhone communiqué par l’utilisateur est rapide, fluide et résiste à l’extinction de l’écran. [Fiabilité](POI_RELIABILITY.md), [fournisseurs](POI_PROVIDER_RESILIENCE.md). |
-| Vent | Moyenne de l’étape dans les statistiques : vitesse et provenance cardinale. Vent local relatif sur le profil, aux points et sur les segments/montées ; modes Neutre/Pente/Vent en consultation. Disponible dans chaque détail Voyage/League/Tour. **Aucune moyenne globale sur plusieurs parcours ou une saison.** [Règles actuelles](STAGE_WIND_AND_SEGMENT_DISPLAY.md), [calcul](RELATIVE_WIND.md). |
+| Vent | Moyenne de l’étape dans les statistiques : vitesse et provenance cardinale. Vent local relatif sur le profil, aux points et sur les segments/montées ; modes Neutre/Pente/Vent en consultation. Disponible à vélo dans chaque détail Voyage/League/Tour ; masqué en randonnée, avec les autres prévisions météo conservées. **Aucune moyenne globale sur plusieurs parcours ou une saison.** [Règles actuelles](STAGE_WIND_AND_SEGMENT_DISPLAY.md), [calcul](RELATIVE_WIND.md). |
 | Randonnée et vélo | Déplacement par activité, références de vitesse et modèle de marche tenant compte de la pente ; recalcul cohérent des temps, pauses et ETA météo. [Déplacements](TRAVEL_MODES.md). |
 | Allure | Cinq niveaux **Chill / Tempo / Normal / Soutenu / Sportif**, plus Manuel. Normal reste à **18 km/h à vélo**, **4,5 km/h à pied**, avant correction du terrain ; anciennes vitesses conservées. [Références et conservation](LEAGUE_TOUR_CORRECTIONS.md). |
 | Montées | Cinq sensibilités déjà présentes ; enregistrement du curseur corrigé. Recalcul indépendant des segments manuels, conservation des valeurs sources. La lisibilité des catégories et la calibration marche restent à améliorer. [Contrôles](LEAGUE.md#détection-des-montées--point-de-contrôle). |
-| League / Tour | Calendrier League indépendant, dates et départs explicites, navigation Voyage/Calendrier/Étapes ; limites de course, statistiques et horaires cohérents, segments Sprint/Grimpeur/Flandrien. [Cadrage](LEAGUE.md). |
+| League / Tour | Calendrier League indépendant, dates et départs explicites, navigation Voyage/Calendrier/Étapes ; limites de course facultatives (GPX entier par défaut), heure au départ GPX, approche vélo à référence −3 km/h, statistiques de course distinctes et segments Sprint/Grimpeur/Flandrien. [Départs et approche](GPX_DEPARTURE_AND_WALKING_WIND.md). [Cadrage](LEAGUE.md). |
 | Lecture et édition | Vignettes ouvrant les mini-profils ; limites et segments édités dans **Course**, à côté de Météo, sur le profil neutre. Pochage des segments uniquement en Neutre ; portions colorées sur la carte du détail et en plein écran. [Comportement actuel](STAGE_WIND_AND_SEGMENT_DISPLAY.md). |
 | Export GPX enrichi | Lot `2026.10.24.3` : trace d’origine conservée, limites, noms, segments et réglages réimportables ; waypoints standards et extension versionnée. **Ce GPX ne garantit pas d’alertes Garmin.** [Format et vérifications](ENRICHED_GPX.md). |
-| Export FIT Course — essai | Lot `2026.10.24.4` : portion de course et points d’alerte explicites, lecture indépendante et premier export hors connexion vérifiés. **Validation sur appareil Garmin encore nécessaire.** [Format, limites et essai terrain](FIT_COURSE.md). |
+| Export FIT Course — essai | Lot `2026.10.24.7` : tracé GPX intégral dans le FIT, limites et alertes ajoutées comme repères, comparaison indépendante GPX/FIT et premier export hors connexion vérifiés. [Même parcours](FULL_GPX_FIT_ROUTE.md). **Validation sur appareil Garmin encore nécessaire.** [Format, limites et essai terrain](FIT_COURSE.md). |
 | Sauvegardes et mises à jour | Sauvegarde/restauration ZIP complète, originaux conservés, copies sans écrasement ; historique Nouveautés et balises MAJ. [Sauvegarde](TRIP_BACKUP.md), [mises à jour](RELEASE_NOTES.md). |
 
 « Réalisé » décrit le code des lots livrés/proposés ; l’utilisateur retrouve une version sur son téléphone après fusion et déploiement. Nouveautés indique la version effectivement chargée.

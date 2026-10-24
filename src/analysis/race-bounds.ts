@@ -94,7 +94,8 @@ export function courseWaypoints(base: readonly CanonicalWaypoint[], stage: RideS
     latitude: point.latitude, longitude: point.longitude, elevationM: point.altitudeM,
     climbId: null, pauseDurationMinutes: null, elapsedMinutes: null, clockTime: null,
   })
-  return [endpoint('start', start, course.geometry[0]!),
+  const gpxStart: CanonicalWaypoint | undefined = start > 0 ? { ...endpoint('start', 0, course.indexed.points[0]!), id: `${stage.id}:gpx-start`, name: 'Départ GPX' } : undefined
+  return [...(gpxStart === undefined ? [] : [gpxStart]), endpoint('start', start, course.geometry[0]!),
     ...base.filter(point => point.kind !== 'start' && point.kind !== 'end' && point.trackDistanceKm > start && point.trackDistanceKm < finish),
     endpoint('end', finish, course.geometry.at(-1)!) ]
 }

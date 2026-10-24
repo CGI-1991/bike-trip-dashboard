@@ -1,16 +1,43 @@
 """Inspect an exported Course with fitdecode, independent from the JS encoder.
 
 Install in a Python virtual environment: pip install fitdecode==0.11.0
-Run: python scripts/check-fit-course.py /path/to/course.fit
+Run: python scripts/check-fit-course.py /path/to/course.fit [--gpx /path/to/source.gpx]
 This verifies the file, not the behavior of a Garmin device.
 """
 import argparse
 import json
+import math
+import xml.etree.ElementTree as ET
 
 import fitdecode
 
 
-def inspect_course(path):
+def compare_gpx(records, path):
+    """Check every vertex against an independent XML reader, in source order."""
+    root = ET.parse(path).getroot()
+    name = lambda element: element.tag.rsplit('}', 1)[-1]
+    tracks = [child for child in root if name(child) == 'trk']
+    if tracks:
+        points = [point for track in tracks for segment in track if name(segment) == 'trkseg'
+                  for point in segment if name(point) == 'trkpt']
+    else:
+        points = [point for route in root if name(route) == 'rte'
+                  for point in route if name(point) == 'rtept']
+    assert len(points) == len(records), f'GPX/FIT point counts differ: {len(points)} != {len(records)}'
+    semicircle = 180 / 2**31
+    for index, (point, record) in enumerate(zip(points, records)):
+        lat, lon = float(point.attrib['lat']), float(point.attrib['lon'])
+        assert math.isfinite(lat) and -90 <= lat <= 90 and math.isfinite(lon) and -180 <= lon <= 180, 'Invalid source GPX coordinate'
+        assert abs(record['position_lat'] * semicircle - lat) <= semicircle / 2 + 1e-10, f'Latitude differs at point {index}'
+        delta = (record['position_long'] * semicircle - lon + 180) % 360 - 180
+        assert abs(delta) <= semicircle / 2 + 1e-10, f'Longitude differs at point {index}'
+        elevation = next((float(child.text) for child in point if name(child) == 'ele'), None)
+        if elevation is not None and math.isfinite(elevation) and -500 <= elevation <= 12606.8:
+            assert record.get('altitude') is not None and abs(record['altitude'] - elevation) <= .10000001, f'Altitude differs at point {index}'
+    return len(points)
+
+
+def inspect_course(path, gpx=None):
     messages = {}
     with fitdecode.FitReader(path, check_crc=fitdecode.CrcCheck.RAISE,
                              error_handling=fitdecode.ErrorHandling.RAISE) as reader:
@@ -35,7 +62,7 @@ def inspect_course(path):
         assert current['timestamp'] >= previous['timestamp'], 'Record times run backwards'
     for record in [*records, *points]:
         assert record.get('position_lat') is not None and record.get('position_long') is not None, 'Invalid position'
-    assert points[0]['name'] == 'START COURSE' and points[-1]['name'] == 'FINISH COURSE', 'Missing course boundaries'
+    assert points[0]['name'] == 'START GPX' and points[-1]['name'] == 'FINISH GPX', 'Missing GPX boundaries'
     assert all(0 <= point['distance'] <= distance for point in points), 'Course point outside course'
     assert all(a['distance'] <= b['distance'] for a, b in zip(points, points[1:])), 'Course points run backwards'
     events = messages.get('event', [])
@@ -46,6 +73,7 @@ def inspect_course(path):
         'sport': messages['course'][0]['sport'], 'distanceM': distance,
         'records': len(records), 'durationS': messages['lap'][0]['total_timer_time'],
         'unknownAltitudes': sum(record.get('altitude') is None for record in records),
+        **({'sourceGpxPoints': compare_gpx(records, gpx), 'sameGpxGeometry': True} if gpx else {}),
         'points': [{key: point[key] for key in ['name', 'distance', 'type', 'position_lat', 'position_long']} for point in points],
     }
 
@@ -53,5 +81,6 @@ def inspect_course(path):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('file')
+    parser.add_argument('--gpx', help='Compare the full FIT geometry against the original or enriched GPX')
     arguments = parser.parse_args()
-    print(json.dumps(inspect_course(arguments.file), ensure_ascii=False, indent=2))
+    print(json.dumps(inspect_course(arguments.file, arguments.gpx), ensure_ascii=False, indent=2))
