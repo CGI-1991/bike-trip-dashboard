@@ -1,10 +1,11 @@
+import { tripIcon } from '../icons.ts'
 /** Compact structural editor reusing the 6C1 pre-analysis, warnings and GPX engine. */
 
 import { REFERENCE_SPEED_PRESETS, isReferenceSpeedMode, resolveReferenceSpeedMode } from '../../trip-core/model/reference-speed.ts'
 import type { ReferenceSpeedMode } from '../../trip-core/model/reference-speed.ts'
 import { renderReferenceSpeedControl } from './reference-speed-control.ts'
 import type { GpxImportFile } from '../../import/gpx/types.ts'
-import { checkChainContinuity, detectStrictDuplicates, editGpxTrip, loadTripEditDraft, preAnalyzeGpxFiles } from '../../trips-manager/index.ts'
+import { checkItineraryContinuity, detectStrictDuplicates, editGpxTrip, loadTripEditDraft, preAnalyzeGpxFiles } from '../../trips-manager/index.ts'
 import type { GpxPreAnalysis, TripEditSlot } from '../../trips-manager/index.ts'
 import { applyTripPreferences, updateTripPreferences, validateTripPreferencesUpdate } from '../../trips-manager/trip-preferences.ts'
 import type { TripPreferencesFieldError, TripPreferencesUpdate } from '../../trips-manager/trip-preferences.ts'
@@ -178,17 +179,16 @@ export function createTripEditor(
   }
 
   function continuityWarnings() {
-    return checkChainContinuity(
-      rideItems()
-        .filter((item) => item.preAnalysis?.status === 'valid')
-        .map((item) => ({
-          fileName: item.file.name,
-          startLatitude: item.preAnalysis?.startLatitude ?? 0,
-          startLongitude: item.preAnalysis?.startLongitude ?? 0,
-          endLatitude: item.preAnalysis?.endLatitude ?? 0,
-          endLongitude: item.preAnalysis?.endLongitude ?? 0,
-        })),
-    )
+    return checkItineraryContinuity(items.map(item => {
+      const analysis = item.kind === 'ride' ? item.preAnalysis : null
+      return {
+        kind: item.kind, linkedToPrevious: item.kind === 'ride' && item.linkedToPrevious,
+        segment: analysis?.status === 'valid' && analysis.startLatitude !== null && analysis.startLongitude !== null && analysis.endLatitude !== null && analysis.endLongitude !== null ? {
+          fileName: analysis.fileName, startLatitude: analysis.startLatitude, startLongitude: analysis.startLongitude,
+          endLatitude: analysis.endLatitude, endLongitude: analysis.endLongitude,
+        } : null,
+      }
+    }), isLeague() ? 'league' : raceMode ? 'tour' : 'voyage')
   }
 
   /**
@@ -617,7 +617,7 @@ export function createTripEditor(
     if (item === undefined || item.kind !== 'ride' || previous === undefined || previous.kind !== 'ride') return ''
     const linked = item.linkedToPrevious
     const label = linked ? 'Étapes liées — séparer' : 'Lier à l’étape précédente (même journée)'
-    return `<li class="wizard-structure__link-row"><button class="button button--quiet wizard-structure__link${linked ? ' is-linked' : ''}" type="button" data-editor-action="${linked ? 'unlink-stage' : 'link-stage'}" data-position="${position}" aria-pressed="${linked}" aria-label="${label}" title="${label}">⛓</button></li>`
+    return `<li class="wizard-structure__link-row"><button class="button button--quiet wizard-structure__link${linked ? ' is-linked' : ''}" type="button" data-editor-action="${linked ? 'unlink-stage' : 'link-stage'}" data-position="${position}" aria-pressed="${linked}" aria-label="${label}" title="${label}">${tripIcon('link')}</button></li>`
   }
 
   /** One `<li>` per structure row, plus (for a ride row that can be linked) the chain control above it. `withLinkControl: false` is used when the caller already emitted it outside a group wrapper. */
@@ -685,7 +685,7 @@ export function createTripEditor(
     const warnings = continuityWarnings()
     const rows: string[] = []
     if (duplicateNames.size > 0) rows.push(`<li class='wizard-alert wizard-alert--blocking'>Doublon strict détecté — retirez ou remplacez le fichier concerné.</li>`)
-    warnings.forEach((warning) => rows.push(`<li class='wizard-alert'>Rupture de continuité entre ${escapeHtml(warning.fromFileName)} et ${escapeHtml(warning.toFileName)} (${warning.gapKm.toFixed(1)} km, non bloquant).</li>`))
+    warnings.forEach((warning) => rows.push(`<li class='wizard-alert'>${raceMode ? 'Étapes liées : ' : ''}${warning.gapKm.toFixed(1).replace('.', ',')} km entre ${escapeHtml(warning.fromFileName)} et ${escapeHtml(warning.toFileName)}. ${raceMode ? 'Vérifiez la liaison et les horaires.' : 'Vérifiez le transfert entre les étapes.'}</li>`))
     return rows.length === 0 ? '' : `<ul class='wizard-alerts'>${rows.join('')}</ul>`
   }
 

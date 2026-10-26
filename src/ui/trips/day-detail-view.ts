@@ -1,3 +1,4 @@
+import { tripIcon } from '../icons.ts'
 import { renderStageServices } from './stage-services.ts'
 import { renderStageNavigation } from './stage-navigation.ts'
 import { classifyClimb } from '../../analysis/climb-category.ts'
@@ -47,7 +48,7 @@ import { routeGeometry } from '../../route-enrichment/route-fingerprint.ts'
 import { resolvePersistedAutomaticPausePlan } from '../../route-enrichment/automatic-pause-plan.ts'
 import { resolveOffCoordinates, resolveOffLocation, resolveSharedInfoDayId, resolveTransferCoordinates, resolveTransferLocations } from '../../analysis/day-location-fill.ts'
 import type { RouteMapMarkerModel, RouteMapModel } from '../route-map-model.ts'
-import { selectOrganizationMode, selectRaceMode, selectStageCustomName, selectTripDayLabel, selectTripDayNumber } from '../../trip-core/index.ts'
+import { selectRaceMode, selectStageCustomName, selectTripDayLabel, selectTripDayNumber } from '../../trip-core/index.ts'
 import { formatShortDate } from '../date-format.ts'
 import { compactPlaceName } from '../compact-place-name.ts'
 import {
@@ -116,7 +117,7 @@ function formatPercent(value: number | null): string {
  * always been: one `day-detail__identity-route` line carrying the route,
  * and no subtitle element at all.
  */
-function renderDayIdentityHeader(day: TripDay, dayNumber: number, mainLabel: string, fullMainLabel: string, customName: string | null = null, prefix = 'J'): string {
+function renderDayIdentityHeader(day: TripDay, dayNumber: number, mainLabel: string, fullMainLabel: string, customName: string | null = null, label = `J${dayNumber}`): string {
   const dateLabel = day.date === null ? null : formatShortDate(day.date)
   const accessibleLabel = customName === null ? fullMainLabel : `${customName} — ${fullMainLabel}`
   // The two-line composition (nom manuel / départ → arrivée) is expressed
@@ -126,7 +127,7 @@ function renderDayIdentityHeader(day: TripDay, dayNumber: number, mainLabel: str
   // header height, same `Jx` position, whichever stage is open.
   const modifier = customName === null ? ' day-detail__sticky-identity--single' : ''
   return `<header class="day-detail__sticky-identity${modifier}" data-day-detail-identity title="${escapeHtml(accessibleLabel)}" aria-label="${escapeHtml(accessibleLabel)}">
-    <span class="day-detail__identity-number"><strong>${prefix}${dayNumber}</strong>${dateLabel === null ? '' : `<time datetime="${day.date}">${escapeHtml(dateLabel)}</time>`}</span>
+    <span class="day-detail__identity-number"><strong>${escapeHtml(label)}</strong>${dateLabel === null ? '' : `<time datetime="${day.date}">${escapeHtml(dateLabel)}</time>`}</span>
     <span class="day-detail__identity-route">${customName === null ? mainLabel : escapeHtml(customName)}</span>
     ${customName === null ? '' : `<span class="day-detail__identity-subtitle" data-day-detail-identity-subtitle>${mainLabel}</span>`}
   </header>`
@@ -1082,7 +1083,7 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
   const infosHtml = renderInfosPanel(day, accommodation, { infoDay })
   // Complete statistics precede the unified tabs. The map/profile belongs
   // to reading; Course borrows the same profile node for editing.
-  const identityHtml = renderDayIdentityHeader(day, dayNumber, locations, fullLocations, customName, selectOrganizationMode(bundle) === 'league' ? 'C' : 'J')
+  const identityHtml = renderDayIdentityHeader(day, dayNumber, locations, fullLocations, customName, selectTripDayLabel(bundle, day.id))
   const html = `<div class="day-detail" data-day-detail>
     <div class="day-detail__sticky-header" data-day-detail-sticky-header>
       ${identityHtml}
@@ -1106,7 +1107,7 @@ ${selectRaceMode(bundle) ? '<button id="day-tab-course" type="button" role="tab"
       ${renderStageGpxActions(bundle, stage)}
     </section>
     <dialog class="route-map-dialog" data-day-detail-map-dialog aria-labelledby="day-detail-expanded-map-title">
-      <header><h2 id="day-detail-expanded-map-title">Carte de l’étape</h2><div class="route-map-dialog__actions"><button class="button button--quiet" type="button" data-action="locate-me" aria-label="Me localiser">📍</button><button class="button button--quiet" type="button" data-map-layers-toggle aria-expanded="false" aria-controls="day-detail-map-layers-panel" hidden>Calques</button><button class="button button--quiet" type="button" data-close-map>Fermer</button></div></header>
+      <header><h2 id="day-detail-expanded-map-title">Carte de l’étape</h2><div class="route-map-dialog__actions"><button class="button button--quiet" type="button" data-action="locate-me" aria-label="Me localiser">${tripIcon('location')}</button><button class="button button--quiet" type="button" data-map-layers-toggle aria-expanded="false" aria-controls="day-detail-map-layers-panel" hidden>Calques</button><button class="button button--quiet" type="button" data-close-map>Fermer</button></div></header>
       <div class="route-map-dialog__map-wrap"><div class="route-map route-map--expanded" data-route-map-expanded></div><p class="route-map__fallback route-map__fallback--expanded" data-expanded-route-map-fallback hidden>Fond de carte indisponible. Le tracé reste accessible dans le profil.</p><button class="practical-layers-backdrop" type="button" data-map-layers-backdrop aria-label="Fermer les calques" tabindex="-1" hidden></button><section class="practical-layers-panel" id="day-detail-map-layers-panel" data-map-layers-panel role="dialog" aria-labelledby="day-detail-map-layers-title" hidden><header><div><h3 id="day-detail-map-layers-title">Calques</h3><p class="practical-layers-panel__note">Points principaux toujours visibles</p></div><button class="button button--quiet" type="button" data-map-layers-close>Fermer</button></header><div class="practical-layers-list" data-map-layers-list></div></section></div>
     </dialog>
     <div data-day-detail-weather-alerts></div>

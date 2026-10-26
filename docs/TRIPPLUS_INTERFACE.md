@@ -1,5 +1,7 @@
 # Trip+ — interface mobile validée, 2026.10.26.1
 
+> Le [lot iPhone 2026.10.26.2](IPHONE_POLISH.md) corrige les champs natifs, les marges d’encoche, l’effacement des lectures au relâchement et les repères des étapes d’un même jour en Tour.
+
 Cette intégration reprend la direction visuelle approuvée le 26 octobre : vert profond, fond clair, Source Sans 3 pour la lecture et Barlow Semi Condensed pour les titres et chiffres. Les surfaces sont allégées, avec des séparations utiles plutôt qu’un empilement de cartes arrondies. Les polices sont livrées avec l’application, sous licence OFL, et mises en cache par son Service Worker.
 
 Les règles ci-dessous remplacent les anciens choix d’interface lorsque les documents des lots précédents divergent. Les modèles de parcours, les réglages d’allure, les recherches POI et les formats d’export ne changent pas.

@@ -1,3 +1,4 @@
+import { tripIcon } from '../icons.ts'
 import { REFERENCE_SPEED_PRESETS, isReferenceSpeedMode, resolveReferenceSpeedMode } from '../../trip-core/model/reference-speed.ts'
 import { renderReferenceSpeedControl } from './reference-speed-control.ts'
 /**
@@ -265,7 +266,7 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
     if (item?.kind !== 'ride' || previous?.kind !== 'ride') return ''
     const linked = item.linkedToPrevious === true
     const label = linked ? 'Étapes liées — séparer' : 'Lier à l’étape précédente (même journée)'
-    return `<li class="wizard-structure__link-row"><button class="button button--quiet wizard-structure__link${linked ? ' is-linked' : ''}" type="button" data-action="${linked ? 'unlink-stage' : 'link-stage'}" data-position="${position}" aria-pressed="${linked}" aria-label="${label}" title="${label}">⛓</button></li>`
+    return `<li class="wizard-structure__link-row"><button class="button button--quiet wizard-structure__link${linked ? ' is-linked' : ''}" type="button" data-action="${linked ? 'unlink-stage' : 'link-stage'}" data-position="${position}" aria-pressed="${linked}" aria-label="${label}" title="${label}">${tripIcon('link')}</button></li>`
   }
 
   function renderTimelineRow(item: StructureItem, position: number, rideNumber: number | null, options: { readonly withLinkControl?: boolean } = {}): string {
@@ -359,7 +360,7 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
       items.push(`<li class="wizard-alert">Traces très similaires : ${escapeHtml(pair.fileNameA)} et ${escapeHtml(pair.fileNameB)} (non bloquant).</li>`)
     }
     for (const warning of continuity) {
-      items.push(`<li class="wizard-alert">Rupture de continuité entre ${escapeHtml(warning.fromFileName)} et ${escapeHtml(warning.toFileName)} (${warning.gapKm.toFixed(1)} km, non bloquant).</li>`)
+      items.push(`<li class="wizard-alert">${state.organizationMode === 'tour' ? 'Étapes liées : ' : ''}${warning.gapKm.toFixed(1).replace('.', ',')} km entre ${escapeHtml(warning.fromFileName)} et ${escapeHtml(warning.toFileName)}. ${state.organizationMode === 'tour' ? 'Vérifiez la liaison et les horaires.' : 'Vérifiez le transfert entre les étapes.'}</li>`)
     }
     return `<ul class="wizard-alerts" data-wizard-alerts>${items.join('')}</ul>`
   }

@@ -1,6 +1,6 @@
 # Feuille de route Trip(+)
 
-État au 26 octobre 2026, avec l’intégration de l’interface validée `2026.10.26.1` proposée en PR. Les demandes directes de l’utilisateur priment sur les documents sources conservés dans `specs/`.
+État au 26 octobre 2026 : refonte `2026.10.26.1` fusionnée, puis correctifs iPhone et Tour `2026.10.26.2` proposés en PR. Les demandes directes de l’utilisateur priment sur les documents sources conservés dans `specs/`.
 
 Livraison : une PR par lot cohérent et validé. Fusion et déploiement sont des étapes distinctes. Chaque changement d’usage porte une entrée Nouveautés et une petite balise MAJ locale, accessible au toucher sur iPhone. Conserver l’origine du site, l’identité de la PWA et les activités locales : aucune réinstallation à demander.
 
@@ -17,6 +17,7 @@ Livraison : une PR par lot cohérent et validé. Fusion et déploiement sont des
 | Lecture et édition | Vignettes ouvrant les mini-profils ; limites et segments édités dans **Course**, à côté de Météo, sur le profil neutre. Pochage des segments uniquement en Neutre ; portions colorées sur la carte du détail et en plein écran. [Comportement actuel](STAGE_WIND_AND_SEGMENT_DISPLAY.md). |
 | Nettoyage avant refonte | Vent sans volet d’explications, boutons GPX/FIT côte à côte en compétition, segments compacts comme les montées, suppression des doublons de lecture et réglage de montées unique. [Règles et vérification](LEAN_COURSE_DETAIL.md). |
 | Interface Trip+ | Maquette approuvée le 26 octobre et intégrée : surfaces allégées, statistiques complètes conservées, onglets uniques, commandes au pouce, profils lisibles et vent fixe, filtres et étapes colorées/sélectionnables. Nom visible Trip+, identité PWA et données conservées. [Règles et contrôles](TRIPPLUS_INTERFACE.md). |
+| Retours iPhone et Tour | Champs natifs contenus, en-tête et onglets sous l’encoche, lecture temporaire des profils, pictogrammes communs ; repères J1a/J1b et alertes de continuité limitées aux liaisons explicites du Tour. [Correctifs et vérifications](IPHONE_POLISH.md). |
 | Export GPX enrichi | Lot `2026.10.24.3` : trace d’origine conservée, limites, noms, segments et réglages réimportables ; waypoints standards et extension versionnée. **Ce GPX ne garantit pas d’alertes Garmin.** [Format et vérifications](ENRICHED_GPX.md). |
 | Export FIT Course — essai | Lot `2026.10.24.7` : tracé GPX intégral dans le FIT, limites et alertes ajoutées comme repères, comparaison indépendante GPX/FIT et premier export hors connexion vérifiés. [Même parcours](FULL_GPX_FIT_ROUTE.md). **Validation sur appareil Garmin encore nécessaire.** [Format, limites et essai terrain](FIT_COURSE.md). |
 | Sauvegardes et mises à jour | Sauvegarde/restauration ZIP complète, originaux conservés, copies sans écrasement ; historique Nouveautés et balises MAJ. [Sauvegarde](TRIP_BACKUP.md), [mises à jour](RELEASE_NOTES.md). |
@@ -36,6 +37,8 @@ Cas technique à auditer séparément : l’import d’une trace passant de long
 
 ## Suggestions à cadrer ensuite
 
+- Harmoniser les couleurs de pente entre grand profil et mini-profils, puis alléger la représentation des portions hors course.
+- Signaler discrètement une météo ancienne après une période sans connexion.
 - Météo intermédiaire avec budget réseau/cache pour réduire les grandes distances entre prévisions.
 - Comparaison d’horaires de départ : vent, rafales, pluie, chaleur et arrivée avant la nuit.
 - Vent apparent et estimation d’effort, à relier au modèle d’allure avant de modifier les ETA.

@@ -5,6 +5,7 @@
  */
 
 import { calculateHaversineDistanceKm } from '../gpx/parser.ts'
+import type { OrganizationMode } from '../trip-core/index.ts'
 
 /** Centralized threshold (CDC section 23: "seuil de rupture de continuité"). */
 export const CONTINUITY_GAP_WARNING_KM = 1
@@ -50,6 +51,26 @@ export function checkChainContinuity(orderedSegments: readonly ContinuitySegment
     if (previous === undefined || current === undefined) continue
     const result = checkStageContinuity(previous.endLatitude, previous.endLongitude, current.startLatitude, current.startLongitude, thresholdKm)
     if (result.hasWarning) warnings.push({ ...result, fromFileName: previous.fileName, toFileName: current.fileName })
+  }
+  return warnings
+}
+
+export interface ContinuityStructureItem {
+  readonly kind: 'ride' | 'off' | 'transfer'
+  readonly linkedToPrevious?: boolean
+  readonly segment: ContinuitySegment | null
+}
+
+/** A Tour only promises geographic continuity when its stages are linked.
+ * Repos, transfers and unreadable GPX always interrupt a continuous chain. */
+export function checkItineraryContinuity(items: readonly ContinuityStructureItem[], mode: OrganizationMode): readonly ContinuityWarning[] {
+  if (mode === 'league') return []
+  const warnings: ContinuityWarning[] = []
+  for (let i = 1; i < items.length; i++) {
+    const previous = items[i - 1]!, current = items[i]!
+    if (previous.kind !== 'ride' || current.kind !== 'ride' || previous.segment === null || current.segment === null) continue
+    if (mode === 'tour' && current.linkedToPrevious !== true) continue
+    warnings.push(...checkChainContinuity([previous.segment, current.segment]))
   }
   return warnings
 }

@@ -19,7 +19,7 @@ import type { DayStructureSlot } from '../../import/gpx/day-structure.ts'
 import type { GpxImportFile } from '../../import/gpx/types.ts'
 import type { ClimbDetectionSensitivity, TransferTiming } from '../../trip-core/index.ts'
 import {
-  checkChainContinuity,
+  checkItineraryContinuity,
   detectSimilarTraces,
   detectStrictDuplicates,
   isLikelyLoop,
@@ -154,17 +154,16 @@ export function similarPairs(state: WizardState) {
 }
 
 export function continuityWarnings(state: WizardState) {
-  const rideEntries = rideFileEntries(state)
-    .map(({ entry }) => entry.preAnalysis)
-    .filter((preAnalysis): preAnalysis is GpxPreAnalysis => preAnalysis !== null && preAnalysis.status === 'valid')
-    .map((preAnalysis) => ({
-      fileName: preAnalysis.fileName,
-      startLatitude: preAnalysis.startLatitude as number,
-      startLongitude: preAnalysis.startLongitude as number,
-      endLatitude: preAnalysis.endLatitude as number,
-      endLongitude: preAnalysis.endLongitude as number,
-    }))
-  return checkChainContinuity(rideEntries)
+  return checkItineraryContinuity(state.structure.map(item => {
+    const analysis = item.kind === 'ride' ? state.files.find(file => file.id === item.fileId && !file.removed)?.preAnalysis : null
+    return {
+      kind: item.kind, linkedToPrevious: item.linkedToPrevious,
+      segment: analysis?.status === 'valid' && analysis.startLatitude !== null && analysis.startLongitude !== null && analysis.endLatitude !== null && analysis.endLongitude !== null ? {
+        fileName: analysis.fileName, startLatitude: analysis.startLatitude, startLongitude: analysis.startLongitude,
+        endLatitude: analysis.endLatitude, endLongitude: analysis.endLongitude,
+      } : null,
+    }
+  }), state.organizationMode)
 }
 
 /** Whether the current, full ride sequence (existing + newly appended items, in their current order) reads as a loop — always recomputed fresh, never tracked as separately-mutable state, so it can never go stale. */

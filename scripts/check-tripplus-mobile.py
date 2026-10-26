@@ -43,9 +43,22 @@ long_xml = ('<gpx xmlns="http://www.topografix.com/GPX/1/1" version="1.1"><trk><
 (OUT / 'source-150km.gpx').write_bytes(long_xml)
 with sync_playwright() as p:
     browser = p.chromium.launch(executable_path=args.browser, headless=True, args=['--no-sandbox'])
-    context = browser.new_context(viewport={'width': 390, 'height': 844}, is_mobile=True, has_touch=True, timezone_id='Europe/Brussels', accept_downloads=True)
+    context = browser.new_context(viewport={'width': 390, 'height': 844}, is_mobile=True, has_touch=True, timezone_id='Europe/Brussels', locale='fr-BE', accept_downloads=True)
     page = context.new_page()
     page.set_default_timeout(20000)
+    def check_native_fields():
+        for width in [320, 390, 430]:
+            page.set_viewport_size({'width': width, 'height': 844})
+            assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), width
+            for field in page.locator('input[type=date], input[type=time]').all():
+                if not field.is_visible():
+                    continue
+                fits = field.evaluate('''el => {
+                    const r=el.getBoundingClientRect(), p=el.parentElement.getBoundingClientRect();
+                    return r.left >= p.left-1 && r.right <= p.right+1 && r.right <= innerWidth;
+                }''')
+                assert fits, (width, field.get_attribute('id'), field.get_attribute('data-field'))
+        page.set_viewport_size({'width': 390, 'height': 844})
     errors = []
     phase = ['import']
     page.on('pageerror', lambda e: errors.append({'phase': phase[0], 'stack': e.stack}))
@@ -65,6 +78,7 @@ with sync_playwright() as p:
     for i in range(3):
         page.locator('[data-field=event-date]').nth(i).fill(f'2026-10-{27 + i}')
         page.locator('[data-field=event-time]').nth(i).fill('08:00')
+    check_native_fields()
     page.locator('[data-action=submit]').tap()
 
     def open_saved(index=0):
@@ -75,6 +89,23 @@ with sync_playwright() as p:
         page.locator('[data-league-calendar] [data-action=open-day-detail]').nth(index).tap()
         page.locator('[data-day-detail-profile] [data-profile-interactive]').wait_for()
     open_saved()
+    page.locator('[data-action=edit-day-departure-time]').tap()
+    page.locator('.time-edit-dialog[open]').wait_for()
+    check_native_fields()
+    page.screenshot(path=str(OUT / '06-heure-mobile.png'))
+    page.locator('[data-time-edit-cancel]').tap()
+    assert page.locator('[data-day-departure-value]').inner_text() == '08:00'
+    page.evaluate('document.documentElement.style.setProperty("--app-safe-top", "59px")')
+    assert page.locator('.brand').bounding_box()['y'] >= 59
+    assert page.locator('.app-header__actions').bounding_box()['y'] >= 59
+    page.screenshot(path=str(OUT / '07-zone-encoche.png'))
+    page.locator('[data-day-detail-profile]').scroll_into_view_if_needed()
+    page.wait_for_function('''() => {
+        const h=document.querySelector('.day-detail__sticky-header').getBoundingClientRect();
+        const t=document.querySelector('[data-day-detail-tabs]').getBoundingClientRect();
+        return Math.abs(h.top-59)<1 && t.top >= h.bottom-1;
+    }''')
+    page.evaluate('document.documentElement.style.removeProperty("--app-safe-top")')
     assert page.locator('[data-day-detail-tabs] [role=tab]').count() == 4
     assert page.locator('[data-day-detail-stats] dl>div').count() == 9
     assert page.locator('[data-day-detail-stats]').bounding_box()['y'] < page.locator('[data-day-detail-map]').bounding_box()['y']
@@ -101,6 +132,17 @@ with sync_playwright() as p:
     profile_id = page.locator('[data-segment-view]').get_attribute('aria-controls')
     assert page.locator('#' + profile_id + ' [data-climb-profile-interactive]').is_visible()
     assert page.locator('#' + profile_id + ' [data-climb-color-bands] rect').count() <= 40
+    mini = page.locator('#' + profile_id + ' [data-climb-profile-interactive]')
+    mini.scroll_into_view_if_needed()
+    mini.evaluate('el => el.addEventListener("pointerdown", () => {window.miniContactVisible=!el.closest("[data-climb-profile]").querySelector("[data-profile-tooltip]").hidden}, {once:true})')
+    mini.tap()
+    assert page.evaluate('window.miniContactVisible')
+    assert page.locator('#' + profile_id + ' [data-profile-tooltip]').is_hidden()
+    mini.focus()
+    page.keyboard.press('ArrowRight')
+    assert page.locator('#' + profile_id + ' [data-profile-tooltip]').is_visible()
+    page.keyboard.press('Escape')
+    assert page.locator('#' + profile_id + ' [data-profile-tooltip]').is_hidden()
     page.locator('[data-timeline-filter=services]').tap()
     assert page.locator('[data-timeline-services]').is_visible()
     page.locator('[data-timeline-filter=all]').tap()
@@ -114,7 +156,11 @@ with sync_playwright() as p:
     page.evaluate('document.querySelector("[data-day-detail-profile]").scrollIntoView({block:"start"})')
     before = page.locator('.course-exports').bounding_box()['y']
     box = plot.bounding_box()
+    plot.evaluate('el => el.addEventListener("pointerdown", () => {window.mainContactValue=el.closest("[data-day-detail-profile]").querySelector("[data-profile-band-distance]").textContent}, {once:true})')
     page.touchscreen.tap(box['x'] + box['width'] * 0.42, box['y'] + box['height'] * 0.5)
+    assert 'km' in page.evaluate('window.mainContactValue')
+    assert page.locator('[data-profile-band-distance]').inner_text() == '—'
+    assert plot.locator('[data-profile-cursor]').get_attribute('hidden') is not None
     assert abs(page.locator('.course-exports').bounding_box()['y'] - before) < 1
     assert page.locator('.profile-wind').is_visible()
     page.screenshot(path=str(OUT / '02-profil-150km-mobile.png'))
@@ -181,6 +227,7 @@ with sync_playwright() as p:
     page.locator('[data-nav-view=trips]').tap()
     page.locator('[data-action=edit-trip]').first.tap()
     page.locator('[data-trip-editor]').wait_for()
+    check_native_fields()
     page.locator('[data-action=set-travel-mode][data-travel-mode=walking]').tap()
     page.locator('[data-editor-action=save]').first.tap()
     page.wait_for_function('document.querySelector("[data-trip-editor]")===null')
@@ -226,6 +273,33 @@ with sync_playwright() as p:
     page.locator('[data-day-detail-profile]').wait_for()
     page.screenshot(path=str(OUT / '01-etape-mobile.png'))
     assert not errors, errors
+    # Tour: same-day identities and the editable start date survive offline.
+    page.locator('[data-nav-view=trips]').tap()
+    page.locator('[data-action=create-trip]').tap()
+    page.locator('#wizard-name').fill('Tour — contrôle iPhone')
+    page.locator('[data-action=set-race-mode][data-race-mode=on]').tap()
+    page.locator('#wizard-start-date').fill('2026-10-27')
+    page.locator('#wizard-files').set_input_files([str(f) for f in gpx[:3]])
+    page.wait_for_function('document.querySelectorAll("[data-field=stage-name]").length===3')
+    page.locator('[data-action=link-stage][data-position="1"]').tap()
+    check_native_fields()
+    page.locator('[data-action=submit]').tap()
+    tour = page.locator('.trip-card').filter(has_text='Tour — contrôle iPhone')
+    tour.wait_for()
+    tour.locator('[data-action=edit-trip]').tap()
+    page.locator('#editor-start-date').wait_for()
+    check_native_fields()
+    page.screenshot(path=str(OUT / '08-date-edition-mobile.png'))
+    page.locator('[data-editor-action=cancel]').first.tap()
+    tour.tap()
+    page.locator('[data-trip-overview-map]').tap()
+    dialog = page.locator('[data-trip-overview-map-dialog]')
+    dialog.locator('.overview-stage-number').first.wait_for()
+    assert dialog.locator('.overview-stage-number').all_inner_texts() == ['J1a', 'J1b', 'J2']
+    # The browser's native tap highlight fades outside the DOM/CSS animation API.
+    page.wait_for_timeout(350)
+    page.screenshot(path=str(OUT / '09-tour-jours-lies.png'))
+    assert not errors, errors
     print('Artifacts:', OUT)
-    print(json.dumps({'production': True, 'gpxImport': 3, 'longRouteKm': 150, 'allStats': 9, 'tabs': 4, 'sharedCourseProfile': True, 'bottomStagePicker': True, 'neutralOnOtherStage': True, 'stableWindSlot': True, 'adaptiveBands': True, 'overviewLines': 3, 'overviewLabels': 3, 'selectionAndNavigation': True, 'offlineFonts': len(cached), 'sameGpxVertices': len(source), 'offlineGpxFit': True, 'offlineReload': True, 'walkingOffline': True, 'widths': [320, 390, 430], 'jsErrors': errors}))
+    print(json.dumps({'production': True, 'gpxImport': 3, 'longRouteKm': 150, 'allStats': 9, 'tabs': 4, 'sharedCourseProfile': True, 'bottomStagePicker': True, 'neutralOnOtherStage': True, 'stableWindSlot': True, 'adaptiveBands': True, 'overviewLines': 3, 'overviewLabels': 3, 'selectionAndNavigation': True, 'offlineFonts': len(cached), 'sameGpxVertices': len(source), 'offlineGpxFit': True, 'offlineReload': True, 'walkingOffline': True, 'widths': [320, 390, 430], 'nativeFieldsFit': True, 'touchReadingsClear': True, 'simulatedSafeTopPx': 59, 'tourLabels': ['J1a', 'J1b', 'J2'], 'jsErrors': errors}))
     browser.close()

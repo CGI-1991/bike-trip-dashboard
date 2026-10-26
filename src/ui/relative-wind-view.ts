@@ -35,7 +35,7 @@ export function renderStageWindStat(reading: GeographicWindReading | null): stri
 }
 
 export function renderProfileWindControls(windEnabled = true): string {
-  return `<div class="profile-modes"><div role="group" aria-label="Coloration du profil"><button type="button" data-profile-mode="neutral" aria-pressed="true">Neutre</button><button type="button" data-profile-mode="grade" aria-pressed="false">Pente</button>${windEnabled ? '<button type="button" data-profile-mode="wind" aria-pressed="false">Vent</button>' : ''}</div>${windEnabled ? renderFeatureUpdateBadge('relative-wind') : ''}</div><p class="profile-color-legend" data-profile-color-legend></p>`
+  return `<div class="profile-modes"><div role="group" aria-label="Coloration du profil"><button type="button" data-profile-mode="neutral" aria-pressed="true">Neutre</button><button type="button" data-profile-mode="grade" aria-pressed="false">Pente</button>${windEnabled ? '<button type="button" data-profile-mode="wind" aria-pressed="false">Vent</button>' : ''}</div>${renderFeatureUpdateBadge(windEnabled ? 'relative-wind' : 'elevation-profile')}</div><p class="profile-color-legend" data-profile-color-legend></p>`
 }
 
 const GRADE_COLORS = {

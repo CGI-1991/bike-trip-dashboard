@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { CONTINUITY_GAP_WARNING_KM, checkChainContinuity, checkStageContinuity } from '../../src/trips-manager/continuity.ts'
+import { CONTINUITY_GAP_WARNING_KM, checkChainContinuity, checkStageContinuity, checkItineraryContinuity } from '../../src/trips-manager/continuity.ts'
 
 test('a small gap below the threshold produces no warning', () => {
   const result = checkStageContinuity(45.0, 6.0, 45.0005, 6.0005)
@@ -50,4 +50,21 @@ test('checkChainContinuity finds zero warnings for a fully continuous chain', ()
 test('checkChainContinuity on a single segment or empty chain never throws', () => {
   assert.deepEqual(checkChainContinuity([]), [])
   assert.deepEqual(checkChainContinuity([{ fileName: 'a.gpx', startLatitude: 0, startLongitude: 0, endLatitude: 1, endLongitude: 1 }]), [])
+})
+
+const a = { kind: 'ride', segment: { fileName: 'a.gpx', startLatitude: 45, startLongitude: 6, endLatitude: 45.1, endLongitude: 6.1 } }
+const b = { kind: 'ride', segment: { fileName: 'b.gpx', startLatitude: 46, startLongitude: 7, endLatitude: 46.1, endLongitude: 7.1 } }
+
+test('Tour warns only when an explicit same-day link spans a geographic gap', () => {
+  assert.deepEqual(checkItineraryContinuity([a, b], 'tour'), [])
+  assert.equal(checkItineraryContinuity([a, { ...b, linkedToPrevious: true }], 'tour').length, 1)
+  assert.deepEqual(checkItineraryContinuity([a, { ...b, linkedToPrevious: true }], 'league'), [])
+})
+
+test('an intentional transfer or rest interrupts continuity checks, as does an unreadable GPX', () => {
+  for (const item of [{ kind: 'off', segment: null }, { kind: 'transfer', segment: null }, { kind: 'ride', segment: null }]) {
+    assert.deepEqual(checkItineraryContinuity([a, item, b], 'voyage'), [])
+    assert.deepEqual(checkItineraryContinuity([a, item, { ...b, linkedToPrevious: true }], 'tour'), [])
+  }
+  assert.equal(checkItineraryContinuity([a, b], 'voyage').length, 1, 'a direct travel-day gap remains actionable')
 })

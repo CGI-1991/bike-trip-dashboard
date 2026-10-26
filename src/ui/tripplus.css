@@ -11,6 +11,7 @@
   font-display:swap
 }
 :root {
+  --app-safe-top:env(safe-area-inset-top, 0px);
   font-family:TripSource,system-ui,sans-serif;
   color:#1d302a;
   background:#fafbf9;
@@ -64,7 +65,44 @@ button:not(.feature-update-badge),.button,select,input:not([type=checkbox]):not(
 }
 .app-header__inner {
   min-height:66px;
-  padding-block:12px
+  padding-block:calc(12px + var(--app-safe-top)) 12px
+}
+/* Keep scrolled content out of the translucent iOS status bar. */
+body::before {
+  content:'';
+  position:fixed;
+  inset:0 0 auto;
+  height:var(--app-safe-top);
+  background:var(--surface);
+  pointer-events:none;
+  z-index:30
+}
+/* WebKit native date/time controls otherwise keep their intrinsic width. */
+input:is([type=date],[type=time]) {
+  display:block;
+  box-sizing:border-box;
+  width:100%;
+  inline-size:100%;
+  min-width:0;
+  min-inline-size:0;
+  max-width:100%;
+  max-inline-size:100%;
+  grid-column:1 / -1;
+  -webkit-appearance:none;
+  appearance:none;
+  font-family:inherit;
+  font-size:16px;
+  text-align:start
+}
+input:is([type=date],[type=time])::-webkit-date-and-time-value {
+  min-width:0;
+  min-inline-size:0;
+  text-align:start
+}
+.time-edit-dialog {
+  width:min(360px, calc(100vw - 32px));
+  min-width:0;
+  overflow-wrap:anywhere
 }
 .brand {
   display:flex;
@@ -186,6 +224,7 @@ button:not(.feature-update-badge),.button,select,input:not([type=checkbox]):not(
   padding-bottom:18px
 }
 .day-detail__sticky-header {
+  top:var(--app-safe-top);
   background:var(--surface);
   box-shadow:none;
   border-bottom:0;
@@ -746,7 +785,7 @@ button:not(.feature-update-badge),.button,select,input:not([type=checkbox]):not(
 .day-tabs[data-day-detail-tabs] {
   display:flex;
   position:sticky;
-  top:var(--day-sticky-header-h,0px);
+  top:calc(var(--app-safe-top) + var(--day-sticky-header-h,0px));
   z-index:5;
   padding:0;
   border-bottom:1px solid var(--line)
@@ -855,7 +894,7 @@ button:not(.feature-update-badge),.button,select,input:not([type=checkbox]):not(
   box-shadow:none
 }
 
-[data-day-detail-profile] { scroll-margin-top: calc(var(--day-sticky-header-h, 0px) + 62px); }
+[data-day-detail-profile] { scroll-margin-top: calc(var(--app-safe-top) + var(--day-sticky-header-h, 0px) + 62px); }
 .route-map-dialog__actions [data-map-layers-toggle][aria-pressed=true] { background: var(--forest-950); color: white; border-color: var(--forest-950); }
 .leaflet-popup-content-wrapper { border-radius: 4px; }
 
