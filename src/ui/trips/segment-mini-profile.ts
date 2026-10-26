@@ -12,5 +12,5 @@ export function segmentMiniProfile(course: RaceCourse, segment: RaceSegment): st
   const lengthKm = (segment.endOffsetM - segment.startOffsetM) / 1000
   const profile = buildClimbProfile(value.geometry, { id: segment.id as ClimbId, startDistanceKm: 0, endDistanceKm: lengthKm }, Math.max(1, Math.min(100, lengthKm * 1000 / 40)))
   const offset = segment.startOffsetM / 1000
-  return renderClimbProfileBar(profile.segments.map(item => ({ ...item, startDistanceKm: item.startDistanceKm + offset, endDistanceKm: item.endDistanceKm + offset }))).replace('aria-label="Profil interactif de la montée"', 'aria-label="Profil interactif du segment"')
+  return renderClimbProfileBar(profile.segments.map(item => ({ ...item, startDistanceKm: item.startDistanceKm + offset, endDistanceKm: item.endDistanceKm + offset })),segment.id).replace('aria-label="Profil interactif de la montée"', 'aria-label="Profil interactif du segment"')
 }

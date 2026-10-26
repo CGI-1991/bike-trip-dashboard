@@ -1,3 +1,8 @@
+import { renderFeatureUpdateBadge } from '../release-notes.ts'
+import { disposeProfileWind } from '../relative-wind-view.ts'
+import { paintClimbProfileBands } from './mini-profile-view.ts'
+import { renderStageServices } from './stage-services.ts'
+import { applyTimelineFilter } from './timeline-filters.ts'
 import { renderStageGpxActions } from './gpx-export-actions.ts'
 import { syncCourseEditorProfile } from './course-editor-panel.ts'
 import { buildEnrichedGpx } from '../../export/enriched-gpx.ts'
@@ -406,8 +411,13 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   let activeSubComponent: { readonly destroy: () => void } | null = null
   let backupPanel: TripBackupPanelHandle | null = null
   let backupNotice: string | null = null
+  let renderedOverviewKey: string | null = null
+  let overviewRefreshDeferred = false
 
   function teardownSubComponent(): void {
+    const profile=container.querySelector<HTMLElement>('[data-day-detail-profile]')
+    if(profile)disposeProfileWind(profile)
+    for(const canvas of container.querySelectorAll<HTMLElement>('[data-route-map-canvas]'))getMapInteractionHandle(canvas)?.dispose?.()
     destroyRaceSegments?.()
     destroyRaceSegments = null
     activeSubComponent?.destroy()
@@ -623,7 +633,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     if (trips.length === 0) {
       container.innerHTML = `
         <div class="trips-empty" data-trips-empty>
-          <header class="view-heading"><p class="eyebrow">Mes activités</p><h2>Aucune activité pour le moment</h2></header>
+          <header class="view-heading"><p class="eyebrow">Mes activités ${renderFeatureUpdateBadge('app-design')}</p><h2>Aucune activité pour le moment</h2></header>
           <p>Importez vos traces GPX pour créer votre premier voyage.</p>
           <button class="button button--primary button--full" type="button" data-action="create-trip">Créer un voyage</button>
           ${noticeMarkup}${backupMarkup}
@@ -634,7 +644,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
 
     container.innerHTML = `
       <div class="trips-list" data-trips-list>
-        <header class="view-heading"><p class="eyebrow">Mes activités</p><h2>${trips.length} activité${trips.length > 1 ? 's' : ''}</h2></header>
+        <header class="view-heading"><p class="eyebrow">Mes activités ${renderFeatureUpdateBadge('app-design')}</p><h2>${trips.length} activité${trips.length > 1 ? 's' : ''}</h2></header>
         <button class="button button--primary button--full" type="button" data-action="create-trip">Créer un voyage</button>
         <ul class="trip-card-list">${trips.map(renderTripCard).join('')}</ul>
         ${noticeMarkup}${backupMarkup}
@@ -944,7 +954,11 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     const pausesEl = container.querySelector('[data-day-detail-pauses]')
     if (pausesEl !== null) pausesEl.outerHTML = detail.pausesHtml
     const timelineEl = container.querySelector('[data-day-detail-timeline]')
+    const activeFilter=container.querySelector<HTMLElement>('[data-timeline-filter][aria-pressed="true"]')?.dataset.timelineFilter ?? 'all'
     if (timelineEl !== null) timelineEl.innerHTML = detail.timelineHtml
+    const services=container.querySelector<HTMLElement>('[data-timeline-services]')
+    if(services&&stage)services.innerHTML=renderStageServices(bundle,stage,detail.waypoints)
+    applyTimelineFilter(container,activeFilter)
     mountMapAndProfile(bundle, detail, dayId)
     // A pause edit shifts every downstream eta (CDC Jalon C1 section 26) —
     // the weather request signature itself is unaffected unless the set of
@@ -1097,7 +1111,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
    * a second model swapped in on the compact card itself (that toggle is
    * gone — D1.1 section 2).
    */
-  function mountOverviewMap(overview: TripOverview): void {
+  function mountOverviewMap(overview: TripOverview, tripId: TripId): void {
     const mapContainer = container.querySelector<HTMLElement>('[data-trip-overview-map]')
     const mapDialog = container.querySelector<HTMLDialogElement>('[data-trip-overview-map-dialog]')
     if (mapContainer === null || mapDialog === null) return
@@ -1107,6 +1121,11 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     deps.renderMap(mapContainer, mapDialog, model, layers, { directLayerToggle: true })
     const close = mapDialog.querySelector<HTMLButtonElement>('[data-close-map]')
     if (close !== null) close.onclick = () => deps.closeMap(mapDialog)
+    mapDialog.addEventListener('close', () => {
+      if (!overviewRefreshDeferred || mode.kind !== 'overview' || mode.tripId !== tripId) return
+      overviewRefreshDeferred = false
+      void renderOverview(tripId, { diffGated: true })
+    })
   }
 
   /**
@@ -1124,8 +1143,11 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
    * about the trip's own Aperçu content had actually changed.
    */
   async function renderOverview(tripId: TripId, options: { readonly diffGated?: boolean } = {}): Promise<void> {
-    teardownSubComponent()
-    if (options.diffGated !== true) container.innerHTML = '<p role="status">Chargement du voyage…</p>'
+    if (options.diffGated !== true) {
+      teardownSubComponent()
+      overviewRefreshDeferred = false
+      container.innerHTML = '<p role="status">Chargement du voyage…</p>'
+    }
     const bundle = await loadTripBundleForScreen(tripId)
     if (bundle === null) {
       if (options.diffGated === true) return
@@ -1133,11 +1155,23 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       await renderList()
       return
     }
+    if (options.diffGated === true) {
+      if (mode.kind !== 'overview' || mode.tripId !== tripId) return
+      if (container.querySelector<HTMLDialogElement>('[data-trip-overview-map-dialog]')?.open) {
+        overviewRefreshDeferred = true
+        return
+      }
+    }
     const overview = buildTripOverview(bundle, deps.now())
-    if (options.diffGated === true && overview.html === container.innerHTML) return
+    // Compare the render inputs, not Leaflet's mutated DOM or the live
+    // progress indicator. Geometry-only updates must still remount the map.
+    const renderKey = JSON.stringify([tripId, overview])
+    if (options.diffGated === true && renderKey === renderedOverviewKey) return
+    if (options.diffGated === true) teardownSubComponent()
+    renderedOverviewKey = renderKey
     deps.onHeaderChange?.(buildGenericAppHeader(bundle, { view: 'overview' }))
     container.innerHTML = LIVE_PROGRESS_MARKUP + overview.html
-    mountOverviewMap(overview)
+    mountOverviewMap(overview, tripId)
     // The highlighted day's own compact map (CDC Jalon B4.3 section 8) — a
     // second, independent, non-interactive preview; no fullscreen dialog of
     // its own (that's what "Voir cette étape" / the card's own navigation
@@ -1518,7 +1552,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     return await ask()
   })
   /**
-   * Which of Parcours/Infos is currently showing — tracked explicitly
+   * Which unified detail tab is currently showing — tracked explicitly
    * rather than re-derived from `aria-selected` on every click, so a plain
    * re-click of the tab already showing is always a no-op (never a leave)
    * without depending on a DOM read finding the right element. Reset to
@@ -1526,7 +1560,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
    * always the default tab; updated by `switchDayTab`, the one place the
    * visible tab actually changes.
    */
-  let activeDayTab: 'route' | 'infos' = 'route'
+  let activeDayTab: 'route' | 'infos' | 'weather' | 'course' = 'route'
   /** Set only while re-dispatching a click the guard has just cleared — see the `EXTERNAL_ACTIONS` branch. */
   let bypassEditGuard = false
   /** Pending debounce for `scheduleOnlineResume` — at most one in flight. */
@@ -1591,10 +1625,20 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     })()
   }
 
-  /** The one place Parcours↔Infos tab visibility changes — shared by the tab click handler so switching tabs is always a plain, consistent toggle. */
-  function switchDayTab(target: 'route' | 'infos'): void {
-    const coursePanel = container.querySelector<HTMLElement>('#day-bottom-panel-course')
-    if (target === 'infos' && coursePanel !== null && !coursePanel.hidden) closeBottomPanels()
+  /** The one place unified detail-tab visibility changes — shared by the tab click handler so switching tabs is always a plain, consistent toggle. */
+  function switchDayTab(target: 'route' | 'infos' | 'weather' | 'course'): void {
+    closeBottomPanels()
+    const mapCard = container.querySelector<HTMLElement>('[data-day-detail-map-profile-card]')
+    if (mapCard) {
+      mapCard.hidden = target !== 'route'
+      const map=mapCard.querySelector<HTMLElement>('[data-day-detail-map]')
+      if(target==='route'&&map)getMapInteractionHandle(map)?.refreshSize?.()
+    }
+    if (target === 'weather' || target === 'course') {
+      const panel = container.querySelector<HTMLElement>(`#day-bottom-panel-${target}`)
+      if (panel) panel.hidden = false
+    }
+    syncCourseEditorProfile(container)
     activeDayTab = target
     for (const panel of container.querySelectorAll<HTMLElement>('[data-day-panel]')) panel.hidden = panel.dataset.dayPanel !== target
     for (const candidate of container.querySelectorAll<HTMLButtonElement>('[data-day-tab]')) {
@@ -2115,7 +2159,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     // reintroduce exactly the "reload feel" bug this pass fixes.
     const tab = target.closest<HTMLButtonElement>('[data-day-tab]')
     if (tab !== null && container.contains(tab)) {
-      const requested = tab.dataset.dayTab === 'infos' ? 'infos' : 'route'
+      const requested = tab.dataset.dayTab === 'infos' ? 'infos' : tab.dataset.dayTab === 'weather' ? 'weather' : tab.dataset.dayTab === 'course' ? 'course' : 'route'
       // Integrity-hardening section 4-9: switching tabs is a plain, guard-
       // free toggle in the normal case — Infos starts read-only, and a read
       // view is never dirty. The guard only ever matters here when Infos is
@@ -2125,9 +2169,25 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       // dirty-guard modal covers, same as any other navigation away.
       if (requested === activeDayTab) return
       const applyTabSwitch = (): void => switchDayTab(requested)
-      if (editGuard.activeId !== 'infos') { applyTabSwitch(); return }
       if (editGuard.tryLeaveWithoutPrompt()) applyTabSwitch()
       else void editGuard.requestLeave().then((allowed) => { if (allowed) applyTabSwitch() })
+      return
+    }
+    const filterButton = target.closest<HTMLElement>('[data-timeline-filter]')
+    if (filterButton) { applyTimelineFilter(container, filterButton.dataset.timelineFilter ?? 'all'); return }
+    if(target.closest('[data-more-services]') && mode.kind==='day'){
+      const {tripId,dayId}=mode
+      const limit=Number(container.querySelector<HTMLElement>('[data-services-limit]')?.dataset.servicesLimit??50)+50
+      void createTripRepository(deps.database).loadTripBundle(tripId).then(bundle=>{
+        if(!bundle||mode.kind!=='day'||mode.tripId!==tripId||mode.dayId!==dayId)return
+        const stage=bundle.stages.find(s=>s.dayId===dayId),host=container.querySelector<HTMLElement>('[data-timeline-services]')
+        if(!stage||!host)return
+        host.innerHTML=renderStageServices(bundle,stage,mountedDayDetail?.waypoints??[],limit)
+        for(const reading of host.querySelectorAll<HTMLElement>('[data-waypoint-weather]')){
+          const source=container.querySelector<HTMLElement>(`[data-day-detail-timeline] [data-waypoint-weather][data-waypoint-id="${CSS.escape(reading.dataset.waypointId??'')}"]`)
+          if(source)reading.innerHTML=source.innerHTML
+        }
+      })
       return
     }
     const climbToggle = target.closest<HTMLButtonElement>('[data-action="toggle-climb-profile"]')
@@ -2137,6 +2197,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
         const nextExpanded = panel.hidden
         panel.hidden = !nextExpanded
         climbToggle.setAttribute('aria-expanded', String(nextExpanded))
+        if(nextExpanded && typeof panel.querySelectorAll==='function')for(const svg of panel.querySelectorAll<SVGSVGElement>('[data-climb-profile-interactive]'))paintClimbProfileBands(svg)
       }
       return
     }
@@ -2265,6 +2326,8 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       // gracefully when a ride's stage/route genuinely can't be resolved
       // (truly absent/unusable structural data — the one legitimate case
       // from section 42, never "still enriching").
+      const overviewDialog = container.querySelector<HTMLDialogElement>('[data-trip-overview-map-dialog]')
+      if (overviewDialog?.open) deps.closeMap(overviewDialog)
       void openDay(mode.tripId, dayId as TripDayId, mode.kind)
     } else if (action === 'back-to-trip-detail' && mode.kind === 'day') {
       if (mode.origin === 'overview') void openOverview(mode.tripId)
@@ -2548,6 +2611,16 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     }
   }
 
+  container.addEventListener('change', event => {
+    const select = event.target
+    if (!(select instanceof HTMLSelectElement) || select.dataset.stageNavigation === undefined || mode.kind !== 'day') return
+    const { tripId, origin, dayId: previousDayId } = mode
+    const dayId = select.value as TripDayId
+    const go = () => { void openDay(tripId, dayId, origin) }
+    if (editGuard.tryLeaveWithoutPrompt()) go()
+    else void editGuard.requestLeave().then(allowed => { if (allowed) go(); else select.value=previousDayId })
+  })
+
   container.addEventListener('click', handleContainerClick)
 
   // Connectivity returning is the only external event worth reacting to:
@@ -2562,6 +2635,14 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
 
   /** Roving Enter/Space activation for `role="button"` elements that aren't real `<button>`s (trip cards, the Aperçu highlighted-day card) — only when focus is directly on the role=button element itself, never re-triggered for a nested real button (which already handles its own keys natively). */
   container.addEventListener('keydown', (event) => {
+    if(event.target instanceof Element && event.target.closest('[data-day-tab]') && ['ArrowLeft','ArrowRight','Home','End'].includes(event.key)){
+      const tabs=Array.from(container.querySelectorAll<HTMLButtonElement>('[data-day-tab]'))
+      const current=tabs.indexOf(event.target.closest<HTMLButtonElement>('[data-day-tab]')!)
+      const next=event.key==='Home'?0:event.key==='End'?tabs.length-1:(current+(event.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length
+      event.preventDefault();tabs[next]?.click()
+      if(tabs[next]?.getAttribute('aria-selected')==='true')tabs[next]?.focus()
+      return
+    }
     if (event.key !== 'Enter' && event.key !== ' ') return
     const target = event.target
     if (!(target instanceof HTMLElement) || target.getAttribute('role') !== 'button') return

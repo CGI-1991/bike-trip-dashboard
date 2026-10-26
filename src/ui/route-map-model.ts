@@ -17,6 +17,15 @@ import { RACE_SEGMENT_STYLE } from './trips/race-segment-style.ts'
  * in Leaflet's CSS, which only works inside a bundler).
  */
 export type LatLngTuple = readonly [number, number]
+export interface OverviewStageLine {
+  readonly dayId: string
+  readonly number: string
+  readonly name: string
+  readonly color: string
+  readonly distanceKm: number | null
+  readonly elevationGainM: number | null
+  readonly coordinates: readonly LatLngTuple[]
+}
 
 export interface RouteMapMarkerModel {
   readonly id: string
@@ -38,6 +47,7 @@ export interface RouteMapMarkerModel {
 }
 
 export interface RouteMapModel {
+  readonly overviewStages?: readonly OverviewStageLine[]
   readonly segmentLines?: readonly { readonly coordinates: readonly LatLngTuple[]; readonly color: string; readonly name: string; readonly dashed: boolean; readonly weight?: number }[]
   readonly coordinates: readonly LatLngTuple[]
   readonly markers: readonly RouteMapMarkerModel[]
@@ -190,7 +200,7 @@ function dedupeMarkersByLocation(markers: readonly RouteMapMarkerModel[]): Route
  * exists only so this function stays correct if a caller's own filtering
  * ever changes, matching `buildGenericOverviewDetailMarkers` below.
  */
-export function buildGenericOverviewRouteMapModel(stages: readonly { readonly waypoints: readonly CanonicalWaypoint[]; readonly geometry: readonly LatLngTuple[] }[]): RouteMapModel {
+export function buildGenericOverviewRouteMapModel(stages: readonly { readonly waypoints: readonly CanonicalWaypoint[]; readonly geometry: readonly LatLngTuple[]; readonly overview?: Omit<OverviewStageLine,'coordinates'> }[]): RouteMapModel {
   const withGeometry = stages.filter((stage) => stage.geometry.length > 1)
   const [first, ...rest] = withGeometry
   const markers = dedupeMarkersByLocation(
@@ -198,7 +208,8 @@ export function buildGenericOverviewRouteMapModel(stages: readonly { readonly wa
       .flatMap((stage) => buildGenericRouteMapModel(stage.waypoints, stage.geometry).markers)
       .map((marker) => ({ ...marker, category: marker.category === 'col-summit' ? 'col-summit' as const : 'overview-primary' as const })),
   )
-  return { coordinates: first?.geometry ?? [], markers, extraLines: rest.map((stage) => stage.geometry) }
+  const overviewStages=withGeometry.flatMap(stage=>stage.overview?[{...stage.overview,coordinates:stage.geometry}]:[])
+  return { coordinates: first?.geometry ?? [], markers, extraLines: rest.map((stage) => stage.geometry), ...(overviewStages.length?{overviewStages}:{}) }
 }
 
 /**

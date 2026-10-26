@@ -1,3 +1,4 @@
+import { stageColor } from '../stage-colors.ts'
 /**
  * "Voyage" screen (CDC Jalon B4.3 sections 9-11): a compact, RGA-style
  * chronological day-card list for one `TripBundle` — nothing else. Global
@@ -154,7 +155,7 @@ function renderRideDayCard(bundle: TripBundle, day: TripBundle['days'][number], 
   // still needs a stable place to grow a spinner into if it is later marked
   // `stale`/re-queued (CDC section 3: "progression compacte" while active).
   return `<li>
-    <button class="trip-day-card trip-day-card--ride${isPriority ? ' is-priority' : ''}" type="button" data-action="open-day-detail" data-day-id="${escapeHtml(day.id)}"${isPriority ? ' data-trip-priority-day' : ''}>
+    <button class="trip-day-card trip-day-card--ride${isPriority ? ' is-priority' : ''}" type="button" data-action="open-day-detail" data-day-id="${escapeHtml(day.id)}"${isPriority ? ' data-trip-priority-day' : ''} style="--stage-color:${stageColor(bundle.stages.indexOf(stage))}">
       ${renderDayNumberGroup(bundle, day)}
       <span class="trip-day-card__content">
         <span class="trip-day-card__route" title="${escapeHtml(fullRoute)}" aria-label="${escapeHtml(fullRoute)}">${locations}</span>

@@ -1,4 +1,5 @@
 import './style.css'
+import './ui/tripplus.css'
 import { initializeReleaseNotes } from './ui/release-notes.ts'
 import { bindNetworkStatus, registerServiceWorker } from './pwa.ts'
 import { loadPracticalData } from './practical/model.ts'
@@ -259,8 +260,10 @@ function showView(view: AppView): void {
  */
 function applyGenericAppHeader(state: GenericAppHeaderState): void {
   const tripTab = document.querySelector<HTMLElement>('[data-nav-view="trip"]')
-  if (tripTab !== null) tripTab.textContent = state.tripTabLabel ?? 'Voyage'
+  if (tripTab !== null) (tripTab.querySelector('[data-nav-label]') ?? tripTab).textContent = state.tripTabLabel ?? 'Voyage'
   appHeaderTitle.textContent = state.tripName ?? GENERIC_APP_TITLE
+  appHeaderTitle.hidden = state.tripName === null
+  appHeaderTitle.title = state.tripName ?? GENERIC_APP_TITLE
   appHeaderSubtitle.textContent = ''
   appHeaderSubtitle.hidden = true
   dayIndicator.textContent = state.subtitle ?? ''

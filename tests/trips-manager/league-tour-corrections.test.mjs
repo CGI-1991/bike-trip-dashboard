@@ -216,8 +216,8 @@ test('competition controls live in Course next to Météo, while segment cards e
   const {database,bundle}=await setup('tour')
   try {
     const next=add(bounded(bundle)),detail=buildDayDetail(next,next.days[0].id)
-    assert.match(detail.html,/aria-controls="day-bottom-panel-course">Course/)
-    assert.match(detail.html,/aria-controls="day-bottom-panel-weather">Météo/)
+    assert.match(detail.html,/aria-controls="day-bottom-panel-course"[^>]*>Course/)
+    assert.match(detail.html,/aria-controls="day-bottom-panel-weather"[^>]*>Météo/)
     assert.doesNotMatch(detail.html,/aria-controls="day-bottom-panel-pauses"/)
     assert.match(detail.html,/data-day-profile-home/);assert.match(detail.html,/data-course-profile-target/)
     assert.match(detail.timelineHtml,/data-segment-view="manual"/)

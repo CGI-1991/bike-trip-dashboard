@@ -1,8 +1,8 @@
 {
   "id": "./",
-  "name": "Bike Trip Dashboard",
-  "short_name": "Bike Trip",
-  "description": "Préparation et consultation de voyages à vélo, disponible hors ligne.",
+  "name": "Trip+",
+  "short_name": "Trip+",
+  "description": "Préparation et consultation de voyages à vélo et à pied, disponible hors ligne.",
   "lang": "fr",
   "start_url": "./",
   "scope": "./",

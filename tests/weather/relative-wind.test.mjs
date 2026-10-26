@@ -187,7 +187,7 @@ test('the profile retains walking orientation during exploration and restores cy
   assert.match(readout.innerHTML,/relative-wind__walker/)
   assert.doesNotMatch(readout.innerHTML,/sens de roulage/)
   selectProfileWind(container,null)
-  assert.equal(readout.innerHTML,'')
+  assert.match(readout.innerHTML,/—<small>km\/h<\/small>/)
   updateProfileWind(container,model)
   selectProfileWind(container,5)
   assert.match(readout.innerHTML,/sens de roulage/)
@@ -239,7 +239,7 @@ test('stage wind stat shows speed and French cardinal directions without a relat
   assert.match(renderStageWindStat({kind:'calm',fromDeg:null,speedKph:0,coverage:1}),/>0 km\/h · calme/)
 })
 
-test('Course temporarily uses neutral without changing the saved reading mode, then restores it after weather updates',()=>{
+test('every profile ignores legacy stored modes and starts neutral; Course and weather keep that neutral state',()=>{
   const previous=Object.getOwnPropertyDescriptor(globalThis,'localStorage'),writes=[]
   Object.defineProperty(globalThis,'localStorage',{configurable:true,value:{getItem:()=> 'wind',setItem:(...args)=>writes.push(args)}})
   try {
@@ -247,13 +247,13 @@ test('Course temporarily uses neutral without changing the saved reading mode, t
     const nodes={'[data-profile-interactive]':{},'[data-profile-color-bands]':bands,'.profile-area':area,'[data-profile-color-legend]':legend,'.profile-modes':controls}
     const container={dataset:{courseEditing:'false'},querySelector:key=>nodes[key]??null,querySelectorAll:()=>[],addEventListener:(name,handler)=>listeners[name]=handler}
     installProfileWindControls(container,[],{total:10,x:km=>km,y:altitude=>altitude})
-    assert.equal(container.dataset.profileColorMode,'wind')
+    assert.equal(container.dataset.profileColorMode,'neutral')
     container.dataset.courseEditing='true';listeners['course-editor-changed']()
     assert.equal(container.dataset.profileColorMode,'neutral');assert.equal(area.style.opacity,'1');assert.equal(controls.hidden,true);assert.equal(legend.hidden,true)
     updateProfileWind(container,modelFor())
     assert.equal(container.dataset.profileColorMode,'neutral')
     container.dataset.courseEditing='false';listeners['course-editor-changed']()
-    assert.equal(container.dataset.profileColorMode,'wind');assert.equal(controls.hidden,false);assert.equal(area.style.opacity,'0')
+    assert.equal(container.dataset.profileColorMode,'neutral');assert.equal(controls.hidden,false);assert.equal(area.style.opacity,'1')
     assert.deepEqual(writes,[])
   } finally {
     if(previous)Object.defineProperty(globalThis,'localStorage',previous);else delete globalThis.localStorage
