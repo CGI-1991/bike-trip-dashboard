@@ -1,3 +1,5 @@
+import { renderStageServices } from './stage-services.ts'
+import { renderStageNavigation } from './stage-navigation.ts'
 import { classifyClimb } from '../../analysis/climb-category.ts'
 import { travelTerrainForGeometry } from '../../analysis/travel-timing.ts'
 import { renderClimbProfileBar } from './mini-profile-view.ts'
@@ -298,7 +300,7 @@ function renderClimbCard(waypoint: CanonicalWaypoint, climb: Climb, routeGeometr
     </button>
     <div class="day-detail__climb-profile" id="${profileId}" data-climb-profile hidden>
       ${category === null ? '' : `<p class="field__hint">${category.explanation}</p>`}
-      ${profile === null ? '<p class="day-detail__climb-profile-empty">Profil indisponible pour cette montée.</p>' : renderClimbProfileBar(profile.segments)}
+      ${profile === null ? '<p class="day-detail__climb-profile-empty">Profil indisponible pour cette montée.</p>' : renderClimbProfileBar(profile.segments,climb.id)}
     </div>
   </li>`
 }
@@ -311,9 +313,8 @@ function renderClimbCard(waypoint: CanonicalWaypoint, climb: Climb, routeGeometr
  * the exact same policy the map/profile use.
  */
 // The Parcours list uses `isSignificantWaypoint`'s own policy, exactly like
-// the Aperçu screen and the generic weather sampler. No display-level climb
-// filter exists any more: which climbs are shown is decided by which climbs
-// the trip's detection sensitivity produced (`climb-detection.ts`).
+// the Aperçu screen and the weather sampler. Category settings determine
+// retained climbs; the Trip+ view facets only change row visibility.
 function renderTimelineList(waypoints: readonly CanonicalWaypoint[], climbs: readonly Climb[], routeGeometryFull: readonly RouteGeometryPoint[] | null, bounds: RaceBounds | null = null, stage?: RideStage, course?: RaceCourse | null, travelMode: import('../../trip-core/index.ts').TravelMode = 'cycling'): string {
   const visible = waypoints.filter((waypoint) => isSignificantWaypoint(waypoint))
   if (visible.length === 0 && !stage?.raceSegments?.length) return '<p>Aucun point de passage disponible.</p>'
@@ -446,21 +447,10 @@ function renderPauseEditor(
   </section>`
 }
 
-/**
- * R2.1 sections 3-4: Pauses and Météo, regrouped into one compact,
- * non-sticky bottom block — in the normal page flow (never `position:
- * sticky`, it simply scrolls with everything else), placed after the
- * timeline, before the "GPX" action. Both panels start closed; at most one
- * is open at a time (`trips-manager.ts`'s own `toggle-bottom-panel`
- * handler enforces that — this function only renders the static markup).
- * `pausesHtml` is `renderPauseEditor`'s own output, completely unchanged —
- * every existing function (candidates, C3 hint, Enregistrer, Rétablir Auto)
- * stays exactly as it already is, just relocated into this panel. The
- * weather mount (`[data-day-detail-weather]`) keeps the exact same
- * attribute `mountWeatherViews` (`trips-manager.ts`) already queries by —
- * only its container/visibility changed, not the wiring.
- */
-function renderPauseWeatherBottomBlock(pausesHtml: string, courseEditing = false): string {
+/** Shared panel mounts. Ride days use the unified tab row; legacy callers
+ * may still request the compact toggles. Draft forms and weather mounts
+ * retain their existing ids and guarded save flows. */
+function renderPauseWeatherBottomBlock(pausesHtml: string, courseEditing = false, unified = false): string {
   // Course/Tour mode: `pausesHtml` is empty because in-stage pauses are
   // disabled, so the Pauses toggle and its panel disappear entirely rather
   // than opening onto nothing ("ne plus proposer leur configuration").
@@ -474,15 +464,10 @@ function renderPauseWeatherBottomBlock(pausesHtml: string, courseEditing = false
       ${pausesHtml}
     </div>`
   return `<div class="day-bottom-block" data-day-bottom-block>
-    <div class="day-bottom-block__toggles">
-      ${courseEditing ? '<button type="button" class="day-bottom-block__toggle" data-action="toggle-bottom-panel" aria-expanded="false" aria-controls="day-bottom-panel-course">Course</button>' : pausesToggle}
-      <button type="button" class="day-bottom-block__toggle" data-action="toggle-bottom-panel" aria-expanded="false" aria-controls="day-bottom-panel-weather">Météo</button>
-    </div>
+    ${unified ? '' : `<div class="day-bottom-block__toggles">${courseEditing ? '<button type="button" class="day-bottom-block__toggle" data-action="toggle-bottom-panel" aria-expanded="false" aria-controls="day-bottom-panel-course">Course</button>' : pausesToggle}<button type="button" class="day-bottom-block__toggle" data-action="toggle-bottom-panel" aria-expanded="false" aria-controls="day-bottom-panel-weather">Météo</button></div>`}
     ${pausesPanel}
-    ${courseEditing ? '<div id="day-bottom-panel-course" class="day-bottom-block__panel" data-bottom-panel hidden><div class="feature-update-line"><span>Limites et segments</span>'+renderFeatureUpdateBadge('course-editor')+'</div><div data-course-profile-target></div></div>' : ''}
-    <div id="day-bottom-panel-weather" class="day-bottom-block__panel" data-bottom-panel hidden>
-      <div data-day-detail-weather><p role="status">Chargement des prévisions…</p></div>
-    </div>
+    ${courseEditing ? `<div id="day-bottom-panel-course" class="day-bottom-block__panel" data-bottom-panel${unified ? ' role="tabpanel" aria-labelledby="day-tab-course"' : ''} hidden><div class="feature-update-line"><span>Limites et segments</span>${renderFeatureUpdateBadge('course-editor')}</div><div data-course-profile-target></div></div>` : ''}
+    <div id="day-bottom-panel-weather" class="day-bottom-block__panel" data-bottom-panel${unified ? ' role="tabpanel" aria-labelledby="day-tab-weather"' : ''} hidden><div data-day-detail-weather><p role="status">Chargement des prévisions…</p></div></div>
   </div>`
 }
 
@@ -881,7 +866,7 @@ function buildOffOrTransferDayDetail(bundle: TripBundle, day: TripDay): DayDetai
     <div data-day-detail-map-slot>${mapHtml}</div>
     ${renderWeatherPanel()}
     ${infosHtml}
-    <nav class="day-detail__floating-nav" aria-label="Journées voisines"><button class="button button--quiet" type="button" data-action="previous-day" aria-label="Journée précédente">‹</button><button class="button button--quiet" type="button" data-action="next-day" aria-label="Journée suivante">›</button></nav>
+    ${renderStageNavigation(bundle, day.id)}
   </div>`
 
   return {
@@ -1095,13 +1080,8 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
   const infoDay = bundle.days.find((candidate) => candidate.id === infoDayId) ?? day
   const accommodation = infoDay.accommodationId === null ? undefined : bundle.accommodations.find((candidate) => candidate.id === infoDay.accommodationId)
   const infosHtml = renderInfosPanel(day, accommodation, { infoDay })
-  // CDC D1.1 sections 6-10: three independent blocks, always all three
-  // visible regardless of the selected tab — Stats, Map+Profil, and the
-  // tabbed Détails card (Parcours|Infos, météo opérationnelle folded into
-  // Parcours, section 11). The sticky header now carries ONLY the identity
-  // — the tabbar moved into the Détails card itself and sticks contextually
-  // there (`--day-sticky-header-h`, `sticky-header-offset.ts`), not from the
-  // very top of the screen (section 10).
+  // Complete statistics precede the unified tabs. The map/profile belongs
+  // to reading; Course borrows the same profile node for editing.
   const identityHtml = renderDayIdentityHeader(day, dayNumber, locations, fullLocations, customName, selectOrganizationMode(bundle) === 'league' ? 'C' : 'J')
   const html = `<div class="day-detail" data-day-detail>
     <div class="day-detail__sticky-header" data-day-detail-sticky-header>
@@ -1111,6 +1091,12 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
       ${statsHtml}
       ${renderPreparationBanner(preparationStatus)}
     </section>
+      <nav class="day-tabs" role="tablist" aria-label="Sections de l’étape" data-day-detail-tabs>
+        <button id="day-tab-route" type="button" role="tab" data-day-tab="route" aria-controls="day-panel-route" aria-selected="true" tabindex="0">Parcours</button>
+        <button id="day-tab-weather" type="button" role="tab" data-day-tab="weather" aria-controls="day-bottom-panel-weather" aria-selected="false" tabindex="-1">Météo</button>
+        <button id="day-tab-infos" type="button" role="tab" data-day-tab="infos" aria-controls="day-panel-infos" aria-selected="false" tabindex="-1">Infos</button>
+${selectRaceMode(bundle) ? '<button id="day-tab-course" type="button" role="tab" data-day-tab="course" aria-controls="day-bottom-panel-course" aria-selected="false" tabindex="-1">Course</button>' : ''}
+      </nav>
     <section class="card day-detail__map-profile-card" data-day-detail-map-profile-card>
       <div class="feature-update-line"><span>Carte et services du trajet</span><span>${selectRaceMode(bundle) ? renderFeatureUpdateBadge('race-segments') : ''}${renderFeatureUpdateBadge('poi-search')}</span></div>
       <div class="route-map route-map--action" data-day-detail-map data-explore-map role="button" tabindex="0" aria-label="Ouvrir la carte de l’étape en plein écran"></div>
@@ -1125,17 +1111,15 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
     </dialog>
     <div data-day-detail-weather-alerts></div>
     <section class="card day-detail__details-card" data-day-detail-details-card>
-      <nav class="day-tabs" role="tablist" aria-label="Sections de l’étape" data-day-detail-tabs>
-        <button id="day-tab-route" type="button" role="tab" data-day-tab="route" aria-controls="day-panel-route" aria-selected="true" tabindex="0">Parcours</button>
-        <button id="day-tab-infos" type="button" role="tab" data-day-tab="infos" aria-controls="day-panel-infos" aria-selected="false" tabindex="-1">Infos</button>
-      </nav>
+
       <section id="day-panel-route" class="card" role="tabpanel" aria-labelledby="day-tab-route" data-day-panel="route">
-        <div data-day-detail-timeline>${timelineHtml}</div>
-        ${renderPauseWeatherBottomBlock(pausesHtml, selectRaceMode(bundle))}
+        <nav class="timeline-filters" aria-label="Filtrer les points de passage"><button type="button" data-timeline-filter="all" aria-pressed="true">Tout</button><button type="button" data-timeline-filter="climbs" aria-pressed="false">Montées et segments</button>${pausesHtml ? '<button type="button" data-timeline-filter="pauses" aria-pressed="false">Pauses</button>' : ''}<button type="button" data-timeline-filter="services" aria-pressed="false">Services</button></nav><div data-day-detail-timeline>${timelineHtml}</div><div data-timeline-services hidden>${renderStageServices(bundle,stage,waypoints)}</div>
+        ${pausesHtml ? '<button type="button" class="button button--quiet" data-action="toggle-bottom-panel" aria-expanded="false" aria-controls="day-bottom-panel-pauses">Régler les pauses</button>' : ''}
       </section>
       ${infosHtml}
+      ${renderPauseWeatherBottomBlock(pausesHtml, selectRaceMode(bundle), true)}
     </section>
-    <nav class="day-detail__floating-nav" aria-label="Journées voisines"><button class="button button--quiet" type="button" data-action="previous-day" aria-label="Journée précédente">‹</button><button class="button button--quiet" type="button" data-action="next-day" aria-label="Journée suivante">›</button></nav>
+    ${renderStageNavigation(bundle, day.id)}
   </div>`
 
   return {

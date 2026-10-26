@@ -1,6 +1,6 @@
 # Feuille de route Trip(+)
 
-État au 24 octobre 2026, avec le lot de nettoyage `2026.10.24.10` proposé en PR. Les demandes directes de l’utilisateur priment sur les documents sources conservés dans `specs/`.
+État au 26 octobre 2026, avec l’intégration de l’interface validée `2026.10.26.1` proposée en PR. Les demandes directes de l’utilisateur priment sur les documents sources conservés dans `specs/`.
 
 Livraison : une PR par lot cohérent et validé. Fusion et déploiement sont des étapes distinctes. Chaque changement d’usage porte une entrée Nouveautés et une petite balise MAJ locale, accessible au toucher sur iPhone. Conserver l’origine du site, l’identité de la PWA et les activités locales : aucune réinstallation à demander.
 
@@ -16,6 +16,7 @@ Livraison : une PR par lot cohérent et validé. Fusion et déploiement sont des
 | League / Tour | Calendrier League indépendant, dates et départs explicites, navigation Voyage/Calendrier/Étapes ; limites de course facultatives (GPX entier par défaut), heure au départ GPX, approche vélo à référence −3 km/h, statistiques de course distinctes et segments Sprint/Grimpeur/Flandrien. [Départs et approche](GPX_DEPARTURE_AND_WALKING_WIND.md). [Cadrage](LEAGUE.md). |
 | Lecture et édition | Vignettes ouvrant les mini-profils ; limites et segments édités dans **Course**, à côté de Météo, sur le profil neutre. Pochage des segments uniquement en Neutre ; portions colorées sur la carte du détail et en plein écran. [Comportement actuel](STAGE_WIND_AND_SEGMENT_DISPLAY.md). |
 | Nettoyage avant refonte | Vent sans volet d’explications, boutons GPX/FIT côte à côte en compétition, segments compacts comme les montées, suppression des doublons de lecture et réglage de montées unique. [Règles et vérification](LEAN_COURSE_DETAIL.md). |
+| Interface Trip+ | Maquette approuvée le 26 octobre et intégrée : surfaces allégées, statistiques complètes conservées, onglets uniques, commandes au pouce, profils lisibles et vent fixe, filtres et étapes colorées/sélectionnables. Nom visible Trip+, identité PWA et données conservées. [Règles et contrôles](TRIPPLUS_INTERFACE.md). |
 | Export GPX enrichi | Lot `2026.10.24.3` : trace d’origine conservée, limites, noms, segments et réglages réimportables ; waypoints standards et extension versionnée. **Ce GPX ne garantit pas d’alertes Garmin.** [Format et vérifications](ENRICHED_GPX.md). |
 | Export FIT Course — essai | Lot `2026.10.24.7` : tracé GPX intégral dans le FIT, limites et alertes ajoutées comme repères, comparaison indépendante GPX/FIT et premier export hors connexion vérifiés. [Même parcours](FULL_GPX_FIT_ROUTE.md). **Validation sur appareil Garmin encore nécessaire.** [Format, limites et essai terrain](FIT_COURSE.md). |
 | Sauvegardes et mises à jour | Sauvegarde/restauration ZIP complète, originaux conservés, copies sans écrasement ; historique Nouveautés et balises MAJ. [Sauvegarde](TRIP_BACKUP.md), [mises à jour](RELEASE_NOTES.md). |
@@ -26,8 +27,8 @@ Livraison : une PR par lot cohérent et validé. Fusion et déploiement sont des
 
 1. **Validation Garmin réelle — Edge Explore 2** : modèle précisé par l’utilisateur ; confirmer le transfert, vérifier les Course Points et alertes avant/début/fin, puis les capacités sur parcours long. Le lot d’export conserve l’étiquette essai jusque-là. L’encodeur MIT, la lecture indépendante et le contrôle hors connexion sont réalisés ; les réglages globaux d’alerte héritables restent à cadrer au-delà des réglages par segment déjà présents.
 2. **Calibration terrain** : vent dans les lacets (cap/profil lissés sur 100 m, points sur 1 km), couverture météo, temps de marche et allures selon le terrain. Les catégories et le filtre sont réalisés, ainsi que la cohérence des ETA ; confronter maintenant ces indicateurs et les allures à des sorties mesurées, sans annoncer une précision terrain non mesurée.
-3. **Refonte de l’interface mobile**, prioritairement iPhone en app d’écran d’accueil : hiérarchie plus simple, lecture du parcours, navigation et formulaires cohérents, moins de texte. Préparer un lot d’interface concret avant de généraliser.
-4. **Nom visible** : nom de travail **Trip(+)**, variante recommandée **Trip+**. Changer le nom et l’identité visuelle sans changer l’origine, l’identité technique de la PWA ni le stockage local.
+3. **Retour terrain de l’interface Trip+**, prioritairement iPhone en app d’écran d’accueil : confronter l’intégration validée aux usages et ajuster les détails utiles. Le profil revient en Neutre à chaque étape ; pas de zoom/plein écran de profil ni de frise météo supplémentaire. Une fiche POI basse n’est envisagée que si elle simplifie réellement un geste.
+4. **Identité** : le nom visible **Trip+** est validé et intégré ; préserver l’origine, l’identité technique de la PWA et les activités existantes lors des évolutions suivantes.
 
 En continu : surveiller les recherches POI longues et multi-étapes, les reprises après veille et les changements de version ; conserver des résultats partiels et des diagnostics explicites. Le suivi terrain n’impose pas une nouvelle recherche complète à chaque ouverture.
 

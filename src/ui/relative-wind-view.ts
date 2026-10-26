@@ -4,13 +4,9 @@ import { classifyClimbGrade } from '../analysis/climb-profile.ts'
 import type { ProfileSample } from './elevation-profile.ts'
 import { renderFeatureUpdateBadge } from './release-notes.ts'
 import type { TravelMode } from '../trip-core/model/settings.ts'
+import { aggregateProfileBands } from './profile-display-bands.ts'
 
 type ProfileMode = 'neutral' | 'grade' | 'wind'
-const MODE_KEY = 'bike-trip-dashboard:profile-color-mode'
-
-function preferredMode(): ProfileMode {
-  try { const mode = localStorage.getItem(MODE_KEY); return mode === 'grade' || mode === 'wind' ? mode : 'neutral' } catch { return 'neutral' }
-}
 
 function compass(reading: RelativeWindReading | null, travelMode: TravelMode): string {
   const arrow = reading?.relativeFromDeg === null || reading?.relativeFromDeg === undefined ? ''
@@ -53,6 +49,7 @@ interface WindProfileHandle {
   destroy(): void
 }
 const handles = new WeakMap<HTMLElement, WindProfileHandle>()
+export function disposeProfileWind(container:HTMLElement):void { handles.get(container)?.destroy();handles.delete(container) }
 
 export function updateProfileWind(container: HTMLElement, model: RouteWindModel | null, travelMode: TravelMode = 'cycling'): void { handles.get(container)?.update(model, travelMode) }
 export function selectProfileWind(container: HTMLElement, distanceKm: number | null): void { handles.get(container)?.select(distanceKm) }
@@ -72,8 +69,7 @@ export function installProfileWindControls(container: HTMLElement, samples: read
   const controls = container.querySelector<HTMLElement>('.profile-modes')
   if (svg === null || bands === null || area === null || legend === null) return
   const controller = new AbortController()
-  let mode = preferredMode()
-  if (!windEnabled && mode === 'wind') mode = 'neutral'
+  let mode: ProfileMode = 'neutral'
   let wind: RouteWindModel | null = null
   let travelMode: TravelMode = 'cycling'
   let selected: number | null = null
@@ -81,7 +77,7 @@ export function installProfileWindControls(container: HTMLElement, samples: read
   const renderReadout = () => {
     if (!windEnabled || readout === null) return
     const reading = selected === null ? null : wind?.at(selected) ?? null
-    readout.innerHTML = selected === null ? '' : `<div data-profile-selected-wind><p class="profile-wind__title">Vent vers le km ${selected.toFixed(1).replace('.', ',')}</p>${renderRelativeWind(reading, false, travelMode)}</div>`
+    readout.innerHTML = `<div data-profile-selected-wind aria-label="${reading === null ? 'Vent indisponible au point exploré' : `${relativeWindLabel(reading)}, ${Math.round(reading.speedKph)} km/h`}">${compass(reading, travelMode)}<span>${reading === null ? '—' : Math.round(reading.speedKph)}<small>km/h</small>${reading !== null && reading.coverage < .9 ? '<small>partiel</small>' : ''}</span></div>`
   }
   function paint(): void {
     const displayed = editing ? 'neutral' : mode
@@ -89,16 +85,16 @@ export function installProfileWindControls(container: HTMLElement, samples: read
     if (controls !== null) controls.hidden = editing
     legend!.hidden = editing
     area!.style.opacity = displayed === 'neutral' ? '1' : '0'
-    bands!.innerHTML = displayed === 'neutral' ? '' : samples.slice(1).map((point, i) => {
-      const previous = samples[i]!
-      const km = (previous.distanceKm + point.distanceKm) / 2
-      const reading = wind?.at(km) ?? null
-      const color = displayed === 'grade' ? GRADE_COLORS[classifyClimbGrade((previous.smoothedGradePercent + point.smoothedGradePercent) / 2)] : headwindColor(reading)
-      return `<path d="M${bounds.x(previous.distanceKm).toFixed(1)},${bounds.y(previous.altitudeM).toFixed(1)} L${bounds.x(point.distanceKm).toFixed(1)},${bounds.y(point.altitudeM).toFixed(1)} L${bounds.x(point.distanceKm).toFixed(1)},214 L${bounds.x(previous.distanceKm).toFixed(1)},214 Z" fill="${color}"/>`
+    const intervals = aggregateProfileBands(samples.slice(1).map((point, i) => ({ startDistanceKm: samples[i]!.distanceKm, endDistanceKm: point.distanceKm, averageGradientPercent: (samples[i]!.smoothedGradePercent + point.smoothedGradePercent) / 2 })), svg!.getBoundingClientRect?.().width ?? 320)
+    bands!.innerHTML = displayed === 'neutral' ? '' : intervals.map(point => {
+      const km = (point.startDistanceKm + point.endDistanceKm) / 2
+      const reading = wind?.at(km, (point.endDistanceKm - point.startDistanceKm) * 1000) ?? null
+      const color = displayed === 'grade' ? point.averageGradientPercent === null ? '#c7d2cc' : GRADE_COLORS[classifyClimbGrade(point.averageGradientPercent)] : headwindColor(reading)
+      return `<rect x="${bounds.x(point.startDistanceKm).toFixed(1)}" y="0" width="${(bounds.x(point.endDistanceKm) - bounds.x(point.startDistanceKm) + .1).toFixed(1)}" height="214" fill="${color}"/>`
     }).join('')
     legend!.textContent = displayed === 'neutral' ? '' : displayed === 'grade'
-      ? 'Pente : vert → rouge · descentes en violet.'
-      : 'Bleu plus foncé = vent de face plus fort · gris = inconnu ou variable.'
+      ? 'Pente moyenne'
+      : 'Vent de face : bleu foncé / gris : non estimé'
     for (const button of container.querySelectorAll<HTMLElement>('[data-profile-mode]')) button.setAttribute('aria-pressed', String(button.dataset.profileMode === displayed))
   }
   function update(model: RouteWindModel | null, nextTravelMode: TravelMode = 'cycling'): void {
@@ -114,14 +110,15 @@ export function installProfileWindControls(container: HTMLElement, samples: read
     if (value !== 'neutral' && value !== 'grade' && value !== 'wind') return
     if (!windEnabled && value === 'wind') return
     mode = value
-    try { localStorage.setItem(MODE_KEY, mode) } catch { /* Session use still works. */ }
     paint()
   }, { signal: controller.signal })
   container.addEventListener('course-editor-changed', () => {
     editing = container.dataset?.courseEditing === 'true'
     paint()
   }, { signal: controller.signal })
-  handles.set(container, { update, select(km) { selected = km; renderReadout() }, destroy() { controller.abort() } })
+  const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(paint)
+  observer?.observe(svg)
+  handles.set(container, { update, select(km) { selected = km; renderReadout() }, destroy() { controller.abort(); observer?.disconnect() } })
   paint()
   update(null)
 }

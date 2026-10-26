@@ -49,7 +49,7 @@ export interface GenericAppHeaderState {
 }
 
 /** Matches `public/manifest.webmanifest`'s own `"name"` — never a second, invented app title. */
-export const GENERIC_APP_TITLE = 'Bike Trip Dashboard'
+export const GENERIC_APP_TITLE = 'Trip+'
 
 /** No active trip context at all — Mes activités, wizard, editor, post-import confirmation. */
 export const GENERIC_APP_HEADER_NO_ACTIVE_TRIP: GenericAppHeaderState = { tripName: null, subtitle: null }

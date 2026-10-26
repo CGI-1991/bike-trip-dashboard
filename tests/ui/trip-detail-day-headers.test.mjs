@@ -155,7 +155,7 @@ test('a single "Télécharger les GPX" action is offered once the trip has at le
 test('the priority day (first non-completed day) is visually marked on its card', () => {
   const bundle = createGenericTripBundle()
   const html = renderTripDetail(bundle, { now: '2027-05-01T00:00:00.000Z' })
-  assert.match(html, /<button class="trip-day-card trip-day-card--ride is-priority" type="button" data-action="open-day-detail" data-day-id="day-alpha" data-trip-priority-day>/)
+  assert.match(html, /<button class="trip-day-card trip-day-card--ride is-priority" type="button" data-action="open-day-detail" data-day-id="day-alpha" data-trip-priority-day[^>]*>/)
 })
 
 test('a completed ride day (its date is in the past) shows "Terminé" instead of "Étape"', () => {

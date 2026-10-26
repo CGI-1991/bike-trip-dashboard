@@ -1,11 +1,13 @@
-# Bike Trip Dashboard
+# Trip+
 
-La [feuille de route Trip(+)](docs/ROADMAP.md) mémorise les évolutions prévues : itinérance à pied, allure et détection des montées sur cinq niveaux, puis refonte mobile.
+La [refonte mobile validée](docs/TRIPPLUS_INTERFACE.md) présente l’interface actuelle, ses captures et ses contrôles.
+
+La [feuille de route Trip(+)](docs/ROADMAP.md) mémorise les évolutions réalisées et à venir : vélo et randonnée, allures, montées, POI, interface mobile et validation terrain.
 Le [premier lot de fiabilisation des POI](docs/POI_RELIABILITY.md) décrit la recherche progressive, la reprise et la compatibilité avec les voyages existants.
 Le [deuxième lot](docs/POI_PROVIDER_RESILIENCE.md) précise la gestion des erreurs fournisseur et les limites du cache, en préservant les lieux sauvegardés dans les voyages.
 Les [repères de mise à jour](docs/RELEASE_NOTES.md) décrivent les balises MAJ locales et l’historique Nouveautés à maintenir à chaque livraison.
 La [sauvegarde/restauration complète](docs/TRIP_BACKUP.md) permet de conserver les voyages et leurs fichiers d’origine disponibles dans une archive, puis de les restaurer comme copies.
-Le [vent relatif au parcours](docs/RELATIVE_WIND.md) ajoute les lectures face/dos/latéral, les moyennes par étape et voyage, et les trois modes de coloration du profil.
+Le [vent relatif au parcours](docs/RELATIVE_WIND.md) ajoute les lectures face/dos/latéral, la moyenne par étape, et les trois modes de coloration du profil.
 Les [modes Vélo / Randonnée](docs/TRAVEL_MODES.md) adaptent les estimations de temps et le guidage au déplacement. Le [cadrage League / Tour](docs/LEAGUE.md) décrit les organisations de compétition et leurs outils de préparation.
 Le [premier lot League](docs/LEAGUE_CALENDAR.md) apporte un calendrier de courses avec dates et départs indépendants, parcours consultables et recherche de POI sur demande.
 Les [limites de course](docs/RACE_BOUNDS.md) distinguent les statistiques GPX de celles de la portion choisie en League et Tour. Le vent présente une lecture compacte sur téléphone.

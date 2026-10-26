@@ -22,13 +22,13 @@ import { initializeTripsManager } from '../../src/ui/trips/trips-manager.ts'
  * byte-identical to what is already on screen.
  */
 
-function createFakeContainer() {
+function createFakeContainer({ mutatedDom = false } = {}) {
   let innerHTMLValue = ''
   let innerHTMLSetCount = 0
   const listeners = { click: [] }
   const registered = new Map()
   return {
-    get innerHTML() { return innerHTMLValue },
+    get innerHTML() { return innerHTMLValue + (mutatedDom ? '<div class="leaflet-pane"></div>' : '') },
     set innerHTML(value) { innerHTMLValue = value; innerHTMLSetCount++ },
     get innerHTMLSetCount() { return innerHTMLSetCount },
     addEventListener(type, listener) { listeners[type] ??= []; listeners[type].push(listener) },
@@ -71,19 +71,25 @@ function stubWeatherProvider() {
 async function waitUntil(predicate, timeoutMs = 2_000) {
   const deadline = Date.now() + timeoutMs
   while (!predicate() && Date.now() < deadline) await flush(20)
+  assert.ok(predicate(), 'the expected asynchronous state must settle before the test continues')
 }
+
+const emptyCandidates = { candidates: [], durationMs: 1, rawCandidateCount: 0, httpStatus: 200, payloadBytes: 0, startedAt: '2028-01-01T00:00:00.000Z', finishedAt: '2028-01-01T00:00:00.001Z' }
 
 test('BL/BN: opening Aperçu while automatic enrichment is still pending settles with no extra full render once enrichment finishes and nothing about the overview actually changed', async () => {
   const db = await openTestDatabase()
   try {
     const bundle = createGenericTripBundle()
     await createTripRepository(db).saveTripBundle(bundle)
-    const container = createFakeContainer()
+    // Leaflet and live status patches change the serialized DOM after a
+    // render. A DOM/source-HTML comparison must not trigger a second mount.
+    const container = createFakeContainer({ mutatedDom: true })
 
     let resolveFindCandidates
     const provider = {
       id: 'controllable', sourceType: 'osm', attribution: 'x',
       findCandidates() {
+        if (resolveFindCandidates !== undefined) return Promise.resolve(emptyCandidates)
         return new Promise((resolve) => { resolveFindCandidates = resolve })
       },
     }
@@ -94,6 +100,7 @@ test('BL/BN: opening Aperçu while automatic enrichment is still pending settles
       practicalPlacesProvider: provider,
     })
 
+    await flush()
     container.dispatch('click', { target: fakeActionElement({ action: 'open-trip', tripId: bundle.metadata.id }) })
     await flush()
     await handle.goToOverviewForActiveTrip()
@@ -124,6 +131,58 @@ test('BL/BN: opening Aperçu while automatic enrichment is still pending settles
     // the same class of trailing background work as `startAutomaticEnrichment`,
     // just a second, independent chain. Waited out explicitly before
     // closing the database below.
+    await handle.waitForWeatherIdle()
+  } finally {
+    db.close()
+  }
+})
+
+test('background enrichment keeps an open overview map intact and applies saved changes after closing it', async () => {
+  const db = await openTestDatabase()
+  try {
+    const bundle = createGenericTripBundle()
+    const repository = createTripRepository(db)
+    await repository.saveTripBundle(bundle)
+    const container = createFakeContainer({ mutatedDom: true })
+    const listeners = new Map()
+    const dialog = {
+      open: false,
+      querySelector() { return null },
+      addEventListener(type, listener) { listeners.set(type, listener) },
+    }
+    container.register('[data-trip-overview-map]', {})
+    container.register('[data-trip-overview-map-dialog]', dialog)
+    let resolveCandidates
+    let mounts = 0
+    const handle = initializeTripsManager(container, {
+      database: db, now: () => '2027-05-01T08:00:00.000Z', idFactory: (() => { let n = 0; return () => `modal-${n++}` })(),
+      renderMap: () => { mounts++ }, closeMap: () => {}, weatherProvider: stubWeatherProvider(),
+      practicalPlacesProvider: {
+        id: 'held', sourceType: 'osm', attribution: 'x',
+        findCandidates() {
+          if (resolveCandidates !== undefined) return Promise.resolve(emptyCandidates)
+          return new Promise(resolve => { resolveCandidates = resolve })
+        },
+      },
+    })
+    await flush()
+    container.dispatch('click', { target: fakeActionElement({ action: 'open-trip', tripId: bundle.metadata.id }) })
+    await waitUntil(() => typeof resolveCandidates === 'function' && mounts > 0)
+    dialog.open = true
+    const openedMounts = mounts
+    const openedRenders = container.innerHTMLSetCount
+    resolveCandidates(emptyCandidates)
+    await waitUntil(() => !handle.isAutomaticEnrichmentInFlight(bundle.metadata.id))
+    await flush()
+    assert.equal(container.innerHTMLSetCount, openedRenders)
+    assert.equal(mounts, openedMounts, 'enrichment never tears down a map being explored')
+    const latest = await repository.loadTripBundle(bundle.metadata.id)
+    await repository.saveTripBundle({ ...latest, stages: latest.stages.map((stage, i) => i === 0 ? { ...stage, customName: 'Updated while map open' } : stage) })
+    dialog.open = false
+    listeners.get('close')()
+    await waitUntil(() => container.innerHTMLSetCount > openedRenders)
+    assert.match(container.innerHTML, /Updated while map open/)
+    assert.ok(mounts > openedMounts, 'closing applies the latest stored overview')
     await handle.waitForWeatherIdle()
   } finally {
     db.close()

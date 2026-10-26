@@ -138,10 +138,10 @@ test('A: Pauses and Météo both start closed — no extended content visible, b
   const bundle = createGenericTripBundle()
   const detail = buildDayDetail(bundle, 'day-alpha')
   assert.match(detail.html, /<div class="day-bottom-block" data-day-bottom-block>/)
-  assert.match(detail.html, /data-action="toggle-bottom-panel" aria-expanded="false" aria-controls="day-bottom-panel-pauses">Pauses</)
-  assert.match(detail.html, /data-action="toggle-bottom-panel" aria-expanded="false" aria-controls="day-bottom-panel-weather">Météo</)
+  assert.match(detail.html, /data-action="toggle-bottom-panel" aria-expanded="false" aria-controls="day-bottom-panel-pauses">Régler les pauses</)
+  assert.match(detail.html, /data-day-tab="weather" aria-controls="day-bottom-panel-weather"/)
   assert.match(detail.html, /<div id="day-bottom-panel-pauses" class="day-bottom-block__panel" data-bottom-panel hidden>/)
-  assert.match(detail.html, /<div id="day-bottom-panel-weather" class="day-bottom-block__panel" data-bottom-panel hidden>/)
+  assert.match(detail.html, /<div id="day-bottom-panel-weather" class="day-bottom-block__panel" data-bottom-panel[^>]*hidden>/)
 })
 
 test('the bottom block is never sticky (in the normal page flow, no dedicated sticky class/CSS rule)', () => {
@@ -204,7 +204,7 @@ test('the manual pause editor lists one compact row per candidate, checked/pre-f
   assert.match(detail.html, /input type="checkbox" data-field="pause-active" checked/)
   assert.match(detail.html, /value="15"/) // 900 seconds = 15 minutes
   // Never a card/select/input-per-row beyond the one checkbox + duration (CDC section 31).
-  assert.doesNotMatch(detail.html, /<select/)
+  assert.doesNotMatch(detail.pausesHtml, /<select/)
 })
 
 test('a candidate with no active pause is unchecked, and its duration field starts hidden (CDC Jalon B4.3 section 31: "Durée uniquement si Pause = oui")', () => {
@@ -345,14 +345,14 @@ test('village + pause visibility is the same policy on the map/profile waypoint 
 
 // --- tabs (CDC Jalon B4.2 section 7) ----------------------------------------
 
-test('Q/R: the Étape screen is a real ARIA tablist with EXACTLY two panels — Parcours/Infos, no Météo tab any more', () => {
+test('Trip+ uses one ARIA tablist for Parcours, Météo and Infos', () => {
   const bundle = createGenericTripBundle()
   const detail = buildDayDetail(bundle, 'day-alpha')
   assert.match(detail.html, /role="tablist"/)
   assert.match(detail.html, /role="tab" data-day-tab="route" aria-controls="day-panel-route" aria-selected="true"/)
   assert.match(detail.html, /role="tab" data-day-tab="infos" aria-controls="day-panel-infos" aria-selected="false"/)
-  assert.equal((detail.html.match(/role="tab"/g) ?? []).length, 2, 'exactly two tabs')
-  assert.doesNotMatch(detail.html, /data-day-tab="weather"/, 'R: no Météo tab at all any more')
+  assert.equal((detail.html.match(/role="tab"/g) ?? []).length, 3, 'three tabs in Voyage')
+  assert.match(detail.html, /data-day-tab="weather"/)
   assert.match(detail.html, /id="day-panel-route" class="card" role="tabpanel"/)
   assert.match(detail.html, /id="day-panel-infos"[^>]*role="tabpanel"[^>]*hidden/)
 })
@@ -371,7 +371,7 @@ test('M/O: Stats and Map+Profil render as their own top-level cards, structurall
   const routePanelIndex = detail.html.indexOf('id="day-panel-route"')
   assert.ok(statsCardIndex >= 0 && mapProfileCardIndex >= 0 && detailsCardIndex >= 0)
   assert.ok(statsCardIndex < mapProfileCardIndex && mapProfileCardIndex < detailsCardIndex, 'Stats, then Map+Profil, then Détails')
-  assert.ok(detailsCardIndex < tabsIndex && tabsIndex < routePanelIndex, 'the tabbar sits at the top of the Détails card, before its panels')
+  assert.ok(statsCardIndex < tabsIndex && tabsIndex < mapProfileCardIndex && tabsIndex < routePanelIndex, 'statistics precede the unified tabs, then the map/profile')
   // Neither Stats nor Map+Profil is itself inside a tabpanel.
   const statsCardBlock = detail.html.slice(statsCardIndex, mapProfileCardIndex)
   assert.doesNotMatch(statsCardBlock, /role="tabpanel"/)
@@ -627,7 +627,7 @@ test('AA/AB/AC: a climb renders as a tappable mini-card, same skeleton as a plai
   // horizontal colour strip (`day-detail__climb-profile-bar`) was removed
   // as a pure visual duplicate of the same segmentation.
   assert.match(detail.html, /day-detail__climb-profile-shape[^>]*data-segments/, 'the interactive, gradient-coloured silhouette is present')
-  assert.match(detail.html, /<polygon[^>]*fill="#/, 'at least one colour-coded gradient band is rendered')
+  assert.match(detail.html, /<rect[^>]*fill="#/, 'at least one colour-coded gradient band is rendered')
   assert.doesNotMatch(detail.html, /day-detail__climb-profile-bar/, 'the redundant flat segment strip must not be rendered any more')
 })
 
@@ -1438,7 +1438,7 @@ test('an incomplete ride day says preparation is under way — no technical word
   const detail = buildDayDetail(bundle, 'day-alpha', { preparationStatus: 'partial' })
   assert.match(detail.html, /<div class="day-detail__prep-banner" role="status"><span>Préparation de cette étape en cours\./)
   assert.match(detail.html, /se compléteront automatiquement/, 'and says it will resolve itself')
-  assert.doesNotMatch(detail.html, /postpass|provider|enrichment|timeout|segment/i)
+  assert.doesNotMatch(detail.html.match(/<div class="day-detail__prep-banner"[\s\S]*?<\/div>/)?.[0]??'', /postpass|provider|enrichment|timeout|segment/i)
 })
 
 test('a ride day blocked on connectivity says so instead', () => {

@@ -217,16 +217,16 @@ function installBandProfileInteraction(container: HTMLElement, samples: readonly
     const sample = interpolateProfileSample(samples, Math.min(total, Math.max(0, distanceKm)))
     selectedIndex = Math.max(0, samples.findIndex((candidate) => candidate.distanceKm >= sample.distanceKm))
     const x = 20 + 760 * sample.distanceKm / Math.max(total, 0.1)
-    const y = 210 - 180 * (sample.altitudeM - min) / Math.max(max - min, 1)
+    const y = 210 - 150 * (sample.altitudeM - min) / Math.max(max - min, 1)
     line.setAttribute('x1', x.toFixed(1)); line.setAttribute('x2', x.toFixed(1))
     dot.setAttribute('cx', x.toFixed(1)); dot.setAttribute('cy', y.toFixed(1))
     cursor.removeAttribute('hidden')
     const etaLabel = options.timingCurve?.clockTimeAt(sample.distanceKm) ?? null
     band?.removeAttribute('data-band-empty')
-    bandDistance.textContent = `${sample.distanceKm.toFixed(1)} km`
+    bandDistance.textContent = `${sample.distanceKm.toFixed(1).replace('.',',')} km`
     bandAltitude.textContent = `${Math.round(sample.altitudeM)} m`
-    bandGrade.textContent = `Pente ${sample.smoothedGradePercent.toFixed(1)} %`
-    bandEta.textContent = etaLabel === null ? '—' : `ETA ${etaLabel}`
+    bandGrade.textContent = `${sample.smoothedGradePercent.toFixed(1).replace('.',',')} %`
+    bandEta.textContent = etaLabel ?? '—'
     live.textContent = etaLabel === null
       ? `${sample.distanceKm.toFixed(1)} km · ${Math.round(sample.altitudeM)} m · Pente moyenne : ${sample.smoothedGradePercent.toFixed(1)} %`
       : `${sample.distanceKm.toFixed(1)} km · ${Math.round(sample.altitudeM)} m · Pente moyenne : ${sample.smoothedGradePercent.toFixed(1)} % · ETA ${etaLabel}`
@@ -334,9 +334,11 @@ function renderProfileSvgMarkup(
   titleId: string,
   titleLabel: string,
   presentation: 'tooltip' | 'band' = 'tooltip',
+  windSlot = false,
 ): string {
   const { min, max, total, x, y } = bounds
   const line = samples.map((point, index) => `${index === 0 ? 'M' : 'L'}${x(point.distanceKm).toFixed(1)},${y(point.altitudeM).toFixed(1)}`).join(' ')
+  const windSurface = windSlot ? '<div class="profile-wind" data-profile-wind></div>' : ''
   const infoSurface = presentation === 'tooltip'
     ? '<div class="profile-tooltip" data-profile-tooltip hidden></div>'
     : ''
@@ -351,12 +353,13 @@ function renderProfileSvgMarkup(
   // working exactly as before, only the idle band's own visible content
   // changes.
   const band = presentation === 'band'
-    ? `<div class="profile-band" data-profile-band data-band-empty><span class="profile-band__hint" aria-hidden="true">Toucher le profil pour explorer</span><span data-profile-band-distance>—</span><span data-profile-band-altitude>—</span><span data-profile-band-grade>—</span><span data-profile-band-eta>—</span></div>`
+    ? `<div class="profile-band" data-profile-band data-band-empty><span class="profile-band__hint" aria-hidden="true">Toucher le profil pour explorer</span><span><small>Distance</small><b data-profile-band-distance>—</b></span><span><small>Altitude</small><b data-profile-band-altitude>—</b></span><span><small>Pente</small><b data-profile-band-grade>—</b></span><span><small>Passage</small><b data-profile-band-eta>—</b></span></div>`
     : ''
   // The band's own hint now carries the sighted-user instruction; the
   // figcaption stays for assistive tech only (never shown twice).
+  const axisSurface = presentation === 'band' ? `<span class="profile-axis-label profile-axis-max">${Math.round(max)} m</span><span class="profile-axis-label profile-axis-min">${Math.round(min)} m</span><span class="profile-axis-label profile-axis-distance">${total.toFixed(1).replace('.',',')} km</span>` : ''
   const caption = `<figcaption${presentation === 'band' ? ' class="visually-hidden"' : ''}>Survolez, touchez ou utilisez les flèches pour lire distance, altitude, pente moyenne${presentation === 'band' ? ' et ETA' : ''}.</figcaption>`
-  return `<figure class="elevation-profile"><div class="elevation-profile__stage"><svg data-profile-interactive tabindex="0" viewBox="0 0 800 240" role="group" aria-labelledby="profile-title-${titleId}" aria-describedby="profile-live-${titleId}" preserveAspectRatio="none"><title id="profile-title-${titleId}">${escapeHtml(titleLabel)}</title><path class="profile-area" d="${line} L780,214 L20,214 Z"/>${presentation === 'band' ? '<g data-profile-color-bands></g>' : ''}<path class="profile-line" d="${line}"/>${markersHtml}<g class="profile-cursor" data-profile-cursor hidden><line data-profile-cursor-line y1="25" y2="214"/><circle data-profile-cursor-dot r="6"/></g><text x="20" y="20">${Math.round(max)} m</text><text x="20" y="230">${Math.round(min)} m</text><text x="700" y="230">${total.toFixed(1)} km</text></svg>${infoSurface}</div>${band}<p class="visually-hidden" id="profile-live-${titleId}" data-profile-live aria-live="polite"></p>${caption}</figure>`
+  return `<figure class="elevation-profile${presentation === 'band' ? ' elevation-profile--band' : ''}"><div class="elevation-profile__stage"><svg data-profile-interactive tabindex="0" viewBox="0 0 800 240" role="group" aria-labelledby="profile-title-${titleId}" aria-describedby="profile-live-${titleId}" preserveAspectRatio="none"><title id="profile-title-${titleId}">${escapeHtml(titleLabel)}</title><path class="profile-area" d="${line} L780,214 L20,214 Z"/>${presentation === 'band' ? `<defs><clipPath id="profile-color-clip-${titleId}"><path d="${line} L780,214 L20,214 Z"/></clipPath></defs><g data-profile-color-bands clip-path="url(#profile-color-clip-${titleId})"></g>` : ''}<path class="profile-line" d="${line}"/>${markersHtml}<g class="profile-cursor" data-profile-cursor hidden><line data-profile-cursor-line y1="25" y2="214"/><circle data-profile-cursor-dot r="6"/></g><text x="20" y="20">${Math.round(max)} m</text><text x="20" y="230">${Math.round(min)} m</text><text x="700" y="230">${total.toFixed(1)} km</text></svg>${infoSurface}${windSurface}${axisSurface}</div>${band}<p class="visually-hidden" id="profile-live-${titleId}" data-profile-live aria-live="polite"></p>${caption}</figure>`
 }
 
 export function renderElevationProfile(
@@ -536,7 +539,7 @@ export function renderGenericElevationProfile(container: HTMLElement, geometry: 
   const max = Math.max(...samples.map(({ altitudeM }) => altitudeM))
   const total = samples.at(-1)?.distanceKm ?? 1
   const x = (distance: number) => 20 + 760 * distance / Math.max(total, 0.1)
-  const y = (alt: number) => 210 - 180 * (alt - min) / Math.max(max - min, 1)
+  const y = (alt: number) => 210 - 150 * (alt - min) / Math.max(max - min, 1)
   const markers = waypoints
     .filter(waypoint => waypoint.raceSegmentId === undefined)
     .map((waypoint) => {
@@ -550,10 +553,18 @@ export function renderGenericElevationProfile(container: HTMLElement, geometry: 
       return renderProfileMarker(spec, waypoint.name, x, y)
     })
     .join('')
+  const steep: ProfileSample[] = []
+  for (const sample of samples) {
+    if (sample.smoothedGradePercent < 12) continue
+    const previous=steep.at(-1)
+    if(previous && sample.distanceKm-previous.distanceKm<total/10) {
+      if(sample.smoothedGradePercent>previous.smoothedGradePercent)steep[steep.length-1]=sample
+    } else steep.push(sample)
+  }
+  const steepMarkers=steep.slice(0,8).map(sample=>`<path class="profile-steep-point" d="M${x(sample.distanceKm)},${y(sample.altitudeM)-13}l-5,9h10z"><title>Rampe ${sample.smoothedGradePercent.toFixed(1).replace('.',',')} %</title></path>`).join('')
   const windEnabled = options.relativeWind !== false
   container.innerHTML = renderProfileWindControls(windEnabled)
-    + renderProfileSvgMarkup(samples, markers, { min, max, total, x, y }, 'generic', `Profil altimétrique interactif de ${stageLabel}`, 'band')
-    + (windEnabled ? '<div class="profile-wind" data-profile-wind></div>' : '')
+    + renderProfileSvgMarkup(samples, markers + steepMarkers, { min, max, total, x, y }, 'generic', `Profil altimétrique interactif de ${stageLabel}`, 'band', windEnabled)
   installProfileWindControls(container, samples, { total, x, y }, windEnabled)
   installBandProfileInteraction(container, samples, min, max, total, { timingCurve })
 }

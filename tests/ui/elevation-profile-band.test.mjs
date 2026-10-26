@@ -104,7 +104,7 @@ test('V: a pointer sample updates distance/altitude/pente in the band', () => {
   svg.emit('pointermove', { clientX: 400 })
   assert.match(elements['[data-profile-band-distance]'].textContent, /km$/)
   assert.match(elements['[data-profile-band-altitude]'].textContent, /m$/)
-  assert.match(elements['[data-profile-band-grade]'].textContent, /^Pente /)
+  assert.match(elements['[data-profile-band-grade]'].textContent, /%$/)
 })
 
 test('the band ETA cell stays "—" without a timing curve, and shows a real clock time with one', () => {
@@ -115,7 +115,7 @@ test('the band ETA cell stays "—" without a timing curve, and shows a real clo
   const timingCurve = { clockTimeAt: (distanceKm) => `1${Math.round(distanceKm)}:00` }
   const { elements: withCurve } = buildInteractiveFixture(timingCurve)
   withCurve['[data-profile-interactive]'].emit('pointermove', { clientX: 400 })
-  assert.match(withCurve['[data-profile-band-eta]'].textContent, /^ETA 1\d:00$/)
+  assert.match(withCurve['[data-profile-band-eta]'].textContent, /^1\d:00$/)
 })
 
 test('X: a sample with lat/lon dispatches "profile-sample-active" with that exact position, on the profile\'s own container', () => {

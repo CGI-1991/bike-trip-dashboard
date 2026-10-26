@@ -1,3 +1,6 @@
+import { stageColor } from '../stage-colors.ts'
+import type { OverviewStageLine } from '../route-map-model.ts'
+import { renderFeatureUpdateBadge } from '../release-notes.ts'
 /**
  * "Aperçu" screen (CDC Jalon B4.3 sections 5-8): title → trip progress
  * stats → general trip map → highlighted day card, in that order (the day
@@ -67,6 +70,7 @@ export function computeHighlightedDayId(bundle: TripBundle, now: Date | string |
 }
 
 export interface TripOverviewMapStage {
+  readonly overview?: Omit<OverviewStageLine,'coordinates'>
   readonly waypoints: readonly CanonicalWaypoint[]
   readonly geometry: readonly LatLngTuple[]
 }
@@ -225,7 +229,7 @@ export function buildTripOverview(bundle: TripBundle, now: Date | string | null)
 
   const mapDetailStages: TripOverviewMapStage[] = []
   const fullMapStages: TripOverviewMapStage[] = []
-  const mapStages: TripOverviewMapStage[] = bundle.stages.map((stage) => {
+  const mapStages: TripOverviewMapStage[] = bundle.stages.map((stage, stageIndex) => {
     const route = bundle.routes.find((candidate) => candidate.id === stage.sourceRouteId)
     const geometry = route === undefined ? null : routeGeometry(route)
     if (geometry === null) {
@@ -256,7 +260,8 @@ export function buildTripOverview(bundle: TripBundle, now: Date | string | null)
     // the marker set is trimmed to the two principal (start/end) points;
     // `geometryTuples` (never `[]`) is what makes `buildGenericOverviewRouteMapModel`
     // draw this stage's real GPX line instead of a marker-only stub.
-    return { waypoints: waypoints.filter((waypoint) => waypoint.kind === 'start' || waypoint.kind === 'end'), geometry: geometryTuples }
+    const metrics=selectStageCourseMetrics(bundle,stage)
+    return { overview:{dayId:stage.dayId,number:selectTripDayLabel(bundle,stage.dayId),name:selectStageCustomName(stage) ?? `${stage.startLocationName ?? '—'} → ${stage.endLocationName ?? '—'}`,color:stageColor(stageIndex),distanceKm:metrics.distanceKm,elevationGainM:metrics.elevationGainM},waypoints: waypoints.filter((waypoint) => waypoint.kind === 'start' || waypoint.kind === 'end'), geometry: geometryTuples }
   })
 
   const highlightedDayId = temporal.priorityDayId
@@ -290,12 +295,12 @@ export function buildTripOverview(bundle: TripBundle, now: Date | string | null)
       ${bundle.stages.some(stage => buildRaceCourse(bundle, stage)?.status === 'stale') ? '<p class="race-course__hint" role="status">Certaines limites de course sont à revoir : les totaux sont partiels.</p>' : ''}
       ${renderProgressStats(progress, selectOrganizationMode(bundle) === 'league', !selectOrganizationCapabilities(bundle).explicitRaceBounds || bundle.stages.some(stage => buildRaceCourse(bundle, stage)?.status === 'bounded'))}
       <section class="card route-map-card" data-route-visuals>
-        <div class="section-heading"><div><p class="eyebrow">Vue d’ensemble</p><h3>Carte du voyage</h3></div><div class="route-map-card__actions"><button class="button button--quiet" type="button" data-action="download-trip-gpx">GPX</button></div></div>
+        <div class="section-heading"><div><p class="eyebrow">Vue d’ensemble</p><h3>Carte du voyage ${renderFeatureUpdateBadge('overview-map')}</h3></div><div class="route-map-card__actions"><button class="button button--quiet" type="button" data-action="download-trip-gpx">GPX</button></div></div>
         <div class="route-map route-map--action" data-trip-overview-map data-explore-map role="button" tabindex="0" aria-label="Ouvrir la carte du voyage en plein écran"></div>
       </section>
       <dialog class="route-map-dialog" data-trip-overview-map-dialog aria-labelledby="trip-overview-expanded-map-title">
         <header><h2 id="trip-overview-expanded-map-title">Carte du voyage</h2><div class="route-map-dialog__actions"><button class="button button--quiet" type="button" data-map-layers-toggle aria-pressed="false" aria-label="Afficher les pauses et cols nommés sur la carte" hidden>Détail</button><button class="button button--quiet" type="button" data-close-map>Fermer</button></div></header>
-        <div class="route-map-dialog__map-wrap"><div class="route-map route-map--expanded" data-route-map-expanded></div><p class="route-map__fallback route-map__fallback--expanded" data-expanded-route-map-fallback hidden>Fond de carte indisponible.</p></div>
+        <div class="route-map-dialog__map-wrap"><div class="route-map route-map--expanded" data-route-map-expanded></div><div class="overview-stage-selection" data-overview-stage-selection hidden></div><p class="route-map__fallback route-map__fallback--expanded" data-expanded-route-map-fallback hidden>Fond de carte indisponible.</p></div>
       </dialog>
     </section>
     ${highlightedDayHtml === '' ? '' : `<section class="trip-overview__zone trip-overview__zone--next" data-trip-overview-zone="next">

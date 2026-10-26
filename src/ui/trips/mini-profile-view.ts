@@ -1,4 +1,6 @@
 import type { ClimbGradeClass, ClimbProfileSegment } from '../../analysis/climb-profile.ts'
+import { classifyClimbGrade } from '../../analysis/climb-profile.ts'
+import { aggregateProfileBands } from '../profile-display-bands.ts'
 const escapeHtml = (value: string) => value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('\"', '&quot;')
 const formatKilometers = (value: number) => `${value.toFixed(1).replace('.', ',')} km`
 const GRADE_CLASS_COLORS: Readonly<Record<ClimbGradeClass, string>> = {
@@ -10,7 +12,7 @@ const GRADE_CLASS_COLORS: Readonly<Record<ClimbGradeClass, string>> = {
   'climb-8-12': '#cf4a3a',
   'climb-12-plus': '#7a2a52',
 }
-function renderClimbProfileShape(segments: readonly ClimbProfileSegment[]): string {
+function renderClimbProfileShape(segments: readonly ClimbProfileSegment[], id: string): string {
   const altitudes = segments.flatMap((segment) => [segment.startAltitudeM, segment.endAltitudeM]).filter((value): value is number => value !== null)
   if (altitudes.length === 0) return ''
   const minAltitude = Math.min(...altitudes)
@@ -18,19 +20,17 @@ function renderClimbProfileShape(segments: readonly ClimbProfileSegment[]): stri
   const span = Math.max(maxAltitude - minAltitude, 1)
   const totalKm = Math.max((segments[segments.length - 1]?.endDistanceKm ?? 0) - (segments[0]?.startDistanceKm ?? 0), 0.001)
   const startKm = segments[0]?.startDistanceKm ?? 0
+  const clipId = 'mini-profile-' + Array.from(id).map(c=>c.codePointAt(0)!.toString(16)).join('-')
   const width = 300
   const height = 130
   const x = (km: number): number => ((km - startKm) / totalKm) * width
   const y = (altitude: number): number => height - ((altitude - minAltitude) / span) * (height - 10) - 5
 
-  const bands = segments.map((segment) => {
-    if (segment.startAltitudeM === null || segment.endAltitudeM === null) return ''
+  const bands = aggregateProfileBands(segments, 300).map((segment) => {
     const x1 = x(segment.startDistanceKm)
     const x2 = x(segment.endDistanceKm)
-    const y1 = y(segment.startAltitudeM)
-    const y2 = y(segment.endAltitudeM)
-    const color = segment.gradeClass === null ? '#c7d2cc' : GRADE_CLASS_COLORS[segment.gradeClass]
-    return `<polygon points="${x1.toFixed(1)},${height} ${x1.toFixed(1)},${y1.toFixed(1)} ${x2.toFixed(1)},${y2.toFixed(1)} ${x2.toFixed(1)},${height}" fill="${color}"></polygon>`
+    const color = segment.averageGradientPercent === null ? '#c7d2cc' : GRADE_CLASS_COLORS[classifyClimbGrade(segment.averageGradientPercent)]
+    return `<rect x="${x1.toFixed(1)}" y="0" width="${(x2-x1+.1).toFixed(1)}" height="${height}" fill="${color}"></rect>`
   }).join('')
   const outline = segments
     .filter((segment) => segment.startAltitudeM !== null)
@@ -43,7 +43,7 @@ function renderClimbProfileShape(segments: readonly ClimbProfileSegment[]): stri
   // recomputation of the climb profile in the DOM-wiring layer.
   const interactionData = JSON.stringify(segments.map((segment) => [segment.startDistanceKm, segment.endDistanceKm, segment.startAltitudeM, segment.endAltitudeM, segment.averageGradientPercent]))
 
-  return `<svg class="day-detail__climb-profile-shape" data-climb-profile-interactive tabindex="0" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="Profil interactif de la montée" data-segments="${escapeHtml(interactionData)}" data-start-km="${startKm}">${bands}<path d="${outline}${outlineEnd}" fill="none" stroke="var(--forest-950, #102d28)" stroke-width="1.5"></path><g class="profile-cursor" data-profile-cursor hidden><line data-profile-cursor-line y1="0" y2="${height}"></line><circle data-profile-cursor-dot r="4"></circle></g></svg>`
+  return `<svg class="day-detail__climb-profile-shape" data-climb-profile-interactive tabindex="0" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="Profil interactif de la montée" data-segments="${escapeHtml(interactionData)}" data-start-km="${startKm}"><defs><clipPath id="${clipId}"><path d="${outline}${outlineEnd} L${width},${height} L0,${height}Z"/></clipPath></defs><g data-climb-color-bands clip-path="url(#${clipId})">${bands}</g><path d="${outline}${outlineEnd}" fill="none" stroke="var(--forest-950, #102d28)" stroke-width="1.5"></path><g class="profile-cursor" data-profile-cursor hidden><line data-profile-cursor-line y1="0" y2="${height}"></line><circle data-profile-cursor-dot r="4"></circle></g></svg>`
 }
 
 /**
@@ -56,7 +56,7 @@ function renderClimbProfileShape(segments: readonly ClimbProfileSegment[]): stri
  * still drives the shape's colours and the interactive tooltip — only this
  * second, redundant visual is gone.
  */
-export function renderClimbProfileBar(segments: readonly ClimbProfileSegment[]): string {
+export function renderClimbProfileBar(segments: readonly ClimbProfileSegment[], id = 'profile'): string {
   if (segments.length === 0) return '<p class="day-detail__climb-profile-empty">Profil indisponible pour cette montée.</p>'
   const first = segments[0]
   const last = segments[segments.length - 1]
@@ -64,7 +64,7 @@ export function renderClimbProfileBar(segments: readonly ClimbProfileSegment[]):
   // 30) — the exact same positioning classes the main elevation profile
   // uses for its own interactive tooltip, reused here rather than a second,
   // parallel set of tooltip CSS.
-  return `<div class="elevation-profile__stage">${renderClimbProfileShape(segments)}<div class="profile-tooltip" data-profile-tooltip hidden></div></div>
+  return `<div class="elevation-profile__stage">${renderClimbProfileShape(segments,id)}<div class="profile-tooltip" data-profile-tooltip hidden></div></div>
     <p class="visually-hidden" data-profile-live aria-live="polite"></p>
     <div class="day-detail__climb-profile-scale">
       <span>${formatKilometers(first?.startDistanceKm ?? 0)} · ${first?.startAltitudeM === null || first?.startAltitudeM === undefined ? '—' : `${Math.round(first.startAltitudeM)} m`}</span>
@@ -73,3 +73,15 @@ export function renderClimbProfileBar(segments: readonly ClimbProfileSegment[]):
     <p class="day-detail__climb-profile-caption">Touchez le profil pour explorer.</p>`
 }
 
+
+/** Repaint only the colours when a mini-profile is opened at its real width. */
+export function paintClimbProfileBands(svg:SVGSVGElement):void {
+  const bands=svg.querySelector<SVGGElement>('[data-climb-color-bands]')
+  if(!bands)return
+  let rows:readonly [number,number,number|null,number|null,number|null][]
+  try{rows=JSON.parse(svg.dataset.segments??'[]')}catch{return}
+  if(!rows.length)return
+  const start=rows[0]![0],span=rows.at(-1)![1]-start
+  if(span<=0)return
+  bands.innerHTML=aggregateProfileBands(rows.map(r=>({startDistanceKm:r[0],endDistanceKm:r[1],averageGradientPercent:r[4]})),svg.getBoundingClientRect().width).map(r=>`<rect x="${((r.startDistanceKm-start)/span*300).toFixed(1)}" y="0" width="${((r.endDistanceKm-r.startDistanceKm)/span*300+.1).toFixed(1)}" height="130" fill="${r.averageGradientPercent===null?'#c7d2cc':GRADE_CLASS_COLORS[classifyClimbGrade(r.averageGradientPercent)]}"></rect>`).join('')
+}

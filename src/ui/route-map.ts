@@ -1,4 +1,5 @@
 import L from 'leaflet'
+import { drawOverviewStages } from './overview-stage-map.ts'
 import 'leaflet/dist/leaflet.css'
 import { updatePoiDirectionsOrigin } from './bicycle-directions.ts'
 import { sharedCurrentLocationService } from './current-location.ts'
@@ -82,6 +83,8 @@ function destroy(container: HTMLElement): void { destroyRouteMap(container) }
  * marker loop).
  */
 export interface RouteMapInteractionHandle {
+  refreshSize?(): void
+  dispose?(): void
   setTemporaryMarker(latitude: number, longitude: number): void
   clearTemporaryMarker(): void
   /**
@@ -122,6 +125,8 @@ export function getRouteMapInteractionHandle(container: HTMLElement): RouteMapIn
   const map = mapInstances.get(canvas)
   if (map === undefined) return null
   return {
+    refreshSize(): void { map.invalidateSize({ pan: false }) },
+    dispose(): void { destroyRouteMap(canvas) },
     setTemporaryMarker(latitude, longitude): void {
       const existing = temporaryMarkers.get(canvas)
       if (existing !== undefined) { existing.setLatLng([latitude, longitude]); return }
@@ -237,7 +242,7 @@ export interface CreateRouteMapOptions {
 export function createRouteMap(container: HTMLElement, model: RouteMapModel, options: CreateRouteMapOptions, onTileError: () => void): L.Map {
   destroy(container)
   const interactive = options.interactive
-  const map = L.map(container, { attributionControl: true, dragging: interactive, touchZoom: interactive, doubleClickZoom: interactive, boxZoom: interactive, keyboard: interactive, scrollWheelZoom: false, zoomControl: interactive, tapHold: interactive })
+  const map = L.map(container, { attributionControl: true, dragging: interactive, touchZoom: interactive, doubleClickZoom: interactive, boxZoom: interactive, keyboard: interactive, scrollWheelZoom: false, zoomControl: interactive, tapHold: interactive, zoomAnimation: model.overviewStages === undefined })
   mapInstances.set(container, map)
   installCustomPanes(map)
   const tiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap contributors', maxZoom: 19 })
@@ -246,7 +251,8 @@ export function createRouteMap(container: HTMLElement, model: RouteMapModel, opt
   // disjoint stage — never one continuous line spanning an OFF/transfer gap.
   const lineSegments = [model.coordinates, ...(model.extraLines ?? [])].filter((segment) => segment.length > 1)
   const bounds = L.latLngBounds([])
-  for (const segment of lineSegments) {
+  if(model.overviewStages?.length) bounds.extend(drawOverviewStages(map,model.overviewStages,interactive))
+  for (const segment of model.overviewStages?.length ? [] : lineSegments) {
     bounds.extend(L.polyline(segment.map(toLatLng), { color: '#0f766e', weight: 4 }).addTo(map).getBounds())
   }
   for (const segment of model.segmentLines ?? []) {
@@ -269,6 +275,7 @@ export function createRouteMap(container: HTMLElement, model: RouteMapModel, opt
     if (options.invalidateBeforeInitialFit === true) map.invalidateSize()
     map.fitBounds(bounds, {
       padding: options.fitPadding,
+      ...(model.overviewStages?.length && interactive ? {paddingBottomRight: [36, 270] as L.PointExpression} : {}),
       maxZoom: options.maxInitialZoom,
     })
   }
@@ -531,14 +538,14 @@ export function disposeDirectLayerToggle(dialog: HTMLDialogElement): void {
  * slide-over panel. State is `aria-pressed` only — never "Détail ON/OFF"
  * text (CDC section 5); the label always stays "Détail".
  */
-function installDirectLayerToggle(dialog: HTMLDialogElement, map: L.Map, layers: readonly MapLayerDefinition[]): void {
+function installDirectLayerToggle(dialog: HTMLDialogElement, map: L.Map, layers: readonly MapLayerDefinition[], hasStages = false): void {
   disposeDirectLayerToggle(dialog)
   const toggle = dialog.querySelector<HTMLButtonElement>('[data-map-layers-toggle]')
   if (toggle === null) return
   const markers = layers.flatMap((layer) => layer.markers)
-  toggle.hidden = markers.length === 0
+  toggle.hidden = markers.length === 0 && !hasStages
   toggle.setAttribute('aria-pressed', 'false')
-  if (markers.length === 0) return
+  if (markers.length === 0 && !hasStages) return
   const toggleOffsets = resolveMarkerIconOffsets(markers)
   const group = L.layerGroup(markers.map((marker, index) =>
     L.marker(toLatLng(marker.coordinate), { icon: createRouteDivIcon(marker.category, { offRoute: marker.offRoute, pauseActive: marker.pauseActive, iconOffset: toggleOffsets[index] }) })
@@ -548,6 +555,7 @@ function installDirectLayerToggle(dialog: HTMLDialogElement, map: L.Map, layers:
     const active = toggle.getAttribute('aria-pressed') === 'true'
     if (active) { group.remove(); toggle.setAttribute('aria-pressed', 'false') }
     else { group.addTo(map); toggle.setAttribute('aria-pressed', 'true') }
+    map.fire('overviewdetailchange')
   }
   toggle.addEventListener('click', handler)
   directToggleControllers.set(dialog, {
@@ -782,7 +790,7 @@ export function renderGenericRouteMap(container: HTMLElement, dialog: HTMLDialog
         )
         map.on('popupopen', () => { popupOpen = true })
         map.on('popupclose', () => { popupOpen = false })
-        if (options.directLayerToggle === true) installDirectLayerToggle(dialog, map, layerState.layers)
+        if (options.directLayerToggle === true) installDirectLayerToggle(dialog, map, layerState.layers, Boolean(model?.overviewStages?.length))
         else installMapLayerPanel(dialog, map, layerState.layers)
       } catch {
         closeExpandedRouteMap(dialog)
