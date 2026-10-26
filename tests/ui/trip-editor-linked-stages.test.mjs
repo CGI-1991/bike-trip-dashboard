@@ -135,11 +135,13 @@ test('Course/Tour reveals the chain buttons, and linking groups the two blocks t
 
     container.dispatch('click', { target: clickTarget({ action: 'set-race-mode', raceMode: 'on' }) })
     assert.equal((container.innerHTML.match(/data-editor-action="link-stage"/g) ?? []).length, 2, 'one between each pair of consecutive stages')
+    assert.doesNotMatch(container.innerHTML, /Vérifiez la liaison et les horaires|Vérifiez le transfert entre les étapes/, 'independent Tour stages do not trigger continuity notices')
 
     container.dispatch('click', { target: clickTarget({ editorAction: 'link-stage', position: '1' }) })
     await waitFor(() => container.innerHTML.includes('wizard-structure__group'), 'the group container appeared')
     assert.match(container.innerHTML, /wizard-structure__group/)
     assert.match(container.innerHTML, /Même journée — 2 étapes/)
+    assert.match(container.innerHTML, /Vérifiez la liaison et les horaires/, 'linking geographically separated stages makes the warning actionable')
     assert.match(container.innerHTML, /data-editor-action="unlink-stage" data-position="1"/)
     editor.destroy()
   } finally {

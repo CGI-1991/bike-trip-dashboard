@@ -13,6 +13,7 @@ import { PAUSE_ACCENT_COLOR_HEX, getGenericRouteMarkerCategory, getRouteMarkerCa
 import type { RouteMarkerCategory } from './route-marker-style.ts'
 import { installProfileWindControls, renderProfileWindControls, selectProfileWind } from './relative-wind-view.ts'
 import { renderFeatureUpdateBadge } from './release-notes.ts'
+import { installProfileExploration } from './profile-exploration.ts'
 
 export interface ProfileSample extends TerrainProfilePoint { readonly altitudeM: number }
 
@@ -235,41 +236,21 @@ function installBandProfileInteraction(container: HTMLElement, samples: readonly
     selectProfileWind(container, sample.distanceKm)
   }
   const clear = (): void => {
-    touchSelection = false
     cursor.setAttribute('hidden', '')
     clearBand()
     live.textContent = ''
     dispatch('profile-sample-cleared')
     selectProfileWind(container, null)
   }
-  let touchSelection = false
   const fromPointer = (event: PointerEvent) => {
-    touchSelection = event.pointerType === 'touch'
     const rect = svg.getBoundingClientRect()
     // Plot spans x=20..780 inside the 800-unit viewBox. Touch and keyboard
     // selection must share the exact chainage, especially for race bounds.
     const viewBoxX = (event.clientX - rect.left) / Math.max(rect.width, 1) * 800
     show((viewBoxX - 20) / 760 * total)
   }
-  svg.addEventListener('pointerdown', (event) => { svg.setPointerCapture?.(event.pointerId); fromPointer(event) }, { signal: controller.signal })
-  svg.addEventListener('pointermove', fromPointer, { signal: controller.signal })
-  // Preserve the selected touch reading after release (CDC section 18).
-  // Mouse leave, cancellation and keyboard blur still clear the selection.
-  svg.addEventListener('pointerleave', event => {
-    // Touch generates a leave after lifting the finger. Keep that selected
-    // point readable; cancellation, keyboard blur or a real drag out clear it.
-    if (event.pointerType === 'touch' && event.buttons === 0) return
-    clear()
-  }, { signal: controller.signal })
-  svg.addEventListener('pointercancel', clear, { signal: controller.signal })
-  svg.addEventListener('pointerup', (event) => { svg.releasePointerCapture?.(event.pointerId) }, { signal: controller.signal })
-  // Keyboard focus leaving the profile (section 21) clears it too — an
-  // ArrowLeft/Right keypress itself must never clear mid-navigation.
-  // Blurring a touch selection while tapping the next card must not collapse
-  // its wind readout and move that card between pointerdown and click.
-  svg.addEventListener('blur', () => { if (!touchSelection) clear() }, { signal: controller.signal })
+  installProfileExploration(svg, fromPointer, clear, controller.signal)
   svg.addEventListener('keydown', (event) => {
-    touchSelection = false
     if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
     event.preventDefault()
     selectedIndex = Math.min(samples.length - 1, Math.max(0, selectedIndex + (event.key === 'ArrowRight' ? 1 : -1)))
@@ -513,10 +494,12 @@ export function mountClimbProfileInteraction(svg: SVGSVGElement): void {
     const rect = svg.getBoundingClientRect()
     show(startKm + ((event.clientX - rect.left) / Math.max(rect.width, 1)) * totalKm)
   }
-  svg.addEventListener('pointerdown', (event) => { svg.setPointerCapture?.(event.pointerId); fromPointer(event) })
-  svg.addEventListener('pointermove', fromPointer)
-  svg.addEventListener('pointerleave', event => { if (event.pointerType === 'touch') return; cursor.setAttribute('hidden', ''); tooltip.hidden = true })
-  svg.addEventListener('pointerup', (event) => { svg.releasePointerCapture?.(event.pointerId) })
+  const clear = (): void => {
+    cursor.setAttribute('hidden', '')
+    tooltip.hidden = true
+    live.textContent = ''
+  }
+  installProfileExploration(svg, fromPointer, clear)
   svg.addEventListener('keydown', (event) => {
     if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
     event.preventDefault()

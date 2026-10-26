@@ -151,35 +151,37 @@ test('Z: leaving the profile clears the band back to neutral and dispatches "pro
   assert.ok(events.some((event) => event.type === 'profile-sample-cleared'))
 })
 
-test('a touch tap that never leaves the element does not clear the band — only a real leave/cancel does (CDC section 18)', () => {
+test('lifting a finger clears the main profile even when the platform sends no pointerleave', () => {
   const { elements } = buildInteractiveFixture()
   const svg = elements['[data-profile-interactive]']
-  svg.emit('pointerdown', { clientX: 400, pointerId: 1 })
-  svg.emit('pointerup', { pointerId: 1 })
+  svg.emit('pointerdown', { clientX: 400, clientY: 100, pointerId: 1, pointerType: 'touch' })
   assert.notEqual(elements['[data-profile-band-distance]'].textContent, '—')
+  svg.emit('pointerup', { pointerId: 1, pointerType: 'touch' })
+  assert.equal(elements['[data-profile-band-distance]'].textContent, '—')
 })
 
-test('the synthetic leave after lifting a finger keeps the selected point readable, while cancellation still clears it', () => {
+test('touch release clears the synced map cursor and a synthetic leave never reopens it', () => {
   const { elements, events } = buildInteractiveFixture()
   const svg = elements['[data-profile-interactive]']
   svg.emit('pointerdown', { clientX: 400, pointerId: 1 })
   svg.emit('pointerup', { pointerId: 1 })
   svg.emit('pointerleave', { pointerType: 'touch', buttons: 0 })
-  assert.notEqual(elements['[data-profile-band-distance]'].textContent, '—')
-  assert.equal(events.some(event => event.type === 'profile-sample-cleared'), false)
+  assert.equal(elements['[data-profile-band-distance]'].textContent, '—')
+  assert.equal(events.some(event => event.type === 'profile-sample-cleared'), true)
   svg.emit('pointercancel')
   assert.equal(elements['[data-profile-band-distance]'].textContent, '—')
 })
 
-test('moving focus to a card after a touch keeps the reading stable; subsequent keyboard blur still clears it', () => {
+test('moving focus to another card clears the reading; keyboard exploration can then restart normally', () => {
   const { elements, events } = buildInteractiveFixture()
   const svg = elements['[data-profile-interactive]']
   svg.emit('pointerdown', { clientX: 400, pointerId: 1, pointerType: 'touch' })
   svg.emit('pointerup', { pointerId: 1, pointerType: 'touch' })
   svg.emit('blur')
+  assert.equal(elements['[data-profile-band-distance]'].textContent, '—')
+  assert.equal(events.some(event => event.type === 'profile-sample-cleared'), true)
+  svg.emit('keydown', { key: 'ArrowRight', preventDefault() {} })
   assert.notEqual(elements['[data-profile-band-distance]'].textContent, '—')
-  assert.equal(events.some(event => event.type === 'profile-sample-cleared'), false)
-  svg.emit('keydown', { key: 'Tab' })
   svg.emit('blur')
   assert.equal(elements['[data-profile-band-distance]'].textContent, '—')
   assert.ok(events.some(event => event.type === 'profile-sample-cleared'))

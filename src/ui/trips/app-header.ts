@@ -18,7 +18,7 @@
  */
 
 import { deriveTripTemporalState } from '../../trips-manager/trip-day-temporal-state.ts'
-import { calendarDaySpan, selectOrganizationCapabilities, selectOrganizationMode, selectTripDayNumber } from '../../trip-core/index.ts'
+import { calendarDaySpan, selectOrganizationCapabilities, selectOrganizationMode, selectTripDayNumber, selectTripDayLabel } from '../../trip-core/index.ts'
 import { formatShortDate } from '../date-format.ts'
 import type { TripBundle, TripDay, TripDayType } from '../../trip-core/index.ts'
 
@@ -95,12 +95,12 @@ function tripSubtitle(bundle: TripBundle, now: Date | string | null): string | n
   const dayNumber = selectTripDayNumber(bundle, priorityDay.id)
   const remaining = dayCount - dayNumber
   const remainingLabel = remaining <= 0 ? 'Dernier jour' : pluralize(remaining, 'jour') + ' à venir'
-  return `J${dayNumber} sur ${dayCount} · ${remainingLabel}`
+  return `${selectTripDayLabel(bundle, priorityDay.id)} sur ${dayCount} · ${remainingLabel}`
 }
 
 function daySubtitle(bundle: TripBundle, day: TripDay): string {
   if (selectOrganizationMode(bundle) === 'league') return `Course ${selectTripDayNumber(bundle, day.id)} sur ${bundle.days.length} · ${formatShortDate(day.date!)}`
-  return `J${selectTripDayNumber(bundle, day.id)} sur ${calendarDaySpan(bundle.days)} · ${DAY_TYPE_LABELS[day.type]}`
+  return `${selectTripDayLabel(bundle, day.id)} sur ${calendarDaySpan(bundle.days)} · ${DAY_TYPE_LABELS[day.type]}`
 }
 
 export type GenericAppHeaderContext =

@@ -41,7 +41,22 @@ export function selectAutomaticPoiSearch(bundle: TripBundle): boolean {
 }
 
 export function selectTripDayLabel(bundle: TripBundle, dayId: TripDayId): string {
-  return `${selectOrganizationMode(bundle) === 'league' ? 'C' : 'J'}${selectTripDayNumber(bundle, dayId)}`
+  const mode = selectOrganizationMode(bundle)
+  const numbers = selectTripDayNumbers(bundle)
+  const number = numbers.get(dayId) ?? selectTripDayNumber(bundle, dayId)
+  const label = `${mode === 'league' ? 'C' : 'J'}${number}`
+  if (mode !== 'tour') return label
+  const siblings = selectOrderedDays(bundle).filter(day => day.type === 'ride' && numbers.get(day.id) === number)
+  const index = siblings.findIndex(day => day.id === dayId)
+  if (siblings.length < 2 || index < 0) return label
+  // Spreadsheet-style suffixes keep identities unique even beyond 26 stages.
+  let suffix = '', ordinal = index + 1
+  while (ordinal > 0) {
+    ordinal--
+    suffix = String.fromCharCode(97 + ordinal % 26) + suffix
+    ordinal = Math.floor(ordinal / 26)
+  }
+  return label + suffix
 }
 
 export function selectOrderedDays(bundle: TripBundle): readonly TripDay[] {

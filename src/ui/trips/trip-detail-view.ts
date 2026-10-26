@@ -1,3 +1,4 @@
+import { tripIcon } from '../icons.ts'
 import { stageColor } from '../stage-colors.ts'
 /**
  * "Voyage" screen (CDC Jalon B4.3 sections 9-11): a compact, RGA-style
@@ -71,9 +72,9 @@ export function renderStagePreparationIndicator(status: StagePreparationStatus |
   // a fault the user has to look at — the only genuinely different case is
   // having no connection, and that one says so in words.
   const inner = status === 'pending'
-    ? '<span aria-hidden="true">○</span>'
+    ? tripIcon('pending')
     : status === 'waiting-for-network'
-      ? '<span aria-hidden="true">⌛</span>'
+      ? tripIcon('clock')
       : '<span class="trip-day-card__prep-spinner" aria-hidden="true"></span>'
   return `<span class="trip-day-card__prep trip-day-card__prep--${status}" data-trip-day-prep data-status="${status}" role="img" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}">${inner}</span>`
 }
