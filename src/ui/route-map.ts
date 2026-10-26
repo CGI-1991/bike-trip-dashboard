@@ -242,7 +242,9 @@ export interface CreateRouteMapOptions {
 export function createRouteMap(container: HTMLElement, model: RouteMapModel, options: CreateRouteMapOptions, onTileError: () => void): L.Map {
   destroy(container)
   const interactive = options.interactive
-  const map = L.map(container, { attributionControl: true, dragging: interactive, touchZoom: interactive, doubleClickZoom: interactive, boxZoom: interactive, keyboard: interactive, scrollWheelZoom: false, zoomControl: interactive, tapHold: interactive, zoomAnimation: model.overviewStages === undefined })
+  // Leaflet 1.9's delayed zoom completion survives remove(). Instant zoom
+  // keeps a quick close/reopen safe without calling private animation APIs.
+  const map = L.map(container, { attributionControl: true, dragging: interactive, touchZoom: interactive, doubleClickZoom: interactive, boxZoom: interactive, keyboard: interactive, scrollWheelZoom: false, zoomControl: interactive, tapHold: interactive, zoomAnimation: false })
   mapInstances.set(container, map)
   installCustomPanes(map)
   const tiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap contributors', maxZoom: 19 })
@@ -253,12 +255,13 @@ export function createRouteMap(container: HTMLElement, model: RouteMapModel, opt
   const bounds = L.latLngBounds([])
   if(model.overviewStages?.length) bounds.extend(drawOverviewStages(map,model.overviewStages,interactive))
   for (const segment of model.overviewStages?.length ? [] : lineSegments) {
-    bounds.extend(L.polyline(segment.map(toLatLng), { color: '#0f766e', weight: 4 }).addTo(map).getBounds())
+    bounds.extend(L.polyline(segment.map(toLatLng), { color: '#0f766e', weight: 4, interactive }).addTo(map).getBounds())
   }
   for (const segment of model.segmentLines ?? []) {
     if (segment.coordinates.length < 2) continue
-    L.polyline(segment.coordinates.map(toLatLng), { color: segment.color, weight: segment.weight ?? 6, opacity: .9, className: 'route-map-segment-line', ...(segment.dashed ? { dashArray: '5 5' } : {}) })
+    const line = L.polyline(segment.coordinates.map(toLatLng), { color: segment.color, weight: segment.weight ?? 6, opacity: .9, interactive, className: 'route-map-segment-line', ...(segment.dashed ? { dashArray: '5 5' } : {}) })
       .bindTooltip(escapeHtml(segment.name)).addTo(map)
+    if (interactive && segment.popupHtml !== undefined) line.bindPopup(segment.popupHtml, { maxWidth: 260, className: 'route-feature-leaflet-popup' })
   }
   // Offsets are resolved across the whole set drawn together, so a climb
   // summiting exactly on the arrival line keeps both markers visible and
@@ -267,9 +270,10 @@ export function createRouteMap(container: HTMLElement, model: RouteMapModel, opt
   const markerOffsets = resolveMarkerIconOffsets(model.markers)
   model.markers.forEach((marker, index) => {
     bounds.extend(toLatLng(marker.coordinate))
-    L.marker(toLatLng(marker.coordinate), { bubblingMouseEvents: false, icon: createRouteDivIcon(marker.category, { offRoute: marker.offRoute, pauseActive: marker.pauseActive, iconOffset: markerOffsets[index] }) })
+    const layer = L.marker(toLatLng(marker.coordinate), { interactive, keyboard: interactive, bubblingMouseEvents: false, icon: createRouteDivIcon(marker.category, { offRoute: marker.offRoute, pauseActive: marker.pauseActive, iconOffset: markerOffsets[index] }) })
       .bindTooltip(markerTooltip(marker))
       .addTo(map)
+    if (interactive && marker.popupHtml !== undefined) layer.bindPopup(marker.popupHtml, { maxWidth: 260, className: 'route-feature-leaflet-popup' })
   })
   if (bounds.isValid()) {
     if (options.invalidateBeforeInitialFit === true) map.invalidateSize()

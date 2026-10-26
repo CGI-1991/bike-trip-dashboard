@@ -1,6 +1,6 @@
 # Feuille de route Trip(+)
 
-État au 26 octobre 2026 : refonte `2026.10.26.1` fusionnée, puis correctifs iPhone et Tour `2026.10.26.2` proposés en PR. Les demandes directes de l’utilisateur priment sur les documents sources conservés dans `specs/`.
+État au 26 octobre 2026 : refonte et correctifs iPhone `2026.10.26.2` fusionnés ; finition des informations de parcours `2026.10.26.3` proposée en PR. Les demandes directes de l’utilisateur priment sur les documents sources conservés dans `specs/`.
 
 Livraison : une PR par lot cohérent et validé. Fusion et déploiement sont des étapes distinctes. Chaque changement d’usage porte une entrée Nouveautés et une petite balise MAJ locale, accessible au toucher sur iPhone. Conserver l’origine du site, l’identité de la PWA et les activités locales : aucune réinstallation à demander.
 
@@ -18,6 +18,7 @@ Livraison : une PR par lot cohérent et validé. Fusion et déploiement sont des
 | Nettoyage avant refonte | Vent sans volet d’explications, boutons GPX/FIT côte à côte en compétition, segments compacts comme les montées, suppression des doublons de lecture et réglage de montées unique. [Règles et vérification](LEAN_COURSE_DETAIL.md). |
 | Interface Trip+ | Maquette approuvée le 26 octobre et intégrée : surfaces allégées, statistiques complètes conservées, onglets uniques, commandes au pouce, profils lisibles et vent fixe, filtres et étapes colorées/sélectionnables. Nom visible Trip+, identité PWA et données conservées. [Règles et contrôles](TRIPPLUS_INTERFACE.md). |
 | Retours iPhone et Tour | Champs natifs contenus, en-tête et onglets sous l’encoche, lecture temporaire des profils, pictogrammes communs ; repères J1a/J1b et alertes de continuité limitées aux liaisons explicites du Tour. [Correctifs et vérifications](IPHONE_POLISH.md). |
+| Informations de parcours | Palette de pente commune, grisé hors course léger, prévisions anciennes signalées après six heures. Prochaine eau indiquée potable depuis le profil/départ GPX, avec distance et passage estimé. En League/Tour, fiches de montée/segment sur la carte à la place de Calques. [Règles et contrôles](ROUTE_INFORMATION_POLISH.md). |
 | Export GPX enrichi | Lot `2026.10.24.3` : trace d’origine conservée, limites, noms, segments et réglages réimportables ; waypoints standards et extension versionnée. **Ce GPX ne garantit pas d’alertes Garmin.** [Format et vérifications](ENRICHED_GPX.md). |
 | Export FIT Course — essai | Lot `2026.10.24.7` : tracé GPX intégral dans le FIT, limites et alertes ajoutées comme repères, comparaison indépendante GPX/FIT et premier export hors connexion vérifiés. [Même parcours](FULL_GPX_FIT_ROUTE.md). **Validation sur appareil Garmin encore nécessaire.** [Format, limites et essai terrain](FIT_COURSE.md). |
 | Sauvegardes et mises à jour | Sauvegarde/restauration ZIP complète, originaux conservés, copies sans écrasement ; historique Nouveautés et balises MAJ. [Sauvegarde](TRIP_BACKUP.md), [mises à jour](RELEASE_NOTES.md). |
@@ -37,11 +38,9 @@ Cas technique à auditer séparément : l’import d’une trace passant de long
 
 ## Suggestions à cadrer ensuite
 
-- Harmoniser les couleurs de pente entre grand profil et mini-profils, puis alléger la représentation des portions hors course.
-- Signaler discrètement une météo ancienne après une période sans connexion.
 - Météo intermédiaire avec budget réseau/cache pour réduire les grandes distances entre prévisions.
 - Comparaison d’horaires de départ : vent, rafales, pluie, chaleur et arrivée avant la nuit.
 - Vent apparent et estimation d’effort, à relier au modèle d’allure avant de modifier les ETA.
-- Autonomie eau et ravitaillement : prochain service accessible, temps pour l’atteindre et fiabilité de l’information.
+- Ravitaillement et autonomie : étendre le repère d’eau réalisé aux autres services, puis cadrer les réserves et temps d’accès réels avec des données suffisantes.
 
 Ces suggestions restent des pistes, pas des fonctions annoncées comme disponibles.

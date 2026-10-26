@@ -14,6 +14,17 @@ import type { GenericDayWeatherViewModel, GenericWeatherPointViewModel } from '.
 import type { WeatherAvailability } from '../weather/types.ts'
 import type { DepartureWeatherScenario, WeatherAlert, WeatherRiskLevel } from '../weather/alerts/types.ts'
 import { formatPrecipitation, formatTemperatureRange, formatWind } from './weather-summary.ts'
+import { WEATHER_ALERT_THRESHOLDS } from '../weather/alerts/thresholds.ts'
+import { tripIcon } from './icons.ts'
+import { renderFeatureUpdateBadge } from './release-notes.ts'
+
+export function renderWeatherFreshness(model: GenericDayWeatherViewModel | null): string {
+  const age = model?.forecastAgeMs
+  if (model === null || model.mode === 'past' || model.summary === null || age == null || !Number.isFinite(age)
+    || age <= WEATHER_ALERT_THRESHOLDS.staleData.maxTrustedAgeMs) return ''
+  const label = age < 24 * 60 * 60_000 ? `${Math.floor(age / 3_600_000)} h` : `${Math.floor(age / 86_400_000)} j`
+  return `<span class="weather-freshness" data-weather-age>${tripIcon('clock')}Prévision reçue il y a ${label}</span>`
+}
 
 function escapeHtml(value: string): string {
   return value
@@ -317,7 +328,8 @@ function renderDaySection(label: string, model: GenericDayWeatherViewModel, incl
   const decision = renderDecisionCard(model)
   const body = message !== null ? `<p class="weather-message">${escapeHtml(message)}</p>` : decision
   return `<section class="weather-summary-block" data-weather-summary>
-    <p class="eyebrow">${escapeHtml(label)}</p>
+    <div class="feature-update-line"><p class="eyebrow">${escapeHtml(label)}</p>${renderFeatureUpdateBadge('weather-freshness')}</div>
+    ${renderWeatherFreshness(model)}
     ${body}
   </section>${points}`
 }
@@ -365,7 +377,7 @@ export function renderGenericOverviewWeatherBlock(model: GenericDayWeatherViewMo
     : ''
   return `<div class="trip-overview__weather" data-trip-overview-weather>
     <p class="trip-overview__weather-line">${escapeHtml(parts.join(' · '))}</p>
-    ${risk}
+    ${risk}${renderWeatherFreshness(model)}
   </div>`
 }
 
@@ -382,5 +394,5 @@ export function renderGenericDayCardWeatherLine(model: GenericDayWeatherViewMode
   const parts = summaryLine(model.summary)
   if (parts.length === 0) return ''
   const riskClass = model.riskLevel === 'red' || model.riskLevel === 'orange' ? ` trip-day-card__weather--${model.riskLevel}` : ''
-  return `<span class="trip-day-card__weather${riskClass}">${escapeHtml(parts.join(' · '))}</span>`
+  return `<span class="trip-day-card__weather${riskClass}">${escapeHtml(parts.join(' · '))}${renderWeatherFreshness(model)}</span>`
 }

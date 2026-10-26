@@ -4,6 +4,9 @@ import { paintClimbProfileBands } from './mini-profile-view.ts'
 import { renderStageServices } from './stage-services.ts'
 import { applyTimelineFilter } from './timeline-filters.ts'
 import { renderStageGpxActions } from './gpx-export-actions.ts'
+import { withRouteFeatureMarkers } from './route-feature-markers.ts'
+import { mountNextWater } from './next-water-view.ts'
+import { cumulativeGeometryDistances } from '../../route-enrichment/chunking.ts'
 import { syncCourseEditorProfile } from './course-editor-panel.ts'
 import { buildEnrichedGpx } from '../../export/enriched-gpx.ts'
 import { selectOrganizationCapabilities } from '../../trip-core/index.ts'
@@ -100,6 +103,9 @@ import { defaultConfirmDiscardChanges } from './confirm-discard-changes.ts'
  */
 const ONLINE_RESUME_DEBOUNCE_MS = 2_000
 const LIVE_PROGRESS_MARKUP = '<p class="trip-detail__prep-summary" data-enrichment-progress role="status" aria-live="polite" hidden></p>'
+// A POI batch reuses the same immutable geometry; do not traverse a long
+// GPX again every time water results arrive.
+const waterRouteLengths = new WeakMap<NonNullable<DayDetail['geometry']>, number>()
 
 const EXTERNAL_ACTIONS: ReadonlySet<string> = new Set([
   'previous-day',
@@ -118,7 +124,7 @@ import { createTripDetailAutoScrollSession, scrollTripDayCardIntoView } from '..
 import { createOpenMeteoProvider } from '../../weather/open-meteo.ts'
 import type { WeatherProvider } from '../../weather/types.ts'
 import { GenericWeatherCoordinator } from '../../weather/generic/coordinator.ts'
-import { renderGenericDayCardWeatherLine, renderGenericOverviewWeatherBlock, renderGenericStageWeatherPanel, renderInlineWaypointWeather, renderWeatherAlertsSummary } from '../weather-view.ts'
+import { renderGenericDayCardWeatherLine, renderGenericOverviewWeatherBlock, renderGenericStageWeatherPanel, renderInlineWaypointWeather, renderWeatherAlertsSummary, renderWeatherFreshness } from '../weather-view.ts'
 import type { GenericDayWeatherViewModel } from '../../weather/generic/view-model.ts'
 import type { GenericTransferWeatherViewModel } from '../../weather/generic/coordinator.ts'
 import { GENERIC_APP_HEADER_NO_ACTIVE_TRIP, buildGenericAppHeader } from './app-header.ts'
@@ -533,7 +539,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
         // `model` (never a second fetch), so it always stays in sync with
         // the full Météo panel above.
         const alertsMount = container.querySelector<HTMLElement>('[data-day-detail-weather-alerts]')
-        if (alertsMount !== null) alertsMount.innerHTML = renderWeatherAlertsSummary(model)
+        if (alertsMount !== null) alertsMount.innerHTML = renderWeatherAlertsSummary(model) + (model !== null && !('origin' in model) ? renderWeatherFreshness(model) : '')
       }
     }
     const overviewMount = container.querySelector<HTMLElement>('[data-trip-overview-weather-mount]')
@@ -797,9 +803,10 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
 
   function patchLivePracticalPlaces(bundle: TripBundle, dayId: TripDayId): void {
     if (mode.kind !== 'day' || mode.tripId !== bundle.metadata.id || mode.dayId !== dayId || mountedDayDetail === null) return
+    mountNextWaterForDay(bundle, mountedDayDetail, dayId)
     const mapContainer = container.querySelector<HTMLElement>('[data-day-detail-map]')
     const dialog = container.querySelector<HTMLDialogElement>('[data-day-detail-map-dialog]')
-    if (mapContainer !== null && dialog !== null) deps.updateMapLayers?.(mapContainer, dialog,
+    if (!selectRaceMode(bundle) && mapContainer !== null && dialog !== null) deps.updateMapLayers?.(mapContainer, dialog,
       [...villagesLayer(mountedDayDetail.villageWaypoints), ...practicalPlaceLayers(bundle, mountedDayDetail, dayId)])
   }
 
@@ -869,8 +876,11 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
         ? detail.markersOnlyMapModel
         : buildGenericRouteMapModel(visibleWaypoints, detail.geometry.map((point) => [point.latitude, point.longitude] as const))
       const course = stage === undefined ? null : buildRaceCourse(bundle, stage)
-      const model = baseModel === null || course === null ? baseModel : { ...baseModel, segmentLines: buildRaceSegmentMapLines(course, stage?.raceSegments ?? []) }
-      deps.renderMap(mapContainer, mapDialog, model, [...villagesLayer(detail.villageWaypoints), ...practicalPlaceLayers(bundle, detail, dayId)])
+      const model = baseModel === null || course === null ? baseModel : {
+        ...withRouteFeatureMarkers(baseModel, visibleWaypoints, bundle.climbs, course, stage?.raceSegments ?? []),
+        segmentLines: buildRaceSegmentMapLines(course, stage?.raceSegments ?? []),
+      }
+      deps.renderMap(mapContainer, mapDialog, model, selectRaceMode(bundle) ? [] : [...villagesLayer(detail.villageWaypoints), ...practicalPlaceLayers(bundle, detail, dayId)])
       mapDialog.querySelector<HTMLButtonElement>('[data-close-map]')?.addEventListener('click', () => deps.closeMap(mapDialog))
     }
     const profileContainer = container.querySelector<HTMLElement>('[data-day-detail-profile]')
@@ -929,6 +939,24 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     // since the old ones were discarded along with their own listeners when
     // their subtree's `innerHTML` was replaced.
     for (const svg of container.querySelectorAll<SVGSVGElement>('[data-climb-profile-interactive]')) mountClimbProfileInteraction(svg)
+    mountNextWaterForDay(bundle, detail, dayId)
+  }
+
+  function mountNextWaterForDay(bundle: TripBundle, detail: DayDetail, dayId: TripDayId): void {
+    const host = container.querySelector<HTMLElement>('[data-next-water]')
+    const profile = container.querySelector<HTMLElement>('[data-day-detail-profile]')
+    const day = bundle.days.find(day => day.id === dayId)
+    if (host === null || profile === null || day?.type !== 'ride' || detail.geometry === null) return
+    const places = bundle.practicalPlaces.filter(place => place.category === 'water' && !place.hidden
+      && (place.stageId === day.stageId || place.stageId == null && place.dayIds.includes(dayId)))
+    const departure = bundle.settings.days.find(settings => settings.dayId === dayId)?.departureTime ?? '08:00'
+    const models = buildPracticalPlaceViewModels(places, day, detail.timingCurve, departure)
+    let length = waterRouteLengths.get(detail.geometry)
+    if (length === undefined && places.length > 0) {
+      length = cumulativeGeometryDistances(detail.geometry).at(-1) ?? 0
+      waterRouteLengths.set(detail.geometry, length)
+    }
+    mountNextWater(host, profile, models, length ?? 0, selectTravelMode(bundle))
   }
 
   /**
@@ -1627,6 +1655,8 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
 
   /** The one place unified detail-tab visibility changes — shared by the tab click handler so switching tabs is always a plain, consistent toggle. */
   function switchDayTab(target: 'route' | 'infos' | 'weather' | 'course'): void {
+    const detailRoot = container.querySelector<HTMLElement>('[data-day-detail]')
+    if (detailRoot?.dataset) detailRoot.dataset.activeTab = target
     closeBottomPanels()
     const mapCard = container.querySelector<HTMLElement>('[data-day-detail-map-profile-card]')
     if (mapCard) {
@@ -2629,7 +2659,10 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     window.addEventListener('online', scheduleOnlineResume)
     window.addEventListener('pageshow', scheduleOnlineResume)
     if (typeof document.addEventListener === 'function') document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') scheduleOnlineResume()
+      if (document.visibilityState === 'visible') {
+        scheduleOnlineResume()
+        if (currentWeatherBundle !== null) mountWeatherViews(currentWeatherBundle)
+      }
     })
   }
 

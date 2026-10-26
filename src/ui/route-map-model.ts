@@ -10,6 +10,7 @@ import type { RaceSegment } from '../trip-core/index.ts'
 import type { RaceCourse } from '../analysis/race-bounds.ts'
 import { analyzeRaceSegment, raceSegmentLanes, raceSegmentStatus } from '../analysis/race-segments.ts'
 import { RACE_SEGMENT_STYLE } from './trips/race-segment-style.ts'
+import { renderRouteFeaturePopup } from './route-feature-popup.ts'
 
 /**
  * Leaflet-free data shaping for the route map, kept in its own module so it
@@ -38,17 +39,15 @@ export interface RouteMapMarkerModel {
   readonly pauseDurationMinutes?: number
   /**
    * Rich popup content, opened on click — distinct from the plain hover
-   * `subLabel`/tooltip every other marker already carries. Only an opt-in
-   * layer's own marker builder sets this; every structural marker leaves it
-   * `undefined`, so `installMapLayerPanel` only ever binds a Leaflet popup
-   * for the markers that actually have one.
+   * `subLabel`/tooltip. Amenity layers and retained course features provide
+   * escaped HTML; compact maps remain expand targets with no local popup.
    */
   readonly popupHtml?: string
 }
 
 export interface RouteMapModel {
   readonly overviewStages?: readonly OverviewStageLine[]
-  readonly segmentLines?: readonly { readonly coordinates: readonly LatLngTuple[]; readonly color: string; readonly name: string; readonly dashed: boolean; readonly weight?: number }[]
+  readonly segmentLines?: readonly { readonly coordinates: readonly LatLngTuple[]; readonly color: string; readonly name: string; readonly dashed: boolean; readonly weight?: number; readonly popupHtml?: string }[]
   readonly coordinates: readonly LatLngTuple[]
   readonly markers: readonly RouteMapMarkerModel[]
   /**
@@ -71,11 +70,14 @@ export function buildRaceSegmentMapLines(course: RaceCourse, segments: readonly 
   // Wider lines go underneath narrower ones so overlapping segments keep
   // visible colored edges, without offsetting them off the actual route.
   return [...lanes].sort((a, b) => a.lane - b.lane).flatMap(({ segment, lane }) => {
-    const geometry = analyzeRaceSegment(course, segment).geometry
+    const analysis = analyzeRaceSegment(course, segment)
+    const geometry = analysis.geometry
     if (geometry === null || geometry.length < 2) return []
     const style = RACE_SEGMENT_STYLE[segment.type]
     return [{ coordinates: geometry.map(point => [point.latitude, point.longitude] as LatLngTuple),
-      color: style.color, name: `${style.label} · ${segment.name}`, dashed: false, weight: 6 + Math.min(12, (maximumLane - lane) * 2) }]
+      color: style.color, name: `${style.label} · ${segment.name}`, dashed: false, weight: 6 + Math.min(12, (maximumLane - lane) * 2),
+      popupHtml: renderRouteFeaturePopup(segment.name, style.label, analysis.distanceM === null ? null : analysis.distanceM / 1000,
+        analysis.partialAltitude ? null : analysis.elevationGainM, analysis.averageGradientPercent, analysis.partialAltitude) }]
   })
 }
 

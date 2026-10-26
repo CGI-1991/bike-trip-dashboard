@@ -117,5 +117,5 @@ test('AH/AI/AJ: the practical-place layer builder is wired ONLY into the Étape 
   const mountOverviewMapEnd = tripsManager.indexOf('\n  async function renderOverview', mountOverviewMapStart)
   assert.doesNotMatch(tripsManager.slice(mountOverviewMapStart, mountOverviewMapEnd), /practicalPlaceLayers|buildPracticalPlaceMapLayers/)
   assert.match(tripsManager, /function practicalPlaceLayers\(/)
-  assert.match(tripsManager, /deps\.renderMap\(mapContainer, mapDialog, model, \[\.\.\.villagesLayer\(detail\.villageWaypoints\), \.\.\.practicalPlaceLayers\(bundle, detail, dayId\)\]\)/)
+  assert.match(tripsManager, /deps\.renderMap\(mapContainer, mapDialog, model, selectRaceMode\(bundle\) \? \[\] : \[\.\.\.villagesLayer\(detail\.villageWaypoints\), \.\.\.practicalPlaceLayers\(bundle, detail, dayId\)\]\)/)
 })

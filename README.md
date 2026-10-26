@@ -1,6 +1,7 @@
 # Trip+
 
 La [refonte mobile validée](docs/TRIPPLUS_INTERFACE.md) présente l’interface actuelle, ses captures et ses contrôles.
+La [finition des informations de parcours](docs/ROUTE_INFORMATION_POLISH.md) harmonise les profils, signale les prévisions anciennes, ajoute le prochain point d’eau indiqué potable et les fiches de carte League/Tour.
 
 La [feuille de route Trip(+)](docs/ROADMAP.md) mémorise les évolutions réalisées et à venir : vélo et randonnée, allures, montées, POI, interface mobile et validation terrain.
 Le [premier lot de fiabilisation des POI](docs/POI_RELIABILITY.md) décrit la recherche progressive, la reprise et la compatibilité avec les voyages existants.

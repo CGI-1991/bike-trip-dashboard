@@ -1,5 +1,7 @@
 # Correctifs iPhone et repères Tour — 2026.10.26.2
 
+> Les trois pistes suivantes sont intégrées au [lot 2026.10.26.3](ROUTE_INFORMATION_POLISH.md), avec un repère d’eau et des fiches de carte en compétition.
+
 Ce lot répond au retour terrain après la refonte Trip+.
 
 - Date et heure : contraintes de largeur communes, suppression de la largeur native imposée par WebKit et fenêtre de départ GPX à largeur explicite. Les sélecteurs restent natifs ; aucune date ou heure n’est changée pour corriger l’affichage.

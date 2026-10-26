@@ -1,17 +1,8 @@
-import type { ClimbGradeClass, ClimbProfileSegment } from '../../analysis/climb-profile.ts'
-import { classifyClimbGrade } from '../../analysis/climb-profile.ts'
+import type { ClimbProfileSegment } from '../../analysis/climb-profile.ts'
+import { profileGradeColor } from '../profile-grade-colors.ts'
 import { aggregateProfileBands } from '../profile-display-bands.ts'
 const escapeHtml = (value: string) => value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('\"', '&quot;')
 const formatKilometers = (value: number) => `${value.toFixed(1).replace('.', ',')} km`
-const GRADE_CLASS_COLORS: Readonly<Record<ClimbGradeClass, string>> = {
-  'descent-7-plus': '#4f7f8f',
-  'descent-0-7': '#7fa9a6',
-  'climb-0-1': '#7fb35a',
-  'climb-1-4': '#c9c24a',
-  'climb-4-8': '#e2963a',
-  'climb-8-12': '#cf4a3a',
-  'climb-12-plus': '#7a2a52',
-}
 function renderClimbProfileShape(segments: readonly ClimbProfileSegment[], id: string): string {
   const altitudes = segments.flatMap((segment) => [segment.startAltitudeM, segment.endAltitudeM]).filter((value): value is number => value !== null)
   if (altitudes.length === 0) return ''
@@ -29,7 +20,7 @@ function renderClimbProfileShape(segments: readonly ClimbProfileSegment[], id: s
   const bands = aggregateProfileBands(segments, 300).map((segment) => {
     const x1 = x(segment.startDistanceKm)
     const x2 = x(segment.endDistanceKm)
-    const color = segment.averageGradientPercent === null ? '#c7d2cc' : GRADE_CLASS_COLORS[classifyClimbGrade(segment.averageGradientPercent)]
+    const color = profileGradeColor(segment.averageGradientPercent)
     return `<rect x="${x1.toFixed(1)}" y="0" width="${(x2-x1+.1).toFixed(1)}" height="${height}" fill="${color}"></rect>`
   }).join('')
   const outline = segments
@@ -83,5 +74,5 @@ export function paintClimbProfileBands(svg:SVGSVGElement):void {
   if(!rows.length)return
   const start=rows[0]![0],span=rows.at(-1)![1]-start
   if(span<=0)return
-  bands.innerHTML=aggregateProfileBands(rows.map(r=>({startDistanceKm:r[0],endDistanceKm:r[1],averageGradientPercent:r[4]})),svg.getBoundingClientRect().width).map(r=>`<rect x="${((r.startDistanceKm-start)/span*300).toFixed(1)}" y="0" width="${((r.endDistanceKm-r.startDistanceKm)/span*300+.1).toFixed(1)}" height="130" fill="${r.averageGradientPercent===null?'#c7d2cc':GRADE_CLASS_COLORS[classifyClimbGrade(r.averageGradientPercent)]}"></rect>`).join('')
+  bands.innerHTML=aggregateProfileBands(rows.map(r=>({startDistanceKm:r[0],endDistanceKm:r[1],averageGradientPercent:r[4]})),svg.getBoundingClientRect().width).map(r=>`<rect x="${((r.startDistanceKm-start)/span*300).toFixed(1)}" y="0" width="${((r.endDistanceKm-r.startDistanceKm)/span*300+.1).toFixed(1)}" height="130" fill="${profileGradeColor(r.averageGradientPercent)}"></rect>`).join('')
 }
