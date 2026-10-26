@@ -29,7 +29,8 @@ export function paintRaceBounds(profile: HTMLElement, bounds: RaceBounds | null,
   if (svg === null || bounds === null || !validRaceOffsets(bounds, lengthKm)) return
   const x = (offsetM: number) => 20 + 760 * offsetM / (lengthKm * 1000)
   const start = x(bounds.startOffsetM), finish = x(bounds.finishOffsetM)
-  svg.insertAdjacentHTML('beforeend', `<g class="race-profile-bounds" data-race-overlay aria-hidden="true"><rect class="race-profile-bounds__outside" x="20" y="25" width="${Math.max(0, start - 20)}" height="189"/><rect class="race-profile-bounds__outside" x="${finish}" y="25" width="${Math.max(0, 780 - finish)}" height="189"/><line x1="${start}" x2="${start}" y1="25" y2="214"/><line x1="${finish}" x2="${finish}" y1="25" y2="214"/><text x="${start}" y="38" text-anchor="${start > 740 ? 'end' : 'start'}">D</text><text x="${finish}" y="55" text-anchor="${finish > 740 ? 'end' : 'start'}">A</text></g>`)
+  svg.querySelector('.profile-area')?.setAttribute('id', 'race-bounds-source-area')
+  svg.insertAdjacentHTML('beforeend', `<g class="race-profile-bounds" data-race-overlay aria-hidden="true"><defs><clipPath id="race-bounds-area-clip"><use href="#race-bounds-source-area"/></clipPath></defs><g clip-path="url(#race-bounds-area-clip)"><rect class="race-profile-bounds__outside" x="20" y="25" width="${Math.max(0, start - 20)}" height="189"/><rect class="race-profile-bounds__outside" x="${finish}" y="25" width="${Math.max(0, 780 - finish)}" height="189"/></g><line x1="${start}" x2="${start}" y1="25" y2="214"/><line x1="${finish}" x2="${finish}" y1="25" y2="214"/><text x="${start}" y="38" text-anchor="${start > 740 ? 'end' : 'start'}">D</text><text x="${finish}" y="55" text-anchor="${finish > 740 ? 'end' : 'start'}">A</text></g>`)
 }
 
 const controllers = new WeakMap<HTMLElement, AbortController>()

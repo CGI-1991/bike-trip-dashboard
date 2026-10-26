@@ -1,6 +1,6 @@
 import type { GeographicWindReading, RelativeWindReading, RouteWindModel } from '../weather/relative-wind.ts'
 import { headwindColor, relativeWindLabel } from '../weather/relative-wind.ts'
-import { classifyClimbGrade } from '../analysis/climb-profile.ts'
+import { profileGradeColor } from './profile-grade-colors.ts'
 import type { ProfileSample } from './elevation-profile.ts'
 import { renderFeatureUpdateBadge } from './release-notes.ts'
 import type { TravelMode } from '../trip-core/model/settings.ts'
@@ -38,10 +38,6 @@ export function renderProfileWindControls(windEnabled = true): string {
   return `<div class="profile-modes"><div role="group" aria-label="Coloration du profil"><button type="button" data-profile-mode="neutral" aria-pressed="true">Neutre</button><button type="button" data-profile-mode="grade" aria-pressed="false">Pente</button>${windEnabled ? '<button type="button" data-profile-mode="wind" aria-pressed="false">Vent</button>' : ''}</div>${renderFeatureUpdateBadge(windEnabled ? 'relative-wind' : 'elevation-profile')}</div><p class="profile-color-legend" data-profile-color-legend></p>`
 }
 
-const GRADE_COLORS = {
-  'climb-0-1': '#a1cfa4', 'climb-1-4': '#6bae6e', 'climb-4-8': '#e4c64e', 'climb-8-12': '#e78b39', 'climb-12-plus': '#bd4444',
-  'descent-0-7': '#b4b8d7', 'descent-7-plus': '#7568a4',
-} as const
 
 interface WindProfileHandle {
   update(model: RouteWindModel | null, travelMode: TravelMode): void
@@ -89,7 +85,7 @@ export function installProfileWindControls(container: HTMLElement, samples: read
     bands!.innerHTML = displayed === 'neutral' ? '' : intervals.map(point => {
       const km = (point.startDistanceKm + point.endDistanceKm) / 2
       const reading = wind?.at(km, (point.endDistanceKm - point.startDistanceKm) * 1000) ?? null
-      const color = displayed === 'grade' ? point.averageGradientPercent === null ? '#c7d2cc' : GRADE_COLORS[classifyClimbGrade(point.averageGradientPercent)] : headwindColor(reading)
+      const color = displayed === 'grade' ? profileGradeColor(point.averageGradientPercent) : headwindColor(reading)
       return `<rect x="${bounds.x(point.startDistanceKm).toFixed(1)}" y="0" width="${(bounds.x(point.endDistanceKm) - bounds.x(point.startDistanceKm) + .1).toFixed(1)}" height="214" fill="${color}"/>`
     }).join('')
     legend!.textContent = displayed === 'neutral' ? '' : displayed === 'grade'

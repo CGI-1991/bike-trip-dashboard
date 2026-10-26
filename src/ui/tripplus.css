@@ -897,6 +897,45 @@ input:is([type=date],[type=time])::-webkit-date-and-time-value {
 [data-day-detail-profile] { scroll-margin-top: calc(var(--app-safe-top) + var(--day-sticky-header-h, 0px) + 62px); }
 .route-map-dialog__actions [data-map-layers-toggle][aria-pressed=true] { background: var(--forest-950); color: white; border-color: var(--forest-950); }
 .leaflet-popup-content-wrapper { border-radius: 4px; }
+.race-profile-bounds__outside { fill:#83918e; opacity:.2; }
+.weather-freshness {
+  display:flex;
+  align-items:center;
+  gap:5px;
+  color:var(--ink-soft);
+  font-size:12px;
+  font-weight:400;
+  margin-block:6px
+}
+.weather-freshness .trip-icon { width:14px; height:14px; flex:none; }
+[data-day-detail][data-active-tab=weather] [data-day-detail-weather-alerts]>[data-weather-age] { display:none; }
+.route-feature-popup { min-width:170px; font:400 14px/1.4 TripSource,sans-serif; }
+.route-feature-leaflet-popup .leaflet-popup-content { box-sizing:border-box; width:min(260px,calc(100vw - 56px)) !important; margin:0; padding:14px; }
+.route-feature-leaflet-popup .leaflet-popup-content-wrapper { padding:0; border:1px solid var(--line); border-radius:4px; box-shadow:0 3px 10px rgb(22 63 53 / 12%); }
+.leaflet-container .route-feature-leaflet-popup a.leaflet-popup-close-button { width:44px; height:44px; display:grid; place-items:center; }
+.route-feature-leaflet-popup .route-feature-popup>p { margin:0 0 4px; color:var(--ink-soft); font-size:12px; }
+.route-feature-popup>strong { display:block; padding-right:32px; font-size:17px; overflow-wrap:anywhere; }
+.route-feature-popup dl { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:12px 0 0; }
+.route-feature-popup dt { font-size:11px; color:var(--ink-soft); }
+.route-feature-popup dd { margin:2px 0 0; font-weight:600; white-space:nowrap; }
+.next-water {
+  position:relative;
+  height:116px;
+  min-width:0;
+  padding-block:10px;
+  border-block:1px solid var(--line);
+  font-size:12px;
+  line-height:1.4
+}
+.next-water__heading { display:flex; align-items:center; padding-right:44px; font-weight:600; }
+.next-water__heading .feature-update-badge { position:absolute; right:0; top:0; }
+.next-water>span,.next-water small { font-size:11px; color:var(--ink-soft); }
+.next-water__point { display:flex; align-items:center; gap:8px; min-height:44px; color:var(--forest-950); }
+.next-water__point>span:first-child { display:block; min-width:0; }
+.next-water__point strong,.next-water__point>span:first-child>span { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.next-water__point strong { font-size:15px; }
+.next-water__point .trip-icon { width:15px; height:15px; flex:none; }
+.next-water p { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin:2px 0; }
 
 .overview-stage-picker { display: block; font-size: 11px; color: var(--ink-soft); }
 .overview-stage-picker select { display:block; width:100%; min-width:0; min-height:44px; margin-top:5px; background:var(--surface); color:var(--ink); border:1px solid var(--line-strong); border-radius:3px; font-size:13px; }

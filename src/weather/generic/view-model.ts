@@ -82,6 +82,8 @@ export interface GenericDayWeatherViewModel {
   readonly availability: WeatherAvailability
   readonly mode: WeatherDisplayMode | null
   readonly fetchedAt: string | null
+  /** Age at view construction, kept out of persistent forecast data. */
+  readonly forecastAgeMs?: number | null
   readonly isRefreshing: boolean
   readonly message: string | null
   readonly summary: GenericWeatherSummaryViewModel | null
@@ -203,6 +205,8 @@ function toOffViewModel(dayId: string, data: OffDayWeather, availability: Weathe
  */
 export function buildGenericDayWeatherViewModel(dayId: string, state: WeatherDayState | null, now: Date = new Date()): GenericDayWeatherViewModel | null {
   if (state === null) return null
+  const age = state.fetchedAt === null ? NaN : now.getTime() - Date.parse(state.fetchedAt)
+  const forecastAgeMs = Number.isFinite(age) && age >= 0 ? age : null
   const nowLocal = getNowLocalDateTime(now, weatherConfig.timezone)
   const today = nowLocal.slice(0, 10) as IsoDate
   // Sections 22/29 closeout: `coverage` used to be hardcoded `null`, which
@@ -216,7 +220,7 @@ export function buildGenericDayWeatherViewModel(dayId: string, state: WeatherDay
   if (state.data === null) {
     return {
       dayId, dayType: state.dayType, availability: state.availability, mode, fetchedAt: state.fetchedAt,
-      isRefreshing: state.isRefreshing, message: state.message ?? null, summary: null, points: [], riskLevel: 'unknown', alerts: [],
+      isRefreshing: state.isRefreshing, message: state.message ?? null, summary: null, points: [], riskLevel: 'unknown', alerts: [], forecastAgeMs,
       departureScenarios: [], recommendation: null, departureAlreadyPassed: false,
     }
   }
@@ -234,7 +238,7 @@ export function buildGenericDayWeatherViewModel(dayId: string, state: WeatherDay
   // network call — these all reassociate against the forecast already
   // fetched for the real departure time.
   if (state.data.type !== 'ride' || state.departureScenarios === null || state.departureScenarios.length === 0) {
-    return { ...base, mode }
+    return { ...base, mode, forecastAgeMs }
   }
 
   // CDC D1.1 section 15: `departureScenarios` is what the UI presents
@@ -256,5 +260,5 @@ export function buildGenericDayWeatherViewModel(dayId: string, state: WeatherDay
   const cacheAgeMs = state.fetchedAt === null ? null : now.getTime() - new Date(state.fetchedAt).getTime()
   const recommendation = buildDepartureRecommendation(chronological, { mode, hasDeparted: departureAlreadyPassed, cacheAgeMs })
 
-  return { ...base, mode, departureScenarios: chronological, recommendation, departureAlreadyPassed }
+  return { ...base, mode, forecastAgeMs, departureScenarios: chronological, recommendation, departureAlreadyPassed }
 }
