@@ -13,6 +13,9 @@ export interface AppRelease {
 }
 
 export const APP_RELEASES: readonly AppRelease[] = [
+  { version: '2026.10.27.5', date: '2026-10-27', changes: [
+    { feature: 'creator-credit', title: 'Trip+ by CGi', description: 'La signature discrète by CGi sous le nom Trip+ ouvre un court texte sur l’origine et la conception de l’application : des voyages en itinérance à vélo et à pied aux courses à étapes et aux saisons de course.' },
+  ] },
   { version: '2026.10.27.4', date: '2026-10-27', changes: [
     { feature: 'overview-map', title: 'Une vue d’ensemble plus lisible', description: 'La carte de tout le voyage conserve les départs et arrivées GPX, les couleurs et les bulles d’étape. Les limites réelles de course restent dans le détail de l’étape. Détail révèle seulement les pauses et cols nommés ; il n’affiche plus tous les noms d’étapes. Au survol ou au toucher d’une bulle, les villes Départ → Arrivée restent disponibles, même avec un nom personnalisé.' },
     { feature: 'stage-tabs', title: 'Les onglets de l’étape se repèrent mieux', description: 'Parcours, Météo, Infos et Course utilisent une barre sur fond distinct, un contour plus net et une sélection vert profond avec texte blanc. La barre reste accessible pendant le défilement et conserve les cibles tactiles et la navigation clavier.' },

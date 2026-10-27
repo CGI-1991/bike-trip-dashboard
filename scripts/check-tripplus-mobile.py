@@ -12,7 +12,7 @@ Aucun stockage du navigateur personnel n’est ouvert ni modifié.
 """
 
 from pathlib import Path
-import argparse, hashlib, io, json, math, shutil, tempfile, zipfile
+import argparse, hashlib, io, json, math, re, shutil, tempfile, zipfile
 import xml.etree.ElementTree as ET
 from playwright.sync_api import sync_playwright
 parser = argparse.ArgumentParser(description='Contrôle tactile Trip+ sur un build Vite servi localement.')
@@ -46,6 +46,41 @@ with sync_playwright() as p:
     context = browser.new_context(viewport={'width': 390, 'height': 844}, is_mobile=True, has_touch=True, timezone_id='Europe/Brussels', locale='fr-BE', accept_downloads=True)
     page = context.new_page()
     page.set_default_timeout(20000)
+    def check_creator_credit(capture=False):
+        credit=page.locator('[data-creator-credit]')
+        note=page.locator('.creator-credit-dialog')
+        assert credit.count()==1 and note.count()==1
+        assert ' '.join(credit.inner_text().split())=='Trip+ by CGi'
+        assert note.is_hidden()
+        current_url=page.url
+        for width in [320,390,430]:
+            page.set_viewport_size({'width':width,'height':844})
+            box=credit.bounding_box()
+            assert box['width']>=44 and box['height']>=44,box
+            assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
+            credit.locator('.app-wordmark__credit').tap()
+            note.wait_for(state='visible')
+            assert 'imaginée et conçue par CGi' in note.inner_text()
+            assert 'à vélo comme à pied' in note.inner_text() and 'saisons de course' in note.inner_text()
+            box=note.bounding_box()
+            assert box['x']>=0 and box['x']+box['width']<=width
+            assert note.get_by_role('button',name='Fermer').bounding_box()['height']>=44
+            if capture and width==390:
+                page.screenshot(path=str(OUT / '15-note-createur.png'))
+            note.get_by_role('button',name='Fermer').tap()
+            note.wait_for(state='hidden')
+            page.wait_for_function('document.activeElement?.hasAttribute("data-creator-credit")')
+        page.set_viewport_size({'width':390,'height':844})
+        credit.focus()
+        page.keyboard.press('Enter')
+        note.wait_for(state='visible')
+        page.keyboard.press('Escape')
+        note.wait_for(state='hidden')
+        page.wait_for_function('document.activeElement?.hasAttribute("data-creator-credit")')
+        assert page.url==current_url and note.count()==1
+        if capture:
+            page.locator('.app-header').screenshot(path=str(OUT / '14-signature.png'))
+
     def check_native_fields():
         for width in [320, 390, 430]:
             page.set_viewport_size({'width': width, 'height': 844})
@@ -84,6 +119,10 @@ with sync_playwright() as p:
     page.evaluate('navigator.serviceWorker.ready')
     page.wait_for_function('navigator.serviceWorker.controller!==null')
     assert 'Trip+' in page.locator('.app-wordmark').inner_text()
+    assert page.locator('meta[name=author]').get_attribute('content')=='CGi'
+    html_source=page.request.get(args.url).text()
+    assert re.search(r'<!--[\s\S]*?Trip\+ by CGi[\s\S]*?saisons de course[\s\S]*?-->',html_source), 'the attribution must survive the production HTML build'
+    check_creator_credit(capture=True)
     page.locator('[data-nav-view=trips]').tap()
     page.locator('[data-action=create-trip]').tap()
     page.locator('#wizard-name').fill('Trip+ contrôle réel')
@@ -438,8 +477,9 @@ with sync_playwright() as p:
     page.wait_for_load_state('networkidle')
     page.locator('[data-nav-view=trips]').tap()
     page.wait_for_function('(count)=>document.querySelectorAll(".trip-card").length===count', arg=original_count*2)
+    check_creator_credit()  # Also works after offline reload/restore.
     print(json.dumps({'originalGpxArchiveExact': True, 'backupHashesVerified': True, 'corruptBackupRejected': True, 'restoreCopiesOffline': original_count, 'nativeMapDismissal': True}))
     assert not errors, errors
     print('Artifacts:', OUT)
-    print(json.dumps({'production': True, 'gpxImport': 3, 'longRouteKm': 150, 'allStats': 9, 'tabs': 4, 'sharedCourseProfile': True, 'bottomStagePicker': True, 'neutralOnOtherStage': True, 'stableWindSlot': True, 'adaptiveBands': True, 'overviewLines': 3, 'overviewStageBubbles': 3, 'permanentStageNames': False, 'selectionAndNavigation': True, 'offlineFonts': len(cached), 'sameGpxVertices': len(source), 'offlineGpxFit': True, 'offlineReload': True, 'walkingOffline': True, 'widths': [320, 390, 430], 'nativeFieldsFit': True, 'touchReadingsClear': True, 'simulatedSafeTopPx': 59, 'tourLabels': ['J1a', 'J1b', 'J2'], 'jsErrors': errors}))
+    print(json.dumps({'production': True, 'creatorCredit': True, 'creditOfflineAndKeyboard': True, 'sourceAttributionPreserved': True, 'gpxImport': 3, 'longRouteKm': 150, 'allStats': 9, 'tabs': 4, 'sharedCourseProfile': True, 'bottomStagePicker': True, 'neutralOnOtherStage': True, 'stableWindSlot': True, 'adaptiveBands': True, 'overviewLines': 3, 'overviewStageBubbles': 3, 'permanentStageNames': False, 'selectionAndNavigation': True, 'offlineFonts': len(cached), 'sameGpxVertices': len(source), 'offlineGpxFit': True, 'offlineReload': True, 'walkingOffline': True, 'widths': [320, 390, 430], 'nativeFieldsFit': True, 'touchReadingsClear': True, 'simulatedSafeTopPx': 59, 'tourLabels': ['J1a', 'J1b', 'J2'], 'jsErrors': errors}))
     browser.close()
