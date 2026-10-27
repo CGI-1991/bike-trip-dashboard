@@ -1,5 +1,7 @@
 # Trip+
 
+**Trip+ by CGi** — imaginée et conçue pour faciliter l’itinérance à vélo et à pied, puis enrichie pour les courses à étapes et les saisons de course. La [signature d’auteur](docs/CREATOR_CREDIT.md) est accessible depuis le nom de l’application.
+
 La [carte Aperçu et les onglets](docs/OVERVIEW_MAP_CLARITY.md) distinguent les repères GPX des limites réelles, réservent les cols/pauses à Détail et renforcent la navigation d’étape.
 La [lecture des montées, segments et repères de course](docs/CLIMBS_COURSE_REPRESENTATION.md) apporte la conversion réversible en Grimpeur, les montées orange, les bulles centrales, les drapeaux et les mini-profils avec lecture sous le graphique.
 Les [repères d’interaction](docs/INTERACTION_CUES.md) identifient les actions en bleu, l’édition par un crayon et les détails dépliables par un chevron, de façon commune dans l’application.
