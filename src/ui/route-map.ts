@@ -41,10 +41,29 @@ const expandedOpeners = new WeakMap<HTMLDialogElement, HTMLElement>()
 const expandedHistory = new WeakMap<HTMLDialogElement, MapOverlayHistoryController>()
 const scrollUnlocks = new WeakMap<HTMLDialogElement, () => void>()
 const pendingFrames = new WeakMap<HTMLDialogElement, number>()
-const mapLayerControllers = new WeakMap<HTMLDialogElement, { dispose(): void }>()
+const mapLayerControllers = new WeakMap<HTMLDialogElement, {
+  isOpen(): boolean
+  close(reason?: 'normal' | 'history'): void
+  dispose(): void
+}>()
 const temporaryMarkers = new WeakMap<HTMLElement, L.CircleMarker>()
 const mapClickHandlers = new WeakMap<HTMLElement, (event: L.LeafletMouseEvent) => void>()
 const currentLocationMarkers = new WeakMap<HTMLElement, { readonly dot: L.CircleMarker; readonly halo: L.Circle | null }>()
+const dismissalBound = new WeakSet<HTMLDialogElement>()
+
+function bindExpandedDismissal(dialog: HTMLDialogElement): void {
+  if (dismissalBound.has(dialog)) return
+  dismissalBound.add(dialog)
+  dialog.addEventListener('cancel', event => {
+    event.preventDefault()
+    closeExpandedRouteMap(dialog)
+  })
+  // Also cover a native close() performed outside our close button. Ignore
+  // an old queued close event if this same dialog has already reopened.
+  dialog.addEventListener('close', () => {
+    if (!dialog.open && (scrollUnlocks.has(dialog) || expandedHistory.has(dialog))) closeExpandedRouteMap(dialog)
+  })
+}
 
 /**
  * C3.B sections 34-37: dedicated panes so the profile's temporary cursor
@@ -72,7 +91,13 @@ export function destroyRouteMap(container: HTMLElement): void {
   currentLocationMarkers.delete(container)
   mapClickHandlers.delete(container)
 }
-function destroy(container: HTMLElement): void { destroyRouteMap(container) }
+function destroy(container: HTMLElement): void {
+  // Generic renders own a child canvas. Dispose it before replacing the
+  // host's HTML, otherwise its map and window listeners survive each patch.
+  const canvas = container.querySelector<HTMLElement>('[data-route-map-canvas], [data-today-route-map-canvas]')
+  if (canvas !== null) destroyRouteMap(canvas)
+  destroyRouteMap(container)
+}
 
 /**
  * The smallest generic seam the profile↔map sync (CDC D1.1 sections 18-19)
@@ -259,9 +284,9 @@ export function createRouteMap(container: HTMLElement, model: RouteMapModel, opt
   }
   for (const segment of model.segmentLines ?? []) {
     if (segment.coordinates.length < 2) continue
-    const line = L.polyline(segment.coordinates.map(toLatLng), { color: segment.color, weight: segment.weight ?? 6, opacity: .9, interactive, className: 'route-map-segment-line', ...(segment.dashed ? { dashArray: '5 5' } : {}) })
-      .bindTooltip(escapeHtml(segment.name)).addTo(map)
+    const line = L.polyline(segment.coordinates.map(toLatLng), { color: segment.color, weight: segment.weight ?? 6, opacity: .9, interactive, className: 'route-map-segment-line', ...(segment.dashed ? { dashArray: '5 5' } : {}) }).addTo(map)
     if (interactive && segment.popupHtml !== undefined) line.bindPopup(segment.popupHtml, { maxWidth: 260, className: 'route-feature-leaflet-popup' })
+    else if (interactive) line.bindTooltip(escapeHtml(segment.name))
   }
   // Offsets are resolved across the whole set drawn together, so a climb
   // summiting exactly on the arrival line keeps both markers visible and
@@ -270,10 +295,10 @@ export function createRouteMap(container: HTMLElement, model: RouteMapModel, opt
   const markerOffsets = resolveMarkerIconOffsets(model.markers)
   model.markers.forEach((marker, index) => {
     bounds.extend(toLatLng(marker.coordinate))
-    const layer = L.marker(toLatLng(marker.coordinate), { interactive, keyboard: interactive, bubblingMouseEvents: false, icon: createRouteDivIcon(marker.category, { offRoute: marker.offRoute, pauseActive: marker.pauseActive, iconOffset: markerOffsets[index] }) })
-      .bindTooltip(markerTooltip(marker))
-      .addTo(map)
+    const layer = L.marker(toLatLng(marker.coordinate), { interactive, keyboard: interactive, bubblingMouseEvents: false, icon: createRouteDivIcon(marker.category, { offRoute: marker.offRoute, pauseActive: marker.pauseActive, iconOffset: markerOffsets[index] }) }).addTo(map)
+    layer.getElement()?.setAttribute('aria-label', marker.name)
     if (interactive && marker.popupHtml !== undefined) layer.bindPopup(marker.popupHtml, { maxWidth: 260, className: 'route-feature-leaflet-popup' })
+    else if (interactive) layer.bindTooltip(markerTooltip(marker))
   })
   if (bounds.isValid()) {
     if (options.invalidateBeforeInitialFit === true) map.invalidateSize()
@@ -440,7 +465,7 @@ function installMapLayerPanel(dialog: HTMLDialogElement, map: L.Map, layers: rea
     const layerOffsets = resolveMarkerIconOffsets(layer.markers)
     const group = L.layerGroup(layer.markers.map((marker, markerIndex) => {
       const built = L.marker(toLatLng(marker.coordinate), { icon: createRouteDivIcon(marker.category, { offRoute: marker.offRoute, pauseActive: marker.pauseActive, iconOffset: layerOffsets[markerIndex] }) })
-        .bindTooltip(markerTooltip(marker))
+      built.on('add', () => built.getElement()?.setAttribute('aria-label', marker.name))
       // C2 (CDC section 19): a practical-POI marker carries its own rich
       // popup, opened on click — every structural marker leaves `popupHtml`
       // unset and keeps its plain tooltip-only behaviour, unchanged.
@@ -460,7 +485,7 @@ function installMapLayerPanel(dialog: HTMLDialogElement, map: L.Map, layers: rea
           const position = sharedCurrentLocationService.getState().position
           updatePoiDirectionsOrigin(link, position === null ? null : { latitude: position.latitude, longitude: position.longitude })
         })
-      }
+      } else built.bindTooltip(markerTooltip(marker))
       return built
     }))
     groups.set(layer.id, group)
@@ -499,18 +524,20 @@ function installMapLayerPanel(dialog: HTMLDialogElement, map: L.Map, layers: rea
     panel.hidden = false
     backdrop.hidden = false
     toggle.setAttribute('aria-expanded', 'true')
+    expandedHistory.get(dialog)?.panelOpened()
     close.focus()
   }
-  const closePanel = (): void => {
+  const closePanel = (reason: 'normal' | 'history' = 'normal'): void => {
     if (panel.hidden) return
     panel.hidden = true
     backdrop.hidden = true
     toggle.setAttribute('aria-expanded', 'false')
+    if (reason === 'normal') expandedHistory.get(dialog)?.panelClosedNormally()
     toggle.focus()
   }
   toggle.addEventListener('click', () => { if (panel.hidden) openPanel(); else closePanel() }, { signal })
-  backdrop.addEventListener('click', closePanel, { signal })
-  close.addEventListener('click', closePanel, { signal })
+  backdrop.addEventListener('click', () => closePanel(), { signal })
+  close.addEventListener('click', () => closePanel(), { signal })
   dialog.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape' || panel.hidden) return
     event.preventDefault()
@@ -519,6 +546,8 @@ function installMapLayerPanel(dialog: HTMLDialogElement, map: L.Map, layers: rea
   }, { signal })
 
   mapLayerControllers.set(dialog, {
+    isOpen: () => !panel.hidden,
+    close: closePanel,
     dispose(): void {
       eventController.abort()
       for (const group of groups.values()) group.remove()
@@ -607,6 +636,7 @@ export function renderCompactRouteMapModel(container: HTMLElement, model: RouteM
 }
 
 export function renderRouteMap(container: HTMLElement, dialog: HTMLDialogElement, gpx: GpxAnalysisSuccess | null, timeline: RideDayTimeline | null, report: RoadbookMatchReport | null, accommodation: Accommodation | null, practicalData: PracticalData | null = null): void {
+  bindExpandedDismissal(dialog)
   destroy(container)
   if (dialog.open || scrollUnlocks.has(dialog) || expandedHistory.has(dialog)) {
     closeExpandedRouteMap(dialog)
@@ -721,6 +751,7 @@ export function renderRouteMap(container: HTMLElement, dialog: HTMLDialogElement
  * layer to offer, so a panel just to pick it is one needless step.
  */
 export function renderGenericRouteMap(container: HTMLElement, dialog: HTMLDialogElement, model: RouteMapModel | null, layers: readonly MapLayerDefinition[] = [], options: { readonly directLayerToggle?: boolean } = {}): void {
+  bindExpandedDismissal(dialog)
   const layerState = { layers }
   genericLayerStates.set(container, layerState)
   destroy(container)
@@ -762,14 +793,14 @@ export function renderGenericRouteMap(container: HTMLElement, dialog: HTMLDialog
     let popupOpen = false
     const historyController = createMapOverlayHistory({
       isMapOpen: () => dialog.open,
-      isPanelOpen: () => false,
+      isPanelOpen: () => mapLayerControllers.get(dialog)?.isOpen() ?? false,
       closePopup: () => {
         if (!popupOpen || map === null) return false
         map.closePopup()
         popupOpen = false
         return true
       },
-      closePanelFromHistory: () => undefined,
+      closePanelFromHistory: () => mapLayerControllers.get(dialog)?.close('history'),
       closeMapFromHistory: () => closeExpandedRouteMap(dialog, 'history'),
     })
     expandedHistory.set(dialog, historyController)

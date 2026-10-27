@@ -27,6 +27,14 @@ test('returns null for an unknown day id', () => {
   assert.equal(buildDayDetail(bundle, 'day-does-not-exist'), null)
 })
 
+test('a duration rounded across the hour never displays 0 h 60', () => {
+  const bundle = createGenericTripBundle()
+  bundle.stages[1].totalDurationSeconds = 3599
+  const detail = buildDayDetail(bundle, 'day-delta')
+  assert.match(detail.statsHtml, /1 h 00/)
+  assert.doesNotMatch(detail.statsHtml, /0 h 60/)
+})
+
 test('returns null when the stage route has no usable geometry', () => {
   const bundle = createGenericTripBundle()
   // day-delta's stage (stage-delta / route-delta) has no geometry in the fixture.

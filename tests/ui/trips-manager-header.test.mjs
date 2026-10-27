@@ -128,7 +128,8 @@ test('opening a day (Étape/OFF/Transfert) reports the trip name plus "Jx sur N 
     await handle.goToDetailForActiveTrip()
     await flush()
     container.dispatch('click', { target: fakeActionElement({ action: 'open-day-detail', dayId: bundle.days[1].id }) })
-    await flush()
+    const deadline = Date.now() + 2000
+    while (headerStates.at(-1)?.subtitle !== 'J2 sur 4 · OFF' && Date.now() < deadline) await flush()
     assert.deepEqual(headerStates.at(-1), { tripName: 'Sample Loop 01', subtitle: 'J2 sur 4 · OFF' })
   } finally {
     db.close()

@@ -33,9 +33,11 @@ async function readZipEntries(blob) {
     const nameLength = view.getUint16(cursor + 28, true)
     const localHeaderOffset = view.getUint32(cursor + 42, true)
     const name = new TextDecoder().decode(buffer.subarray(cursor + 46, cursor + 46 + nameLength))
+    assert.equal(view.getUint16(cursor + 8, true) & 0x0800, 0x0800, 'central name is declared UTF-8')
     cursor += 46 + nameLength
 
     assert.equal(view.getUint32(localHeaderOffset, true), 0x04034b50)
+    assert.equal(view.getUint16(localHeaderOffset + 6, true) & 0x0800, 0x0800, 'local name is declared UTF-8')
     const localNameLength = view.getUint16(localHeaderOffset + 26, true)
     const dataStart = localHeaderOffset + 30 + localNameLength
     const data = buffer.subarray(dataStart, dataStart + uncompressedSize)
@@ -91,6 +93,14 @@ test('an empty entry list still produces a structurally valid (empty) archive', 
   const zip = buildZipArchive([], new Date(2027, 0, 1))
   const entries = await readZipEntries(zip)
   assert.equal(entries.length, 0)
+})
+
+test('generated suffixes cannot collide with existing names and every original remains extractable', async () => {
+  const names = ['Étape.gpx', 'Étape (2).gpx', 'Étape.gpx', 'Étape (3).gpx', 'Étape.gpx']
+  const files = names.map((name, i) => ({ name, data: new TextEncoder().encode(`original ${i}`) }))
+  const entries = await readZipEntries(buildZipArchive(files, new Date(2026, 9, 27)))
+  assert.equal(new Set(entries.map(e => e.name)).size, files.length)
+  assert.deepEqual(entries.map(e => new TextDecoder().decode(e.data)), files.map((_, i) => `original ${i}`))
 })
 
 test('crc32 is deterministic and distinguishes different content', () => {
