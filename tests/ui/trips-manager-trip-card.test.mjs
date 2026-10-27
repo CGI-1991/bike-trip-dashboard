@@ -177,7 +177,7 @@ test('"Supprimer" is styled as a discreet destructive action, distinct from "Mod
     initializeTripsManager(container, noopDeps(db))
     await flush()
 
-    assert.match(container.innerHTML, /<button class="button button--quiet" type="button" data-action="edit-trip"[^>]*>Modifier<\/button>/)
+    assert.match(container.innerHTML, /<button class="button button--quiet" type="button" data-action="edit-trip"[^>]*><span class="interaction-cue interaction-cue--edit"[^]*?Modifier<\/button>/)
     assert.match(container.innerHTML, /<button class="button button--danger" type="button" data-action="delete-trip"[^>]*>Supprimer<\/button>/)
     assert.doesNotMatch(container.innerHTML, /button--primary" type="button" data-action="delete-trip"/, 'delete must never be the primary-styled action')
   } finally {

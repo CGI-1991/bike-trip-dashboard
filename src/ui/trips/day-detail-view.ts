@@ -1,4 +1,4 @@
-import { tripIcon } from '../icons.ts'
+import { tripIcon, renderInteractionCue } from '../icons.ts'
 import { renderStageServices } from './stage-services.ts'
 import { renderStageNavigation } from './stage-navigation.ts'
 import { classifyClimb } from '../../analysis/climb-category.ts'
@@ -299,6 +299,7 @@ function renderClimbCard(waypoint: CanonicalWaypoint, climb: Climb, routeGeometr
         <span class="day-detail__timeline-meta">${partial ? 'Montée partielle dans la course · stats GPX complètes<br>' : ''}${meta}</span>
         <span class="day-detail__timeline-weather" data-waypoint-weather data-waypoint-id="${escapeHtml(waypoint.id)}" data-wind-start-km="${climb.startDistanceKm}" data-wind-end-km="${climb.endDistanceKm}"></span>
       </span>
+      ${renderInteractionCue('expand')}
     </button>
     <div class="day-detail__climb-profile" id="${profileId}" data-climb-profile hidden>
       ${category === null ? '' : `<p class="field__hint">${category.explanation}</p>`}
@@ -663,7 +664,7 @@ function renderInfosPanel(day: TripBundle['days'][number], accommodation: Accomm
     ${sharedInfoHint}
     ${hasNotes ? `<p class="day-infos__notes-text">${escapeHtml(infoDay.notes as string).replaceAll('\n', '<br>')}</p>` : '<p class="day-infos__empty">Aucune note pour cette étape.</p>'}
     ${showLodging ? renderLodgingReadView(accommodation) : ''}
-    <button class="button button--quiet" type="button" data-action="edit-day-infos">Modifier</button>
+    <button class="button button--quiet" type="button" data-action="edit-day-infos">${renderInteractionCue('edit')}Modifier</button>
   </div>`
 
   const editView = `<div class="day-infos__edit" data-day-infos-edit hidden>
@@ -1050,7 +1051,7 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
   const showRaceStats = waypointsInput.raceCourse?.status !== 'stale'
   const statsHtml = `<div data-day-detail-stats${showRaceStats ? '' : ' hidden'}>${showRaceStats ? `${waypointsInput.raceCourse?.status === 'bounded' ? '<p class="race-course__hint">Approche incluse dans les horaires · statistiques de course.</p>' : ''}<dl class="day-detail__stats">
     <div><dt>${selectRaceMode(bundle) ? `Départ GPX ${renderFeatureUpdateBadge('race-bounds')}` : 'Départ'}</dt><dd>
-      <button type="button" class="day-detail__departure-value" data-action="edit-day-departure-time" data-day-departure-value aria-label="Heure de départ ${selectRaceMode(bundle) ? 'GPX ' : ''}${escapeHtml(settings.departureTime)}, modifier">${escapeHtml(settings.departureTime)}</button>
+      <button type="button" class="day-detail__departure-value" data-action="edit-day-departure-time" data-day-departure-value aria-label="Heure de départ ${selectRaceMode(bundle) ? 'GPX ' : ''}${escapeHtml(settings.departureTime)}, modifier" aria-haspopup="dialog">${escapeHtml(settings.departureTime)}${renderInteractionCue('edit')}</button>
     </dd></div>
     ${courseStartKm > 0 && waypointsInput.raceCourse?.status === 'bounded' ? `<div><dt>Départ réel estimé</dt><dd>${timingCurve?.clockTimeAt(courseStartKm) ?? '—'}</dd></div>` : ''}
     <div><dt>Arrivée estimée</dt><dd>${arrival?.clockTime ?? '—'}</dd></div>

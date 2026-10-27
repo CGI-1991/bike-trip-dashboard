@@ -6,5 +6,11 @@ const paths: Record<string,string> = {
   clock:'<circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/>',
   pending:'<circle cx="12" cy="12" r="8"/>',
   location:'<circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="1"/><path d="M12 2v4m0 12v4M2 12h4m12 0h4"/>',
+  edit:'<path d="m15 4 5 5M4 20l5-1L20 8a2 2 0 0 0-5-5L4 15z"/>',
+  chevron:'<path d="m6 9 6 6 6-6"/>',
 }
 export function tripIcon(name: keyof typeof paths): string { return `<svg class="trip-icon" viewBox="0 0 24 24" aria-hidden="true">${paths[name] ?? ''}</svg>` }
+
+export function renderInteractionCue(kind: 'edit' | 'expand'): string {
+  return `<span class="interaction-cue interaction-cue--${kind}" aria-hidden="true">${tripIcon(kind === 'edit' ? 'edit' : 'chevron')}</span>`
+}

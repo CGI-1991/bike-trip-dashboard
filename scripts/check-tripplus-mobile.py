@@ -80,6 +80,15 @@ with sync_playwright() as p:
         page.locator('[data-field=event-time]').nth(i).fill('08:00')
     check_native_fields()
     page.locator('[data-action=submit]').tap()
+    page.locator('.trip-card').first.wait_for()
+    for width in [320,390,430]:
+        page.set_viewport_size({'width':width,'height':844})
+        boxes=[button.bounding_box() for button in page.locator('.trip-card__actions > .button').all()]
+        assert len(boxes)==3 and max(box['y'] for box in boxes)-min(box['y'] for box in boxes)<1
+        assert all(box['height']>=44 for box in boxes)
+        assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
+    page.set_viewport_size({'width':390,'height':844})
+    page.screenshot(path=str(OUT / '12-actions-activites.png'))
 
     def open_saved(index=0):
         page.locator('[data-nav-view=trips]').tap()
@@ -89,6 +98,13 @@ with sync_playwright() as p:
         page.locator('[data-league-calendar] [data-action=open-day-detail]').nth(index).tap()
         page.locator('[data-day-detail-profile] [data-profile-interactive]').wait_for()
     open_saved()
+    departure = page.locator('[data-day-departure-value]')
+    assert departure.evaluate('el=>getComputedStyle(el).color') == 'rgb(23, 91, 131)'
+    assert departure.locator('.interaction-cue--edit[aria-hidden=true]').count() == 1
+    assert departure.bounding_box()['height'] >= 44
+    assert page.locator('[data-day-detail-stats]').evaluate('el=>getComputedStyle(el.querySelector("dd")).color') != 'rgb(23, 91, 131)', 'static values keep their information colour'
+    departure.evaluate('el=>el.scrollIntoView({block:"center"})')
+    page.screenshot(path=str(OUT / '13-actions-statistiques.png'))
     page.locator('[data-action=edit-day-departure-time]').tap()
     page.locator('.time-edit-dialog[open]').wait_for()
     check_native_fields()
@@ -134,6 +150,10 @@ with sync_playwright() as p:
     page.locator('[data-segment-field=end]').fill('18.4')
     page.locator('[data-segment-save]').tap()
     page.wait_for_function('document.querySelector("[data-segment-view]")!==null')
+    page.locator('[data-segment-choose]').select_option(index=1)
+    assert page.locator('[data-segment-delete]').is_visible()
+    assert page.locator('[data-segment-delete]').evaluate('el=>getComputedStyle(el).color') != 'rgb(23, 91, 131)'
+    page.locator('[data-segment-cancel]').tap()
     page.locator('[data-day-detail] [data-day-tab=route]').tap()
     assert page.locator('[data-day-detail-profile]').evaluate('(el)=>el.parentElement.hasAttribute("data-day-profile-home")')
     page.locator('[data-day-detail-map] .route-marker--race-climb').tap()
@@ -153,7 +173,22 @@ with sync_playwright() as p:
     page.locator('[data-day-detail] [data-day-tab=infos]').tap()
     assert page.locator('[data-day-detail] [data-day-panel=infos]').is_visible()
     page.locator('[data-day-detail] [data-day-tab=route]').tap()
-    page.locator('[data-segment-view]').tap()
+    segment_row = page.locator('[data-segment-view]')
+    assert segment_row.locator('.interaction-cue--expand').count() == 1
+    assert segment_row.get_attribute('aria-expanded') == 'false'
+    segment_row.evaluate('el=>el.scrollIntoView({block:"center"})')
+    cue_box = segment_row.locator('.interaction-cue--expand').bounding_box()
+    # A real tap on the decorative SVG must reach the existing disclosure.
+    page.touchscreen.tap(cue_box['x']+cue_box['width']/2, cue_box['y']+cue_box['height']/2)
+    assert segment_row.get_attribute('aria-expanded') == 'true'
+    assert segment_row.locator('.interaction-cue .trip-icon').evaluate('el=>new DOMMatrix(getComputedStyle(el).transform).a') == -1
+    page.wait_for_timeout(350)  # Capture the stable open state after native tap feedback.
+    page.screenshot(path=str(OUT / '11-actions-segments.png'))
+    segment_row.focus()
+    page.keyboard.press('Enter')
+    assert segment_row.get_attribute('aria-expanded')=='false'
+    page.keyboard.press('Space')
+    assert segment_row.get_attribute('aria-expanded')=='true'
     profile_id = page.locator('[data-segment-view]').get_attribute('aria-controls')
     assert page.locator('#' + profile_id + ' [data-climb-profile-interactive]').is_visible()
     assert page.locator('#' + profile_id + ' [data-climb-color-bands] rect').count() <= 40

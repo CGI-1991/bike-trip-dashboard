@@ -146,7 +146,7 @@ test('R2.1 section 7: a recommended change shows the conclusion sentence, an "Ap
   renderGenericStageWeatherPanel(container, baseModel({ recommendation, departureScenarios: fiveScenarios() }), false)
   assert.match(container.innerHTML, /Un départ vers 07:00 semble plus favorable que 08:00\./)
   assert.match(container.innerHTML, /data-action="apply-weather-departure-time" data-departure-time="07:00">Appliquer 07:00</)
-  assert.match(container.innerHTML, /data-action="edit-day-departure-time">Modifier manuellement/, 'reuses the exact same editor action as the Étape stats header — never a second implementation')
+  assert.match(container.innerHTML, /data-action="edit-day-departure-time">(?:<[^>]+>)*Modifier manuellement/, 'reuses the exact same editor action as the Étape stats header — never a second implementation')
 })
 
 test('"keep-current"/"insufficient-data" show only the plain sentence — no primary "Appliquer" CTA to a time that isn\'t actually better (per-row "Choisir" on other coherent scenarios, section 25, is still allowed)', () => {

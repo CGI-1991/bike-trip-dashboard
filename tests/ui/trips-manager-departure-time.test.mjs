@@ -186,7 +186,7 @@ test('Valider persists the new time and recalculates every waypoint’s ETA', as
 
     const after = buildDayDetail(updated, bundle.days[0].id)
     assert.notEqual(arrivalBefore, after.waypoints.at(-1).clockTime, 'ETA recalculated')
-    assert.match(after.statsHtml, /data-day-departure-value aria-label="Heure de départ 06:00, modifier">06:00<\/button>/)
+    assert.match(after.statsHtml, /data-day-departure-value aria-label="Heure de départ 06:00, modifier" aria-haspopup="dialog">06:00/)
   } finally {
     db.close()
   }

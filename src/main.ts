@@ -1,5 +1,6 @@
 import './style.css'
 import './ui/tripplus.css'
+import './ui/interaction-affordances.css'
 import { initializeReleaseNotes } from './ui/release-notes.ts'
 import { bindNetworkStatus, registerServiceWorker } from './pwa.ts'
 import { loadPracticalData } from './practical/model.ts'

@@ -13,6 +13,11 @@ export interface AppRelease {
 }
 
 export const APP_RELEASES: readonly AppRelease[] = [
+  { version: '2026.10.27.2', date: '2026-10-27', changes: [
+    { feature: 'app-design', title: 'Les actions se repèrent en bleu', description: 'Boutons, liens, champs modifiables et volets à ouvrir partagent un même bleu d’action. Le vert profond reste celui de l’identité et des sélections actives ; les suppressions et retraits se distinguent en rouge. Les valeurs à lire gardent leur couleur habituelle.' },
+    { feature: 'race-bounds', title: 'Le départ retrouve son crayon', description: 'Dans le détail d’une étape, l’heure de départ est encadrée en bleu avec un petit crayon. Le même pictogramme accompagne les boutons Modifier, y compris depuis la météo. Le toucher ouvre la fenêtre habituelle.' },
+    { feature: 'race-segments', title: 'Des montées et segments clairement dépliables', description: 'Le nom et un chevron bleu signalent les profils à ouvrir. Le chevron se retourne à l’ouverture. Les réglages, sauvegardes et autres volets utilisent le même repère, avec un focus clavier visible et des cibles tactiles conservées.' },
+  ] },
   { version: '2026.10.27.1', date: '2026-10-27', changes: [
     { feature: 'race-bounds', title: 'Départ et arrivée au dixième de kilomètre', description: 'La saisie du départ réel et de l’arrivée réelle utilise un pas de 0,1 km. Un choix sur le profil suit le même arrondi. La fin du GPX garde sa position exacte ; une limite existante non modifiée conserve sa précision.' },
     { feature: 'race-segments', title: 'Une seule fiche sur la carte', description: 'Au clic sur une montée ou un segment, la fiche de statistiques remplace l’étiquette du nom. Les services avec une fiche suivent la même règle. Les fermetures natives libèrent aussi la carte et le défilement.' },

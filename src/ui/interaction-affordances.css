@@ -1,0 +1,178 @@
+/* Trip+ interaction vocabulary. Data/terrain colours and brand green keep
+ * their own meaning; blue always accompanies an actual control or link. */
+:root {
+  --action: #175b83;
+  --action-hover: #104463;
+  --action-soft: #edf5fa;
+  --action-border: #7295ab;
+  -webkit-tap-highlight-color: rgb(23 91 131 / 10%);
+}
+
+.button { gap: 8px; }
+.button .interaction-cue { width: 18px; height: 18px; }
+.trip-card__actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  max-width: 440px;
+}
+.trip-card__actions > .button { min-width: 0; gap: 4px; padding-inline: 6px; font-size: 13px; line-height: 1.2; }
+.button--quiet {
+  color: var(--action);
+  border-color: var(--action-border);
+  background: var(--surface);
+}
+.button--primary {
+  color: white;
+  background: var(--action);
+  border-color: var(--action);
+}
+.button--quiet:not(:disabled):hover { background: var(--action-soft); }
+.button--primary:not(:disabled):hover { background: var(--action-hover); }
+
+/* The icon is decorative. Native buttons/details retain their accessible
+ * names and expanded state; tapping an icon reaches its existing owner. */
+.interaction-cue {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  color: var(--action);
+  pointer-events: none;
+}
+.interaction-cue * { pointer-events: none; }
+.interaction-cue .trip-icon { width: 18px; height: 18px; }
+.interaction-cue--expand { background: var(--action-soft); border-radius: 3px; }
+.button--primary .interaction-cue { color: inherit; }
+
+.day-detail__departure-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px !important;
+  padding: 4px 8px;
+  color: var(--action);
+  background: var(--action-soft);
+  border: 1px solid var(--action-border);
+  border-bottom: 2px solid var(--action);
+  border-radius: 3px;
+}
+.day-detail__departure-value:hover { background: #e0edf5; border-color: var(--action); }
+
+.day-detail__climb-toggle {
+  grid-template-columns: auto minmax(0, 1fr) 24px;
+}
+.day-detail__climb-toggle > .interaction-cue { margin-top: 1px; }
+.day-detail__climb-toggle .day-detail__timeline-body > strong { color: var(--action); }
+.day-detail__climb-toggle[aria-expanded=true] > .interaction-cue .trip-icon { transform: rotate(180deg); }
+.day-detail__climb-toggle[aria-expanded=true] > .interaction-cue { background: #dcecf6; }
+.day-detail__climb-toggle:hover,
+.day-detail__climb-toggle:focus-visible { background: var(--action-soft); }
+
+/* All native disclosures, including backup, course settings and advanced
+ * settings, show the same chevron without changing their existing layout. */
+.app-shell summary {
+  position: relative;
+  min-height: 44px;
+  padding-block: 8px;
+  padding-inline-end: 32px;
+  color: var(--action);
+  border-bottom: 1px solid var(--action-border);
+  list-style: none;
+  cursor: pointer;
+}
+.app-shell summary::-webkit-details-marker { display: none; }
+.app-shell summary::marker { content: ''; }
+.app-shell summary::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  width: 8px;
+  height: 8px;
+  margin: 0;
+  border: solid currentColor;
+  border-width: 0 1.6px 1.6px 0;
+  transform: translateY(-70%) rotate(45deg);
+  pointer-events: none;
+}
+.app-shell details[open] > summary::after { transform: translateY(-20%) rotate(225deg); }
+
+/* Editable controls stay visibly framed; inactive/read-only controls stay
+ * neutral. The native date/time width protections remain in tripplus.css. */
+input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=range]):not([readonly]):not(:disabled),
+select:not(:disabled), textarea:not([readonly]):not(:disabled) {
+  border-color: var(--action-border);
+  background-color: var(--surface);
+}
+input[type=checkbox], input[type=radio], input[type=range] { accent-color: var(--action); }
+input[type=file]::file-selector-button {
+  min-height: 44px;
+  padding: 8px 12px;
+  margin-inline-end: 10px;
+  color: var(--action);
+  border: 1px solid var(--action-border);
+  border-radius: 3px;
+  background: var(--action-soft);
+  font: inherit;
+  cursor: pointer;
+}
+.segmented-toggle__option[aria-pressed=false] { color: var(--action); border-color: var(--action-border); }
+.profile-modes [data-profile-mode][aria-pressed=false],
+.timeline-filters button[aria-pressed=false],
+.day-tabs[data-day-detail-tabs] [aria-selected=false] { color: var(--action); }
+.day-detail__floating-nav .button { color: var(--action); }
+.stage-navigation__choice > span[aria-hidden] {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--action);
+  border-bottom: 1px solid var(--action-border);
+}
+.app-nav a:not(.is-active):not([aria-current=page]) { color: var(--action); }
+.app-release-button { color: var(--action); text-decoration: underline; text-underline-offset: 4px; }
+.feature-update-badge span { color: var(--action); background: var(--action-soft); border-color: var(--action); }
+a:not(.button):not(.app-wordmark):not(.leaflet-control-zoom-in):not(.leaflet-control-zoom-out):not(.leaflet-popup-close-button):not([aria-current=page]):not(.is-active) { color: var(--action); }
+
+/* Clickable list rows keep a visible opening cue, including OFF/transfers.
+ * Reserving space on the right keeps the arrow clear of dates and ETAs. */
+.trip-day-card { position: relative; padding-inline-end: 24px; }
+.trip-day-card::after {
+  content: '';
+  position: absolute;
+  right: 3px;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  border: solid var(--action);
+  border-width: 0 1.6px 1.6px 0;
+  transform: translateY(-50%) rotate(-45deg);
+  pointer-events: none;
+}
+.trip-day-card__route, .trip-card[role=button] .trip-card__header h3,
+.trip-overview__highlighted-day[role=button] h3 { color: var(--action); }
+.league-event > strong, .league-event .league-event__open { color: var(--action); }
+.trip-card[role=button] .trip-card__header h3::after,
+.trip-overview__highlighted-day[role=button] h3::after {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-inline-start: 10px;
+  border: solid var(--action);
+  border-width: 0 1.6px 1.6px 0;
+  transform: rotate(-45deg);
+}
+
+:root :is(button,a,summary,input,select,textarea,[role=button]):focus-visible {
+  outline: 3px solid var(--action);
+  outline-offset: 3px;
+}
+.button:disabled, .segmented-toggle__option:disabled,
+input:disabled, select:disabled, textarea:disabled {
+  color: var(--ink-soft);
+  background: var(--surface-muted);
+  border-color: var(--line);
+  cursor: not-allowed;
+}
