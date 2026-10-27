@@ -12,7 +12,7 @@ Aucun stockage du navigateur personnel n’est ouvert ni modifié.
 """
 
 from pathlib import Path
-import argparse, json, math, shutil, tempfile
+import argparse, hashlib, io, json, math, shutil, tempfile, zipfile
 import xml.etree.ElementTree as ET
 from playwright.sync_api import sync_playwright
 parser = argparse.ArgumentParser(description='Contrôle tactile Trip+ sur un build Vite servi localement.')
@@ -113,6 +113,20 @@ with sync_playwright() as p:
     page.locator('[data-day-detail] [data-day-tab=course]').tap()
     assert page.locator('[data-day-detail-profile]').evaluate('(el)=>el.parentElement.hasAttribute("data-course-profile-target")')
     assert not page.locator('[data-day-detail-profile] .profile-modes').is_visible()
+    page.locator('[data-race-editor] > summary').tap()
+    page.locator('[data-race-offset=start]').fill('0.267')
+    page.locator('[data-race-offset=finish]').fill('20.876')
+    page.locator('[data-race-save]').tap()
+    try:
+        page.wait_for_function('document.querySelector("[data-race-offset=start]")?.value==="0.3" && document.querySelector("[data-race-offset=finish]")?.value==="20.9" && document.querySelector("[data-race-save]")?.disabled===false')
+    except Exception:
+        print(page.locator('[data-race-course-host]').inner_text())
+        print(page.locator('[data-race-offset=start]').input_value(), page.locator('[data-race-offset=finish]').input_value())
+        page.screenshot(path=str(OUT / 'bounds-failure.png'))
+        raise
+    page.locator('[data-race-editor] > summary').tap()
+    page.locator('[data-race-reset]').tap()
+    page.wait_for_function('document.querySelector("[data-race-overlay]")===null')
     page.locator('[data-segment-add]').tap()
     page.locator('[data-segment-field=type]').select_option('climb')
     page.locator('[data-segment-field=name]').fill('Grimpeur 1')
@@ -129,6 +143,9 @@ with sync_playwright() as p:
     stage_map.locator('.route-marker--race-climb').tap()
     stage_map.locator('[data-route-feature-popup]').wait_for()
     assert '18,4 km' in stage_map.locator('[data-route-feature-popup]').inner_text()
+    assert stage_map.locator('.leaflet-tooltip:visible').count() == 0
+    page.wait_for_function('Number(getComputedStyle(document.querySelector(".leaflet-popup")).opacity)>=.95')
+    page.screenshot(path=str(OUT / '10-fiche-unique-carte.png'))
     stage_map.locator('[data-close-map]').tap()
     page.locator('[data-day-detail] [data-day-tab=weather]').tap()
     assert page.locator('#day-bottom-panel-weather').is_visible()
@@ -307,6 +324,59 @@ with sync_playwright() as p:
     # The browser's native tap highlight fades outside the DOM/CSS animation API.
     page.wait_for_timeout(350)
     page.screenshot(path=str(OUT / '09-tour-jours-lies.png'))
+    # Native dismissal must release the page, including the overview dialog.
+    page.keyboard.press('Escape')
+    dialog.wait_for(state='hidden')
+    assert page.evaluate('!document.body.classList.contains("map-scroll-locked")')
+    phase[0] = 'original-gpx-archive'
+    with page.expect_download() as original_archive:
+        page.locator('[data-action=download-trip-gpx]').tap()
+    archive_bytes = Path(original_archive.value.path()).read_bytes()
+    with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
+        assert archive.testzip() is None
+        assert len(archive.infolist()) == 3
+        assert [archive.read(info) for info in archive.infolist()] == [file.read_bytes() for file in gpx[:3]]
+        assert all(info.flag_bits & 0x800 for info in archive.infolist())
+    phase[0] = 'backup-restore-offline'
+    page.locator('[data-nav-view=trips]').tap()
+    page.locator('.trip-card').first.wait_for()
+    original_count = page.locator('.trip-card').count()
+    assert original_count == 3
+    page.locator('.trip-backup > summary').tap()
+    page.locator('[data-backup-action=prepare]').tap()
+    page.locator('[data-backup-action=download]').wait_for()
+    with page.expect_download() as backup_download:
+        page.locator('[data-backup-action=download]').tap()
+    backup_bytes = Path(backup_download.value.path()).read_bytes()
+    (OUT / 'sauvegarde-controle.zip').write_bytes(backup_bytes)
+    with zipfile.ZipFile(io.BytesIO(backup_bytes)) as archive:
+        assert archive.testzip() is None
+        manifest = json.loads(archive.read('manifest.json'))
+        assert len(manifest['trips']) == original_count
+        for trip in manifest['trips']:
+            assert not trip['missingSourceFileIds']
+            for payload in trip['payloads']:
+                raw = archive.read(payload['entry'])
+                assert len(raw) == payload['sizeBytes']
+                assert hashlib.sha256(raw).hexdigest() == payload['sha256']
+        entry = archive.getinfo('manifest.json')
+        data_start = entry.header_offset + 30 + len(entry.filename.encode()) + len(entry.extra)
+    corrupted = bytearray(backup_bytes)
+    corrupted[data_start] ^= 1
+    page.locator('[data-backup-file]').set_input_files({'name':'endommage.zip','mimeType':'application/zip','buffer':bytes(corrupted)})
+    page.wait_for_function('document.querySelector("[data-backup-status]")?.getAttribute("role")==="alert"')
+    assert page.locator('[data-backup-action=restore]').count() == 0
+    assert page.locator('.trip-card').count() == original_count
+    page.locator('[data-backup-file]').set_input_files({'name':'voyages.zip','mimeType':'application/zip','buffer':backup_bytes})
+    page.locator('[data-backup-action=restore]').wait_for()
+    assert page.locator('.trip-card').count() == original_count, 'verification alone must not restore anything'
+    page.locator('[data-backup-action=restore]').tap()
+    page.wait_for_function('(count)=>document.querySelectorAll(".trip-card").length===count', arg=original_count*2)
+    page.reload()
+    page.wait_for_load_state('networkidle')
+    page.locator('[data-nav-view=trips]').tap()
+    page.wait_for_function('(count)=>document.querySelectorAll(".trip-card").length===count', arg=original_count*2)
+    print(json.dumps({'originalGpxArchiveExact': True, 'backupHashesVerified': True, 'corruptBackupRejected': True, 'restoreCopiesOffline': original_count, 'nativeMapDismissal': True}))
     assert not errors, errors
     print('Artifacts:', OUT)
     print(json.dumps({'production': True, 'gpxImport': 3, 'longRouteKm': 150, 'allStats': 9, 'tabs': 4, 'sharedCourseProfile': True, 'bottomStagePicker': True, 'neutralOnOtherStage': True, 'stableWindSlot': True, 'adaptiveBands': True, 'overviewLines': 3, 'overviewLabels': 3, 'selectionAndNavigation': True, 'offlineFonts': len(cached), 'sameGpxVertices': len(source), 'offlineGpxFit': True, 'offlineReload': True, 'walkingOffline': True, 'widths': [320, 390, 430], 'nativeFieldsFit': True, 'touchReadingsClear': True, 'simulatedSafeTopPx': 59, 'tourLabels': ['J1a', 'J1b', 'J2'], 'jsErrors': errors}))

@@ -78,7 +78,6 @@ function createLayerGroup(viewModel: PracticalLayerViewModel): L.LayerGroup {
   return L.layerGroup(
     viewModel.points.map((point) =>
       L.marker([point.latitude, point.longitude], { icon })
-        .bindTooltip(point.name)
         .bindPopup(createPopup(point, viewModel.layer)),
     ),
   )

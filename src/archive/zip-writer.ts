@@ -52,6 +52,7 @@ function partByteLength(part: ArrayBuffer | Uint8Array): number {
 /** Builds one ZIP archive (STORE method) from `entries`, in order. `now` is injected (never `new Date()` internally) so archive contents stay deterministic and testable. */
 export function buildZipArchive(entries: readonly ZipEntryInput[], now: Date): Blob {
   const seenNames = new Map<string, number>()
+  const usedNames = new Set<string>()
   const localParts: (ArrayBuffer | Uint8Array)[] = []
   const centralParts: (ArrayBuffer | Uint8Array)[] = []
   const encoder = new TextEncoder()
@@ -59,9 +60,11 @@ export function buildZipArchive(entries: readonly ZipEntryInput[], now: Date): B
   let localOffset = 0
 
   for (const entry of entries) {
-    const seenCount = seenNames.get(entry.name) ?? 0
-    seenNames.set(entry.name, seenCount + 1)
-    const name = seenCount === 0 ? entry.name : withSuffix(entry.name, seenCount + 1)
+    let occurrence = (seenNames.get(entry.name) ?? 0) + 1
+    let name = occurrence === 1 ? entry.name : withSuffix(entry.name, occurrence)
+    while (usedNames.has(name)) name = withSuffix(entry.name, ++occurrence)
+    seenNames.set(entry.name, occurrence)
+    usedNames.add(name)
     const nameBytes = encoder.encode(name)
     const crc = crc32(entry.data)
     const size = entry.data.length
@@ -69,7 +72,7 @@ export function buildZipArchive(entries: readonly ZipEntryInput[], now: Date): B
     const localHeader = new DataView(new ArrayBuffer(30))
     localHeader.setUint32(0, 0x04034b50, true)
     localHeader.setUint16(4, 20, true)
-    localHeader.setUint16(6, 0, true)
+    localHeader.setUint16(6, 0x0800, true) // File names are UTF-8, including accents.
     localHeader.setUint16(8, 0, true) // compression method: STORE
     localHeader.setUint16(10, time, true)
     localHeader.setUint16(12, date, true)
@@ -85,7 +88,7 @@ export function buildZipArchive(entries: readonly ZipEntryInput[], now: Date): B
     centralHeader.setUint32(0, 0x02014b50, true)
     centralHeader.setUint16(4, 20, true)
     centralHeader.setUint16(6, 20, true)
-    centralHeader.setUint16(8, 0, true)
+    centralHeader.setUint16(8, 0x0800, true)
     centralHeader.setUint16(10, 0, true) // compression method: STORE
     centralHeader.setUint16(12, time, true)
     centralHeader.setUint16(14, date, true)

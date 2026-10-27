@@ -1,5 +1,6 @@
 # Trip+
 
+La [passe de contrôle du 27 octobre](docs/QUALITY_AUDIT_2026_10.md) corrige les fiches de carte en double et documente les vérifications de navigation, stockage, exports, sauvegardes et affichage mobile.
 La [refonte mobile validée](docs/TRIPPLUS_INTERFACE.md) présente l’interface actuelle, ses captures et ses contrôles.
 La [finition des informations de parcours](docs/ROUTE_INFORMATION_POLISH.md) harmonise les profils, signale les prévisions anciennes, ajoute le prochain point d’eau indiqué potable et les fiches de carte League/Tour.
 

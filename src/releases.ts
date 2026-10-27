@@ -13,6 +13,14 @@ export interface AppRelease {
 }
 
 export const APP_RELEASES: readonly AppRelease[] = [
+  { version: '2026.10.27.1', date: '2026-10-27', changes: [
+    { feature: 'race-bounds', title: 'Départ et arrivée au dixième de kilomètre', description: 'La saisie du départ réel et de l’arrivée réelle utilise un pas de 0,1 km. Un choix sur le profil suit le même arrondi. La fin du GPX garde sa position exacte ; une limite existante non modifiée conserve sa précision.' },
+    { feature: 'race-segments', title: 'Une seule fiche sur la carte', description: 'Au clic sur une montée ou un segment, la fiche de statistiques remplace l’étiquette du nom. Les services avec une fiche suivent la même règle. Les fermetures natives libèrent aussi la carte et le défilement.' },
+    { feature: 'overview-map', title: 'Des cartes libérées après usage', description: 'Les cartes remplacées après une modification sont détruites proprement. La fermeture par Échap ou par le navigateur libère le défilement, comme le bouton Fermer. En Voyage, Retour ferme d’abord la fiche ou les calques ouverts, puis la carte.' },
+    { feature: 'app-design', title: 'La navigation rapide reste sur votre choix', description: 'Une lecture locale terminée en retard ne remplace plus la page ou le formulaire que vous venez d’ouvrir. Un échec de lecture affiche un message et permet de réessayer.' },
+    { feature: 'course-exports', title: 'Les exports GPX signalent les sources manquantes', description: 'L’export GPX d’origine indique sa préparation et les erreurs éventuelles. Une archive de GPX ne saute plus silencieusement un fichier indisponible. Les noms accentués et les noms déjà numérotés restent distincts dans les ZIP.' },
+    { feature: 'elevation-profile', title: 'Des durées arrondies correctement', description: 'Une durée proche de l’heure supérieure s’affiche par exemple 1 h 00, jamais 0 h 60. Les horaires et le tracé restent inchangés.' },
+  ] },
   { version: '2026.10.26.3', date: '2026-10-26', changes: [
     { feature: 'elevation-profile', title: 'Des couleurs de pente communes', description: 'Le grand profil et les mini-profils partagent les mêmes couleurs pour chaque classe de pente. Les portions hors course sont légèrement atténuées dans la silhouette, sans couvrir le fond du graphique. Le relief, les limites et les calculs restent inchangés.' },
     { feature: 'relative-wind', title: 'Une lecture cohérente du profil', description: 'La coloration Pente utilise la même échelle que les montées et segments détaillés. Le repère de vent garde son emplacement fixe et les informations tactiles restent temporaires.' },

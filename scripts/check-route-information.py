@@ -40,8 +40,14 @@ with sync_playwright() as p:
       const {createTripRepository}=await import(base+'storage/indexeddb/trip-repository.ts');
       const {initializeTripsManager}=await import(base+'ui/trips/trips-manager.ts');
       const map=await import(base+'ui/route-map.ts');
+      window.mapTools=map;
       window.database=await openBikeTripDatabase(indexedDB);
       window.repository=createTripRepository(database);
+      window.failLocalRead=false;
+      const managedDatabase=new Proxy(database,{get(target,key){
+        if(key==='transaction')return (...args)=>{if(failLocalRead)throw new DOMException('Injected local failure','UnknownError');return target.transaction(...args)};
+        const value=Reflect.get(target,key,target);return typeof value==='function'?value.bind(target):value;
+      }});
       window.clockNow=Date.parse('2026-10-26T12:00:00Z'); window.weatherCalls=0;
       const now=()=>new Date(clockNow).toISOString();
       const provider={id:'open-meteo',async fetchForecast(request){
@@ -53,7 +59,7 @@ with sync_playwright() as p:
         }))};
       }};
       let serial=0;
-      window.manager=initializeTripsManager(document.querySelector('#host'),{database,now,idFactory:()=> 'information-'+serial++,weatherProvider:provider,
+      window.manager=initializeTripsManager(document.querySelector('#host'),{database:managedDatabase,now,idFactory:()=> 'information-'+serial++,weatherProvider:provider,
         renderMap:(c,d,m,l,o)=>map.renderGenericRouteMap(c,d,m,l,o),closeMap:map.closeExpandedRouteMap,getMapInteractionHandle:map.getRouteMapInteractionHandle});
     }''', args.url)
     for mode in ['league', 'tour']:
@@ -102,6 +108,40 @@ with sync_playwright() as p:
         page.locator('[data-action=open-day-detail]').first.tap()
         page.locator('[data-day-detail-profile]').wait_for()
         page.evaluate('manager.waitForWeatherIdle()')
+        # Bounds use 0.1 km; editing one field preserves the untouched exact limit.
+        original_finish=page.evaluate('async id=>(await repository.loadTripBundle(id)).stages[0].raceBounds.finishOffsetM', trip_id)
+        page.locator('[data-day-tab=course]').tap()
+        page.locator('[data-race-editor] > summary').tap()
+        start=page.locator('[data-race-offset=start]')
+        finish=page.locator('[data-race-offset=finish]')
+        assert start.get_attribute('step')=='0.1' and finish.get_attribute('step')=='0.1'
+        start.fill('1.234')
+        finish.focus()
+        assert start.input_value()=='1.2'
+        page.locator('[data-race-save]').tap()
+        page.wait_for_function('document.querySelector("[data-race-offset=start]")?.value==="1.2" && document.querySelector("[data-race-save]")?.disabled===false')
+        bounds=page.evaluate('async id=>(await repository.loadTripBundle(id)).stages[0].raceBounds', trip_id)
+        assert bounds['startOffsetM']==1200 and bounds['finishOffsetM']==original_finish
+        page.locator('[data-race-editor] > summary').tap()
+        finish.fill('30.167')
+        start.focus()
+        assert finish.input_value()=='30.2'
+        page.locator('[data-race-pick=start]').tap()
+        page.locator('[data-day-detail-profile]').evaluate('el=>el.dispatchEvent(new CustomEvent("profile-distance-active",{detail:{distanceKm:1.26}}))')
+        assert start.input_value()=='1.3'
+        page.locator('[data-day-detail-profile]').evaluate('el=>el.dispatchEvent(new CustomEvent("profile-sample-cleared"))')
+        page.locator('[data-race-save]').tap()
+        page.wait_for_function('document.querySelector("[data-race-offset=finish]")?.value==="30.2" && document.querySelector("[data-race-save]")?.disabled===false')
+        bounds=page.evaluate('async id=>(await repository.loadTripBundle(id)).stages[0].raceBounds', trip_id)
+        assert bounds['startOffsetM']==1300 and bounds['finishOffsetM']==30200
+        page.locator('[data-day-tab=route]').tap()
+        # Saving patches the same map host: the old child canvas must be disposed.
+        page.evaluate('window.previousCanvas=document.querySelector("[data-day-detail-map] [data-route-map-canvas]")')
+        page.locator('[data-action=edit-day-departure-time]').tap()
+        page.locator('[data-time-edit-input]').fill('08:05')
+        page.locator('[data-time-edit-confirm]').tap()
+        page.wait_for_function('document.querySelector("[data-day-detail-map] [data-route-map-canvas]")!==previousCanvas')
+        assert page.evaluate('mapTools.getRouteMapInteractionHandle(previousCanvas)===null'), 'old Leaflet map still alive after patch'
         water=page.locator('[data-next-water]')
         assert water.is_visible()
         assert water.locator('strong').inner_text()=='Fontaine de la place'
@@ -141,6 +181,7 @@ with sync_playwright() as p:
         popup=dialog.locator('[data-route-feature-popup]')
         popup.wait_for()
         assert '3,0 km' in popup.inner_text() and 'D+' in popup.inner_text()
+        assert dialog.locator('.leaflet-tooltip:visible').count()==0, 'the name tooltip duplicates the feature popup'
         assert dialog.locator('.leaflet-popup-close-button').bounding_box()['width']>=44
         page.wait_for_function('Number(getComputedStyle(document.querySelector(".leaflet-popup")).opacity) >= .95')
         page.screenshot(path=str(output/(mode+'-segment-carte.png')))
@@ -149,7 +190,12 @@ with sync_playwright() as p:
         dialog.locator('[data-close-map]').tap()
         page.locator('[data-day-detail-map]').tap()
         dialog.wait_for()
-        assert dialog.locator('.route-marker--col-summit').count()>0
+        page.keyboard.press('Escape')
+        dialog.wait_for(state='hidden')
+        assert page.evaluate('!document.body.classList.contains("map-scroll-locked")'), 'native dismissal left the document locked'
+        page.locator('[data-day-detail-map]').tap()
+        dialog.wait_for()
+        dialog.locator('.route-marker--col-summit').first.wait_for()
         dialog.locator('.route-marker--col-summit').first.tap()
         dialog.locator('[data-route-feature-popup]').wait_for()
         assert 'Montée' in dialog.locator('[data-route-feature-popup]').inner_text()
@@ -170,7 +216,62 @@ with sync_playwright() as p:
           await new Promise(requestAnimationFrame);
           document.querySelector('[data-day-detail-map-dialog] [data-close-map]').click();
         }''')
+    # Voyage keeps service layers; those popups also replace their name labels.
+    page.evaluate('''async id=>repository.updateTripBundle(id,b=>({...b,settings:{...b.settings,global:{...b.settings.global,organizationMode:'voyage',raceMode:false}}}))''', trip_id)
+    page.evaluate('manager.goToList()')
+    page.locator('.trip-card').filter(has_text='Informations tour').tap()
+    page.evaluate('manager.goToDetailForActiveTrip()')
+    page.locator('[data-action=open-day-detail]').first.tap()
+    page.locator('[data-day-detail-map]').tap()
+    dialog=page.locator('[data-day-detail-map-dialog][open]')
+    dialog.locator('[data-map-layers-toggle]').tap()
+    dialog.locator('[data-map-layer=practical-water]').check()
+    page.go_back()
+    assert dialog.is_visible(), 'Back should close the layer panel before the map'
+    assert dialog.locator('[data-map-layers-panel]').is_hidden()
+    dialog.locator('.route-marker--practical-water').first.tap()
+    dialog.locator('.practical-popup').wait_for()
+    assert dialog.locator('.leaflet-tooltip:visible').count()==0
+    page.go_back()
+    assert dialog.is_visible()
+    dialog.locator('.practical-popup').wait_for(state='detached')
+    page.go_back()
+    dialog.wait_for(state='hidden')
+    assert page.evaluate('!document.body.classList.contains("map-scroll-locked")')
+    page.locator('[data-day-detail-map]').tap()
+    dialog.wait_for()
+    dialog.evaluate('el=>el.close()')
+    page.wait_for_function('!document.body.classList.contains("map-scroll-locked")')
+    # An unavailable original produces an explicit error and no phantom download.
+    saved=page.evaluate('''async id=>{
+      const {OBJECT_STORE_NAMES}=await import(sourceRoot+'storage/indexeddb/constants.ts');
+      const b=await repository.loadTripBundle(id),source=b.sourceFiles[0];
+      await new Promise((resolve,reject)=>{const tx=database.transaction(OBJECT_STORE_NAMES.sourceFilePayloads,'readwrite');tx.objectStore(OBJECT_STORE_NAMES.sourceFilePayloads).delete([id,source.id]);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)});
+      return source.id;
+    }''', trip_id)
+    downloads=[]
+    page.on('download', lambda download: downloads.append(download))
+    page.locator('[data-action=download-stage-gpx]').tap()
+    status=page.locator('[data-original-export-status]')
+    page.wait_for_function('document.querySelector("[data-original-export-status]")?.getAttribute("role")==="alert"')
+    assert 'GPX d’origine indisponible' in status.inner_text() and not downloads
+    assert page.locator('[data-action=download-stage-gpx]').is_enabled()
+    page.evaluate('''async input=>{
+      const b=await repository.loadTripBundle(input.id);
+      await repository.saveTripBundle(b,{sourcePayloads:[{sourceFileId:input.source,content:new TextEncoder().encode(input.gpx).buffer}]});
+    }''', {'id':trip_id,'source':saved,'gpx':gpx.decode()})
+    with page.expect_download() as original:
+        page.locator('[data-action=download-stage-gpx]').tap()
+    assert Path(original.value.path()).read_bytes()==gpx
+    # A transient read failure must be visible and recoverable with the same saved trip.
+    page.evaluate('async()=>{window.failLocalRead=true;await manager.refresh()}')
+    page.locator('[data-screen-load-error]').wait_for()
+    page.evaluate('window.failLocalRead=false')
+    page.locator('[data-action=retry-screen]').tap()
+    page.locator('[data-day-detail-profile]').wait_for()
+    assert page.locator('[data-screen-load-error]').count()==0
     assert not errors, errors
+    print(json.dumps({'singleFeatureSheet':True,'oldMapDisposedAfterPatch':True,'nativeDismissalUnlocks':True,'voyageServicesPreserved':True,'missingOriginalExplicit':True,'originalRetryExact':True,'readFailureRetry':True}))
     print(json.dumps({'modes':['league','tour'],'waterPotabilityAccessOpening':True,'sharedPassageEta':True,'noExtraWeatherCalls':True,'stableWaterHeight':True,'weatherAge8h':True,'noCompetitionLayers':True,'segmentAndClimbPopups':True,'widths':[320,390,430],'jsErrors':errors}))
     print('Artifacts:',output)
     browser.close()

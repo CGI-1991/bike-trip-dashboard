@@ -87,9 +87,10 @@ function escapeHtml(value: string): string {
 }
 
 function formatDuration(seconds: number | null): string {
-  if (seconds === null) return '—'
-  const hours = Math.floor(seconds / 3_600)
-  const minutes = Math.round((seconds % 3_600) / 60)
+  if (seconds === null || !Number.isFinite(seconds) || seconds < 0) return '—'
+  const totalMinutes = Math.round(seconds / 60)
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
   return `${hours} h ${String(minutes).padStart(2, '0')}`
 }
 

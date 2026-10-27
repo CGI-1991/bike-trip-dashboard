@@ -53,8 +53,7 @@ import type { RouteMapModel } from '../route-map-model.ts'
 import { buildPracticalPlaceMapLayers } from '../practical-place-map-layers.ts'
 import { mountClimbProfileInteraction, renderGenericElevationProfile } from '../elevation-profile.ts'
 import { downloadBlob } from '../gpx-share.ts'
-import { buildZipArchive } from '../zip-writer.ts'
-import type { ZipEntryInput } from '../zip-writer.ts'
+import { prepareOriginalStageGpx, prepareOriginalTripGpx } from '../../export/original-gpx.ts'
 import { isSignificantWaypoint } from '../../analysis/canonical-waypoints.ts'
 import { resolveOffCoordinates, resolveOffLocation, resolveSharedInfoDayId, resolveTransferCoordinates, resolveTransferLocations } from '../../analysis/day-location-fill.ts'
 import { normalizePauseDurationMinutes } from '../../analysis/pause-duration.ts'
@@ -135,10 +134,6 @@ import { sharedCurrentLocationService } from '../current-location.ts'
 function villagesLayer(waypoints: readonly import('../../analysis/canonical-waypoints.ts').CanonicalWaypoint[]): readonly MapLayerDefinition[] {
   if (waypoints.length === 0) return []
   return [{ id: 'villages', label: 'Villages', markers: buildGenericRouteMapModel(waypoints, []).markers, defaultVisible: false }]
-}
-
-function payloadToUint8Array(content: SourceFilePayloadContent): Promise<Uint8Array> {
-  return content instanceof Blob ? content.arrayBuffer().then((buffer) => new Uint8Array(buffer)) : Promise.resolve(new Uint8Array(content))
 }
 
 function payloadToBlob(content: SourceFilePayloadContent, mimeType: string): Blob {
@@ -382,6 +377,8 @@ export interface TripsManagerHandle {
 
 export function initializeTripsManager(container: HTMLElement, deps: TripsManagerDeps): TripsManagerHandle {
   let mode: Mode = { kind: 'list' }
+  let screenRevision = 0
+  let navigationRevision = 0
   /**
    * R3 sections 30-35 — "Choisir sur la carte": at most one picker is ever
    * open at a time (the whole Infos edit form it lives in is itself a
@@ -421,6 +418,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   let overviewRefreshDeferred = false
 
   function teardownSubComponent(): void {
+    for (const dialog of container.querySelectorAll<HTMLDialogElement>('.route-map-dialog[open]')) deps.closeMap(dialog)
     const profile=container.querySelector<HTMLElement>('[data-day-detail-profile]')
     if(profile)disposeProfileWind(profile)
     for(const canvas of container.querySelectorAll<HTMLElement>('[data-route-map-canvas]'))getMapInteractionHandle(canvas)?.dispose?.()
@@ -619,10 +617,12 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   })
 
   async function renderList(): Promise<void> {
+    const revision = ++screenRevision
     teardownSubComponent()
     deps.onHeaderChange?.(GENERIC_APP_HEADER_NO_ACTIVE_TRIP)
     container.innerHTML = '<p role="status">Chargement de vos voyages…</p>'
-    const trips = await listTripSummaries(deps.database, stagePreparationContext)
+    const trips = await loadForScreen(revision, () => listTripSummaries(deps.database, stagePreparationContext))
+    if (trips === undefined) return
     const backupMarkup = `<details class="trip-backup"><summary>Sauvegarder / restaurer mes voyages</summary><div data-trip-backup-panel></div></details>`
     const noticeMarkup = backupNotice === null ? '' : `<p role="status">${escapeHtml(backupNotice)}</p>`
     const mountBackup = () => {
@@ -681,10 +681,31 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     return repaired
   }
 
+  /** A slow read must neither resurrect an old screen nor leave an endless spinner on failure. */
+  async function loadForScreen<T>(revision: number, read: () => Promise<T>, keepCurrentScreen = false): Promise<T | undefined> {
+    try {
+      const value = await read()
+      return revision === screenRevision ? value : undefined
+    } catch {
+      if (revision === screenRevision) {
+        if (keepCurrentScreen) {
+          const status = container.querySelector<HTMLElement>('[data-enrichment-progress]')
+          if (status !== null) { status.textContent = 'Actualisation indisponible. Les données affichées restent consultables.'; status.hidden = false }
+          else if (typeof container.insertAdjacentHTML === 'function' && container.querySelector('[data-screen-read-error]') === null) container.insertAdjacentHTML('afterbegin', '<p data-screen-read-error role="alert">Impossible de lire les données locales. Réessayez.</p>')
+        } else {
+          container.innerHTML = `<section data-screen-load-error role="alert"><p>Impossible de lire les données locales.</p><button class="button button--primary" type="button" data-action="retry-screen">Réessayer</button><button class="button button--quiet" type="button" data-action="back-to-list">Mes activités</button></section>`
+        }
+      }
+      return undefined
+    }
+  }
+
   async function renderDetail(tripId: TripId): Promise<void> {
+    const revision = ++screenRevision
     teardownSubComponent()
     container.innerHTML = '<p role="status">Chargement du voyage…</p>'
-    const bundle = await loadTripBundleForScreen(tripId)
+    const bundle = await loadForScreen(revision, () => loadTripBundleForScreen(tripId))
+    if (bundle === undefined) return
     if (bundle === null) {
       mode = { kind: 'list' }
       await renderList()
@@ -708,9 +729,11 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   }
 
   async function renderDay(tripId: TripId, dayId: TripDayId): Promise<void> {
+    const revision = ++screenRevision
     teardownSubComponent()
     container.innerHTML = '<p role="status">Chargement de la journée…</p>'
-    const bundle = await loadTripBundleForScreen(tripId)
+    const bundle = await loadForScreen(revision, () => loadTripBundleForScreen(tripId))
+    if (bundle === undefined) return
     if (bundle === null) {
       mode = { kind: 'list' }
       await renderList()
@@ -881,7 +904,8 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
         segmentLines: buildRaceSegmentMapLines(course, stage?.raceSegments ?? []),
       }
       deps.renderMap(mapContainer, mapDialog, model, selectRaceMode(bundle) ? [] : [...villagesLayer(detail.villageWaypoints), ...practicalPlaceLayers(bundle, detail, dayId)])
-      mapDialog.querySelector<HTMLButtonElement>('[data-close-map]')?.addEventListener('click', () => deps.closeMap(mapDialog))
+      const close = mapDialog.querySelector<HTMLButtonElement>('[data-close-map]')
+      if (close !== null) close.onclick = () => deps.closeMap(mapDialog)
     }
     const profileContainer = container.querySelector<HTMLElement>('[data-day-detail-profile]')
     if (profileContainer !== null) {
@@ -1171,12 +1195,14 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
    * about the trip's own Aperçu content had actually changed.
    */
   async function renderOverview(tripId: TripId, options: { readonly diffGated?: boolean } = {}): Promise<void> {
+    const revision = options.diffGated === true ? screenRevision : ++screenRevision
     if (options.diffGated !== true) {
       teardownSubComponent()
       overviewRefreshDeferred = false
       container.innerHTML = '<p role="status">Chargement du voyage…</p>'
     }
-    const bundle = await loadTripBundleForScreen(tripId)
+    const bundle = await loadForScreen(revision, () => loadTripBundleForScreen(tripId), options.diffGated === true)
+    if (bundle === undefined) return
     if (bundle === null) {
       if (options.diffGated === true) return
       mode = { kind: 'list' }
@@ -1903,10 +1929,11 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
    * any more (CDC Jalon B4.3 section 17) — it returns to the list instead.
    */
   async function openOverview(tripId: TripId): Promise<void> {
+    ++navigationRevision
     setActiveTrip(tripId)
     mode = { kind: 'overview', tripId }
     await renderOverview(tripId)
-    void startAutomaticEnrichment(tripId)
+    if (mode.kind === 'overview' && mode.tripId === tripId) void startAutomaticEnrichment(tripId)
   }
 
   /**
@@ -1923,28 +1950,38 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   }
 
   async function goToOverviewForActiveTrip(): Promise<void> {
-    const tripId = await resolveActiveTripId()
+    const request = ++navigationRevision
+    const tripId = await loadForScreen(screenRevision, resolveActiveTripId, true)
+    if (tripId === undefined) return
+    if (request !== navigationRevision) return
     await attemptLeaveEditContext(async () => {
+      if (request !== navigationRevision) return
       if (tripId === null) { mode = { kind: 'list' }; await renderList(); return }
       await openOverview(tripId)
     })
   }
 
   async function goToDetailForActiveTrip(): Promise<void> {
-    const tripId = await resolveActiveTripId()
+    const request = ++navigationRevision
+    const tripId = await loadForScreen(screenRevision, resolveActiveTripId, true)
+    if (tripId === undefined) return
+    if (request !== navigationRevision) return
     await attemptLeaveEditContext(async () => {
+      if (request !== navigationRevision) return
       if (tripId === null) { mode = { kind: 'list' }; await renderList(); return }
       await openDetail(tripId)
     })
   }
 
   async function openDetail(tripId: TripId): Promise<void> {
+    ++navigationRevision
     detailAutoScrollSession.enter(tripId)
     mode = { kind: 'detail', tripId }
     await renderDetail(tripId)
   }
 
   async function openDay(tripId: TripId, dayId: TripDayId, origin: DayOrigin): Promise<void> {
+    ++navigationRevision
     // Any navigation that gets this far has already been through the guard
     // (`EXTERNAL_ACTIONS`); the render below replaces the panel DOM outright,
     // so the guard must not keep pointing at fields that no longer exist.
@@ -2023,13 +2060,17 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
 
   /** Global "Mes activités" nav click (CDC hardening section 14): always returns to the trip list, whatever screen was open — the reason none of Aperçu/Voyage/Étape carries its own "Retour à Mes activités" button. */
   function goToList(): void {
+    const request = ++navigationRevision
     void attemptLeaveEditContext(() => {
+      if (request !== navigationRevision) return
       mode = { kind: 'list' }
       return renderList()
     })
   }
 
   function renderConfirmation(result: ImportWizardResult): void {
+    ++screenRevision
+    ++navigationRevision
     deps.onHeaderChange?.(GENERIC_APP_HEADER_NO_ACTIVE_TRIP)
     const dateLabel = result.startDate === null ? 'Non daté' : result.endDate === null ? result.startDate : `${result.startDate} → ${result.endDate}`
     container.innerHTML = `
@@ -2062,6 +2103,9 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
    * "Ouvrir" click is what makes it active (CDC section 4/5).
    */
   function openWizard(): void {
+    ++screenRevision
+    ++navigationRevision
+    teardownSubComponent()
     mode = { kind: 'wizard' }
     deps.onHeaderChange?.(GENERIC_APP_HEADER_NO_ACTIVE_TRIP)
     let wizard: { readonly destroy: () => void }
@@ -2083,6 +2127,9 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
   }
 
   function openEditor(tripId: TripId): void {
+    ++screenRevision
+    ++navigationRevision
+    teardownSubComponent()
     mode = { kind: 'editor', tripId }
     deps.onHeaderChange?.(GENERIC_APP_HEADER_NO_ACTIVE_TRIP)
     let editor: { readonly destroy: () => void }
@@ -2136,48 +2183,32 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     return trimmed === '' ? null : trimmed
   }
 
-  /** GPX filename for one route's original source file — never a technical id, never a reconstruction (CDC Jalon B4.3 sections 15/33). */
-  async function downloadRouteGpx(tripId: TripId, sourceFileId: string): Promise<void> {
-    const bundle = await createTripRepository(deps.database).loadTripBundle(tripId)
-    const sourceFile = bundle?.sourceFiles.find((candidate) => candidate.id === sourceFileId)
-    if (bundle === undefined || bundle === null || sourceFile === undefined) return
-    const payload = await createSourceFileRepository(deps.database).getSourceFilePayload(tripId, sourceFile.id)
-    if (payload === null) return
-    downloadBlob(payloadToBlob(payload.content, 'application/gpx+xml'), sourceFile.originalName)
-  }
-
-  /**
-   * One archive of every ride day's original GPX, in chronological order
-   * (CDC D1.1 section 4) — the stored originals, never a re-serialization of
-   * the analysed geometry; OFF/transfer days (no GPX) are naturally excluded
-   * since they have no route/source file to begin with. Iterates
-   * `bundle.days` (sorted by `index`, the same structural order every other
-   * day-traversal in this file uses — see `openableDayIds`) rather than
-   * `bundle.stages` directly, so this stays chronologically correct even if
-   * a future edit ever changes `stages`' own array order.
-   */
-  async function downloadTripGpxArchive(tripId: TripId, tripName: string): Promise<void> {
-    const bundle = await createTripRepository(deps.database).loadTripBundle(tripId)
-    if (bundle === null) return
-    const sourceFileRepository = createSourceFileRepository(deps.database)
-    const entries: ZipEntryInput[] = []
-    const orderedStages = openableDayIds(bundle)
-      .map((dayId) => bundle.stages.find((stage) => stage.dayId === dayId))
-      .filter((stage): stage is (typeof bundle.stages)[number] => stage !== undefined)
-    for (const stage of orderedStages) {
-      const route = bundle.routes.find((candidate) => candidate.id === stage.sourceRouteId)
-      const sourceFile = route?.sourceFileId === null || route?.sourceFileId === undefined
-        ? undefined
-        : bundle.sourceFiles.find((candidate) => candidate.id === route.sourceFileId)
-      if (sourceFile === undefined) continue
-      const payload = await sourceFileRepository.getSourceFilePayload(tripId, sourceFile.id)
-      if (payload === null) continue
-      entries.push({ name: sourceFile.originalName, data: await payloadToUint8Array(payload.content) })
+  let exportingOriginalGpx = false
+  async function exportOriginalGpx(button: HTMLButtonElement, prepare: () => Promise<{ readonly blob: Blob; readonly filename: string }>): Promise<void> {
+    if (exportingOriginalGpx) return
+    exportingOriginalGpx = true
+    button.disabled = true
+    let status = button.parentElement?.querySelector<HTMLElement>('[data-original-export-status]') ?? null
+    if (status === null && typeof document !== 'undefined') {
+      status = document.createElement('p')
+      status.dataset.originalExportStatus = ''
+      status.setAttribute('role', 'status')
+      button.insertAdjacentElement('afterend', status)
     }
-    if (entries.length === 0) return
-    const zip = buildZipArchive(entries, new Date(deps.now()))
-    const safeName = tripName.replaceAll(/[\\/:*?"<>|]/g, '_').trim() || 'voyage'
-    downloadBlob(zip, `${safeName}_GPX.zip`)
+    if (status !== null) { status.setAttribute('role', 'status'); status.textContent = 'Préparation du GPX…' }
+    try {
+      const result = await prepare()
+      downloadBlob(result.blob, result.filename)
+      if (status !== null) status.textContent = 'Téléchargement demandé.'
+    } catch (error) {
+      if (status !== null) {
+        status.setAttribute('role', 'alert')
+        status.textContent = error instanceof Error ? error.message : 'Impossible de préparer le GPX. Réessayez.'
+      }
+    } finally {
+      exportingOriginalGpx = false
+      button.disabled = false
+    }
   }
 
   function handleContainerClick(event: { readonly target: EventTarget | null }): void {
@@ -2325,7 +2356,9 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       return
     }
 
-    if (action === 'create-trip') {
+    if (action === 'retry-screen') {
+      void refresh()
+    } else if (action === 'create-trip') {
       openWizard()
     } else if (action === 'backup-trip' && tripId !== undefined && mode.kind === 'list') {
       void backupPanel?.prepare(tripId as TripId)
@@ -2623,21 +2656,10 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       })()
     } else if (action === 'download-stage-gpx' && mode.kind === 'day') {
       const { tripId, dayId } = mode
-      void (async () => {
-        const bundle = await createTripRepository(deps.database).loadTripBundle(tripId)
-        if (bundle === null) return
-        const day = bundle.days.find((candidate) => candidate.id === dayId)
-        const stage = day === undefined || day.stageId === null ? undefined : bundle.stages.find((candidate) => candidate.id === day.stageId)
-        const route = stage === undefined ? undefined : bundle.routes.find((candidate) => candidate.id === stage.sourceRouteId)
-        if (route?.sourceFileId === null || route?.sourceFileId === undefined) return
-        await downloadRouteGpx(tripId, route.sourceFileId)
-      })()
+      void exportOriginalGpx(button as HTMLButtonElement, () => prepareOriginalStageGpx(deps.database, tripId, dayId))
     } else if (action === 'download-trip-gpx' && (mode.kind === 'detail' || mode.kind === 'overview')) {
       const { tripId } = mode
-      void (async () => {
-        const bundle = await createTripRepository(deps.database).loadTripBundle(tripId)
-        if (bundle !== null) await downloadTripGpxArchive(tripId, bundle.metadata.name)
-      })()
+      void exportOriginalGpx(button as HTMLButtonElement, () => prepareOriginalTripGpx(deps.database, tripId, deps.now()))
     }
   }
 

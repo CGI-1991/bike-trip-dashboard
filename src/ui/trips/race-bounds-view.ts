@@ -7,15 +7,25 @@ import { renderFeatureUpdateBadge } from '../release-notes.ts'
 import { neutralizedCyclingReferenceSpeed } from '../../analysis/waypoint-timeline.ts'
 import { selectTravelMode } from '../../trip-core/index.ts'
 
-const km = (value: number) => value.toFixed(3).replace('.', ',')
+const km = (value: number) => value.toFixed(1).replace('.', ',')
+
+/** New user choices use 100 m steps. The last GPX point remains exact even
+ * when its displayed tenth is just beyond the measured route length. */
+export function raceInputOffsetM(distanceKm: number, lengthKm: number): number {
+  const displayedEndKm = Number(lengthKm.toFixed(1))
+  if (!Number.isFinite(distanceKm) || distanceKm < 0 || (distanceKm > lengthKm && distanceKm !== displayedEndKm)) return distanceKm * 1000
+  if (distanceKm === 0) return 0
+  if (distanceKm === lengthKm || distanceKm === displayedEndKm) return lengthKm * 1000
+  return Math.min(Math.round(distanceKm * 10) * 100, lengthKm * 1000)
+}
 
 export function renderRaceCourseCard(course: RaceCourse, _stage: RideStage, explicitBounds = false, approachSpeedKph?: number): string {
   return `<section class="race-course" aria-label="Limites de course"><header><h3>Course</h3>${renderFeatureUpdateBadge('race-bounds')}</header>
     ${course.status === 'stale' ? '<p role="status">La trace a changé : redéfinissez les limites de course.</p>' : ''}
     <p class="race-course__hint">${course.status === 'full' ? 'Départ et arrivée du GPX utilisés pour la course.' : course.status === 'bounded' ? `Départ réel km ${km(course.bounds!.startOffsetM / 1000)} · arrivée km ${km(course.bounds!.finishOffsetM / 1000)}.${course.bounds!.startOffsetM > 0 && approachSpeedKph !== undefined ? ` Avant la course : référence ${approachSpeedKph.toLocaleString('fr-BE')} km/h.` : ''}` : 'Horaires et météo suspendus pour ces anciennes limites.'}</p>
     <details data-race-editor><summary>Départ et arrivée de course</summary><div class="race-course__fields">
-      <label>Départ réel facultatif · km GPX<input type="number" inputmode="decimal" step="any" min="0" data-race-offset="start" aria-label="Départ de course en kilomètres" placeholder="0 · départ GPX"></label>
-      <label>Arrivée · km GPX<input type="number" inputmode="decimal" step="any" min="0" data-race-offset="finish" aria-label="Arrivée de course en kilomètres" placeholder="Fin du GPX"></label>
+      <label>Départ réel facultatif · km GPX<input type="number" inputmode="decimal" step="0.1" min="0" data-race-offset="start" aria-label="Départ de course en kilomètres" placeholder="0 · départ GPX"></label>
+      <label>Arrivée réelle · km GPX<input type="number" inputmode="decimal" step="0.1" min="0" data-race-offset="finish" aria-label="Arrivée de course en kilomètres" placeholder="Fin du GPX"></label>
       <button type="button" class="button button--quiet" data-race-pick="start" aria-pressed="false">Placer le départ</button>
       <button type="button" class="button button--quiet" data-race-pick="finish" aria-pressed="false">Placer l’arrivée</button>
     </div><p class="race-course__hint" data-race-status role="status">Choisissez une limite puis touchez le profil, ou saisissez ses kilomètres.</p>
@@ -54,7 +64,8 @@ export function mountRaceBoundsEditor(profile: HTMLElement, bundle: TripBundle, 
   let picked: 'start' | 'finish' | null = null
   let saving = false
   const preview = (): RaceBounds => ({ routeFingerprint: course.fingerprint, startOffsetM: start, finishOffsetM: finish })
-  const setInputs = () => { startInput.value = Number.isFinite(start) ? (start / 1000).toFixed(3) : ''; finishInput.value = Number.isFinite(finish) ? (finish / 1000).toFixed(3) : '' }
+  const inputValue = (offsetM: number) => !Number.isFinite(offsetM) ? '' : offsetM < 0 || offsetM > course.indexed.lengthKm * 1000 ? String(offsetM / 1000) : (offsetM / 1000).toFixed(1)
+  const setInputs = () => { startInput.value = inputValue(start); finishInput.value = inputValue(finish) }
   const setPicked = (value: typeof picked) => {
     picked = value
     for (const button of host.querySelectorAll<HTMLButtonElement>('[data-race-pick]')) button.setAttribute('aria-pressed', String(button.dataset.racePick === picked))
@@ -73,17 +84,23 @@ export function mountRaceBoundsEditor(profile: HTMLElement, bundle: TripBundle, 
     if (saving) return
     setPicked(null)
     // Only read the field the user changed: the untouched displayed finish
-    // may be rounded to 3 decimals while its exact original offset is kept.
-    if (event.target === startInput) start = startInput.value === '' ? 0 : startInput.valueAsNumber * 1000
-    if (event.target === finishInput) finish = finishInput.value === '' ? course.indexed.lengthKm * 1000 : finishInput.valueAsNumber * 1000
+    // is shown to one decimal while its saved exact offset is kept.
+    if (event.target === startInput) start = startInput.value === '' ? 0 : raceInputOffsetM(startInput.valueAsNumber, course.indexed.lengthKm)
+    if (event.target === finishInput) finish = finishInput.value === '' ? course.indexed.lengthKm * 1000 : raceInputOffsetM(finishInput.valueAsNumber, course.indexed.lengthKm)
     redraw()
+  }, { signal: controller.signal })
+  host.addEventListener('change', event => {
+    if (saving) return
+    if (event.target === startInput) startInput.value = inputValue(start)
+    if (event.target === finishInput) finishInput.value = inputValue(finish)
   }, { signal: controller.signal })
   profile.addEventListener('profile-distance-active', event => {
     if (picked === null || !editor.open || saving || profile.dataset.courseEditing === 'false') return
     const distanceKm = (event as CustomEvent<{ distanceKm: number }>).detail.distanceKm
-    if (picked === 'start') start = distanceKm * 1000; else finish = distanceKm * 1000
+    const offsetM = raceInputOffsetM(distanceKm, course.indexed.lengthKm)
+    if (picked === 'start') start = offsetM; else finish = offsetM
     setInputs(); redraw()
-    status.textContent = `${picked === 'start' ? 'Départ' : 'Arrivée'} au km ${km(distanceKm)}. Enregistrez pour confirmer.`
+    status.textContent = `${picked === 'start' ? 'Départ' : 'Arrivée'} au km ${km(offsetM / 1000)}. Enregistrez pour confirmer.`
   }, { signal: controller.signal })
   profile.addEventListener('course-editor-hidden', () => setPicked(null), { signal: controller.signal })
   editor.addEventListener('toggle', () => { if (!editor.open && !saving) resetDraft() }, { signal: controller.signal })
