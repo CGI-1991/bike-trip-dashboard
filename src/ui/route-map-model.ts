@@ -24,6 +24,7 @@ export interface OverviewStageLine {
   readonly dayId: string
   readonly number: string
   readonly name: string
+  readonly locations?: string
   readonly color: string
   readonly distanceKm: number | null
   readonly elevationGainM: number | null
@@ -45,6 +46,8 @@ export interface RouteMapMarkerModel {
    * escaped HTML; compact maps remain expand targets with no local popup.
    */
   readonly popupHtml?: string
+  /** Overview endpoints keep their accessible name without a city tooltip. */
+  readonly hideTooltip?: boolean
 }
 
 export interface RouteMapModel {
@@ -205,22 +208,21 @@ function dedupeMarkersByLocation(markers: readonly RouteMapMarkerModel[]): Route
  * The Aperçu screen's global map (CDC D1.1 section 1): the FULL ridden GPX
  * trace for every stage, each drawn as its own disjoint line segment — an
  * OFF/transfer day's gap between two stages is simply not drawn, never a
- * fabricated straight line connecting them. Markers stay deliberately
- * separate from the Étape map's own richer graphic language: every waypoint
- * passed in becomes a plain, un-iconified `overview-primary` point (no
- * Départ/Arrivée symbol) — callers are expected to have already filtered
- * each stage's waypoints down to just its principal points (start/end), so
- * in practice none of them ever carry `col-summit` here; the guard below
- * exists only so this function stays correct if a caller's own filtering
- * ever changes, matching `buildGenericOverviewDetailMarkers` below.
+ * fabricated straight line connecting them. Only GPX endpoints enter the
+ * base overview; real course boundaries are excluded defensively here too.
+ * Endpoints keep the shared D/A symbols. Their city names remain accessible,
+ * while visual labels belong to stage bubbles and their selection sheet.
+ * Named cols and pauses are supplied separately by the Détail layer.
  */
 export function buildGenericOverviewRouteMapModel(stages: readonly { readonly waypoints: readonly CanonicalWaypoint[]; readonly geometry: readonly LatLngTuple[]; readonly overview?: Omit<OverviewStageLine,'coordinates'> }[]): RouteMapModel {
   const withGeometry = stages.filter((stage) => stage.geometry.length > 1)
   const [first, ...rest] = withGeometry
   const markers = dedupeMarkersByLocation(
     stages
-      .flatMap((stage) => buildGenericRouteMapModel(stage.waypoints, stage.geometry).markers)
-      .map((marker) => ({ ...marker, category: marker.category === 'col-summit' ? 'col-summit' as const : 'overview-primary' as const })),
+      .flatMap((stage) => buildGenericRouteMapModel(stage.waypoints.filter(point => point.raceBoundary === undefined), stage.geometry).markers)
+      .map((marker) => ({ ...marker,
+        category: marker.category === 'start' || marker.category === 'finish' || marker.category === 'col-summit' ? marker.category : 'overview-primary' as const,
+        pauseActive: false, hideTooltip: true })),
   )
   const overviewStages=withGeometry.flatMap(stage=>stage.overview?[{...stage.overview,coordinates:stage.geometry}]:[])
   return { coordinates: first?.geometry ?? [], markers, extraLines: rest.map((stage) => stage.geometry), ...(overviewStages.length?{overviewStages}:{}) }
@@ -243,7 +245,7 @@ export function buildGenericOverviewRouteMapModel(stages: readonly { readonly wa
 export function buildGenericOverviewDetailMarkers(stages: readonly { readonly waypoints: readonly CanonicalWaypoint[] }[]): readonly RouteMapMarkerModel[] {
   return dedupeMarkersByLocation(
     stages
-      .flatMap((stage) => buildGenericRouteMapModel(stage.waypoints, []).markers)
+      .flatMap((stage) => buildGenericRouteMapModel(stage.waypoints.filter(point => point.raceBoundary === undefined), []).markers)
       .map((marker) => ({ ...marker, category: marker.category === 'col-summit' ? 'col-summit' as const : 'overview-secondary' as const })),
   )
 }

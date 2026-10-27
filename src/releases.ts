@@ -13,6 +13,10 @@ export interface AppRelease {
 }
 
 export const APP_RELEASES: readonly AppRelease[] = [
+  { version: '2026.10.27.4', date: '2026-10-27', changes: [
+    { feature: 'overview-map', title: 'Une vue d’ensemble plus lisible', description: 'La carte de tout le voyage conserve les départs et arrivées GPX, les couleurs et les bulles d’étape. Les limites réelles de course restent dans le détail de l’étape. Détail révèle seulement les pauses et cols nommés ; il n’affiche plus tous les noms d’étapes. Au survol ou au toucher d’une bulle, les villes Départ → Arrivée restent disponibles, même avec un nom personnalisé.' },
+    { feature: 'stage-tabs', title: 'Les onglets de l’étape se repèrent mieux', description: 'Parcours, Météo, Infos et Course utilisent une barre sur fond distinct, un contour plus net et une sélection vert profond avec texte blanc. La barre reste accessible pendant le défilement et conserve les cibles tactiles et la navigation clavier.' },
+  ] },
   { version: '2026.10.27.3', date: '2026-10-27', changes: [
     { feature: 'race-segments', title: 'Transformer une montée en Grimpeur, puis revenir', description: 'En League/Tour, la fiche dépliée permet de créer un Grimpeur avec le nom et les limites précises de la montée. Revenir à la montée retire uniquement ce segment créé ; la montée d’origine reste conservée. Les bulles de segments se placent au milieu de leur portion, et les sommets nommés restent visibles sur la carte et le profil.' },
     { feature: 'elevation-profile', title: 'Montées orange et lecture sous les mini-profils', description: 'Les montées teintent leur portion de carte en orange et leur portion de profil en mode Neutre. Les segments gardent leur couleur. Les mini-profils affichent distance, altitude, pente et passage dans une bande fixe sous le graphique ; le point de lecture reste rond quelle que soit la largeur.' },

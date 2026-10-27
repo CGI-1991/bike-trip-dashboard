@@ -8,8 +8,38 @@ import test from 'node:test'
 import { buildGpxTrip } from '../../src/import/gpx/import-gpx-trip.ts'
 import { buildTripOverview } from '../../src/ui/trips/trip-overview-view.ts'
 import { buildGenericOverviewDetailMarkers } from '../../src/ui/route-map-model.ts'
+import { applyRaceBounds, buildRaceCourse } from '../../src/analysis/race-bounds.ts'
+import { convertClimbToSegment } from '../../src/analysis/climb-segment-conversion.ts'
+import { buildDayDetail } from '../../src/ui/trips/day-detail-view.ts'
+import { createLinkedTripBundle } from '../trips-manager/support/linked-trip-fixture.mjs'
 
 installMinimalDOMParser()
+
+test('League/Tour overview excludes real boundaries but preserves each stage GPX endpoints, full trace and custom-name locations', () => {
+  for (const organizationMode of ['league', 'tour']) {
+    const base = createLinkedTripBundle({rideCount:2})
+    let bundle = {...base,settings:{...base.settings,global:{...base.settings.global,organizationMode,raceMode:true}}}
+    bundle = {...bundle,stages:bundle.stages.map(stage => ({...stage,customName:'Course personnalisée'}))}
+    for (const stage of bundle.stages) {
+      const course = buildRaceCourse(bundle, stage)
+      bundle = applyRaceBounds(bundle,stage.id,{routeFingerprint:course.fingerprint,startOffsetM:course.indexed.lengthKm*100,finishOffsetM:course.indexed.lengthKm*800},course.fingerprint,'2028-06-01T12:00:00Z')
+    }
+    const before = JSON.stringify(bundle)
+    const overview = buildTripOverview(bundle, '2028-06-01')
+    for (const [index, mapped] of overview.mapStages.entries()) {
+      const stage = bundle.stages[index]
+      assert.deepEqual(mapped.waypoints.map(point => point.kind), ['start','end'])
+      assert.ok(mapped.waypoints.every(point => point.raceBoundary === undefined))
+      assert.equal(mapped.waypoints[0].trackDistanceKm, 0)
+      assert.equal(mapped.waypoints.at(-1).trackDistanceKm, buildRaceCourse(bundle,stage).indexed.lengthKm)
+      assert.equal(mapped.overview.name, 'Course personnalisée')
+      assert.equal(mapped.overview.locations, `${stage.startLocationName} → ${stage.endLocationName}`)
+      assert.equal(mapped.geometry.length, bundle.routes[index].geometry.full.length)
+      assert.equal(buildDayDetail(bundle,stage.dayId).waypoints.filter(point => point.raceBoundary).length, 2, 'the step detail retains both real flags')
+    }
+    assert.equal(JSON.stringify(bundle), before, 'overview filtering is read-only')
+  }
+})
 
 // The Aperçu map's "Détail" layer showed the points of some stages and not
 // others. This suite measures the aggregation per stage rather than judging
@@ -90,6 +120,19 @@ async function linkedTripWithCols() {
     stages,
   }
 }
+
+test('a named col replaced by a Grimpeur remains exclusively in the overview Détail layer', async () => {
+  const base = await linkedTripWithCols()
+  let bundle = {...base,settings:{...base.settings,global:{...base.settings.global,organizationMode:'tour',raceMode:true}}}
+  const stage = bundle.stages[0], course = buildRaceCourse(bundle,stage)
+  const climb = bundle.climbs.find(climb => stage.climbIds.includes(climb.id) && climb.name === 'Col 1')
+  bundle = convertClimbToSegment(bundle,stage.id,climb.id,'converted-col',course.fingerprint,'2028-06-01T12:00:00Z')
+  const overview = buildTripOverview(bundle,'2028-06-01')
+  assert.ok(overview.mapStages.every(mapped => mapped.waypoints.every(point => point.climbId === null)))
+  assert.equal(overview.mapDetailStages[0].waypoints.filter(point => point.name === 'Col 1').length,1)
+  assert.equal(buildGenericOverviewDetailMarkers(overview.mapDetailStages).filter(marker => marker.name === 'Col 1' && marker.category === 'col-summit').length,1)
+  assert.equal(buildDayDetail(bundle,stage.dayId).waypoints.some(point => point.climbId === climb.id),false,'timeline consolidation stays unchanged')
+})
 
 test('every stage of the trip contributes its own named col to the Détail layer — linked stages included', async () => {
   const bundle = await linkedTripWithCols()

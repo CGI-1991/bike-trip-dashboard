@@ -1,5 +1,6 @@
 # Trip+
 
+La [carte Aperçu et les onglets](docs/OVERVIEW_MAP_CLARITY.md) distinguent les repères GPX des limites réelles, réservent les cols/pauses à Détail et renforcent la navigation d’étape.
 La [lecture des montées, segments et repères de course](docs/CLIMBS_COURSE_REPRESENTATION.md) apporte la conversion réversible en Grimpeur, les montées orange, les bulles centrales, les drapeaux et les mini-profils avec lecture sous le graphique.
 Les [repères d’interaction](docs/INTERACTION_CUES.md) identifient les actions en bleu, l’édition par un crayon et les détails dépliables par un chevron, de façon commune dans l’application.
 La [passe de contrôle du 27 octobre](docs/QUALITY_AUDIT_2026_10.md) corrige les fiches de carte en double et documente les vérifications de navigation, stockage, exports, sauvegardes et affichage mobile.

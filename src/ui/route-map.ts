@@ -302,7 +302,7 @@ export function createRouteMap(container: HTMLElement, model: RouteMapModel, opt
     layer.on('add',()=>layer.getElement()?.setAttribute('aria-label',marker.name))
     layer.addTo(map)
     if (interactive && marker.popupHtml !== undefined) layer.bindPopup(marker.popupHtml, { maxWidth: 260, className: 'route-feature-leaflet-popup' })
-    else if (interactive) layer.bindTooltip(markerTooltip(marker))
+    else if (interactive && !marker.hideTooltip) layer.bindTooltip(markerTooltip(marker))
   })
   if (bounds.isValid()) {
     if (options.invalidateBeforeInitialFit === true) map.invalidateSize()
@@ -589,14 +589,14 @@ export function disposeDirectLayerToggle(dialog: HTMLDialogElement): void {
  * slide-over panel. State is `aria-pressed` only — never "Détail ON/OFF"
  * text (CDC section 5); the label always stays "Détail".
  */
-function installDirectLayerToggle(dialog: HTMLDialogElement, map: L.Map, layers: readonly MapLayerDefinition[], hasStages = false): void {
+function installDirectLayerToggle(dialog: HTMLDialogElement, map: L.Map, layers: readonly MapLayerDefinition[]): void {
   disposeDirectLayerToggle(dialog)
   const toggle = dialog.querySelector<HTMLButtonElement>('[data-map-layers-toggle]')
   if (toggle === null) return
   const markers = layers.flatMap((layer) => layer.markers)
-  toggle.hidden = markers.length === 0 && !hasStages
+  toggle.hidden = markers.length === 0
   toggle.setAttribute('aria-pressed', 'false')
-  if (markers.length === 0 && !hasStages) return
+  if (markers.length === 0) return
   const toggleOffsets = resolveMarkerIconOffsets(markers)
   const group = L.layerGroup(markers.map((marker, index) =>
     L.marker(toLatLng(marker.coordinate), { icon: createRouteDivIcon(marker.category, { offRoute: marker.offRoute, pauseActive: marker.pauseActive, iconOffset: toggleOffsets[index] }) })
@@ -606,7 +606,6 @@ function installDirectLayerToggle(dialog: HTMLDialogElement, map: L.Map, layers:
     const active = toggle.getAttribute('aria-pressed') === 'true'
     if (active) { group.remove(); toggle.setAttribute('aria-pressed', 'false') }
     else { group.addTo(map); toggle.setAttribute('aria-pressed', 'true') }
-    map.fire('overviewdetailchange')
   }
   toggle.addEventListener('click', handler)
   directToggleControllers.set(dialog, {
@@ -843,7 +842,7 @@ export function renderGenericRouteMap(container: HTMLElement, dialog: HTMLDialog
         )
         map.on('popupopen', () => { popupOpen = true })
         map.on('popupclose', () => { popupOpen = false })
-        if (options.directLayerToggle === true) installDirectLayerToggle(dialog, map, layerState.layers, Boolean(model?.overviewStages?.length))
+        if (options.directLayerToggle === true) installDirectLayerToggle(dialog, map, layerState.layers)
         else installMapLayerPanel(dialog, map, layerState.layers)
       } catch {
         closeExpandedRouteMap(dialog)

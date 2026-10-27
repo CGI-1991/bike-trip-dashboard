@@ -12,6 +12,18 @@ function waypoint(overrides = {}) {
   }
 }
 
+test('real course boundaries never enter either global overview layer, even when passed by a caller', () => {
+  const stages = [{ geometry: [[45, 6], [45.1, 6.1]], waypoints: [
+    waypoint({ id: 'gpx-start', kind: 'start', name: 'Ville départ', latitude: 45 }),
+    waypoint({ id: 'real-start', kind: 'start', raceBoundary: 'start', name: 'Départ réel', latitude: 45.02 }),
+    waypoint({ id: 'real-finish', kind: 'end', raceBoundary: 'finish', name: 'Arrivée réelle', latitude: 45.08 }),
+    waypoint({ id: 'gpx-finish', kind: 'end', name: 'Ville arrivée', latitude: 45.1 }),
+  ] }]
+  for (const markers of [buildGenericOverviewRouteMapModel(stages).markers, buildGenericOverviewDetailMarkers(stages)]) {
+    assert.deepEqual(markers.map(marker => marker.id), ['gpx-start', 'gpx-finish'])
+  }
+})
+
 test('each stage keeps its own disjoint line segment — never one continuous line across an OFF/transfer gap', () => {
   const model = buildGenericOverviewRouteMapModel([
     { waypoints: [], geometry: [[45, 6], [45.1, 6.1]] },
@@ -61,11 +73,12 @@ test('no stages at all produces an empty, still-valid model', () => {
 // BA-BH: three graphic families only — green principal points, grey+mauve-
 // ring pauses, and (new) the Étape map's own diamond/orange for named cols.
 
-test('BA: a start/end waypoint keeps the plain green "overview-primary" marker — unaffected by the col fix', () => {
+test('GPX endpoints keep the shared D/A symbols without an additional city tooltip', () => {
   const model = buildGenericOverviewRouteMapModel([
     { waypoints: [waypoint({ kind: 'start' })], geometry: [[45, 6], [45.1, 6.1]] },
   ])
-  assert.equal(model.markers[0].category, 'overview-primary')
+  assert.equal(model.markers[0].category, 'start')
+  assert.equal(model.markers[0].hideTooltip, true)
 })
 
 test('BC: a named mountain-pass/saddle waypoint in the "Détail" layer renders as the Étape map\'s own diamond/orange "col-summit" marker, never the generic overview dot', () => {
