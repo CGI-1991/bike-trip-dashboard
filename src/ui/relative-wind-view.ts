@@ -54,7 +54,7 @@ export function installProfileWindControls(container: HTMLElement, samples: read
   readonly total: number
   readonly x: (km: number) => number
   readonly y: (altitude: number) => number
-}, windEnabled = true): void {
+}, windEnabled = true, onResize?: () => void): void {
   if (typeof container.querySelector !== 'function') return
   handles.get(container)?.destroy()
   const svg = container.querySelector<SVGSVGElement>('[data-profile-interactive]')
@@ -76,6 +76,7 @@ export function installProfileWindControls(container: HTMLElement, samples: read
     readout.innerHTML = `<div data-profile-selected-wind aria-label="${reading === null ? 'Vent indisponible au point exploré' : `${relativeWindLabel(reading)}, ${Math.round(reading.speedKph)} km/h`}">${compass(reading, travelMode)}<span>${reading === null ? '—' : Math.round(reading.speedKph)}<small>km/h</small>${reading !== null && reading.coverage < .9 ? '<small>partiel</small>' : ''}</span></div>`
   }
   function paint(): void {
+    onResize?.()
     const displayed = editing ? 'neutral' : mode
     if (container.dataset) container.dataset.profileColorMode = displayed
     if (controls !== null) controls.hidden = editing

@@ -1,4 +1,6 @@
 import { tripIcon, renderInteractionCue } from '../icons.ts'
+import { visualRaceWaypoints } from '../../analysis/race-segment-waypoints.ts'
+import { renderRouteFlag } from '../route-marker-style.ts'
 import { renderStageServices } from './stage-services.ts'
 import { renderStageNavigation } from './stage-navigation.ts'
 import { classifyClimb } from '../../analysis/climb-category.ts'
@@ -37,11 +39,11 @@ import { selectOrganizationCapabilities } from '../../trip-core/index.ts'
  */
 
 import { selectTravelMode } from '../../trip-core/index.ts'
-import { buildRaceCourse, selectStageCourseMetrics } from '../../analysis/race-bounds.ts'
+import { buildRaceCourse, selectStageCourseMetrics, courseWaypoints } from '../../analysis/race-bounds.ts'
 import type { RaceBounds } from '../../trip-core/model/ride-stage.ts'
 import { buildAutomaticPauseEnrichment, computeStagePauseRecommendations, computeStageTimingCurve, computeStageWaypoints, resolveStagePauseSettings } from '../../analysis/waypoint-timeline.ts'
 import type { StageTimingCurve } from '../../analysis/waypoint-timeline.ts'
-import { isSignificantWaypoint } from '../../analysis/canonical-waypoints.ts'
+import { isSignificantWaypoint, buildCanonicalWaypoints } from '../../analysis/canonical-waypoints.ts'
 import type { CanonicalWaypoint, CanonicalWaypointKind } from '../../analysis/canonical-waypoints.ts'
 import { buildClimbProfile } from '../../analysis/climb-profile.ts'
 import { routeGeometry } from '../../route-enrichment/route-fingerprint.ts'
@@ -188,9 +190,8 @@ function renderPauseBadge(waypoint: CanonicalWaypoint): string {
  * behaviour the row's `auto minmax(0, 1fr)` template already relies on.
  */
 function renderTimelineTimeColumn(waypoint: CanonicalWaypoint): string {
-  const time = waypoint.clockTime === null ? '' : `<span class="day-detail__timeline-time">${escapeHtml(waypoint.clockTime)}</span>`
+  const time = `<span class="day-detail__timeline-time">${escapeHtml(waypoint.clockTime ?? '—')}</span>`
   const pauseBadge = renderPauseBadge(waypoint)
-  if (time === '' && pauseBadge === '') return ''
   return `<span class="day-detail__timeline-time-col">${time}${pauseBadge}</span>`
 }
 
@@ -217,11 +218,11 @@ function renderTimelineTimeColumn(waypoint: CanonicalWaypoint): string {
  * from the mounted weather panel itself, see `trips-manager.ts`).
  */
 function renderTimelineRow(waypoint: CanonicalWaypoint): string {
-  const meta = `${KIND_LABELS[waypoint.kind]} · ${formatKilometers(waypoint.trackDistanceKm)}`
+  const meta = `${KIND_LABELS[waypoint.kind]} · ${formatKilometers(waypoint.trackDistanceKm)}${waypoint.elevationM === null ? '' : ` · ${Math.round(waypoint.elevationM)} m`}`
   return `<li class="day-detail__timeline-row day-detail__timeline-row--${waypoint.importance}" data-waypoint-id="${escapeHtml(waypoint.id)}" data-waypoint-kind="${waypoint.kind}">
     ${renderTimelineTimeColumn(waypoint)}
     <div class="day-detail__timeline-body">
-      <strong><span class="day-detail__timeline-marker" aria-hidden="true">${KIND_MARKERS[waypoint.kind]}</span>${escapeHtml(waypoint.name)}</strong>
+      <strong><span class="day-detail__timeline-marker" aria-hidden="true">${waypoint.raceBoundary === undefined ? KIND_MARKERS[waypoint.kind] : renderRouteFlag(`race-${waypoint.raceBoundary}`)}</span>${escapeHtml(waypoint.name)}</strong>
       <span class="day-detail__timeline-meta">${meta}</span>
       <span class="day-detail__timeline-weather" data-waypoint-weather data-waypoint-id="${escapeHtml(waypoint.id)}"></span>
     </div>
@@ -280,7 +281,7 @@ function climbSegmentLengthMeters(climb: Climb): number {
  * whole point of the merge is that this is still the named col, just with
  * its profile attached.
  */
-function renderClimbCard(waypoint: CanonicalWaypoint, climb: Climb, routeGeometryFull: readonly RouteGeometryPoint[] | null, partial = false, travelMode: import('../../trip-core/index.ts').TravelMode = 'cycling'): string {
+function renderClimbCard(waypoint: CanonicalWaypoint, climb: Climb, routeGeometryFull: readonly RouteGeometryPoint[] | null, partial = false, travelMode: import('../../trip-core/index.ts').TravelMode = 'cycling', course?: RaceCourse | null): string {
   const profile = routeGeometryFull === null ? null : buildClimbProfile(routeGeometryFull, climb, climbSegmentLengthMeters(climb))
   const category = classifyClimb(climb, travelMode)
   const profileId = `climb-profile-${escapeHtml(climb.id)}`
@@ -302,8 +303,8 @@ function renderClimbCard(waypoint: CanonicalWaypoint, climb: Climb, routeGeometr
       ${renderInteractionCue('expand')}
     </button>
     <div class="day-detail__climb-profile" id="${profileId}" data-climb-profile hidden>
-      ${category === null ? '' : `<p class="field__hint">${category.explanation}</p>`}
       ${profile === null ? '<p class="day-detail__climb-profile-empty">Profil indisponible pour cette montée.</p>' : renderClimbProfileBar(profile.segments,climb.id)}
+      ${course && !partial && course.status !== 'stale' ? `<button class="button button--quiet" type="button" data-action="convert-climb" data-climb-id="${escapeHtml(climb.id)}" data-route-fingerprint="${escapeHtml(course.fingerprint)}">Convertir en Grimpeur</button><p data-climb-conversion-status role="status"></p>` : ''}
     </div>
   </li>`
 }
@@ -337,7 +338,7 @@ function renderTimelineList(waypoints: readonly CanonicalWaypoint[], climbs: rea
     if (waypoint.climbId === null) return renderTimelineRow(waypoint)
     const climb = climbs.find((candidate) => candidate.id === waypoint.climbId)
     const partial = bounds !== null && climb !== undefined && (climb.startDistanceKm < bounds.startOffsetM / 1000 || climb.endDistanceKm > bounds.finishOffsetM / 1000)
-    return climb === undefined ? renderTimelineRow(waypoint) : renderClimbCard(waypoint, climb, routeGeometryFull, partial, travelMode)
+    return climb === undefined ? renderTimelineRow(waypoint) : renderClimbCard(waypoint, climb, routeGeometryFull, partial, travelMode, stage === undefined ? null : course)
   }).join('')
   const pending = !stage || !course ? '' : (stage.raceSegments ?? []).filter(segment => raceSegmentStatus(course, segment) !== 'ready').map(segment => renderRaceSegmentTimelineRow(course, segment, undefined, segmentMiniProfile(course, segment))).join('')
   return `<ol class="day-detail__timeline">${rows}${pending}</ol>`
@@ -703,6 +704,7 @@ function renderInfosPanel(day: TripBundle['days'][number], accommodation: Accomm
 }
 
 export interface DayDetail {
+  readonly visualWaypoints?: readonly CanonicalWaypoint[]
   readonly html: string
   readonly waypoints: readonly CanonicalWaypoint[]
   readonly geometry: readonly RouteGeometryPoint[] | null
@@ -973,6 +975,8 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
     automaticPauseEnrichment,
   }
   const waypoints = computeStageWaypoints(waypointsInput)
+  const visualWaypoints = waypointsInput.raceCourse === null || !stage.raceSegments?.length ? waypoints : visualRaceWaypoints(waypoints,
+    courseWaypoints(buildCanonicalWaypoints({stage,route,routePoints:bundle.routePoints,climbs:bundle.climbs}),stage,waypointsInput.raceCourse),stage,waypointsInput.raceCourse)
   // The Pauses editor's own "why" annotations (CDC C3 section 30: visible
   // only in the dedicated pause/edit surfaces) must stay live C3 scoring for
   // EVERY candidate row, regardless of whether a persisted automatic plan is
@@ -1104,7 +1108,6 @@ ${selectRaceMode(bundle) ? '<button id="day-tab-course" type="button" role="tab"
       <div class="feature-update-line"><span>Carte et services du trajet</span><span>${selectRaceMode(bundle) ? renderFeatureUpdateBadge('race-segments') : ''}${renderFeatureUpdateBadge('poi-search')}</span></div>
       <div class="route-map route-map--action" data-day-detail-map data-explore-map role="button" tabindex="0" aria-label="Ouvrir la carte de l’étape en plein écran"></div>
       <div data-day-profile-home><div data-day-detail-profile></div></div>
-      <aside class="next-water" data-next-water hidden aria-label="Prochain point d’eau indiqué potable"></aside>
       <!-- Exports stay with their trace. Competition GPX includes saved
         preparation; both formats retain every source track point. -->
       ${renderStageGpxActions(bundle, stage)}
@@ -1117,7 +1120,7 @@ ${selectRaceMode(bundle) ? '<button id="day-tab-course" type="button" role="tab"
     <section class="card day-detail__details-card" data-day-detail-details-card>
 
       <section id="day-panel-route" class="card" role="tabpanel" aria-labelledby="day-tab-route" data-day-panel="route">
-        <nav class="timeline-filters" aria-label="Filtrer les points de passage"><button type="button" data-timeline-filter="all" aria-pressed="true">Tout</button><button type="button" data-timeline-filter="climbs" aria-pressed="false">Montées et segments</button>${pausesHtml ? '<button type="button" data-timeline-filter="pauses" aria-pressed="false">Pauses</button>' : ''}<button type="button" data-timeline-filter="services" aria-pressed="false">Services</button></nav><div data-day-detail-timeline>${timelineHtml}</div><div data-timeline-services hidden>${renderStageServices(bundle,stage,waypoints)}</div>
+        <nav class="timeline-filters" aria-label="Filtrer les points de passage"><button type="button" data-timeline-filter="all" aria-pressed="true">Tout</button><button type="button" data-timeline-filter="climbs" aria-pressed="false">Montées et segments</button>${pausesHtml ? '<button type="button" data-timeline-filter="pauses" aria-pressed="false">Pauses</button>' : ''}<button type="button" data-timeline-filter="services" aria-pressed="false">Services</button></nav><div data-day-detail-timeline>${timelineHtml}</div><div data-timeline-services hidden>${renderStageServices(bundle,stage,waypoints,50,timingCurve)}</div>
         ${pausesHtml ? '<button type="button" class="button button--quiet" data-action="toggle-bottom-panel" aria-expanded="false" aria-controls="day-bottom-panel-pauses">Régler les pauses</button>' : ''}
       </section>
       ${infosHtml}
@@ -1127,7 +1130,7 @@ ${selectRaceMode(bundle) ? '<button id="day-tab-course" type="button" role="tab"
   </div>`
 
   return {
-    html, waypoints, geometry, stageLabel,
+    html, waypoints, visualWaypoints, geometry, stageLabel,
     villageWaypoints: waypoints.filter((waypoint) => waypoint.kind === 'village'),
     sourceFileId: route.sourceFileId,
     statsHtml, pausesHtml, timelineHtml, infosHtml, summaryHtml: '', timingCurve, markersOnlyMapModel: null, identityHtml, mapCardHtml: '',

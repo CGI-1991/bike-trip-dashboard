@@ -57,7 +57,7 @@ for(const travelMode of ['cycling','walking']) test(`${travelMode}: course endpo
   const {database,bundle}=await setup({travelMode})
   try {
     const next=bounded(bundle), scoped=input(next), curve=computeStageTimingCurve(scoped), full=computeStageTimingCurve(input(next,0,false))
-    const points=computeStageWaypoints(scoped), gpxStart=points[0], start=points.find(point=>point.name==='Départ de course'), finish=points.at(-1)
+    const points=computeStageWaypoints(scoped), gpxStart=points[0], start=points.find(point=>point.raceBoundary==='start'), finish=points.find(point=>point.raceBoundary==='finish')
     assert.equal(start.trackDistanceKm,6);assert.equal(finish.trackDistanceKm,14)
     assert.equal(gpxStart.trackDistanceKm,0);assert.equal(gpxStart.elapsedMinutes,0);assert.equal(gpxStart.clockTime,'08:00')
     const approachInput={...input(next,0,false),settings:{...scoped.settings,referenceSpeedKph:travelMode==='walking'?scoped.settings.referenceSpeedKph:neutralizedCyclingReferenceSpeed(scoped.settings.referenceSpeedKph)}}
@@ -90,7 +90,7 @@ test('no-altitude course retains flat-speed timing, and an internal weather poin
     assert.equal(selectStageCourseMetrics(next,next.stages[0]).elevationGainM,null)
     const point=definition.samplePoints.find(point=>point.name==='Inside')
     close(point.eta.totalMinutesFromDeparture,(6/15*60+4/18*60)*chainageScale)
-    assert.equal(definition.samplePoints[0].name,'Départ GPX')
+    assert.equal(definition.samplePoints[0].name,next.stages[0].startLocationName)
     for(const point of definition.samplePoints){assert.ok(point.trackDistanceKm===0||point.trackDistanceKm>=6&&point.trackDistanceKm<=14);assert.equal(curve.clockTimeAt(point.trackDistanceKm),computeStageWaypoints(input(next)).find(wp=>wp.id===point.id).clockTime)}
     assert.equal(validateTripBundle(next).ok,true)
   }finally{database.close()}
@@ -231,7 +231,7 @@ test('calendar, day cards and overview use course distance while source statisti
     assert.ok(bundle.stages[0].distanceKm>22)
     const overview=buildTripOverview(next,NOW)
     assert.match(overview.html,/16,0 km/)
-    assert.ok(overview.mapStages.every(stage=>stage.waypoints.every(wp=>wp.trackDistanceKm===0||wp.trackDistanceKm>=6&&wp.trackDistanceKm<=14)))
+    assert.ok(overview.mapStages.every(stage=>stage.waypoints.some(wp=>wp.kind==='start'&&wp.trackDistanceKm===0)&&stage.waypoints.some(wp=>wp.raceBoundary==='start'&&wp.trackDistanceKm===6)&&stage.waypoints.some(wp=>wp.raceBoundary==='finish'&&wp.trackDistanceKm===14)&&stage.waypoints.some(wp=>wp.kind==='end'&&wp.raceBoundary===undefined&&wp.trackDistanceKm>14)))
   }finally{database.close()}
 })
 

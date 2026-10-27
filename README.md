@@ -1,9 +1,10 @@
 # Trip+
 
+La [lecture des montées, segments et repères de course](docs/CLIMBS_COURSE_REPRESENTATION.md) apporte la conversion réversible en Grimpeur, les montées orange, les bulles centrales, les drapeaux et les mini-profils avec lecture sous le graphique.
 Les [repères d’interaction](docs/INTERACTION_CUES.md) identifient les actions en bleu, l’édition par un crayon et les détails dépliables par un chevron, de façon commune dans l’application.
 La [passe de contrôle du 27 octobre](docs/QUALITY_AUDIT_2026_10.md) corrige les fiches de carte en double et documente les vérifications de navigation, stockage, exports, sauvegardes et affichage mobile.
 La [refonte mobile validée](docs/TRIPPLUS_INTERFACE.md) présente l’interface actuelle, ses captures et ses contrôles.
-La [finition des informations de parcours](docs/ROUTE_INFORMATION_POLISH.md) harmonise les profils, signale les prévisions anciennes, ajoute le prochain point d’eau indiqué potable et les fiches de carte League/Tour.
+La [finition des informations de parcours](docs/ROUTE_INFORMATION_POLISH.md) documente la palette commune, les prévisions anciennes et les fiches de carte League/Tour. Son raccourci eau a été retiré à la demande de l’utilisateur ; les points restent dans Services.
 
 La [feuille de route Trip(+)](docs/ROADMAP.md) mémorise les évolutions réalisées et à venir : vélo et randonnée, allures, montées, POI, interface mobile et validation terrain.
 Le [premier lot de fiabilisation des POI](docs/POI_RELIABILITY.md) décrit la recherche progressive, la reprise et la compatibilité avec les voyages existants.

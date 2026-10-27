@@ -4,9 +4,11 @@ import type { Accommodation } from '../trip/accommodations.ts'
 import { resolveArrivalDisplay, resolveDepartureDisplay } from '../trip/endpoint-display.ts'
 import type { RoadbookMatchReport, RoadbookPointMatch } from '../trip/roadbook-match.ts'
 import type { RideDayTimeline } from '../trip/types.ts'
-import { getGenericRouteMarkerCategory, getRouteMarkerCategory } from './route-marker-style.ts'
+import { getRouteMarkerCategory, waypointMarkerCategory, getRouteMarkerStyle } from './route-marker-style.ts'
 import type { RouteMarkerCategory } from './route-marker-style.ts'
-import type { RaceSegment } from '../trip-core/index.ts'
+import type { RaceSegment, Climb, RideStage } from '../trip-core/index.ts'
+import { sliceRouteGeometry } from '../route-enrichment/segment-geometry.ts'
+import { routeClimbs } from '../analysis/race-segment-waypoints.ts'
 import type { RaceCourse } from '../analysis/race-bounds.ts'
 import { analyzeRaceSegment, raceSegmentLanes, raceSegmentStatus } from '../analysis/race-segments.ts'
 import { RACE_SEGMENT_STYLE } from './trips/race-segment-style.ts'
@@ -60,6 +62,16 @@ export interface RouteMapModel {
    * callers (RGA, the Étape screen), so neither needs to change.
    */
   readonly extraLines?: readonly (readonly LatLngTuple[])[]
+}
+
+export function buildClimbMapLines(course: RaceCourse, stage: RideStage, climbs: readonly Climb[]): NonNullable<RouteMapModel['segmentLines']> {
+  if (course.status === 'stale') return []
+  return routeClimbs(stage,climbs,course).flatMap(climb => {
+    const geometry = sliceRouteGeometry(course.indexed, Math.max(0,climb.startDistanceKm), Math.min(course.indexed.lengthKm,climb.endDistanceKm))
+    if (geometry.length < 2) return []
+    return [{ coordinates: geometry.map(point => [point.latitude,point.longitude] as LatLngTuple), color:getRouteMarkerStyle('col-summit').colorHex,
+      name:climb.name ?? 'Montée', dashed:false, weight:5, popupHtml:renderRouteFeaturePopup(climb.name ?? 'Montée','Montée',climb.endDistanceKm-climb.startDistanceKm,climb.elevationGainM,climb.averageGradientPercent) }]
+  })
 }
 
 /** Read-only lines, projected by original GPX chainage. Stale/outside
@@ -161,7 +173,7 @@ export function buildRouteMapModel(gpx: GpxAnalysisSuccess, timeline: RideDayTim
 export function buildGenericRouteMapModel(waypoints: readonly CanonicalWaypoint[], geometry: readonly LatLngTuple[]): RouteMapModel {
   const markers: RouteMapMarkerModel[] = waypoints.filter(waypoint => waypoint.raceSegmentId === undefined).map((waypoint) => ({
     id: waypoint.id,
-    category: getGenericRouteMarkerCategory(waypoint.kind),
+    category: waypointMarkerCategory(waypoint),
     name: waypoint.name,
     subLabel: waypoint.elevationM === null ? undefined : `${Math.round(waypoint.elevationM)} m`,
     coordinate: [waypoint.latitude, waypoint.longitude],

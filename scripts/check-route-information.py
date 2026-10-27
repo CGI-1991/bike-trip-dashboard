@@ -82,6 +82,7 @@ with sync_playwright() as p:
         card=page.locator('.trip-card').filter(has_text='Informations '+mode)
         card.wait_for()
         trip_id=card.get_attribute('data-trip-id')
+        assert card.locator('[data-trip-mode]').inner_text().lower()==mode
         length=page.evaluate('''async id=>{
           const base=sourceRoot;
           const {buildRaceCourse,applyRaceBounds}=await import(base+'analysis/race-bounds.ts');
@@ -92,6 +93,7 @@ with sync_playwright() as p:
           const length=course.indexed.lengthKm;
           bundle=applyRaceBounds(bundle,stage.id,{startOffsetM:800,finishOffsetM:(length-1)*1000,routeFingerprint:course.fingerprint},course.fingerprint,new Date(clockNow).toISOString());
           bundle=applyRaceSegmentChange(bundle,stage.id,{kind:'add',id:id+'-segment',fields:{name:'Grimpeur du premier col',type:'climb',startOffsetM:2000,endOffsetM:5000,alerts:DEFAULT_RACE_SEGMENT_ALERTS}},course.fingerprint,new Date(clockNow).toISOString());
+          bundle={...bundle,stages:bundle.stages.map((s,i)=>i===0?{...s,startLocationName:'Genappe',endLocationName:'Namur'}:s),climbs:bundle.climbs.map((c,i)=>({...c,name:i===bundle.climbs.length-1?'Col du contrôle':'Montée 1'}))};
           const specs=[{km:4,tags:{},name:'Ancien point sans potabilité'},{km:6,tags:{amenity:'drinking_water'},name:'Fontaine de la place'},
             {km:12,tags:{amenity:'drinking_water'},hours:'Tu 00:00-01:00',name:'Fontaine fermée au passage'},
             {km:15,tags:{amenity:'drinking_water',access:'private'},name:'Fontaine privée'},
@@ -142,26 +144,66 @@ with sync_playwright() as p:
         page.locator('[data-time-edit-confirm]').tap()
         page.wait_for_function('document.querySelector("[data-day-detail-map] [data-route-map-canvas]")!==previousCanvas')
         assert page.evaluate('mapTools.getRouteMapInteractionHandle(previousCanvas)===null'), 'old Leaflet map still alive after patch'
-        water=page.locator('[data-next-water]')
-        assert water.is_visible()
-        assert water.locator('strong').inner_text()=='Fontaine de la place'
-        assert 'Dans 6,0 km' in water.inner_text()
-        assert 'Passage —' not in water.inner_text()
-        page.locator('[data-day-detail-profile]').evaluate('el=>el.scrollIntoView({block:"start"})')
-        plot=page.locator('[data-day-detail-profile] [data-profile-interactive]')
-        box=plot.bounding_box()
-        before=page.locator('.course-exports').bounding_box()['y']
-        calls=page.evaluate('weatherCalls')
-        page.mouse.move(box['x']+box['width']*(20+760*10/length)/800,box['y']+box['height']*.6)
-        assert water.locator('strong').inner_text()=='Fontaine du second col'
-        assert 'Dans 14,0 km' in water.inner_text()
-        assert abs(page.locator('.course-exports').bounding_box()['y']-before)<1
+        assert page.locator('[data-next-water]').count()==0
+        assert page.locator('[data-profile-interactive] .profile-marker--race-start').count()==1
+        assert page.locator('[data-profile-interactive] .profile-marker--race-finish').count()==1
+        assert page.locator('[data-race-overlay] line').count()==0
+        assert 'Genappe' in page.locator('[data-day-detail-timeline]').inner_text()
+        assert 'Namur' in page.locator('[data-day-detail-timeline]').inner_text()
+        # A named ascent can be converted, without erasing its source or summit.
+        named=page.locator('[data-action=toggle-climb-profile][data-climb-id]').filter(has_text='Col du contrôle')
+        named.tap()
+        profile_id=named.get_attribute('aria-controls')
+        mini=page.locator('#'+profile_id+' [data-climb-profile-interactive]')
+        mini.evaluate('el=>el.scrollIntoView({block:"center"})')
+        readout=page.locator('#'+profile_id+' [data-mini-profile-band]')
+        before_height=readout.bounding_box()['height']
+        box=mini.bounding_box()
+        page.mouse.move(box['x']+box['width']*.5,box['y']+box['height']*.5)
+        assert readout.locator('[data-profile-tooltip]').is_visible()
+        assert readout.bounding_box()['y']>=box['y']+box['height']
+        dot=mini.locator('[data-profile-cursor-dot]').bounding_box()
+        assert abs(dot['width']-dot['height'])<1 and dot['width']<14,dot
+        assert abs(readout.bounding_box()['height']-before_height)<1
         page.mouse.move(1,1)
-        assert water.locator('strong').inner_text()=='Fontaine de la place'
-        assert page.evaluate('weatherCalls')==calls
-        page.evaluate('document.querySelector(".next-water__point").addEventListener("click",e=>{e.preventDefault();window.waterLinkClicked=true})')
-        water.locator('a').tap()
-        assert page.evaluate('window.waterLinkClicked')
+        original=page.evaluate('async id=>(await repository.loadTripBundle(id)).climbs', trip_id)
+        page.locator('#'+profile_id+' [data-action=convert-climb]').tap()
+        revert=page.locator('[data-action=revert-climb-segment]')
+        revert.wait_for()
+        assert named.count()==0
+        assert page.locator('[data-day-detail-map] .route-marker--col-summit[aria-label="Col du contrôle"]').count()==1, page.evaluate('''async id=>{
+          const {buildDayDetail}=await import(sourceRoot+'ui/trips/day-detail-view.ts');const b=await repository.loadTripBundle(id),d=buildDayDetail(b,b.days[0].id);
+          return {visual:d.visualWaypoints.map(p=>({kind:p.kind,name:p.name,climbId:p.climbId,segmentId:p.raceSegmentId})),labels:[...document.querySelectorAll('[data-day-detail-map] .route-marker')].map(el=>el.getAttribute('aria-label'))};
+        }''',trip_id)
+        assert page.evaluate('async id=>(await repository.loadTripBundle(id)).climbs',trip_id)==original
+        page.screenshot(path=str(output/(mode+'-conversion.png')))
+        revert.tap()
+        named.wait_for()
+        assert named.get_attribute('aria-expanded')=='true'
+        assert page.locator('[data-route-climb-profile] [data-profile-climb]').count()>0
+        # Reflow after hidden tabs/patches must fit the entire compact route.
+        for width in [320,390,1080]:
+            page.set_viewport_size({'width':width,'height':844})
+            mini=page.locator('[data-climb-id][aria-expanded=true]').locator('xpath=following-sibling::*[1]').locator('[data-climb-profile-interactive]')
+            mini.evaluate('el=>el.scrollIntoView({block:"center"})')
+            box=mini.bounding_box()
+            page.mouse.move(box['x']+box['width']*.6,box['y']+box['height']*.5)
+            dot=mini.locator('[data-profile-cursor-dot]').bounding_box()
+            assert abs(dot['width']-dot['height'])<1 and dot['width']<14,(width,dot)
+            page.mouse.move(1,1)
+            page.locator('[data-day-tab=weather]').tap()
+            page.set_viewport_size({'width':width,'height':844})
+            page.locator('[data-day-tab=route]').tap()
+            page.wait_for_function("""()=>{
+              const c=document.querySelector('[data-day-detail-map] [data-route-map-canvas]'),p=c?.querySelector('.leaflet-overlay-pane path');
+              if(!c||!p)return false;
+              const a=c.getBoundingClientRect(),b=p.getBoundingClientRect();
+              return a.width>0&&b.left>=a.left-2&&b.right<=a.right+2&&b.top>=a.top-2&&b.bottom<=a.bottom+2;
+            }""")
+            assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
+        page.set_viewport_size({'width':390,'height':844})
+        page.locator('[data-day-detail-profile]').evaluate('el=>el.scrollIntoView({block:"center"})')
+        page.screenshot(path=str(output/(mode+'-profil.png')))
         page.evaluate('window.clockNow+=8*3600000;document.dispatchEvent(new Event("visibilitychange"))')
         assert '8 h' in page.locator('[data-day-detail-weather-alerts] [data-weather-age]').inner_text()
         assert page.locator('[data-day-detail-weather-alerts] [data-weather-age]').is_visible()
@@ -219,6 +261,8 @@ with sync_playwright() as p:
     # Voyage keeps service layers; those popups also replace their name labels.
     page.evaluate('''async id=>repository.updateTripBundle(id,b=>({...b,settings:{...b.settings,global:{...b.settings.global,organizationMode:'voyage',raceMode:false}}}))''', trip_id)
     page.evaluate('manager.goToList()')
+    page.locator('.trip-card').filter(has_text='Informations tour').wait_for()
+    assert page.locator('.trip-card').filter(has_text='Informations tour').locator('[data-trip-mode]').inner_text()=='Voyage'
     page.locator('.trip-card').filter(has_text='Informations tour').tap()
     page.evaluate('manager.goToDetailForActiveTrip()')
     page.locator('[data-action=open-day-detail]').first.tap()
@@ -272,6 +316,6 @@ with sync_playwright() as p:
     assert page.locator('[data-screen-load-error]').count()==0
     assert not errors, errors
     print(json.dumps({'singleFeatureSheet':True,'oldMapDisposedAfterPatch':True,'nativeDismissalUnlocks':True,'voyageServicesPreserved':True,'missingOriginalExplicit':True,'originalRetryExact':True,'readFailureRetry':True}))
-    print(json.dumps({'modes':['league','tour'],'waterPotabilityAccessOpening':True,'sharedPassageEta':True,'noExtraWeatherCalls':True,'stableWaterHeight':True,'weatherAge8h':True,'noCompetitionLayers':True,'segmentAndClimbPopups':True,'widths':[320,390,430],'jsErrors':errors}))
+    print(json.dumps({'modes':['league','tour'],'conversionUndo':True,'namedSummitRetained':True,'compactRouteFits':True,'miniReadoutStableAndRound':True,'waterShortcutRemoved':True,'weatherAge8h':True,'noCompetitionLayers':True,'segmentAndClimbPopups':True,'widths':[320,390,430],'jsErrors':errors}))
     print('Artifacts:',output)
     browser.close()

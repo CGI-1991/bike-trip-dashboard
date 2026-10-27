@@ -9,7 +9,7 @@ import type { IsoDate, TripBundle, TripId, TripStatus } from '../trip-core/index
 import { countCalendarDays } from '../analysis/day-location-fill.ts'
 import { buildRaceCourse, selectStageCourseMetrics } from '../analysis/race-bounds.ts'
 import { selectOrganizationMode, selectTravelMode } from '../trip-core/index.ts'
-import type { TravelMode } from '../trip-core/index.ts'
+import type { TravelMode, OrganizationMode } from '../trip-core/index.ts'
 import type { StagePreparationContext, TripPreparationSummary } from './stage-preparation.ts'
 import { computeTripPreparationSummary, NO_STAGE_PREPARATION_CONTEXT } from './stage-preparation.ts'
 
@@ -26,7 +26,7 @@ export interface TripListEntry {
   readonly courseLimitsNeedReview?: true
   readonly status: TripStatus
   readonly travelMode?: TravelMode
-  readonly organizationMode?: 'league'
+  readonly organizationMode?: OrganizationMode
   /**
    * RC2 final-closeout sections 19-20 — the "Mes activités" card's own
    * discreet enrichment indicator: `null` once every ride day is ready (or
@@ -50,7 +50,8 @@ export function summarizeTripBundle(bundle: TripBundle, preparationContext: Stag
     totalDistanceKm: bundle.stages.reduce((total, stage) => total + (selectStageCourseMetrics(bundle, stage).distanceKm ?? 0), 0),
     ...(bundle.stages.some(stage => buildRaceCourse(bundle, stage)?.status === 'stale') ? { courseLimitsNeedReview: true as const } : {}),
     status: bundle.metadata.status,
-    ...(selectOrganizationMode(bundle) === 'league' ? { organizationMode: 'league' as const, ...(!bundle.stages.some(stage => selectStageCourseMetrics(bundle, stage).distanceKm !== null) ? { courseStatsUnavailable: true as const } : {}) } : {}),
+    organizationMode: selectOrganizationMode(bundle),
+    ...(selectOrganizationMode(bundle) === 'league' && !bundle.stages.some(stage => selectStageCourseMetrics(bundle, stage).distanceKm !== null) ? { courseStatsUnavailable: true as const } : {}),
     ...(selectTravelMode(bundle) === 'walking' ? { travelMode: 'walking' as const } : {}),
     preparationSummary: computeTripPreparationSummary(bundle, preparationContext),
   }

@@ -918,25 +918,32 @@ input:is([type=date],[type=time])::-webkit-date-and-time-value {
 .route-feature-popup dl { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:12px 0 0; }
 .route-feature-popup dt { font-size:11px; color:var(--ink-soft); }
 .route-feature-popup dd { margin:2px 0 0; font-weight:600; white-space:nowrap; }
-.next-water {
-  position:relative;
-  height:116px;
-  min-width:0;
-  padding-block:10px;
-  border-block:1px solid var(--line);
-  font-size:12px;
-  line-height:1.4
-}
-.next-water__heading { display:flex; align-items:center; padding-right:44px; font-weight:600; }
-.next-water__heading .feature-update-badge { position:absolute; right:0; top:0; }
-.next-water>span,.next-water small { font-size:11px; color:var(--ink-soft); }
-.next-water__point { display:flex; align-items:center; gap:8px; min-height:44px; color:var(--forest-950); }
-.next-water__point>span:first-child { display:block; min-width:0; }
-.next-water__point strong,.next-water__point>span:first-child>span { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.next-water__point strong { font-size:15px; }
-.next-water__point .trip-icon { width:15px; height:15px; flex:none; }
-.next-water p { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin:2px 0; }
-
 .overview-stage-picker { display: block; font-size: 11px; color: var(--ink-soft); }
 .overview-stage-picker select { display:block; width:100%; min-width:0; min-height:44px; margin-top:5px; background:var(--surface); color:var(--ink); border:1px solid var(--line-strong); border-radius:3px; font-size:13px; }
+
+/* One vocabulary for course flags, route portions and detail readouts. */
+.route-flag { display:block; width:26px; height:30px; overflow:visible; }
+.day-detail__timeline-marker .route-flag { display:inline-block; width:22px; height:25px; vertical-align:middle; }
+.route-marker:has(.route-flag) { background:none; border:0; }
+[data-profile-color-mode='grade'] [data-route-climb-profile],
+[data-profile-color-mode='wind'] [data-route-climb-profile] { display:none; }
+.mini-profile-readout { min-height:52px; border-block:1px solid var(--line); margin-top:10px; }
+.mini-profile-values { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:4px; padding:8px 0; min-height:52px; align-items:center; font-size:12px; }
+.mini-profile-values>span { min-width:0; text-align:center; overflow-wrap:anywhere; }
+.mini-profile-values>span:first-child { text-align:left; }
+.mini-profile-values>span:last-child { text-align:right; }
+.mini-profile-values small { display:block; color:var(--ink-soft); font-size:10px; margin-bottom:3px; }
+.mini-profile-values b { font-size:12px; color:var(--ink); }
+.day-detail__climb-profile>.button { margin-top:10px; }
+.day-detail__climb-profile [data-climb-conversion-status]:empty { display:none; }
+.day-detail__climb-profile [data-climb-conversion-status] { font-size:12px; color:var(--ink-soft); }
+.timeline-service { display:grid; grid-template-columns:auto minmax(0,1fr); gap:4px 10px; }
+.timeline-service .day-detail__timeline-body { display:grid; gap:0; }
+.poi-weather-label { font-size:10px; color:var(--ink-soft); margin-top:5px; }
+.trip-mode-banner { display:inline-block; margin-bottom:8px; padding:3px 9px; border-left:3px solid #285e4e; background:#edf2ec; color:var(--ink); font-size:12px; font-weight:600; }
+.trip-mode-banner--tour { border-color:#755470; background:#f0ecf0; }
+.trip-mode-banner--league { border-color:#54778a; background:#edf2f5; }
+.day-detail__timeline-time-col { width:36px; min-width:36px; }
+[data-climb-color-bands] { shape-rendering:crispEdges; }
+.day-detail__climb-profile-shape>path { vector-effect:non-scaling-stroke; }
 .profile-band,.profile-band[data-band-empty] { height:58px; }

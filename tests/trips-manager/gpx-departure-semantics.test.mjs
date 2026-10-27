@@ -37,7 +37,7 @@ test('a flat approach at 15 km/h precedes a 3 km race at 18 km/h; GPX hour, real
     const next=bound(bundle),curve=computeStageTimingCurve(input(next)),waypoints=computeStageWaypoints(input(next)),detail=buildDayDetail(next,next.days[0].id)
     close(curve.elapsedMinutesAt(0),0);close(curve.elapsedMinutesAt(.5),2);close(curve.elapsedMinutesAt(1),4);close(curve.elapsedMinutesAt(4),14)
     assert.equal(curve.clockTimeAt(0),'08:00');assert.equal(curve.clockTimeAt(1),'08:04');assert.equal(curve.clockTimeAt(4),'08:14')
-    assert.deepEqual(waypoints.filter(point=>point.kind==='start').map(point=>[point.name,point.clockTime]),[['Départ GPX','08:00'],['Départ de course','08:04']])
+    assert.deepEqual(waypoints.filter(point=>point.kind==='start').map(point=>[point.name,point.clockTime]),[[next.stages[0].startLocationName,'08:00'],['Départ réel','08:04']])
     assert.match(detail.statsHtml,/<dt>Départ GPX/);assert.match(detail.statsHtml,/<dt>Départ réel estimé<\/dt><dd>08:04/)
     assert.match(detail.statsHtml,/<dt>Durée de course<\/dt><dd>0 h 10/)
     assert.equal(selectStageCourseMetrics(next,next.stages[0]).distanceKm,3)
