@@ -11,14 +11,15 @@ import { renderFeatureUpdateBadge } from '../release-notes.ts'
  */
 
 import { selectTravelMode } from '../../trip-core/index.ts'
-import { buildRaceCourse, selectStageCourseMetrics } from '../../analysis/race-bounds.ts'
+import { buildRaceCourse, courseWaypoints, selectStageCourseMetrics } from '../../analysis/race-bounds.ts'
 import { computeStageWaypoints, resolveStagePauseSettings } from '../../analysis/waypoint-timeline.ts'
 import { selectOrganizationMode, selectRaceMode, selectStageCustomName, selectTripDayLabel } from '../../trip-core/index.ts'
 import { selectOrganizationCapabilities } from '../../trip-core/index.ts'
 import { stageAutomaticPausesAllowed } from '../../route-enrichment/enrichment-jobs.ts'
 import type { LatLngTuple } from '../route-map-model.ts'
 import { routeGeometry } from '../../route-enrichment/route-fingerprint.ts'
-import { isSignificantWaypoint } from '../../analysis/canonical-waypoints.ts'
+import { buildCanonicalWaypoints, isSignificantWaypoint } from '../../analysis/canonical-waypoints.ts'
+import { visualRaceWaypoints } from '../../analysis/race-segment-waypoints.ts'
 import type { CanonicalWaypoint } from '../../analysis/canonical-waypoints.ts'
 import { resolveOffLocation, resolveTransferLocations } from '../../analysis/day-location-fill.ts'
 import { formatTransferModeAndTimes } from './transfer-summary-format.ts'
@@ -241,8 +242,9 @@ export function buildTripOverview(bundle: TripBundle, now: Date | string | null)
     const settings = { referenceSpeedKph: bundle.settings.global.referenceSpeedKph, travelMode: selectTravelMode(bundle), departureTime: daySettings?.departureTime ?? '08:00' }
     const stageSettings = bundle.settings.stages.find((candidate) => candidate.stageId === stage.id)
     const pauseResolution = resolveStagePauseSettings(bundle.settings.global.pausePlanMode, stageSettings, selectRaceMode(bundle))
+    const raceCourse = buildRaceCourse(bundle, stage)
     const waypoints = computeStageWaypoints({
-      raceCourse: buildRaceCourse(bundle, stage),
+      raceCourse,
       stage, route: route as NonNullable<typeof route>, routePoints: bundle.routePoints, climbs: bundle.climbs, settings,
       manualPauses: pauseResolution.mode === 'custom' ? pauseResolution.manualPauses : undefined,
       // Aperçu must never show a pause plan derived from a stage that is
@@ -252,16 +254,27 @@ export function buildTripOverview(bundle: TripBundle, now: Date | string | null)
     })
     const geometryTuples = geometry.map((point) => [point.latitude, point.longitude] as const)
     fullMapStages.push({ waypoints: waypoints.filter((waypoint) => isSignificantWaypoint(waypoint)), geometry: geometryTuples })
+    // A named landmark remains geographical information when its climb is
+    // represented by a race segment. Keep the timeline consolidation separate.
+    const visualWaypoints = raceCourse === null || !stage.raceSegments?.length ? waypoints : visualRaceWaypoints(waypoints,
+      courseWaypoints(buildCanonicalWaypoints({stage,route:route!,routePoints:bundle.routePoints,climbs:bundle.climbs}),stage,raceCourse),stage,raceCourse)
     mapDetailStages.push({
-      waypoints: waypoints.filter((waypoint) => waypoint.kind !== 'start' && waypoint.kind !== 'end' && isOverviewDetailWaypoint(waypoint)),
+      waypoints: visualWaypoints.filter((waypoint) => waypoint.raceBoundary === undefined && waypoint.kind !== 'start' && waypoint.kind !== 'end' && isOverviewDetailWaypoint(waypoint)),
       geometry: [],
     })
     // CDC D1.1 section 1: the Aperçu map keeps the FULL ridden trace — only
     // the marker set is trimmed to the two principal (start/end) points;
     // `geometryTuples` (never `[]`) is what makes `buildGenericOverviewRouteMapModel`
     // draw this stage's real GPX line instead of a marker-only stub.
-    const metrics=selectStageCourseMetrics(bundle,stage)
-    return { overview:{dayId:stage.dayId,number:selectTripDayLabel(bundle,stage.dayId),name:selectStageCustomName(stage) ?? `${stage.startLocationName ?? '—'} → ${stage.endLocationName ?? '—'}`,color:stageColor(stageIndex),distanceKm:metrics.distanceKm,elevationGainM:metrics.elevationGainM},waypoints: waypoints.filter((waypoint) => waypoint.kind === 'start' || waypoint.kind === 'end'), geometry: geometryTuples }
+    const metrics = selectStageCourseMetrics(bundle, stage)
+    const locations = `${stage.startLocationName ?? 'Départ GPX'} → ${stage.endLocationName ?? 'Arrivée GPX'}`
+    return {
+      overview: { dayId:stage.dayId, number:selectTripDayLabel(bundle,stage.dayId),
+        name:selectStageCustomName(stage) ?? locations, locations, color:stageColor(stageIndex),
+        distanceKm:metrics.distanceKm, elevationGainM:metrics.elevationGainM },
+      waypoints: waypoints.filter(waypoint => waypoint.raceBoundary === undefined && (waypoint.kind === 'start' || waypoint.kind === 'end')),
+      geometry: geometryTuples,
+    }
   })
 
   const highlightedDayId = temporal.priorityDayId

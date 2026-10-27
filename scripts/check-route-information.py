@@ -93,7 +93,12 @@ with sync_playwright() as p:
           const length=course.indexed.lengthKm;
           bundle=applyRaceBounds(bundle,stage.id,{startOffsetM:800,finishOffsetM:(length-1)*1000,routeFingerprint:course.fingerprint},course.fingerprint,new Date(clockNow).toISOString());
           bundle=applyRaceSegmentChange(bundle,stage.id,{kind:'add',id:id+'-segment',fields:{name:'Grimpeur du premier col',type:'climb',startOffsetM:2000,endOffsetM:5000,alerts:DEFAULT_RACE_SEGMENT_ALERTS}},course.fingerprint,new Date(clockNow).toISOString());
-          bundle={...bundle,stages:bundle.stages.map((s,i)=>i===0?{...s,startLocationName:'Genappe',endLocationName:'Namur'}:s),climbs:bundle.climbs.map((c,i)=>({...c,name:i===bundle.climbs.length-1?'Col du contrôle':'Montée 1'}))};
+          bundle={...bundle,stages:bundle.stages.map((s,i)=>i===0?{...s,customName:'Course des deux cols',startLocationName:'Genappe',endLocationName:'Namur'}:s),climbs:bundle.climbs.map((c,i)=>({...c,name:i===bundle.climbs.length-1?'Col du contrôle':'Montée 1'}))};
+          const named=bundle.climbs.at(-1),namedPoint=pointAtIndexedDistance(course.indexed,named.endDistanceKm),colId=id+'-named-col';
+          bundle={...bundle,stages:bundle.stages.map((s,i)=>i===0?{...s,routePointIds:[...s.routePointIds,colId]}:s),routePoints:[...bundle.routePoints,{
+            id:colId,routeId:stage.sourceRouteId,type:'summit',name:named.name,latitude:namedPoint.latitude,longitude:namedPoint.longitude,elevationM:namedPoint.altitudeM,
+            trackDistanceKm:named.endDistanceKm,osmFeatureType:'mountain-pass',lateralDistanceKm:0,provenance:{sourceType:'osm',sourceId:'test-named-col',fetchedAt:new Date(clockNow).toISOString(),engineVersion:'browser-test',confidence:'high',manuallyOverridden:false}
+          }]};
           const specs=[{km:4,tags:{},name:'Ancien point sans potabilité'},{km:6,tags:{amenity:'drinking_water'},name:'Fontaine de la place'},
             {km:12,tags:{amenity:'drinking_water'},hours:'Tu 00:00-01:00',name:'Fontaine fermée au passage'},
             {km:15,tags:{amenity:'drinking_water',access:'private'},name:'Fontaine privée'},
@@ -177,6 +182,40 @@ with sync_playwright() as p:
         }''',trip_id)
         assert page.evaluate('async id=>(await repository.loadTripBundle(id)).climbs',trip_id)==original
         page.screenshot(path=str(output/(mode+'-conversion.png')))
+        # The whole-trip overview keeps only GPX D/A; Détail reveals the
+        # named col even while a derived Grimpeur replaces its climb.
+        page.evaluate('manager.goToOverviewForActiveTrip()')
+        overview=page.locator('[data-trip-overview-map]')
+        overview.locator('.route-marker--start').wait_for()
+        assert overview.locator('.route-marker--finish').count()==1
+        assert overview.locator('.route-marker--race-start,.route-marker--race-finish,.route-marker--col-summit').count()==0
+        overview.tap()
+        whole=page.locator('[data-trip-overview-map-dialog][open]')
+        whole.wait_for()
+        assert whole.locator('.route-marker--race-start,.route-marker--race-finish').count()==0
+        assert whole.locator('.overview-stage-label').count()==0
+        toggle=whole.locator('[data-map-layers-toggle]')
+        toggle.tap()
+        whole.locator('.route-marker--col-summit').wait_for()
+        assert whole.locator('.overview-stage-label').count()==0
+        toggle.tap()
+        assert whole.locator('.route-marker--col-summit').count()==0
+        toggle.tap()
+        badge=whole.locator('.overview-stage-number')
+        badge.hover()
+        whole.locator('.overview-stage-label').wait_for()
+        assert 'Genappe → Namur' in whole.locator('.overview-stage-label').inner_text()
+        page.mouse.move(0,0)
+        whole.locator('.overview-stage-label').wait_for(state='hidden')
+        badge.tap()
+        panel=whole.locator('[data-overview-stage-selection]')
+        assert 'Course des deux cols' in panel.inner_text() and 'Genappe → Namur' in panel.inner_text()
+        whole.locator('.overview-stage-label').wait_for(state='hidden')
+        assert whole.locator('.overview-stage-label:visible').count()==0, 'click should keep one stage sheet, not a second name label'
+        page.screenshot(path=str(output/(mode+'-apercu.png')))
+        panel.locator('[data-action=open-day-detail]').tap()
+        page.locator('[data-segment-view]').filter(has_text='Col du contrôle').tap()
+        revert.wait_for(state='visible')
         revert.tap()
         named.wait_for()
         assert named.get_attribute('aria-expanded')=='true'
@@ -316,6 +355,6 @@ with sync_playwright() as p:
     assert page.locator('[data-screen-load-error]').count()==0
     assert not errors, errors
     print(json.dumps({'singleFeatureSheet':True,'oldMapDisposedAfterPatch':True,'nativeDismissalUnlocks':True,'voyageServicesPreserved':True,'missingOriginalExplicit':True,'originalRetryExact':True,'readFailureRetry':True}))
-    print(json.dumps({'modes':['league','tour'],'conversionUndo':True,'namedSummitRetained':True,'compactRouteFits':True,'miniReadoutStableAndRound':True,'waterShortcutRemoved':True,'weatherAge8h':True,'noCompetitionLayers':True,'segmentAndClimbPopups':True,'widths':[320,390,430],'jsErrors':errors}))
+    print(json.dumps({'modes':['league','tour'],'conversionUndo':True,'namedSummitRetained':True,'overviewGpxOnly':True,'detailOnlyLandmarks':True,'stageCitiesOnDemand':True,'compactRouteFits':True,'miniReadoutStableAndRound':True,'waterShortcutRemoved':True,'weatherAge8h':True,'noCompetitionLayers':True,'segmentAndClimbPopups':True,'widths':[320,390,430],'jsErrors':errors}))
     print('Artifacts:',output)
     browser.close()

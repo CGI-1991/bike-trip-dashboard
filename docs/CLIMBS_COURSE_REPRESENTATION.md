@@ -1,5 +1,7 @@
 # Montées, segments et repères de parcours — 2026.10.27.3
 
+Le [lot 2026.10.27.4](OVERVIEW_MAP_CLARITY.md) précise la carte de tout le voyage : les drapeaux réels restent dans les étapes, les cols/pauses se révèlent avec Détail et les villes dans la fiche d’étape ou au survol de sa bulle.
+
 Ce lot reprend les demandes du 27 octobre : retirer le raccourci eau, rendre une montée convertible et réversible, et utiliser les mêmes repères sur carte, profil et parcours. Les échanges ont précisé **League/Tour uniquement pour la conversion**, et **conservation des sommets/cols nommés**, sans garder les montées génériques remplacées.
 
 ## Conversion réversible

@@ -787,8 +787,21 @@ input:is([type=date],[type=time])::-webkit-date-and-time-value {
   position:sticky;
   top:calc(var(--app-safe-top) + var(--day-sticky-header-h,0px));
   z-index:5;
-  padding:0;
-  border-bottom:1px solid var(--line)
+  padding:3px;
+  gap:3px;
+  background:var(--surface-muted);
+  border:1px solid #bccbc0;
+  border-bottom:2px solid var(--forest-950)
+}
+.day-tabs[data-day-detail-tabs] [role=tab] {
+  min-width:0;
+  min-height:46px;
+  padding:10px 5px;
+  border-radius:2px;
+  font-weight:600
+}
+.day-tabs[data-day-detail-tabs] [aria-selected=true]::after {
+  display:none
 }
 .day-detail__sticky-identity {
   grid-template-columns:44px minmax(0,1fr);
@@ -835,7 +848,8 @@ input:is([type=date],[type=time])::-webkit-date-and-time-value {
   font:600 12px TripSource,sans-serif
 }
 .day-tabs[data-day-detail-tabs] button[aria-selected=true] {
-  color:var(--forest-950)
+  background:var(--forest-950)!important;
+  color:#fff
 }
 .timeline-filters button {
   border:0;

@@ -59,6 +59,21 @@ with sync_playwright() as p:
                 }''')
                 assert fits, (width, field.get_attribute('id'), field.get_attribute('data-field'))
         page.set_viewport_size({'width': 390, 'height': 844})
+    def check_overview_detail(dialog):
+        # Détail adds landmarks, never permanent stage names. Without any
+        # saved pause/named col, there is no empty toggle to display.
+        assert dialog.locator('.overview-stage-number').count() == 3
+        assert dialog.locator('.route-marker--start,.route-marker--finish').count() >= 2
+        assert dialog.locator('.route-marker--race-start,.route-marker--race-finish,.overview-stage-label').count() == 0
+        toggle = dialog.locator('[data-map-layers-toggle]')
+        if toggle.is_visible():
+            before = dialog.locator('.route-marker').count()
+            toggle.tap()
+            assert toggle.get_attribute('aria-pressed') == 'true'
+            assert dialog.locator('.route-marker').count() > before
+            assert dialog.locator('.overview-stage-label').count() == 0
+            toggle.tap()
+            assert dialog.locator('.route-marker').count() == before
     errors = []
     phase = ['import']
     page.on('pageerror', lambda e: errors.append({'phase': phase[0], 'stack': e.stack}))
@@ -124,6 +139,16 @@ with sync_playwright() as p:
     }''')
     page.evaluate('document.documentElement.style.removeProperty("--app-safe-top")')
     assert page.locator('[data-day-detail-tabs] [role=tab]').count() == 4
+    for width in [320, 390, 430]:
+        page.set_viewport_size({'width':width,'height':844})
+        for tab in page.locator('[data-day-detail-tabs] [role=tab]').all():
+            tab.tap()
+            assert tab.get_attribute('aria-selected') == 'true'
+            style=tab.evaluate('el=>({color:getComputedStyle(el).color,background:getComputedStyle(el).backgroundColor,height:el.getBoundingClientRect().height})')
+            assert style['color']=='rgb(255, 255, 255)' and style['background']=='rgb(22, 63, 53)' and style['height']>=44,style
+            assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
+    page.set_viewport_size({'width':390,'height':844})
+    page.locator('[data-day-detail] [data-day-tab=route]').tap()
     assert page.locator('[data-day-detail-stats] dl>div').count() == 9
     assert page.locator('[data-day-detail-stats]').bounding_box()['y'] < page.locator('[data-day-detail-map]').bounding_box()['y']
     page.screenshot(path=str(OUT / '01-etape-mobile.png'))
@@ -194,9 +219,26 @@ with sync_playwright() as p:
     assert page.locator('#' + profile_id + ' [data-climb-profile-interactive]').is_visible()
     assert page.locator('#' + profile_id + ' [data-climb-color-bands] rect').count() <= 40
     mini = page.locator('#' + profile_id + ' [data-climb-profile-interactive]')
+    page.evaluate('''() => {
+        window.profileCheckEvents=[];
+        for(const type of ['pointerdown','click'])document.addEventListener(type,event=>{
+            profileCheckEvents.push({type,tag:event.target.tagName,action:event.target.closest('[data-action]')?.dataset.action,segment:event.target.closest('[data-segment-view]')?.dataset.segmentView});
+            if(profileCheckEvents.length>20)profileCheckEvents.shift();
+        });
+    }''')
     mini.scroll_into_view_if_needed()
     mini.evaluate('el => el.addEventListener("pointerdown", () => {window.miniContactVisible=!el.closest("[data-climb-profile]").querySelector("[data-profile-tooltip]").hidden}, {once:true})')
-    mini.tap()
+    try:
+        mini.tap()
+    except Exception:
+        page.screenshot(path=str(OUT / 'mini-profile-failure.png'))
+        print(json.dumps(page.evaluate('''() => ({
+            tabs:[...document.querySelectorAll('[data-day-detail-tabs] [role=tab]')].map(el=>[el.dataset.dayTab,el.getAttribute('aria-selected')]),
+            segments:[...document.querySelectorAll('[data-segment-view]')].map(el=>[el.dataset.segmentView,el.getAttribute('aria-expanded')]),
+            profiles:[...document.querySelectorAll('[data-climb-profile-interactive]')].map(el=>({id:el.closest('[data-climb-profile]')?.id,hidden:el.closest('[data-climb-profile]')?.hidden,rect:el.getBoundingClientRect().toJSON()})),
+            focused:document.activeElement?.outerHTML.slice(0,300),events:window.profileCheckEvents
+        })''')))
+        raise
     assert page.evaluate('window.miniContactVisible')
     assert page.locator('#' + profile_id + ' [data-profile-tooltip]').is_hidden()
     mini.focus()
@@ -236,17 +278,7 @@ with sync_playwright() as p:
     page.locator('[data-trip-overview-map-dialog][open]').wait_for()
     dialog = page.locator('[data-trip-overview-map-dialog]')
     dialog.locator('.route-map-stage-line').first.wait_for()
-    toggle = dialog.locator('[data-map-layers-toggle]')
-    assert toggle.is_visible()
-    toggle.tap()
-    page.wait_for_function('document.querySelectorAll("[data-trip-overview-map-dialog] .overview-stage-label").length===3')
-    page.wait_for_function('[...document.querySelectorAll("[data-trip-overview-map-dialog] .overview-stage-label")].every(el=>Number(getComputedStyle(el).opacity)>=.85)')
-    dialog.locator('[data-map-layers-toggle]').tap()
-    page.wait_for_function('document.querySelectorAll("[data-trip-overview-map-dialog] .overview-stage-label").length===0')
-    dialog.locator('[data-map-layers-toggle]').tap()
-    page.wait_for_function('[...document.querySelectorAll("[data-trip-overview-map-dialog] .overview-stage-label")].filter(el=>Number(getComputedStyle(el).opacity)>=.85).length===3')
-    for label in dialog.locator('.overview-stage-label').all():
-        assert label.bounding_box()['width'] > 100
+    check_overview_detail(dialog)
     page.screenshot(path=str(OUT / '03-carte-etapes-mobile.png'))
     phase[0] = 'map-selection'
     dialog.locator('.overview-stage-number').first.tap()
@@ -320,14 +352,7 @@ with sync_playwright() as p:
     page.locator('[data-trip-overview-map]').tap()
     dialog = page.locator('[data-trip-overview-map-dialog]')
     dialog.locator('.route-map-stage-line').first.wait_for()
-    dialog.locator('[data-map-layers-toggle]').tap()
-    page.wait_for_function('document.querySelectorAll("[data-trip-overview-map-dialog] .overview-stage-label").length===3 && [...document.querySelectorAll("[data-trip-overview-map-dialog] .overview-stage-label")].every(el=>Number(getComputedStyle(el).opacity)>=.85)')
-    dialog.locator('[data-map-layers-toggle]').tap()
-    page.wait_for_function('document.querySelectorAll("[data-trip-overview-map-dialog] .overview-stage-label").length===0')
-    dialog.locator('[data-map-layers-toggle]').tap()
-    page.wait_for_function('[...document.querySelectorAll("[data-trip-overview-map-dialog] .overview-stage-label")].filter(el=>Number(getComputedStyle(el).opacity)>=.85).length===3')
-    for label in dialog.locator('.overview-stage-label').all():
-        assert label.bounding_box()['width'] > 100
+    check_overview_detail(dialog)
     page.screenshot(path=str(OUT / '03-carte-etapes-mobile.png'))
     dialog.locator('.overview-stage-number').first.tap()
     dialog.locator('[data-overview-stage-selection] [data-action=open-day-detail]').tap()
@@ -416,5 +441,5 @@ with sync_playwright() as p:
     print(json.dumps({'originalGpxArchiveExact': True, 'backupHashesVerified': True, 'corruptBackupRejected': True, 'restoreCopiesOffline': original_count, 'nativeMapDismissal': True}))
     assert not errors, errors
     print('Artifacts:', OUT)
-    print(json.dumps({'production': True, 'gpxImport': 3, 'longRouteKm': 150, 'allStats': 9, 'tabs': 4, 'sharedCourseProfile': True, 'bottomStagePicker': True, 'neutralOnOtherStage': True, 'stableWindSlot': True, 'adaptiveBands': True, 'overviewLines': 3, 'overviewLabels': 3, 'selectionAndNavigation': True, 'offlineFonts': len(cached), 'sameGpxVertices': len(source), 'offlineGpxFit': True, 'offlineReload': True, 'walkingOffline': True, 'widths': [320, 390, 430], 'nativeFieldsFit': True, 'touchReadingsClear': True, 'simulatedSafeTopPx': 59, 'tourLabels': ['J1a', 'J1b', 'J2'], 'jsErrors': errors}))
+    print(json.dumps({'production': True, 'gpxImport': 3, 'longRouteKm': 150, 'allStats': 9, 'tabs': 4, 'sharedCourseProfile': True, 'bottomStagePicker': True, 'neutralOnOtherStage': True, 'stableWindSlot': True, 'adaptiveBands': True, 'overviewLines': 3, 'overviewStageBubbles': 3, 'permanentStageNames': False, 'selectionAndNavigation': True, 'offlineFonts': len(cached), 'sameGpxVertices': len(source), 'offlineGpxFit': True, 'offlineReload': True, 'walkingOffline': True, 'widths': [320, 390, 430], 'nativeFieldsFit': True, 'touchReadingsClear': True, 'simulatedSafeTopPx': 59, 'tourLabels': ['J1a', 'J1b', 'J2'], 'jsErrors': errors}))
     browser.close()

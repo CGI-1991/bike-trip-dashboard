@@ -1105,7 +1105,7 @@ function buildRideDayDetail(bundle: TripBundle, day: TripBundle['days'][number],
 ${selectRaceMode(bundle) ? '<button id="day-tab-course" type="button" role="tab" data-day-tab="course" aria-controls="day-bottom-panel-course" aria-selected="false" tabindex="-1">Course</button>' : ''}
       </nav>
     <section class="card day-detail__map-profile-card" data-day-detail-map-profile-card>
-      <div class="feature-update-line"><span>Carte et services du trajet</span><span>${selectRaceMode(bundle) ? renderFeatureUpdateBadge('race-segments') : ''}${renderFeatureUpdateBadge('poi-search')}</span></div>
+      <div class="feature-update-line"><span>Carte et services du trajet</span><span>${renderFeatureUpdateBadge('stage-tabs')}${selectRaceMode(bundle) ? renderFeatureUpdateBadge('race-segments') : ''}${renderFeatureUpdateBadge('poi-search')}</span></div>
       <div class="route-map route-map--action" data-day-detail-map data-explore-map role="button" tabindex="0" aria-label="Ouvrir la carte de l’étape en plein écran"></div>
       <div data-day-profile-home><div data-day-detail-profile></div></div>
       <!-- Exports stay with their trace. Competition GPX includes saved

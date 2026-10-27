@@ -198,12 +198,13 @@ test('C: adjacent stages sharing an endpoint location (arrival Jx == departure J
   assert.equal(hilltownMarkers.length, 1, 'day-alpha\'s arrival and day-delta\'s departure are the same place — one logical point')
 })
 
-test('the overview map\'s principal markers are the simple, un-iconified "overview-primary" category — no Départ/Arrivée symbol imposed', () => {
+test('the overview map keeps the GPX D/A symbols; cities remain accessible through stage bubbles', () => {
   const bundle = createGenericTripBundle()
   const overview = buildTripOverview(bundle, '2027-05-01')
   const model = buildGenericOverviewRouteMapModel(overview.mapStages)
   assert.ok(model.markers.length > 0)
-  assert.ok(model.markers.every((marker) => marker.category === 'overview-primary'))
+  assert.ok(model.markers.every(marker => marker.category === 'start' || marker.category === 'finish'))
+  assert.ok(model.markers.every(marker => marker.hideTooltip))
 })
 
 test('mapStages waypoints are pre-filtered to the compact-map default (villages excluded)', () => {
@@ -319,7 +320,7 @@ test('D1.2 sections 6/H: Détail OFF keeps only principal points; Détail ON add
   bundle.settings.stages = [{ stageId: bundle.stages[0].id, pausePlanMode: 'custom', pauses: [] }]
   const overview = buildTripOverview(bundle, '2027-05-01')
   const detailOffModel = buildGenericOverviewRouteMapModel(overview.mapStages)
-  assert.ok(detailOffModel.markers.every((marker) => marker.category === 'overview-primary'), 'F: Détail OFF — only principal points')
+  assert.ok(detailOffModel.markers.every(marker => marker.category === 'start' || marker.category === 'finish'), 'F: Détail OFF — only GPX endpoints')
   assert.ok(!detailOffModel.markers.some((marker) => marker.name === 'Col des Aravis' || marker.name === 'Micro Village'))
   const detailMarkers = buildGenericOverviewDetailMarkers(overview.mapDetailStages)
   assert.ok(detailMarkers.length > 0, 'G: Détail ON — pauses/named cols exist')

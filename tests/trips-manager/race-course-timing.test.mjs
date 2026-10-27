@@ -231,7 +231,7 @@ test('calendar, day cards and overview use course distance while source statisti
     assert.ok(bundle.stages[0].distanceKm>22)
     const overview=buildTripOverview(next,NOW)
     assert.match(overview.html,/16,0 km/)
-    assert.ok(overview.mapStages.every(stage=>stage.waypoints.some(wp=>wp.kind==='start'&&wp.trackDistanceKm===0)&&stage.waypoints.some(wp=>wp.raceBoundary==='start'&&wp.trackDistanceKm===6)&&stage.waypoints.some(wp=>wp.raceBoundary==='finish'&&wp.trackDistanceKm===14)&&stage.waypoints.some(wp=>wp.kind==='end'&&wp.raceBoundary===undefined&&wp.trackDistanceKm>14)))
+    assert.ok(overview.mapStages.every(stage=>stage.waypoints.length===2&&stage.waypoints.every(wp=>wp.raceBoundary===undefined)&&stage.waypoints.some(wp=>wp.kind==='start'&&wp.trackDistanceKm===0)&&stage.waypoints.some(wp=>wp.kind==='end'&&wp.trackDistanceKm>14)))
   }finally{database.close()}
 })
 
