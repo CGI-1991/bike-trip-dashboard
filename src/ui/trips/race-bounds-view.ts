@@ -33,14 +33,14 @@ export function renderRaceCourseCard(course: RaceCourse, _stage: RideStage, expl
 }
 
 /** Full source trace stays visible, independently of the Neutre/Pente/Vent layer. */
-export function paintRaceBounds(profile: HTMLElement, bounds: RaceBounds | null, lengthKm: number): void {
+export function paintRaceBounds(profile: HTMLElement, bounds: RaceBounds | null, lengthKm: number, guides = false): void {
   const svg = profile.querySelector<SVGSVGElement>('[data-profile-interactive]')
   svg?.querySelector('[data-race-overlay]')?.remove()
   if (svg === null || bounds === null || !validRaceOffsets(bounds, lengthKm)) return
   const x = (offsetM: number) => 20 + 760 * offsetM / (lengthKm * 1000)
   const start = x(bounds.startOffsetM), finish = x(bounds.finishOffsetM)
   svg.querySelector('.profile-area')?.setAttribute('id', 'race-bounds-source-area')
-  svg.insertAdjacentHTML('beforeend', `<g class="race-profile-bounds" data-race-overlay aria-hidden="true"><defs><clipPath id="race-bounds-area-clip"><use href="#race-bounds-source-area"/></clipPath></defs><g clip-path="url(#race-bounds-area-clip)"><rect class="race-profile-bounds__outside" x="20" y="25" width="${Math.max(0, start - 20)}" height="189"/><rect class="race-profile-bounds__outside" x="${finish}" y="25" width="${Math.max(0, 780 - finish)}" height="189"/></g><line x1="${start}" x2="${start}" y1="25" y2="214"/><line x1="${finish}" x2="${finish}" y1="25" y2="214"/><text x="${start}" y="38" text-anchor="${start > 740 ? 'end' : 'start'}">D</text><text x="${finish}" y="55" text-anchor="${finish > 740 ? 'end' : 'start'}">A</text></g>`)
+  svg.insertAdjacentHTML('beforeend', `<g class="race-profile-bounds" data-race-overlay aria-hidden="true"><defs><clipPath id="race-bounds-area-clip"><use href="#race-bounds-source-area"/></clipPath></defs><g clip-path="url(#race-bounds-area-clip)"><rect class="race-profile-bounds__outside" x="20" y="25" width="${Math.max(0, start - 20)}" height="189"/><rect class="race-profile-bounds__outside" x="${finish}" y="25" width="${Math.max(0, 780 - finish)}" height="189"/></g>${guides?`<line x1="${start}" x2="${start}" y1="25" y2="214"/><line x1="${finish}" x2="${finish}" y1="25" y2="214"/>`:''}</g>`)
 }
 
 const controllers = new WeakMap<HTMLElement, AbortController>()
@@ -70,7 +70,7 @@ export function mountRaceBoundsEditor(profile: HTMLElement, bundle: TripBundle, 
     picked = value
     for (const button of host.querySelectorAll<HTMLButtonElement>('[data-race-pick]')) button.setAttribute('aria-pressed', String(button.dataset.racePick === picked))
   }
-  const redraw = () => paintRaceBounds(profile, preview(), course.indexed.lengthKm)
+  const redraw = () => paintRaceBounds(profile, preview(), course.indexed.lengthKm, picked !== null)
   const resetDraft = () => {
     setPicked(null)
     start = savedBounds?.startOffsetM ?? 0
@@ -102,7 +102,7 @@ export function mountRaceBoundsEditor(profile: HTMLElement, bundle: TripBundle, 
     setInputs(); redraw()
     status.textContent = `${picked === 'start' ? 'Départ' : 'Arrivée'} au km ${km(offsetM / 1000)}. Enregistrez pour confirmer.`
   }, { signal: controller.signal })
-  profile.addEventListener('course-editor-hidden', () => setPicked(null), { signal: controller.signal })
+  profile.addEventListener('course-editor-hidden', () => {setPicked(null);paintRaceBounds(profile,savedBounds,course.indexed.lengthKm)}, { signal: controller.signal })
   editor.addEventListener('toggle', () => { if (!editor.open && !saving) resetDraft() }, { signal: controller.signal })
   host.addEventListener('click', event => {
     const target = event.target

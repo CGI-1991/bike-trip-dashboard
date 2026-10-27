@@ -18,6 +18,7 @@ import {
   allRouteMarkerCategories,
   getRouteMarkerLegendEntries,
   getRouteMarkerStyle,
+  renderRouteFlag,
 } from './route-marker-style.ts'
 import { NO_MARKER_OFFSET, resolveMarkerIconOffsets } from './marker-collision-offsets.ts'
 import type { MarkerIconOffset } from './marker-collision-offsets.ts'
@@ -36,6 +37,7 @@ function escapeHtml(value: string): string {
 }
 
 const mapInstances = new WeakMap<HTMLElement, L.Map>()
+const compactRefits = new WeakMap<HTMLElement, () => void>()
 const openHandlers = new WeakMap<HTMLElement, { readonly click: EventListener; readonly keydown: EventListener }>()
 const expandedOpeners = new WeakMap<HTMLDialogElement, HTMLElement>()
 const expandedHistory = new WeakMap<HTMLDialogElement, MapOverlayHistoryController>()
@@ -150,7 +152,7 @@ export function getRouteMapInteractionHandle(container: HTMLElement): RouteMapIn
   const map = mapInstances.get(canvas)
   if (map === undefined) return null
   return {
-    refreshSize(): void { map.invalidateSize({ pan: false }) },
+    refreshSize(): void { const refit = compactRefits.get(canvas); if (refit) refit(); else map.invalidateSize({ pan: false }) },
     dispose(): void { destroyRouteMap(canvas) },
     setTemporaryMarker(latitude, longitude): void {
       const existing = temporaryMarkers.get(canvas)
@@ -229,6 +231,7 @@ function createRouteDivIcon(category: RouteMarkerCategory, options: { readonly o
   const style = getRouteMarkerStyle(category)
   const size = style.sizePx
   const offset = options.iconOffset ?? NO_MARKER_OFFSET
+  if (style.shape === 'flag') return L.divIcon({html:renderRouteFlag(category),className:`route-marker route-marker--${category}`,iconSize:[26,30],iconAnchor:[3-offset.x,28-offset.y]})
   const ring = options.pauseActive === true ? `box-shadow: 0 0 0 3px ${PAUSE_ACCENT_COLOR_HEX};` : ''
   const surface = options.offRoute === true
     ? `background: transparent; border: 2px dashed ${style.colorHex};`
@@ -295,8 +298,9 @@ export function createRouteMap(container: HTMLElement, model: RouteMapModel, opt
   const markerOffsets = resolveMarkerIconOffsets(model.markers)
   model.markers.forEach((marker, index) => {
     bounds.extend(toLatLng(marker.coordinate))
-    const layer = L.marker(toLatLng(marker.coordinate), { interactive, keyboard: interactive, bubblingMouseEvents: false, icon: createRouteDivIcon(marker.category, { offRoute: marker.offRoute, pauseActive: marker.pauseActive, iconOffset: markerOffsets[index] }) }).addTo(map)
-    layer.getElement()?.setAttribute('aria-label', marker.name)
+    const layer = L.marker(toLatLng(marker.coordinate), { interactive, keyboard: interactive, bubblingMouseEvents: false, icon: createRouteDivIcon(marker.category, { offRoute: marker.offRoute, pauseActive: marker.pauseActive, iconOffset: markerOffsets[index] }) })
+    layer.on('add',()=>layer.getElement()?.setAttribute('aria-label',marker.name))
+    layer.addTo(map)
     if (interactive && marker.popupHtml !== undefined) layer.bindPopup(marker.popupHtml, { maxWidth: 260, className: 'route-feature-leaflet-popup' })
     else if (interactive) layer.bindTooltip(markerTooltip(marker))
   })
@@ -307,6 +311,20 @@ export function createRouteMap(container: HTMLElement, model: RouteMapModel, opt
       ...(model.overviewStages?.length && interactive ? {paddingBottomRight: [36, 270] as L.PointExpression} : {}),
       maxZoom: options.maxInitialZoom,
     })
+    if (!interactive) {
+      const refit = () => {
+        if(mapInstances.get(container)!==map)return
+        const rect=container.getBoundingClientRect()
+        if(rect.width<=0||rect.height<=0)return
+        map.invalidateSize({pan:false})
+        map.fitBounds(bounds,{padding:options.fitPadding,maxZoom:options.maxInitialZoom,animate:false})
+      }
+      compactRefits.set(container,refit)
+      const observer=typeof ResizeObserver==='undefined'?null:new ResizeObserver(refit)
+      observer?.observe(container)
+      map.on('remove',()=>{observer?.disconnect();compactRefits.delete(container)})
+      refit()
+    }
   }
   return map
 }

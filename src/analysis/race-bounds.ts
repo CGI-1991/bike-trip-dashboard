@@ -18,6 +18,16 @@ export interface RaceCourse {
 const geometryIndexes = new WeakMap<readonly RouteGeometryPoint[], DistanceIndexedGeometry>()
 const courses = new WeakMap<RideStage, { readonly geometry: readonly RouteGeometryPoint[]; readonly fingerprint: string; readonly course: RaceCourse }>()
 
+/** Full original GPX for read-only route colouring, also in Voyage. */
+export function fullGpxCourse(bundle: TripBundle, stage: RideStage): RaceCourse | null {
+  const route=bundle.routes.find(route=>route.id===stage.sourceRouteId)
+  const geometry=route===undefined?null:routeGeometry(route)
+  if(route===undefined||geometry===null)return null
+  let indexed=geometryIndexes.get(geometry)
+  if(indexed===undefined){indexed=indexRouteGeometry(geometry);geometryIndexes.set(geometry,indexed)}
+  return indexed.lengthKm<=0?null:{fingerprint:routeFingerprint(bundle,route),indexed,status:'full',bounds:null,geometry}
+}
+
 export function validRaceOffsets(bounds: Pick<RaceBounds, 'startOffsetM' | 'finishOffsetM'>, lengthKm: number): boolean {
   return Number.isFinite(bounds.startOffsetM) && Number.isFinite(bounds.finishOffsetM)
     && bounds.startOffsetM >= 0 && bounds.finishOffsetM > bounds.startOffsetM
@@ -89,15 +99,17 @@ export function courseWaypoints(base: readonly CanonicalWaypoint[], stage: RideS
   if (course.bounds === null) return base
   const start = course.bounds.startOffsetM / 1000, finish = course.bounds.finishOffsetM / 1000
   const endpoint = (kind: 'start' | 'end', distanceKm: number, point: RouteGeometryPoint): CanonicalWaypoint => ({
-    id: `${stage.id}:race-${kind}`, kind, importance: 'major', visibleByDefault: true,
-    name: kind === 'start' ? 'Départ de course' : 'Arrivée de course', trackDistanceKm: distanceKm,
+    id: `${stage.id}:race-${kind}`, kind, raceBoundary: kind === 'start' ? 'start' : 'finish', importance: 'major', visibleByDefault: true,
+    name: kind === 'start' ? 'Départ réel' : 'Arrivée réelle', trackDistanceKm: distanceKm,
     latitude: point.latitude, longitude: point.longitude, elevationM: point.altitudeM,
     climbId: null, pauseDurationMinutes: null, elapsedMinutes: null, clockTime: null,
   })
-  const gpxStart: CanonicalWaypoint | undefined = start > 0 ? { ...endpoint('start', 0, course.indexed.points[0]!), id: `${stage.id}:gpx-start`, name: 'Départ GPX' } : undefined
-  return [...(gpxStart === undefined ? [] : [gpxStart]), endpoint('start', start, course.geometry[0]!),
+  const gpxStart = base.find(point => point.kind === 'start')
+  const gpxFinish = [...base].reverse().find(point => point.kind === 'end')
+  const length = course.indexed.lengthKm
+  return [...(gpxStart === undefined ? [] : [gpxStart]), ...(start > 0 ? [endpoint('start', start, course.geometry[0]!)] : []),
     ...base.filter(point => point.kind !== 'start' && point.kind !== 'end' && point.trackDistanceKm > start && point.trackDistanceKm < finish),
-    endpoint('end', finish, course.geometry.at(-1)!) ]
+    ...(finish < length - 1e-6 ? [endpoint('end', finish, course.geometry.at(-1)!)] : []), ...(gpxFinish === undefined ? [] : [gpxFinish]) ]
 }
 
 /** Intended for updateTripBundle: guards the latest route inside the transaction.

@@ -88,7 +88,7 @@ test('race average excludes the slower approach, while clock and weather keep GP
   assert.match(detail.statsHtml,/data-stage-moving-speed>18,0 km\/h/)
   assert.equal(detail.timingCurve.clockTimeAt(0),'08:00')
   assert.ok(detail.timingCurve.elapsedMinutesAt(1)>0)
-  assert.ok(detail.waypoints.at(-1).elapsedMinutes>13)
+  assert.ok(detail.waypoints.find(point=>point.raceBoundary==='finish').elapsedMinutes>13)
 })
 
 test('slowing a cycling Tour adjusts a conflicting linked departure and persists the same geometry atomically',async()=>{

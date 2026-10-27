@@ -29,7 +29,7 @@ test('practical markers are installed only after the expanded GPX map is created
     source.slice(expandedStart),
     /map = createRouteMap\([\s\S]*invalidateBeforeInitialFit: true[\s\S]*installPracticalLayerPanel\(dialog, map, practicalData, timeline\.day\.id/,
   )
-  assert.equal((source.match(/fitBounds\(/g) ?? []).length, 1)
+  assert.equal((source.match(/fitBounds\(/g) ?? []).length, 2)
 })
 
 test('layers start hidden, remain independent and never trigger a new fitBounds', () => {

@@ -1,5 +1,7 @@
 # Informations de parcours — 2026.10.26.3
 
+Le [lot 2026.10.27.3](CLIMBS_COURSE_REPRESENTATION.md) remplace le raccourci Prochaine eau et fait évoluer les repères de carte/profil. Ce document conserve les règles historiques du lot du 26 octobre.
+
 Ce lot finalise les quatre suggestions retenues après les retours iPhone et simplifie la carte de détail en League/Tour. L’origine du site, l’identité PWA, le stockage et les exports restent inchangés.
 
 ## Profils

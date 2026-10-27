@@ -263,10 +263,10 @@ test('Parcours is a single flat chronological list — no grouped waypoint secti
 // waypoint (départ/arrivée/ville/village) — "Type · X,X km", never a second
 // "Kilomètre" prefix (section 39), never the point's own altitude
 // competing as a primary value on this line (section 37).
-test('start/end rows show "Type · X,X km" — no "Kilomètre" prefix, no altitude, French one-decimal comma format (sections 33/37/39)', () => {
+test('start/end rows show chainage and known altitude consistently with the other point cards', () => {
   const bundle = createGenericTripBundle()
   const detail = buildDayDetail(bundle, 'day-alpha')
-  assert.match(detail.timelineHtml, /<span class="day-detail__timeline-meta">Départ · 0,0 km<\/span>/)
+  assert.match(detail.timelineHtml, /<span class="day-detail__timeline-meta">Départ · 0,0 km · 210 m<\/span>/)
   assert.doesNotMatch(detail.timelineHtml, /Kilomètre/, 'the formatter\'s own "X,X km" already says it — no second "Kilomètre" prefix')
   assert.doesNotMatch(detail.timelineHtml, /Départ · \d+ m/, 'the point\'s own altitude must not appear on the Parcours meta line')
   assert.doesNotMatch(detail.timelineHtml, /\d\.\d km/, 'never a dot-decimal "5.2 km" — the app is FR throughout')

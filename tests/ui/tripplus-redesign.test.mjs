@@ -38,7 +38,7 @@ test('the services view escapes source names, excludes hidden places and only at
   const bundle={...base,practicalPlaces:[place,{...place,id:'hidden',name:'Should stay hidden',hidden:true}]}
   const html=renderStageServices(bundle,stage,[{id:'near',trackDistanceKm:2.2}])
   assert.match(html,/&lt;script&gt;/);assert.doesNotMatch(html,/<script>|Should stay hidden/)
-  assert.match(html,/data-waypoint-id="near"/);assert.match(html,/Météo à proximité/)
+  assert.match(html,/data-waypoint-id="near"/);assert.match(html,/Météo proche/)
   assert.doesNotMatch(renderStageServices(bundle,stage,[{id:'distant',trackDistanceKm:10}]),/data-waypoint-weather/)
 })
 
@@ -46,9 +46,9 @@ test('long-route service lists render in bounded pages without dropping saved re
   const base=createGenericTripBundle(),stage=base.stages[0]
   const places=Array.from({length:125},(_,i)=>({id:`service-${i}`,name:`Eau ${i}`,stageId:stage.id,category:'water',hidden:false,dayIds:[stage.dayId],trackDistanceKm:i/10,detourKm:0,openingHours:null}))
   const b={...base,practicalPlaces:places}
-  assert.equal((renderStageServices(b,stage,[]).match(/class="timeline-service"/g)||[]).length,50)
+  assert.equal((renderStageServices(b,stage,[]).match(/class="day-detail__timeline-row timeline-service"/g)||[]).length,50)
   assert.match(renderStageServices(b,stage,[]),/50 \/ 125/)
-  assert.equal((renderStageServices(b,stage,[],100).match(/class="timeline-service"/g)||[]).length,100)
+  assert.equal((renderStageServices(b,stage,[],100).match(/class="day-detail__timeline-row timeline-service"/g)||[]).length,100)
   assert.doesNotMatch(renderStageServices(b,stage,[],150),/data-more-services/)
   assert.equal(b.practicalPlaces.length,125)
 })

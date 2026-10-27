@@ -27,6 +27,7 @@ export type CanonicalWaypointImportance = 'major' | 'secondary' | 'minor'
 const SURFACED_STRUCTURAL_TYPES: ReadonlySet<string> = new Set(['city', 'town', 'village', 'mountain-pass', 'saddle'])
 
 export interface CanonicalWaypoint {
+  readonly raceBoundary?: 'start' | 'finish'
   readonly id: string
   readonly kind: CanonicalWaypointKind
   readonly importance: CanonicalWaypointImportance

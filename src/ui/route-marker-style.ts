@@ -8,7 +8,7 @@
 import type { CanonicalWaypointKind } from '../analysis/canonical-waypoints.ts'
 
 export type RouteMarkerCategory =
-  | 'race-sprint' | 'race-climb' | 'race-flandrien'
+  | 'race-sprint' | 'race-climb' | 'race-flandrien' | 'race-start' | 'race-finish'
   | 'start' | 'finish' | 'col-summit' | 'passage' | 'locality-major' | 'locality-minor' | 'overview-primary' | 'overview-secondary'
   // C2 practical-POI categories (CDC section 18) — Étape fullscreen map only,
   // never mixed into the structural categories above (never part of
@@ -17,7 +17,7 @@ export type RouteMarkerCategory =
   // base map's own dynamic legend never lists them).
   | 'practical-bike' | 'practical-supermarket' | 'practical-bakery' | 'practical-water' | 'practical-shelter' | 'practical-toilet'
 
-export type RouteMarkerShape = 'circle' | 'rounded-square' | 'diamond'
+export type RouteMarkerShape = 'circle' | 'rounded-square' | 'diamond' | 'flag'
 
 export interface RouteMarkerStyle {
   readonly textColorHex?: string
@@ -37,9 +37,11 @@ export interface RouteMarkerStyle {
 export const PAUSE_ACCENT_COLOR_HEX = '#7c3aed'
 
 const CATEGORY_STYLES: Record<RouteMarkerCategory, RouteMarkerStyle> = {
-  'race-sprint': { category: 'race-sprint', shape: 'rounded-square', colorHex: '#16804a', symbol: 'S', sizePx: 20, label: 'Sprint' },
-  'race-climb': { category: 'race-climb', shape: 'rounded-square', colorHex: '#b73132', symbol: 'G', sizePx: 20, label: 'Grimpeur' },
-  'race-flandrien': { category: 'race-flandrien', shape: 'rounded-square', colorHex: '#e5bd32', textColorHex: '#302500', symbol: 'F', sizePx: 20, label: 'Flandrien' },
+  'race-start': { category:'race-start', shape:'flag', colorHex:'#175b83', symbol:'', sizePx:22, label:'Départ réel' },
+  'race-finish': { category:'race-finish', shape:'flag', colorHex:'#b73132', symbol:'', sizePx:22, label:'Arrivée réelle' },
+  'race-sprint': { category: 'race-sprint', shape: 'circle', colorHex: '#16804a', symbol: 'S', sizePx: 24, label: 'Sprint' },
+  'race-climb': { category: 'race-climb', shape: 'circle', colorHex: '#b73132', symbol: 'G', sizePx: 24, label: 'Grimpeur' },
+  'race-flandrien': { category: 'race-flandrien', shape: 'circle', colorHex: '#e5bd32', textColorHex: '#302500', symbol: 'F', sizePx: 24, label: 'Flandrien' },
   start: {
     category: 'start',
     shape: 'circle',
@@ -150,6 +152,7 @@ export const routeMarkerCategoryOrder: readonly RouteMarkerCategory[] = [
 
 /** Every `RouteMarkerCategory` value, in a stable display order — used by the generic map/profile's own dynamic legend. */
 export const allRouteMarkerCategories: readonly RouteMarkerCategory[] = [
+  'race-start', 'race-finish',
   'race-sprint', 'race-climb', 'race-flandrien',
   'start',
   'finish',
@@ -205,7 +208,25 @@ export function getGenericRouteMarkerCategory(kind: CanonicalWaypointKind): Rout
   return GENERIC_KIND_TO_MARKER_CATEGORY[kind]
 }
 
+export function waypointMarkerCategory(point: { readonly kind: CanonicalWaypointKind; readonly raceBoundary?: 'start'|'finish' }): RouteMarkerCategory {
+  return point.raceBoundary === undefined ? getGenericRouteMarkerCategory(point.kind) : `race-${point.raceBoundary}`
+}
+
+/** Shared vector flag; origin is the foot of the pole on the real coordinate. */
+export function routeFlagGlyph(category: RouteMarkerCategory): string {
+  const color = category === 'race-start' ? '#175b83' : '#b73132'
+  const cloth = category === 'race-start'
+    ? '<rect x="1" y="-25" width="19" height="14" rx="1" fill="#175b83"/><path d="M8-22v8l7-4z" fill="white" stroke="none"/>'
+    : `<rect x="1" y="-25" width="20" height="15" fill="white"/>${Array.from({length:3},(_,r)=>Array.from({length:4},(_,c)=>(r+c)%2===0?`<rect x="${1+c*5}" y="${-25+r*5}" width="5" height="5" fill="#b73132"/>`:'').join('')).join('')}<rect x="1" y="-25" width="20" height="15" fill="none" stroke="#b73132" stroke-width="1"/>`
+  return `<path d="M1 0v-25" fill="none" stroke="${color}" stroke-width="2"/><g stroke="none">${cloth}</g>`
+}
+
+export function renderRouteFlag(category: RouteMarkerCategory): string {
+  return `<svg class="route-flag" viewBox="-2 -28 26 30" aria-hidden="true">${routeFlagGlyph(category)}</svg>`
+}
+
 const CATEGORY_LEGEND_SYMBOL: Record<RouteMarkerCategory, string> = {
+  'race-start': '▷', 'race-finish': '▦',
   'race-sprint': 'S', 'race-climb': 'G', 'race-flandrien': 'F',
   start: 'D',
   finish: 'A',

@@ -35,7 +35,7 @@ test('expanded Leaflet invalidates its final layout before the single GPX fit', 
   const source = readFileSync(new URL('../../src/ui/route-map.ts', import.meta.url), 'utf8')
   assert.match(source, /if \(options\.invalidateBeforeInitialFit === true\) map\.invalidateSize\(\)\s+map\.fitBounds\(bounds/)
   assert.match(source, /requestAnimationFrame\([\s\S]*dialog\.open[\s\S]*invalidateBeforeInitialFit: true/)
-  assert.equal((source.match(/fitBounds\(/g) ?? []).length, 1)
+  assert.equal((source.match(/fitBounds\(/g) ?? []).length, 2)
 })
 
 test('every compact map wrapper (.route-map) gets its own local stacking context so Leaflet panes can never escape above the fixed bottom nav', () => {

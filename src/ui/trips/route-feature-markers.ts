@@ -5,6 +5,7 @@ import { analyzeRaceSegment, raceSegmentStatus } from '../../analysis/race-segme
 import type { RouteMapModel } from '../route-map-model.ts'
 import { renderRouteFeaturePopup } from '../route-feature-popup.ts'
 import { RACE_SEGMENT_STYLE } from './race-segment-style.ts'
+import { pointAtIndexedDistance } from '../../route-enrichment/segment-geometry.ts'
 
 /** Uses exactly the retained timeline points: suppressed climbs never reappear. */
 export function withRouteFeatureMarkers(model: RouteMapModel, waypoints: readonly CanonicalWaypoint[], climbs: readonly Climb[], course: RaceCourse, segments: readonly RaceSegment[]): RouteMapModel {
@@ -21,7 +22,8 @@ export function withRouteFeatureMarkers(model: RouteMapModel, waypoints: readonl
     const segment = segments.find(segment => segment.id === point.raceSegmentId)
     if (segment === undefined || raceSegmentStatus(course, segment) !== 'ready') continue
     const analysis = analyzeRaceSegment(course, segment)
-    markers.push({ id: point.id, category: `race-${segment.type}`, name: point.name, coordinate: [point.latitude, point.longitude],
+    const middle=pointAtIndexedDistance(course.indexed,(segment.startOffsetM+segment.endOffsetM)/2000)
+    markers.push({ id: point.id, category: `race-${segment.type}`, name: point.name, coordinate: [middle.latitude, middle.longitude],
       offRoute: false, pauseActive: false,
       popupHtml: renderRouteFeaturePopup(point.name, RACE_SEGMENT_STYLE[segment.type].label, analysis.distanceM === null ? null : analysis.distanceM / 1000,
         analysis.partialAltitude ? null : analysis.elevationGainM, analysis.averageGradientPercent, analysis.partialAltitude) })

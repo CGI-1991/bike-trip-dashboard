@@ -9,7 +9,8 @@ import type { RideDayTimeline } from '../trip/types.ts'
 import { buildTerrainProfileSeries } from '../route/terrain-profile.ts'
 import type { RouteProfilePosition, TerrainProfilePoint } from '../route/types.ts'
 import type { RouteGeometryPoint } from '../trip-core/index.ts'
-import { PAUSE_ACCENT_COLOR_HEX, getGenericRouteMarkerCategory, getRouteMarkerCategory, getRouteMarkerStyle } from './route-marker-style.ts'
+import { PAUSE_ACCENT_COLOR_HEX, getRouteMarkerCategory, getRouteMarkerStyle, waypointMarkerCategory, routeFlagGlyph } from './route-marker-style.ts'
+import type { RaceSegment } from '../trip-core/index.ts'
 import type { RouteMarkerCategory } from './route-marker-style.ts'
 import { installProfileWindControls, renderProfileWindControls, selectProfileWind } from './relative-wind-view.ts'
 import { renderFeatureUpdateBadge } from './release-notes.ts'
@@ -132,7 +133,7 @@ function installTooltipProfileInteraction(container: HTMLElement, samples: reado
     const x = 20 + 760 * sample.distanceKm / Math.max(total, 0.1)
     const y = 210 - 180 * (sample.altitudeM - min) / Math.max(max - min, 1)
     line.setAttribute('x1', x.toFixed(1)); line.setAttribute('x2', x.toFixed(1))
-    dot.setAttribute('cx', x.toFixed(1)); dot.setAttribute('cy', y.toFixed(1))
+    placeCursorDot(dot,svg,x,y,800,240)
     cursor.removeAttribute('hidden')
     const text = `${sample.distanceKm.toFixed(1)} km · ${Math.round(sample.altitudeM)} m · Pente moyenne : ${sample.smoothedGradePercent.toFixed(1)} %`
     live.textContent = text
@@ -220,7 +221,7 @@ function installBandProfileInteraction(container: HTMLElement, samples: readonly
     const x = 20 + 760 * sample.distanceKm / Math.max(total, 0.1)
     const y = 210 - 150 * (sample.altitudeM - min) / Math.max(max - min, 1)
     line.setAttribute('x1', x.toFixed(1)); line.setAttribute('x2', x.toFixed(1))
-    dot.setAttribute('cx', x.toFixed(1)); dot.setAttribute('cy', y.toFixed(1))
+    placeCursorDot(dot,svg,x,y,800,240)
     cursor.removeAttribute('hidden')
     const etaLabel = options.timingCurve?.clockTimeAt(sample.distanceKm) ?? null
     band?.removeAttribute('data-band-empty')
@@ -260,6 +261,27 @@ function installBandProfileInteraction(container: HTMLElement, samples: readonly
 
 function escapeHtml(value: string): string { return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;') }
 
+function placeCursorDot(dot: SVGCircleElement, svg: SVGSVGElement, cx: number, cy: number, width: number, height: number): void {
+  const rect=svg.getBoundingClientRect()
+  const sx=width/Math.max(rect.width||width,1), sy=height/Math.max(rect.height||height,1)
+  dot.setAttribute('cx',cx.toFixed(1)); dot.setAttribute('cy',cy.toFixed(1))
+  dot.setAttribute('transform',`translate(${cx} ${cy}) scale(${sx} ${sy}) translate(${-cx} ${-cy})`)
+  dot.setAttribute('vector-effect','non-scaling-stroke')
+}
+
+function sizeProfileMarkers(container: HTMLElement): void {
+  if(typeof container.querySelector!=='function')return
+  const svg=container.querySelector<SVGSVGElement>('[data-profile-interactive]')
+  if(!svg||typeof svg.querySelectorAll!=='function')return
+  const rect=svg.getBoundingClientRect()
+  if(rect.width<=0||rect.height<=0)return
+  for(const marker of svg.querySelectorAll<SVGGElement>('.profile-marker')){
+    const base=marker.dataset.positionTransform??marker.getAttribute('transform')??''
+    marker.dataset.positionTransform=base
+    marker.setAttribute('transform',`${base} scale(${800/rect.width} ${240/rect.height})`)
+  }
+}
+
 /** Structural shape `renderProfileMarker` actually needs — decoupled from the RGA-specific `RoadbookPointMatch`, so a generic caller can build one directly from a `CanonicalWaypoint`. */
 interface ProfileMarkerSpec {
   readonly category: RouteMarkerCategory
@@ -285,7 +307,7 @@ function renderProfileMarker(spec: ProfileMarkerSpec, label: string, x: (distanc
   const stroke = spec.offRoute ? style.colorHex : '#ffffff'
   const strokeWidth = spec.offRoute ? 3 : 2
   const shape =
-    style.shape === 'circle'
+    style.shape === 'flag' ? routeFlagGlyph(spec.category) : style.shape === 'circle'
       ? `<circle r="${radius}" />`
       : style.shape === 'rounded-square'
         ? `<rect x="${-radius}" y="${-radius}" width="${radius * 2}" height="${radius * 2}" rx="${(radius * 0.35).toFixed(1)}" />`
@@ -293,7 +315,7 @@ function renderProfileMarker(spec: ProfileMarkerSpec, label: string, x: (distanc
   const symbol =
     style.symbol === ''
       ? ''
-      : `<text text-anchor="middle" dominant-baseline="central" font-size="${radius}" font-weight="700" fill="${spec.offRoute ? style.colorHex : '#ffffff'}">${style.symbol}</text>`
+      : `<text text-anchor="middle" dominant-baseline="central" font-size="${radius}" font-weight="700" fill="${spec.offRoute ? style.colorHex : style.textColorHex ?? '#ffffff'}">${style.symbol}</text>`
   const pauseRing = spec.pauseDurationMinutes === undefined ? '' : `<circle r="${(radius + 3).toFixed(1)}" fill="none" stroke="${PAUSE_ACCENT_COLOR_HEX}" stroke-width="2" />`
   const titleSuffix = spec.pauseDurationMinutes === undefined ? '' : ` · Pause ${spec.pauseDurationMinutes} min`
   return `<g class="profile-marker profile-marker--${spec.category}${spec.offRoute ? ' profile-marker--off-route' : ''}${spec.pauseDurationMinutes === undefined ? '' : ' profile-marker--pause'}" transform="translate(${cx} ${cy})" style="fill:${fill};stroke:${stroke};stroke-width:${strokeWidth};"><title>${escapeHtml(label)} · ${spec.distanceKm.toFixed(1)} km${titleSuffix}</title>${pauseRing}${shape}${symbol}</g>`
@@ -418,13 +440,14 @@ function formatClimbPercent(value: number | null): string {
  * attributes (embedded once by `renderClimbProfileShape`) — never a second
  * recomputation of the climb profile from the GPX/route geometry here.
  */
-export function mountClimbProfileInteraction(svg: SVGSVGElement): void {
+export function mountClimbProfileInteraction(svg: SVGSVGElement, timingCurve: BandProfileInteractionOptions['timingCurve'] = null): void {
   if (typeof svg.closest !== 'function') return
   const scope = svg.closest<HTMLElement>('[data-climb-profile]')
   const cursor = svg.querySelector<SVGGElement>('[data-profile-cursor]')
   const line = svg.querySelector<SVGLineElement>('[data-profile-cursor-line]')
   const dot = svg.querySelector<SVGCircleElement>('[data-profile-cursor-dot]')
   const tooltip = scope?.querySelector<HTMLElement>('[data-profile-tooltip]') ?? null
+  const idle = scope?.querySelector<HTMLElement>('[data-profile-idle]') ?? null
   const live = scope?.querySelector<HTMLElement>('[data-profile-live]') ?? null
   if (cursor === null || line === null || dot === null || tooltip === null || live === null) return
 
@@ -468,26 +491,16 @@ export function mountClimbProfileInteraction(svg: SVGSVGElement): void {
     const cx = x(clampedKm)
     const cy = altitude === null ? height / 2 : y(altitude)
     line.setAttribute('x1', cx.toFixed(1)); line.setAttribute('x2', cx.toFixed(1))
-    dot.setAttribute('cx', cx.toFixed(1)); dot.setAttribute('cy', cy.toFixed(1))
+    placeCursorDot(dot,svg,cx,cy,width,height)
     cursor.removeAttribute('hidden')
 
     const afterText = formatClimbKm(clampedKm - startKm)
     const altitudeText = altitude === null ? '—' : `${Math.round(altitude)} m`
     const gradeText = formatClimbPercent(segment[4])
     live.textContent = `Après ${afterText} · Altitude ${altitudeText} · Pente ${gradeText}`
-    tooltip.innerHTML = `<strong>Après ${afterText}</strong><span>Altitude : ${altitudeText}</span><span>Pente : ${gradeText}</span><span>Km absolu de l’étape : ${formatClimbKm(clampedKm)}</span>`
+    tooltip.innerHTML = `<span><small>Distance</small><b>${formatClimbKm(clampedKm)}</b></span><span><small>Altitude</small><b>${altitudeText}</b></span><span><small>Pente</small><b>${gradeText}</b></span><span><small>Passage</small><b>${timingCurve?.clockTimeAt(clampedKm)??'—'}</b></span>`
     tooltip.hidden = false
-
-    const containerRect = svg.getBoundingClientRect()
-    const tooltipRect = tooltip.getBoundingClientRect()
-    const tooltipWidthPx = tooltipRect.width > 0 ? tooltipRect.width : PROFILE_TOOLTIP_FALLBACK_WIDTH_PX
-    const tooltipHeightPx = tooltipRect.height > 0 ? tooltipRect.height : PROFILE_TOOLTIP_FALLBACK_HEIGHT_PX
-    const cursorPercent = (cx / width) * 100
-    tooltip.style.left = `${clampCenteredOffsetPercent(cursorPercent, containerRect.width, tooltipWidthPx).toFixed(1)}%`
-    const defaultTopPx = 8
-    const desiredCenterPercent = ((defaultTopPx + tooltipHeightPx / 2) / Math.max(containerRect.height, 1)) * 100
-    const clampedTopPercent = clampCenteredOffsetPercent(desiredCenterPercent, containerRect.height, tooltipHeightPx)
-    tooltip.style.top = `${((clampedTopPercent / 100) * Math.max(containerRect.height, 1) - tooltipHeightPx / 2).toFixed(1)}px`
+    if(idle)idle.hidden=true
   }
 
   const fromPointer = (event: PointerEvent): void => {
@@ -497,6 +510,7 @@ export function mountClimbProfileInteraction(svg: SVGSVGElement): void {
   const clear = (): void => {
     cursor.setAttribute('hidden', '')
     tooltip.hidden = true
+    if(idle)idle.hidden=false
     live.textContent = ''
   }
   installProfileExploration(svg, fromPointer, clear)
@@ -514,7 +528,7 @@ export function mountClimbProfileInteraction(svg: SVGSVGElement): void {
  * computeStageTimingCurve(...)`'s result, or `null`/omitted for an
  * undated/untimed stage; the band's ETA cell then simply stays "—".
  */
-export function renderGenericElevationProfile(container: HTMLElement, geometry: readonly RouteGeometryPoint[] | null, waypoints: readonly CanonicalWaypoint[], stageLabel = 'étape', timingCurve: BandProfileInteractionOptions['timingCurve'] = null, options: { readonly relativeWind?: boolean } = {}): void {
+export function renderGenericElevationProfile(container: HTMLElement, geometry: readonly RouteGeometryPoint[] | null, waypoints: readonly CanonicalWaypoint[], stageLabel = 'étape', timingCurve: BandProfileInteractionOptions['timingCurve'] = null, options: { readonly relativeWind?: boolean; readonly raceSegments?: readonly RaceSegment[] } = {}): void {
   if (geometry === null || geometry.length < 2) { container.innerHTML = '<p>Profil indisponible.</p>'; return }
   const samples = sampleElevationProfileFromGeometry(geometry)
   if (samples.length < 2) { container.innerHTML = `<p>Profil altimétrique indisponible. ${renderFeatureUpdateBadge('elevation-profile')}</p>`; return }
@@ -524,10 +538,10 @@ export function renderGenericElevationProfile(container: HTMLElement, geometry: 
   const x = (distance: number) => 20 + 760 * distance / Math.max(total, 0.1)
   const y = (alt: number) => 210 - 150 * (alt - min) / Math.max(max - min, 1)
   const markers = waypoints
-    .filter(waypoint => waypoint.raceSegmentId === undefined)
+    .filter(waypoint => waypoint.raceSegmentId === undefined || options.raceSegments?.some(segment=>segment.id===waypoint.raceSegmentId))
     .map((waypoint) => {
       const spec: ProfileMarkerSpec = {
-        category: getGenericRouteMarkerCategory(waypoint.kind),
+        category: waypoint.raceSegmentId === undefined ? waypointMarkerCategory(waypoint) : `race-${options.raceSegments!.find(segment=>segment.id===waypoint.raceSegmentId)!.type}`,
         distanceKm: waypoint.trackDistanceKm,
         altitudeM: waypoint.elevationM ?? min,
         offRoute: false,
@@ -548,6 +562,7 @@ export function renderGenericElevationProfile(container: HTMLElement, geometry: 
   const windEnabled = options.relativeWind !== false
   container.innerHTML = renderProfileWindControls(windEnabled)
     + renderProfileSvgMarkup(samples, markers + steepMarkers, { min, max, total, x, y }, 'generic', `Profil altimétrique interactif de ${stageLabel}`, 'band', windEnabled)
-  installProfileWindControls(container, samples, { total, x, y }, windEnabled)
+  installProfileWindControls(container, samples, { total, x, y }, windEnabled,()=>sizeProfileMarkers(container))
+  sizeProfileMarkers(container)
   installBandProfileInteraction(container, samples, min, max, total, { timingCurve })
 }

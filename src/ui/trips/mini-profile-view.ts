@@ -44,23 +44,22 @@ function renderClimbProfileShape(segments: readonly ClimbProfileSegment[], id: s
  * below it (`day-detail__climb-profile-bar`, one `<span>` per segment) was a
  * plain duplicate of the exact same information, just flattened. Removed
  * outright; the segmentation itself (`ClimbProfileSegment[]`, grade classes)
- * still drives the shape's colours and the interactive tooltip — only this
+ * still drives the shape's colours and the interactive readout — only this
  * second, redundant visual is gone.
  */
 export function renderClimbProfileBar(segments: readonly ClimbProfileSegment[], id = 'profile'): string {
   if (segments.length === 0) return '<p class="day-detail__climb-profile-empty">Profil indisponible pour cette montée.</p>'
   const first = segments[0]
   const last = segments[segments.length - 1]
-  // `.elevation-profile__stage`/`.profile-tooltip` (CDC Jalon B4.4 section
-  // 30) — the exact same positioning classes the main elevation profile
-  // uses for its own interactive tooltip, reused here rather than a second,
-  // parallel set of tooltip CSS.
-  return `<div class="elevation-profile__stage">${renderClimbProfileShape(segments,id)}<div class="profile-tooltip" data-profile-tooltip hidden></div></div>
+  // Keep the readout below the chart, with identical idle/active dimensions.
+  const idle=['Distance','Altitude','Pente','Passage'].map(label=>`<span><small>${label}</small><b>—</b></span>`).join('')
+  return `<div class="elevation-profile__stage">${renderClimbProfileShape(segments,id)}</div>
     <p class="visually-hidden" data-profile-live aria-live="polite"></p>
     <div class="day-detail__climb-profile-scale">
       <span>${formatKilometers(first?.startDistanceKm ?? 0)} · ${first?.startAltitudeM === null || first?.startAltitudeM === undefined ? '—' : `${Math.round(first.startAltitudeM)} m`}</span>
       <span>${formatKilometers(last?.endDistanceKm ?? 0)} · ${last?.endAltitudeM === null || last?.endAltitudeM === undefined ? '—' : `${Math.round(last.endAltitudeM)} m`}</span>
     </div>
+    <div class="mini-profile-readout" data-mini-profile-band><div class="mini-profile-values" data-profile-tooltip hidden></div><div class="mini-profile-values" data-profile-idle>${idle}</div></div>
     <p class="day-detail__climb-profile-caption">Touchez le profil pour explorer.</p>`
 }
 

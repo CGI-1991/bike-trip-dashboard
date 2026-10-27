@@ -81,6 +81,7 @@ with sync_playwright() as p:
     check_native_fields()
     page.locator('[data-action=submit]').tap()
     page.locator('.trip-card').first.wait_for()
+    assert page.locator('.trip-card [data-trip-mode]').inner_text()=='League'
     for width in [320,390,430]:
         page.set_viewport_size({'width':width,'height':844})
         boxes=[button.bounding_box() for button in page.locator('.trip-card__actions > .button').all()]
@@ -346,6 +347,7 @@ with sync_playwright() as p:
     page.locator('[data-action=submit]').tap()
     tour = page.locator('.trip-card').filter(has_text='Tour — contrôle iPhone')
     tour.wait_for()
+    assert tour.locator('[data-trip-mode]').inner_text()=='Tour'
     tour.locator('[data-action=edit-trip]').tap()
     page.locator('#editor-start-date').wait_for()
     check_native_fields()

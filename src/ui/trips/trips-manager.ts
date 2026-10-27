@@ -1,13 +1,14 @@
 import { renderFeatureUpdateBadge } from '../release-notes.ts'
 import { renderInteractionCue } from '../icons.ts'
+import { paintRouteClimbs } from './route-climb-profile.ts'
+import { convertClimbToSegment, revertClimbSegment } from '../../analysis/climb-segment-conversion.ts'
+import type { ClimbId } from '../../trip-core/index.ts'
 import { disposeProfileWind } from '../relative-wind-view.ts'
 import { paintClimbProfileBands } from './mini-profile-view.ts'
 import { renderStageServices } from './stage-services.ts'
 import { applyTimelineFilter } from './timeline-filters.ts'
 import { renderStageGpxActions } from './gpx-export-actions.ts'
 import { withRouteFeatureMarkers } from './route-feature-markers.ts'
-import { mountNextWater } from './next-water-view.ts'
-import { cumulativeGeometryDistances } from '../../route-enrichment/chunking.ts'
 import { syncCourseEditorProfile } from './course-editor-panel.ts'
 import { buildEnrichedGpx } from '../../export/enriched-gpx.ts'
 import { selectOrganizationCapabilities } from '../../trip-core/index.ts'
@@ -19,7 +20,7 @@ import { selectOrganizationCapabilities } from '../../trip-core/index.ts'
  */
 
 import { createTripRepository } from '../../storage/indexeddb/trip-repository.ts'
-import { buildRaceCourse } from '../../analysis/race-bounds.ts'
+import { buildRaceCourse, fullGpxCourse } from '../../analysis/race-bounds.ts'
 import { updateRaceCourse } from '../../trips-manager/race-course.ts'
 import { mountRaceBoundsEditor } from './race-bounds-view.ts'
 import { mountRaceSegmentsEditor } from './race-segments-view.ts'
@@ -49,7 +50,7 @@ import { deleteTripCompletely, listTripSummaries, setActiveTrip } from '../../tr
 import type { TripListEntry } from '../../trips-manager/trip-summary.ts'
 import { formatShortDate } from '../date-format.ts'
 import type { MapLayerDefinition, RouteMapInteractionHandle } from '../route-map.ts'
-import { buildGenericOverviewDetailMarkers, buildGenericOverviewRouteMapModel, buildGenericRouteMapModel, buildRaceSegmentMapLines } from '../route-map-model.ts'
+import { buildGenericOverviewDetailMarkers, buildGenericOverviewRouteMapModel, buildGenericRouteMapModel, buildRaceSegmentMapLines, buildClimbMapLines } from '../route-map-model.ts'
 import type { RouteMapModel } from '../route-map-model.ts'
 import { buildPracticalPlaceMapLayers } from '../practical-place-map-layers.ts'
 import { mountClimbProfileInteraction, renderGenericElevationProfile } from '../elevation-profile.ts'
@@ -103,9 +104,6 @@ import { defaultConfirmDiscardChanges } from './confirm-discard-changes.ts'
  */
 const ONLINE_RESUME_DEBOUNCE_MS = 2_000
 const LIVE_PROGRESS_MARKUP = '<p class="trip-detail__prep-summary" data-enrichment-progress role="status" aria-live="polite" hidden></p>'
-// A POI batch reuses the same immutable geometry; do not traverse a long
-// GPX again every time water results arrive.
-const waterRouteLengths = new WeakMap<NonNullable<DayDetail['geometry']>, number>()
 
 const EXTERNAL_ACTIONS: ReadonlySet<string> = new Set([
   'previous-day',
@@ -327,12 +325,14 @@ function renderTripPreparationLine(summary: TripListEntry['preparationSummary'])
 }
 
 function renderTripCard(trip: TripListEntry): string {
+  const organizationMode=trip.organizationMode??'voyage'
   const dateLabel = formatTripDateRange(trip)
   const statusLabel = TRIP_STATUS_LABELS[trip.status]
   const statusBadge = statusLabel === null ? '' : `<span class="tag tag--data">${escapeHtml(statusLabel)}</span>`
   return `
     <li class="trip-card" data-action="open-trip" data-trip-id="${escapeHtml(trip.id)}" role="button" tabindex="0">
-      <div class="trip-card__header"><h3>${escapeHtml(trip.name)}</h3>${trip.organizationMode === 'league' ? '<span class="tag tag--data">League</span>' : ''}${trip.travelMode === 'walking' ? '<span class="tag tag--data">Randonnée</span>' : ''}${statusBadge}</div>
+      <div class="trip-mode-banner trip-mode-banner--${organizationMode}" data-trip-mode="${organizationMode}">${{voyage:'Voyage',tour:'Tour',league:'League'}[organizationMode]}</div>
+      <div class="trip-card__header"><h3>${escapeHtml(trip.name)}</h3>${trip.travelMode === 'walking' ? '<span class="tag tag--data">Randonnée</span>' : ''}${statusBadge}</div>
       ${renderTripPreparationLine(trip.preparationSummary)}
       <dl class="trip-card__stats">
         <div><dt>Dates</dt><dd>${escapeHtml(dateLabel)}</dd></div>
@@ -757,7 +757,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
    * never three independent filters.
    */
   function getDisplayedStageWaypoints(detail: DayDetail): readonly import('../../analysis/canonical-waypoints.ts').CanonicalWaypoint[] {
-    return detail.waypoints.filter((waypoint) => isSignificantWaypoint(waypoint))
+    return (detail.visualWaypoints ?? detail.waypoints).filter((waypoint) => isSignificantWaypoint(waypoint))
   }
 
   /** Live measured offset for the Étape tabbar (CDC Jalon B4.4 sections 12-13) — replaces the previous fixed-px `--day-sticky-identity-h`/`--day-sticky-nav-h` guesses, which broke as soon as the identity line wrapped to two rows. Re-created on every full mount; the previous mount's observer (if any) is disconnected first so observers never pile up across day-to-day navigation. */
@@ -827,7 +827,6 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
 
   function patchLivePracticalPlaces(bundle: TripBundle, dayId: TripDayId): void {
     if (mode.kind !== 'day' || mode.tripId !== bundle.metadata.id || mode.dayId !== dayId || mountedDayDetail === null) return
-    mountNextWaterForDay(bundle, mountedDayDetail, dayId)
     const mapContainer = container.querySelector<HTMLElement>('[data-day-detail-map]')
     const dialog = container.querySelector<HTMLDialogElement>('[data-day-detail-map-dialog]')
     if (!selectRaceMode(bundle) && mapContainer !== null && dialog !== null) deps.updateMapLayers?.(mapContainer, dialog,
@@ -899,10 +898,11 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       const baseModel = detail.geometry === null
         ? detail.markersOnlyMapModel
         : buildGenericRouteMapModel(visibleWaypoints, detail.geometry.map((point) => [point.latitude, point.longitude] as const))
-      const course = stage === undefined ? null : buildRaceCourse(bundle, stage)
+      const course = stage === undefined ? null : buildRaceCourse(bundle, stage) ?? fullGpxCourse(bundle,stage)
+      const displayStage = stage === undefined ? undefined : selectRaceMode(bundle) ? stage : {...stage,raceSegments:[]}
       const model = baseModel === null || course === null ? baseModel : {
-        ...withRouteFeatureMarkers(baseModel, visibleWaypoints, bundle.climbs, course, stage?.raceSegments ?? []),
-        segmentLines: buildRaceSegmentMapLines(course, stage?.raceSegments ?? []),
+        ...withRouteFeatureMarkers(baseModel, visibleWaypoints, bundle.climbs, course, displayStage?.raceSegments ?? []),
+        segmentLines: [...(displayStage === undefined ? [] : buildClimbMapLines(course,displayStage,bundle.climbs)), ...buildRaceSegmentMapLines(course, displayStage?.raceSegments ?? [])],
       }
       deps.renderMap(mapContainer, mapDialog, model, selectRaceMode(bundle) ? [] : [...villagesLayer(detail.villageWaypoints), ...practicalPlaceLayers(bundle, detail, dayId)])
       const close = mapDialog.querySelector<HTMLButtonElement>('[data-close-map]')
@@ -910,7 +910,9 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     }
     const profileContainer = container.querySelector<HTMLElement>('[data-day-detail-profile]')
     if (profileContainer !== null) {
-      renderGenericElevationProfile(profileContainer, detail.geometry, visibleWaypoints, detail.stageLabel, detail.timingCurve, { relativeWind: selectOrganizationCapabilities(bundle).relativeWind })
+      renderGenericElevationProfile(profileContainer, detail.geometry, visibleWaypoints, detail.stageLabel, detail.timingCurve, { relativeWind: selectOrganizationCapabilities(bundle).relativeWind, raceSegments: selectRaceMode(bundle) ? stage?.raceSegments : [] })
+      const displayCourse=stage===undefined?null:buildRaceCourse(bundle,stage)??fullGpxCourse(bundle,stage)
+      if(stage&&displayCourse)paintRouteClimbs(profileContainer,selectRaceMode(bundle)?stage:{...stage,raceSegments:[]},bundle.climbs,displayCourse)
       if (stage !== undefined && typeof profileContainer.insertAdjacentHTML === 'function') {
         mountRaceBoundsEditor(profileContainer, bundle, stage, async (bounds, expectedFingerprint) => {
           let resolution: ReturnType<typeof updateRaceCourse> | undefined
@@ -963,26 +965,9 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     // re-wires freshly-created climb-card SVGs; nothing to tear down first,
     // since the old ones were discarded along with their own listeners when
     // their subtree's `innerHTML` was replaced.
-    for (const svg of container.querySelectorAll<SVGSVGElement>('[data-climb-profile-interactive]')) mountClimbProfileInteraction(svg)
-    mountNextWaterForDay(bundle, detail, dayId)
+    for (const svg of container.querySelectorAll<SVGSVGElement>('[data-climb-profile-interactive]')) mountClimbProfileInteraction(svg,detail.timingCurve)
   }
 
-  function mountNextWaterForDay(bundle: TripBundle, detail: DayDetail, dayId: TripDayId): void {
-    const host = container.querySelector<HTMLElement>('[data-next-water]')
-    const profile = container.querySelector<HTMLElement>('[data-day-detail-profile]')
-    const day = bundle.days.find(day => day.id === dayId)
-    if (host === null || profile === null || day?.type !== 'ride' || detail.geometry === null) return
-    const places = bundle.practicalPlaces.filter(place => place.category === 'water' && !place.hidden
-      && (place.stageId === day.stageId || place.stageId == null && place.dayIds.includes(dayId)))
-    const departure = bundle.settings.days.find(settings => settings.dayId === dayId)?.departureTime ?? '08:00'
-    const models = buildPracticalPlaceViewModels(places, day, detail.timingCurve, departure)
-    let length = waterRouteLengths.get(detail.geometry)
-    if (length === undefined && places.length > 0) {
-      length = cumulativeGeometryDistances(detail.geometry).at(-1) ?? 0
-      waterRouteLengths.set(detail.geometry, length)
-    }
-    mountNextWater(host, profile, models, length ?? 0, selectTravelMode(bundle))
-  }
 
   /**
    * Targeted refresh after a pause/filter mutation (CDC Jalon B4.2/B4.3
@@ -1010,7 +995,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
     const activeFilter=container.querySelector<HTMLElement>('[data-timeline-filter][aria-pressed="true"]')?.dataset.timelineFilter ?? 'all'
     if (timelineEl !== null) timelineEl.innerHTML = detail.timelineHtml
     const services=container.querySelector<HTMLElement>('[data-timeline-services]')
-    if(services&&stage)services.innerHTML=renderStageServices(bundle,stage,detail.waypoints)
+    if(services&&stage)services.innerHTML=renderStageServices(bundle,stage,detail.waypoints,50,detail.timingCurve)
     applyTimelineFilter(container,activeFilter)
     mountMapAndProfile(bundle, detail, dayId)
     // A pause edit shifts every downstream eta (CDC Jalon C1 section 26) —
@@ -2244,7 +2229,7 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
         if(!bundle||mode.kind!=='day'||mode.tripId!==tripId||mode.dayId!==dayId)return
         const stage=bundle.stages.find(s=>s.dayId===dayId),host=container.querySelector<HTMLElement>('[data-timeline-services]')
         if(!stage||!host)return
-        host.innerHTML=renderStageServices(bundle,stage,mountedDayDetail?.waypoints??[],limit)
+        host.innerHTML=renderStageServices(bundle,stage,mountedDayDetail?.waypoints??[],limit,mountedDayDetail?.timingCurve)
         for(const reading of host.querySelectorAll<HTMLElement>('[data-waypoint-weather]')){
           const source=container.querySelector<HTMLElement>(`[data-day-detail-timeline] [data-waypoint-weather][data-waypoint-id="${CSS.escape(reading.dataset.waypointId??'')}"]`)
           if(source)reading.innerHTML=source.innerHTML
@@ -2357,7 +2342,34 @@ export function initializeTripsManager(container: HTMLElement, deps: TripsManage
       return
     }
 
-    if (action === 'retry-screen') {
+    if ((action === 'convert-climb' || action === 'revert-climb-segment') && mode.kind === 'day') {
+      const {tripId,dayId}=mode
+      const fingerprint=button.dataset.routeFingerprint
+      const climbId=button.dataset.climbId
+      if(!fingerprint||!climbId||(button as HTMLButtonElement).disabled)return
+      const segmentId=action==='convert-climb'?deps.idFactory():button.dataset.segmentId
+      if(!segmentId)return
+      const status=button.parentElement?.querySelector<HTMLElement>('[data-climb-conversion-status]')??null
+      ;(button as HTMLButtonElement).disabled=true
+      if(status)status.textContent='Enregistrement…'
+      void (async()=>{
+        try {
+          const updated=await mutateTripBundle(tripId,latest=>{
+            const stage=latest.stages.find(stage=>stage.dayId===dayId)
+            if(stage===undefined)throw new Error('Cette étape n’est plus disponible.')
+            return action==='convert-climb'?convertClimbToSegment(latest,stage.id,climbId as ClimbId,segmentId,fingerprint,deps.now()):revertClimbSegment(latest,stage.id,segmentId,fingerprint,deps.now())
+          })
+          if(updated===null||mode.kind!=='day'||mode.tripId!==tripId||mode.dayId!==dayId)return
+          patchDayDetail(updated,dayId)
+          const row=container.querySelector<HTMLElement>(action==='convert-climb'?`[data-segment-view="${CSS.escape(segmentId)}"]`:`[data-action="toggle-climb-profile"][data-climb-id="${CSS.escape(climbId)}"]`)
+          row?.click()
+          row?.scrollIntoView?.({block:'nearest'})
+        } catch(error) {
+          ;(button as HTMLButtonElement).disabled=false
+          if(status)status.textContent=error instanceof Error?error.message:'Impossible d’enregistrer. Réessayez.'
+        }
+      })()
+    } else if (action === 'retry-screen') {
       void refresh()
     } else if (action === 'create-trip') {
       openWizard()
