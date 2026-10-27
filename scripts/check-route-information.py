@@ -30,7 +30,7 @@ with sync_playwright() as p:
     errors = []
     page.on('pageerror', lambda error: errors.append(error.stack))
     page.route('https://**', lambda route: route.abort())
-    page.route('**/__route_information', lambda route: route.fulfill(content_type='text/html', body=f'<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="{args.url}src/style.css"><link rel="stylesheet" href="{args.url}src/ui/tripplus.css"><div class="app-shell"><main class="dashboard"><div id="host"></div></main></div>'))
+    page.route('**/__route_information', lambda route: route.fulfill(content_type='text/html', body=f'<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="{args.url}src/style.css"><link rel="stylesheet" href="{args.url}src/ui/tripplus.css"><link rel="stylesheet" href="{args.url}src/ui/interaction-affordances.css"><div class="app-shell"><main class="dashboard"><div id="host"></div></main></div>'))
     page.goto(args.url+'__route_information')
     page.wait_for_load_state('networkidle')
     page.evaluate('''async root => {

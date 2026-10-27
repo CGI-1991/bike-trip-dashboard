@@ -84,7 +84,8 @@ test('a ride day shows its own departure time in the stats as a single clickable
   const bundle = createGenericTripBundle()
   const detail = buildDayDetail(bundle, 'day-alpha')
   const departureCell = detail.statsHtml.match(/<dt>Départ<\/dt><dd>[\s\S]*?<\/dd>/)?.[0] ?? ''
-  assert.match(departureCell, /<button type="button" class="day-detail__departure-value" data-action="edit-day-departure-time" data-day-departure-value aria-label="Heure de départ 08:00, modifier">08:00<\/button>/)
+  assert.match(departureCell, /<button type="button" class="day-detail__departure-value" data-action="edit-day-departure-time" data-day-departure-value aria-label="Heure de départ 08:00, modifier" aria-haspopup="dialog">08:00/)
+  assert.match(departureCell, /interaction-cue--edit" aria-hidden="true"/)
   assert.doesNotMatch(departureCell, /data-day-departure-input/, 'no inline input left in the cell')
   assert.doesNotMatch(departureCell, /data-day-departure-confirm/, 'no inline ✓ confirm button left in the cell')
   assert.doesNotMatch(detail.statsHtml, /Modifier/)
@@ -101,7 +102,7 @@ test('a day with no departure-time override falls back to 08:00, the same defaul
   const bundle = createGenericTripBundle()
   // day-delta (a second ride day in the fixture) has no entry in settings.days at all.
   const detail = buildDayDetail(bundle, 'day-delta')
-  assert.match(detail.statsHtml, /data-day-departure-value aria-label="Heure de départ 08:00, modifier">08:00<\/button>/)
+  assert.match(detail.statsHtml, /data-day-departure-value aria-label="Heure de départ 08:00, modifier" aria-haspopup="dialog">08:00/)
 })
 
 test('OFF/transfer days carry no departure-time stat at all — a departure time only applies to a ride day\'s own stage', () => {
@@ -497,7 +498,7 @@ test('integrity-hardening section 4-5: Infos is read-only by default — the not
   bundle.days[0].notes = 'Superbe montée, prévoir de l’eau.'
   const detail = buildDayDetail(bundle, 'day-alpha')
   assert.match(detail.html, /Superbe montée, prévoir de l’eau\./)
-  assert.match(detail.html, /data-action="edit-day-infos">Modifier/)
+  assert.match(detail.html, /data-action="edit-day-infos">(?:<[^>]+>)*Modifier/)
   assert.match(detail.html, /data-day-infos-edit hidden/, 'the edit form is collapsed by default')
   // The grouped edit form exists (for when "Modifier" is clicked) but never
   // shows directly in normal consultation, and there is exactly one
@@ -989,19 +990,20 @@ test('G: a climb toggle keeps working on its own — aria-expanded/aria-controls
 // interactive" visual language — colour + a reinforced border, reused by
 // montées and the départ value, never applied to a plain informational row.
 
-test('X: a montée card carries the shared interactive affordance (reinforced border + tint) — a plain row never does', () => {
-  const css = readFileSync(new URL('../../src/style.css', import.meta.url), 'utf8')
-  const climbCardRule = /\.day-detail__climb-card \{[^}]*\}/.exec(css)?.[0] ?? ''
-  assert.match(climbCardRule, /border-color: var\(--forest-700\)/)
-  assert.match(climbCardRule, /background: var\(--forest-50\)/)
-  const plainRowRule = /\.day-detail__timeline-row \{[^}]*\}/.exec(css)?.[0] ?? ''
-  assert.doesNotMatch(plainRowRule, /var\(--forest-700\)/, 'Y: a plain informational row stays neutral — no borrowed interactive colour')
+test('X: a montée control uses the shared action colour and disclosure cue — a plain row stays informational', () => {
+  const css = readFileSync(new URL('../../src/ui/interaction-affordances.css', import.meta.url), 'utf8')
+  assert.match(css, /\.day-detail__climb-toggle[^}]*color: var\(--action\)/)
+  assert.doesNotMatch(css, /\.day-detail__timeline-row\s*\{/, 'Y: a plain informational row has no action styling')
+  const detail = buildDayDetail(pushClimb(createGenericTripBundle()), 'day-alpha')
+  const button = detail.timelineHtml.match(/<button class="day-detail__climb-toggle"[^]*?<\/button>/)?.[0] ?? ''
+  assert.match(button, /interaction-cue--expand/)
 })
 
 test('the départ value (Stats) uses the same interactive colour family as a montée card — a consistent language across comparable controls', () => {
-  const css = readFileSync(new URL('../../src/style.css', import.meta.url), 'utf8')
+  const css = readFileSync(new URL('../../src/ui/interaction-affordances.css', import.meta.url), 'utf8')
   const departureRule = /\.day-detail__departure-value \{[^}]*\}/.exec(css)?.[0] ?? ''
-  assert.match(departureRule, /background: var\(--forest-50\)/)
+  assert.match(departureRule, /background: var\(--action-soft\)/)
+  assert.match(departureRule, /color: var\(--action\)/)
 })
 
 test('H: a climb that also carries an alert-level météo line exposes exactly one expandable control — the climb toggle, never the météo line', () => {
@@ -1060,7 +1062,7 @@ test('AV/AW: an OFF day now builds a real detail shell — Résumé, Météo and
   // mode just because there is no Parcours tab to hide it behind.
   assert.match(detail.html, /data-day-infos-read/)
   assert.match(detail.html, /data-day-infos-edit hidden/)
-  assert.match(detail.html, /data-action="edit-day-infos">Modifier/)
+  assert.match(detail.html, /data-action="edit-day-infos">(?:<[^>]+>)*Modifier/)
 })
 
 test('AX/AY: a transfer day builds a real detail shell — origin → destination, its transferTiming, no tabs at all', () => {

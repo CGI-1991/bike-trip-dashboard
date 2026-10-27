@@ -1,6 +1,6 @@
 # Feuille de route Trip(+)
 
-État au 27 octobre 2026 : informations de parcours `2026.10.26.3` fusionnées ; passe de contrôle et corrections `2026.10.27.1` proposées en PR. Les demandes directes de l’utilisateur priment sur les documents sources conservés dans `specs/`.
+État au 27 octobre 2026 : passe de contrôle et corrections `2026.10.27.1` fusionnées ; repères d’interaction `2026.10.27.2` proposés en PR. Les demandes directes de l’utilisateur priment sur les documents sources conservés dans `specs/`.
 
 Livraison : une PR par lot cohérent et validé. Fusion et déploiement sont des étapes distinctes. Chaque changement d’usage porte une entrée Nouveautés et une petite balise MAJ locale, accessible au toucher sur iPhone. Conserver l’origine du site, l’identité de la PWA et les activités locales : aucune réinstallation à demander.
 
@@ -18,6 +18,7 @@ Livraison : une PR par lot cohérent et validé. Fusion et déploiement sont des
 | Nettoyage avant refonte | Vent sans volet d’explications, boutons GPX/FIT côte à côte en compétition, segments compacts comme les montées, suppression des doublons de lecture et réglage de montées unique. [Règles et vérification](LEAN_COURSE_DETAIL.md). |
 | Interface Trip+ | Maquette approuvée le 26 octobre et intégrée : surfaces allégées, statistiques complètes conservées, onglets uniques, commandes au pouce, profils lisibles et vent fixe, filtres et étapes colorées/sélectionnables. Nom visible Trip+, identité PWA et données conservées. [Règles et contrôles](TRIPPLUS_INTERFACE.md). |
 | Retours iPhone et Tour | Champs natifs contenus, en-tête et onglets sous l’encoche, lecture temporaire des profils, pictogrammes communs ; repères J1a/J1b et alertes de continuité limitées aux liaisons explicites du Tour. [Correctifs et vérifications](IPHONE_POLISH.md). |
+| Repères d’interaction | Bleu commun pour les actions et champs éditables, crayon pour l’édition, chevron pour les profils/volets à déplier, suppressions rouges et focus visible. Les valeurs informatives restent distinctes des contrôles. [Règles et captures](INTERACTION_CUES.md). |
 | Informations de parcours | Palette de pente commune, grisé hors course léger, prévisions anciennes signalées après six heures. Prochaine eau indiquée potable depuis le profil/départ GPX, avec distance et passage estimé. En League/Tour, fiches de montée/segment sur la carte à la place de Calques. [Règles et contrôles](ROUTE_INFORMATION_POLISH.md). |
 | Passe de contrôle globale | Fiche unique de carte, destruction des cartes remplacées et déverrouillage aux fermetures natives, protection des navigations rapides, erreurs de lecture/export explicites, archives ZIP sans collision de noms et durées arrondies. Contrôle mobile/hors connexion étendu aux sauvegardes, rejets d’archives endommagées et restaurations en copies. [Constats, preuves et limites](QUALITY_AUDIT_2026_10.md). |
 | Export GPX enrichi | Lot `2026.10.24.3` : trace d’origine conservée, limites, noms, segments et réglages réimportables ; waypoints standards et extension versionnée. **Ce GPX ne garantit pas d’alertes Garmin.** [Format et vérifications](ENRICHED_GPX.md). |

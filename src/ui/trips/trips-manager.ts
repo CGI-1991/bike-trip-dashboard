@@ -1,4 +1,5 @@
 import { renderFeatureUpdateBadge } from '../release-notes.ts'
+import { renderInteractionCue } from '../icons.ts'
 import { disposeProfileWind } from '../relative-wind-view.ts'
 import { paintClimbProfileBands } from './mini-profile-view.ts'
 import { renderStageServices } from './stage-services.ts'
@@ -340,7 +341,7 @@ function renderTripCard(trip: TripListEntry): string {
       </dl>
       <div class="trip-card__actions">
         <button class="button button--quiet" type="button" data-action="backup-trip" data-trip-id="${escapeHtml(trip.id)}">Sauvegarder</button>
-        <button class="button button--quiet" type="button" data-action="edit-trip" data-trip-id="${escapeHtml(trip.id)}">Modifier</button>
+        <button class="button button--quiet" type="button" data-action="edit-trip" data-trip-id="${escapeHtml(trip.id)}">${renderInteractionCue('edit')}Modifier</button>
         <button class="button button--danger" type="button" data-action="delete-trip" data-trip-id="${escapeHtml(trip.id)}">Supprimer</button>
       </div>
     </li>`

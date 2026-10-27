@@ -29,7 +29,7 @@ export function renderRaceCourseCard(course: RaceCourse, _stage: RideStage, expl
       <button type="button" class="button button--quiet" data-race-pick="start" aria-pressed="false">Placer le départ</button>
       <button type="button" class="button button--quiet" data-race-pick="finish" aria-pressed="false">Placer l’arrivée</button>
     </div><p class="race-course__hint" data-race-status role="status">Choisissez une limite puis touchez le profil, ou saisissez ses kilomètres.</p>
-    <div class="race-course__actions"><button type="button" class="button" data-race-save>Enregistrer</button><button type="button" class="button button--quiet" data-race-cancel>Annuler</button><button type="button" class="button button--quiet" data-race-reset>${explicitBounds ? 'Effacer les limites' : 'Trace entière'}</button></div></details></section>`
+    <div class="race-course__actions"><button type="button" class="button button--primary" data-race-save>Enregistrer</button><button type="button" class="button button--quiet" data-race-cancel>Annuler</button><button type="button" class="button button--quiet" data-race-reset>${explicitBounds ? 'Effacer les limites' : 'Trace entière'}</button></div></details></section>`
 }
 
 /** Full source trace stays visible, independently of the Neutre/Pente/Vent layer. */

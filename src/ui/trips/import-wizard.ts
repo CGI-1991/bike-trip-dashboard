@@ -275,7 +275,7 @@ export function createImportWizard(container: HTMLElement, deps: ImportWizardDep
     const isLast = position === state.structure.length - 1
     const moveControls = `<div class="wizard-structure__move"><button class="button button--quiet" type="button" data-action="move-up" data-position="${position}" ${isFirst ? 'disabled' : ''} aria-label="Monter">↑</button><button class="button button--quiet" type="button" data-action="move-down" data-position="${position}" ${isLast ? 'disabled' : ''} aria-label="Descendre">↓</button></div>`
     const insertControls = state.organizationMode === 'league' ? '' : `<div class="wizard-structure__insert"><button class="button button--quiet" type="button" data-action="insert-off" data-position="${position}">+ OFF</button><button class="button button--quiet" type="button" data-action="insert-transfer" data-position="${position}">+ Transfert</button></div>`
-    const removeControl = `<button class="button button--quiet" type="button" data-action="remove-structure-item" data-position="${position}">Retirer</button>`
+    const removeControl = `<button class="button button--danger" type="button" data-action="remove-structure-item" data-position="${position}">Retirer</button>`
 
     if (item.kind === 'ride') {
       const entry = item.fileId !== undefined ? state.files.find((candidate) => candidate.id === item.fileId && !candidate.removed) : undefined

@@ -15,7 +15,7 @@ import type { WeatherAvailability } from '../weather/types.ts'
 import type { DepartureWeatherScenario, WeatherAlert, WeatherRiskLevel } from '../weather/alerts/types.ts'
 import { formatPrecipitation, formatTemperatureRange, formatWind } from './weather-summary.ts'
 import { WEATHER_ALERT_THRESHOLDS } from '../weather/alerts/thresholds.ts'
-import { tripIcon } from './icons.ts'
+import { tripIcon, renderInteractionCue } from './icons.ts'
 import { renderFeatureUpdateBadge } from './release-notes.ts'
 
 export function renderWeatherFreshness(model: GenericDayWeatherViewModel | null): string {
@@ -176,7 +176,7 @@ function renderRecommendation(model: GenericDayWeatherViewModel): string {
     <p class="weather-decision__recommendation-title">${escapeHtml(recommendation.title)}</p>
     <div class="weather-decision__actions">
       <button class="button button--primary" type="button" data-action="apply-weather-departure-time" data-departure-time="${escapeHtml(targetClock)}">Appliquer ${escapeHtml(targetClock)}</button>
-      <button class="button button--quiet" type="button" data-action="edit-day-departure-time">Modifier manuellement</button>
+      <button class="button button--quiet" type="button" data-action="edit-day-departure-time">${renderInteractionCue('edit')}Modifier manuellement</button>
     </div>
   </div>`
 }
